@@ -60,6 +60,11 @@ The full test suite takes about 15 minutes on CPU. If you install without the `m
 
 The lock file pins the environment. PyTorch's default Linux distribution can download several GB of CUDA dependencies even when using CPU. A GPU is **not required**. This setup uses NumPy/complex128 for MEENT and CPU PyTorch by default; `training.device="cuda"` moves only the Q-network, not the optical solver. Small Q-networks and 1D RCWA are often suitable for CPU. The CLI limits BLAS to one thread; training likewise defaults to one PyTorch thread.
 
+The [case-by-case and combined analysis](docs/replication-suite-analysis-20261001.md)
+assesses the original case plus all three extensions. Separate reports update as
+evidence arrives; only complete, audited confirmation cohorts enter the combined
+conclusions. The analysis includes numerical checks, ablations, costs, and figures.
+
 The included configurations serve different purposes:
 
 | Config | Cells | RCWA truncation F / harmonics | Interactions | Purpose |
