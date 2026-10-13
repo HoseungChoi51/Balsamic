@@ -54,7 +54,10 @@ Subscription mode has no automatic paid API fallback.
 
 Edit `model`, `provider`, or `llm_enabled` in `deploy/review-servers.json`, then run
 `restart`. `provider` may be omitted or `null` (no provider, the default) while
-`llm_enabled` is `false`. Without a `pi_profile`, set `pi_provider` (for example
+`llm_enabled` is `false`, or while a Pi harness (`pi_port`) supplies its agents' models.
+`provider` and `model` only set the earlier campaign manager's research roles; a campaign
+whose agent team has started is managed by the lead agent, on the model chosen on the
+Models page. Without a `pi_profile`, set `pi_provider` (for example
 `"openai-codex"`) to name the single provider Pi campaigns may use; none is assumed. For an inspection session with all model calls disabled:
 
 ```bash
@@ -81,6 +84,28 @@ accepted) to copy that paper into each development workspace as
 launcher, set `GRATING_PAPER_REFERENCE` instead. Reference code is copied from
 `../flrl` when that checkout exists, or from `GRATING_FLRL_REFERENCE`.
 
+## GPU solver and concurrent trials
+
+These optional settings concern the 2D MEENT evaluator:
+
+| Setting | Effect |
+|---|---|
+| `meent_2d_source` | Path of a Torch-only MEENT checkout. The 2D evaluator then runs on CUDA instead of the installed package on CPU. |
+| `cuda_mps` | `true` starts a CUDA Multi-Process Service daemon for this OS user and points the services, and therefore their workers, at it. |
+| `runtime_gate_seconds` | Runs at least this long wait for a [runtime profile](runtime-efficiency.md) of their evaluator. Default `600`; `null` sets no gate. |
+| `workers` | How many trials run at once. |
+
+Without MPS, concurrent GPU workers take turns and add no throughput. With it, an
+RTX 5090 at orders (10, 8) reached 4.9, 7.7, 9.4, 10.5 and 11.6 designs per second
+for 1, 2, 3, 4 and 6 workers, shared evenly. Each worker holds about 5 GB of GPU
+memory. One worker is as fast with MPS as without.
+
+A trial budgeted in wall-clock time gets fewer evaluations when it shares the GPU,
+so compare such trials only when they ran with the same number of neighbours.
+Under MPS a fatal GPU fault in one worker can end the others. `stop` quits the
+daemon unless a worker that outlived the servers is still using it. Its log is in
+`<directory>/.server-control/mps/`; other CUDA programs are unaffected.
+
 ## Tailnet permissions
 
 Connect the machine to Tailscale beforehand. The launcher uses
@@ -95,7 +120,8 @@ the specific route command and lets your terminal request the password. Run
 the exact command to run. If route setup fails, the local services remain running;
 retry `start` after fixing the permission. If route removal fails, `stop` still
 stops the managed servers and retains the route record so a second `stop` can
-complete cleanup. A conflicting or shared route is left unchanged.
+complete cleanup. A conflicting or shared route is left unchanged. `restart` keeps the route when the
+new configuration asks for the same one, so it needs no administrator permission.
 
 ## State, shutdown and other instances
 

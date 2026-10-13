@@ -51,8 +51,8 @@ worker cost. Soft objectives never replace the binary campaign objective.
 Hard-mask cache keys include the evaluator, configuration and fidelity identity.
 Cache hits retain the previous hard scores and use zero additional hard solves.
 Returning from B to cached A has the ordinary signed score-difference reward;
-only staying on the current mask has zero reward. Gradient solves on a hard
-cache hit still cost two solves. The cache is bounded to 256 entries and saved
+only staying on the current mask has zero reward. A gradient request on a hard
+cache hit still costs one solve, which returns both polarizations. The cache is bounded to 256 entries and saved
 in the evaluator checkpoint.
 
 Checkpoints contain the coefficient trajectory, RNG state, Adam moments,

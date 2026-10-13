@@ -3,7 +3,9 @@ from importlib.metadata import entry_points, version, PackageNotFoundError
 from importlib.util import find_spec
 from pathlib import Path
 import hashlib
+import os
 import shutil
+import subprocess
 import sys
 
 
@@ -17,18 +19,22 @@ def source_root():
     return Path(__file__).resolve().parents[2]
 
 
+def package_directory(name):
+    package = source_root() / name
+    if not package.is_dir():
+        spec = find_spec(name)
+        locations = list(spec.submodule_search_locations or []) if spec else []
+        if len(locations) != 1:
+            raise ValueError(f"Installed source package {name!r} has no unambiguous capture location")
+        package = Path(locations[0])
+    return package
+
+
 def snapshot(directory):
     code = Path(directory) / "code"
     if not code.exists():
         for name in package_names():
-            package = source_root() / name
-            if not package.is_dir():
-                spec = find_spec(name)
-                locations = list(spec.submodule_search_locations or []) if spec else []
-                if len(locations) != 1:
-                    raise ValueError(f"Installed source package {name!r} has no unambiguous capture location")
-                package = Path(locations[0])
-            shutil.copytree(package, code / name, ignore=shutil.ignore_patterns("__pycache__"))
+            shutil.copytree(package_directory(name), code / name, ignore=shutil.ignore_patterns("__pycache__"))
     digest = hashlib.sha256()
     for path in sorted(code.rglob("*.py")):
         digest.update(str(path.relative_to(code)).encode())
@@ -66,6 +72,18 @@ def scientific_hash(root=None):
     return h.hexdigest()
 
 
+def checkout_identity(path):
+    """Directory name and commit of a source checkout; uncommitted edits are marked."""
+    path = Path(path).expanduser().resolve()
+    def git(*arguments):
+        return subprocess.run(["git", "-C", str(path), *arguments], capture_output=True, text=True, timeout=30)
+    commit = git("rev-parse", "HEAD")
+    if commit.returncode:
+        raise ValueError(f"Not a source checkout with a commit: {path}")
+    modified = "+modified" if git("status", "--porcelain", "--untracked-files=no").stdout.strip() else ""
+    return f"{path.name}@{commit.stdout.strip()}{modified}"
+
+
 def runtime_identity():
     result = {"python": ".".join(map(str, sys.version_info[:3]))}
     for name in ("meent", "numpy", "scipy", "torch"):
@@ -73,4 +91,7 @@ def runtime_identity():
             result[name] = version(name)
         except PackageNotFoundError:
             result[name] = None
+    # A checkout standing in for the installed 2D solver reports the same package version.
+    if os.environ.get("GRATING_MEENT_2D_SOURCE"):
+        result["meent_2d_source"] = checkout_identity(os.environ["GRATING_MEENT_2D_SOURCE"])
     return result

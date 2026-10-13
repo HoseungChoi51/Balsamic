@@ -140,3 +140,22 @@ def test_findings_keep_observations_interpretations_endorsements_and_counterevid
     context = workspace.memory.sync(campaign["id"])["structured"]
     assert {row["classification"] for row in context["findings"]} == {"observation", "provisional_interpretation", "researcher_endorsement"}
     assert context["counterevidence"][0]["classification"] == "counterevidence"
+
+
+def test_findings_cite_the_campaigns_own_measurements_and_saved_analyses(tmp_path):
+    workspace, campaign = prepared(tmp_path)
+    cid = campaign["id"]
+    workspace.store.put("runtime_profile", {"id": "runtime_profile_here", "campaign_id": cid, "recommended_workers": 2})
+    # As recorded: an equivalence check names its problem by digest, not by value.
+    workspace.store.put("evaluator_equivalence", {"id": "evaluator_equivalence_here", "campaign_id": cid, "verdict": "passed", "problem": "35e65bc6b60c"})
+    workspace.store.put("agent_artifact", {"id": "artifact_here", "campaign_id": cid, "kind": "analysis", "content": "Two workers were fastest."})
+    workspace.store.put("runtime_profile", {"id": "runtime_profile_elsewhere", "campaign_id": "campaign_elsewhere", "recommended_workers": 8})
+    values = {"content": "Two workers give the most evaluations per second on this host.", "interpretation": "observation",
+        "source_ids": ["runtime_profile_here", "evaluator_equivalence_here", "artifact_here"], "publish": True,
+        "problem_scope": "The recorded bounded quadratic instance on this host.", "limitations": ["One host and one evaluator build."]}
+    accepted = workspace.commands.execute(Command(id="speed", campaign_id=cid, expected_revision=1, operation="finding.record", payload=values))
+    asset = workspace.store.get(accepted["outcome"]["asset_id"], "asset")
+    assert asset["payload"]["evidence_ids"] == values["source_ids"] and asset["payload"]["classification"] == "observation"
+    with pytest.raises(ValueError, match="outside the visible context"):
+        workspace.commands.execute(Command(id="foreign", campaign_id=cid, expected_revision=1, operation="finding.record",
+            payload={**values, "source_ids": ["runtime_profile_elsewhere"]}))

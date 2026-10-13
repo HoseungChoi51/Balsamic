@@ -178,3 +178,20 @@ def test_tier_settings_reject_unknown_roles_and_missing_tiers():
         TierSettings.model_validate({"tiers": [{"id": "fast", "label": "Fast", "model": model}], "roles": {"wizard": "fast"}})
     with pytest.raises(ValueError, match="undefined tiers"):
         TierSettings.model_validate({"tiers": [{"id": "fast", "label": "Fast", "model": model}], "roles": {"lead": "strong"}})
+
+
+def test_a_campaign_without_a_team_reports_the_model_its_lead_agent_would_use(tmp_path, monkeypatch):
+    from optimization_framework.agents import tiers
+
+    workspace, started, _ = campaign(tmp_path, monkeypatch)
+    assert workspace.pi.view(started["id"])["lead_model"] is None       # its lead agent's own record applies
+    waiting = workspace.create_campaign(CampaignInput(name="No team yet", compute_budget_seconds=100, validation_reserve_seconds=10,
+        llm_budget_usd=5, tasks=[TaskInput(name="Quadratic", problem_id="bounded_continuous", configuration={})]))
+    assert workspace.pi.view(waiting["id"])["lead_model"] == {"provider": "deepseek", "model": "deepseek-v4-pro", "effort": None}
+    tiers.save(workspace.store, tiers.TierSettings.model_validate({"expected_revision": 0, "tiers": [
+        {"id": "strong", "label": "Strong", "model": {"provider": "deepseek", "model": "deepseek-flash", "effort": "max"}}],
+        "roles": {"lead": "strong"}}))
+    assert workspace.pi.view(waiting["id"])["lead_model"] == {"provider": "deepseek", "model": "deepseek-flash", "effort": "max"}
+    monkeypatch.delenv("GRATING_PI_PROFILE")
+    monkeypatch.delenv("GRATING_PI_PROVIDER", raising=False)
+    assert workspace.pi.view(waiting["id"])["lead_model"] is None       # no model here: no team can start

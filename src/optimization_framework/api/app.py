@@ -316,9 +316,10 @@ def create_app(directory=None, max_workers=2, start_workers=True, implementation
         return workspace.store.get(outcome["study_id"], "study")
 
     @app.get("/api/v1/campaigns/{campaign_id}/comparison")
-    def general_comparison(campaign_id: str, study_id: str | None = None, cost_axis: str | None = None, cost_view: str = "full_attributed_cost"):
+    def general_comparison(campaign_id: str, study_id: str | None = None, cost_axis: str | None = None, cost_view: str = "full_attributed_cost",
+                           trial_ids: list[str] | None = Query(default=None)):
         from optimization_framework.analysis.general import report
-        return report(workspace, campaign_id, study_id=study_id, cost_axis=cost_axis, cost_view=cost_view)
+        return report(workspace, campaign_id, study_id=study_id, cost_axis=cost_axis, cost_view=cost_view, trial_ids=trial_ids)
 
     @app.post("/api/v1/commands")
     def work_command(body: Command):
@@ -409,9 +410,15 @@ def create_app(directory=None, max_workers=2, start_workers=True, implementation
                 else:
                     cursor = db.execute("SELECT COALESCE(MAX(id),0) FROM events").fetchone()[0]
             # Provider availability can change without an application event.
-            return state_snapshot(campaign_id, cursor, int(time.monotonic() // 30))
+            return Response(state_body(campaign_id, cursor, int(time.monotonic() // 30)), media_type="application/json")
 
     @lru_cache(maxsize=8)
+    def state_body(campaign_id: str | None, cursor: int, refresh_window: int):
+        # Encoding megabytes of trial records costs as much as reading them, so it is done once per snapshot.
+        from fastapi.encoders import jsonable_encoder
+        snapshot = jsonable_encoder(state_snapshot(campaign_id, cursor, refresh_window))
+        return json.dumps(snapshot, ensure_ascii=False, allow_nan=False, separators=(",", ":")).encode()
+
     def state_snapshot(campaign_id: str | None, cursor: int, refresh_window: int):
         from optimization_framework.research.engine import provider_status
         campaigns = workspace.store.list("campaign")

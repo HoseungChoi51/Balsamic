@@ -10,6 +10,7 @@ from datetime import datetime, timezone
 import json
 import os
 from pathlib import Path
+import subprocess
 import threading
 import time
 
@@ -92,6 +93,22 @@ def selected_manifest(path):
     return None
 
 
+def nvidia_readings():
+    """Utilization and memory of each NVIDIA device by PCI address; its driver puts neither in sysfs."""
+    try:
+        output = subprocess.run(["nvidia-smi", "--query-gpu=pci.bus_id,utilization.gpu,memory.used,memory.total",
+                                 "--format=csv,noheader,nounits"], capture_output=True, text=True, timeout=2).stdout
+    except (OSError, subprocess.SubprocessError):
+        return {}
+    readings = {}
+    for line in output.splitlines():
+        fields = [field.strip() for field in line.split(",")]
+        if len(fields) == 4 and all(field.isdigit() for field in fields[1:]):
+            readings[fields[0].lower()[-12:]] = {"utilization_percent": int(fields[1]), "memory_used_bytes": int(fields[2]) * 2 ** 20,
+                                                 "memory_total_bytes": int(fields[3]) * 2 ** 20}
+    return readings
+
+
 class ResourceObservability:
     def __init__(self, workspace, *, proc_root="/proc", sys_root="/sys", clock=time.time,
                  monotonic=time.monotonic, cache_seconds=1.):
@@ -105,6 +122,7 @@ class ResourceObservability:
         self._cost_cache = {}
         self._manifest_scan_at = -float("inf")
         self._tick_rate = os.sysconf("SC_CLK_TCK")
+        self.nvidia = nvidia_readings
 
     def _rows(self, kind, fields, campaign_id=None, *, active=False, race_id=None, limit=None):
         # SQLite extracts the scalars before Python sees numerical design blobs.
@@ -203,7 +221,14 @@ class ResourceObservability:
                 return int(content) if content.isdigit() else None
             devices.append({"id": card.name, "vendor": {"0x1002": "AMD", "0x10de": "NVIDIA", "0x8086": "Intel"}.get(vendor, vendor),
                             "utilization_percent": value("gpu_busy_percent"), "memory_total_bytes": value("mem_info_vram_total"),
-                            "memory_used_bytes": value("mem_info_vram_used"), "memory_kind": "driver-reported VRAM; shared host allocations may be additional"})
+                            "memory_used_bytes": value("mem_info_vram_used"), "memory_kind": "driver-reported VRAM; shared host allocations may be additional",
+                            "address": os.path.basename(os.path.realpath(directory))})
+        if any(device["vendor"] == "NVIDIA" and device["utilization_percent"] is None for device in devices):
+            readings = self.nvidia()
+            for device in devices:
+                device.update(readings.get(device["address"].lower()[-12:], {}) if device["vendor"] == "NVIDIA" else {})
+        for device in devices:
+            del device["address"]
         return {"status": "available" if devices else "none_detected", "devices": devices}
 
     def _host(self, sampled):
@@ -339,7 +364,9 @@ class ResourceObservability:
         index = {row["id"]: row for row in costs}
         jobs, warnings = [], []
         for row in rows[:256]:
-            cost = index[row["id"]]
+            cost = index.get(row["id"])
+            if cost is None:
+                continue   # created after the costs were read; the next sample has it
             measured, state = None, "not_started" if row["status"] == "queued" else "unavailable"
             if row["pid"]:
                 observed = self._process(row["pid"], sampled)
@@ -530,7 +557,20 @@ class ResourceObservability:
                 warnings.append("Host memory availability could not be read; memory forecasts cannot establish admission.")
             return {"schema_version": 1, "sampled_at": datetime.fromtimestamp(wall_clock, timezone.utc).isoformat(),
                     "campaign_id": campaign_id, "host": host, "service": service, "workers": workers, "budget": budget,
-                    "plans": plans, "warnings": warnings}
+                    "plans": plans, "runtime": self._runtime(campaign_id, warnings), "warnings": warnings}
+
+    def _runtime(self, campaign_id, warnings):
+        """Each current task's runtime profile and what still keeps its long runs from starting."""
+        profiles = getattr(self.workspace, "runtime", None)
+        if not campaign_id or profiles is None:
+            return []
+        try:
+            study_id = self.store.get(campaign_id, "campaign").get("active_study_id")
+            return [{"task_id": task["id"], "task_name": task["name"], **profiles.view(task, study_id, record=False)}
+                    for task in self.workspace.current_tasks(campaign_id)]
+        except Exception as error:   # the dashboard must not fail with the profile
+            warnings.append(f"Runtime profiles could not be read: {error}")
+            return []
 
 
 _observer_lock = threading.Lock()

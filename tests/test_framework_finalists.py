@@ -85,6 +85,7 @@ def test_selection_rejects_stale_shortlist_and_stale_procedure(tmp_path):
     ({"confirmation_protocol_id": "protocol"}, "Protected"),
     ({"diagnostic_grant_id": "check"}, "diagnostic"),
     ({"status": "running"}, "completed"),
+    ({"status": "stopped"}, "completed"),
     ({"scientific_source_hash": None}, "source/runtime"),
     ({"method_contract": 3}, "cell-specific"),
 ])
@@ -187,3 +188,11 @@ def test_comparison_state_and_memory_expose_descriptive_shortlist(tmp_path, monk
         response = client.get("/api/state", params={"campaign_id": campaign["id"]})
         assert response.status_code == 200
         assert response.json()["finalist_selections"] == [selection]
+
+
+def test_a_run_that_used_its_whole_time_allocation_can_become_a_finalist(tmp_path):
+    workspace, campaign, trials = prepare(tmp_path)
+    workspace.store.put("trial", {**trials[0], "status": "budget_exhausted"})
+    select(workspace, campaign, [trials[0]["id"]])
+    selection = workspace.store.list("finalist_selection")[0]
+    assert selection["trial_ids"] == [trials[0]["id"]] and selection["entries"][0]["status"] == "budget_exhausted"

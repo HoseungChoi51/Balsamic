@@ -325,3 +325,80 @@ def test_lead_extension_needs_researcher_approval_and_the_answer_wakes_the_lead(
     w.pi._campaign_events(c['id'])
     woken = [run for run in w.store.list('agent_run') if run['id'].startswith('pi_events_')]
     assert woken and 'decision.resolved' in woken[-1]['input']
+
+
+def test_large_command_outcome_returns_as_an_index_the_lead_pages(prepared):
+    from optimization_framework.agents.tools import COMMAND_RESULT_BYTES
+    from optimization_framework.contracts.base import content_hash
+    w, c, *_ = prepared
+    curve = [{'cost': float(index), 'objective': index / 1e5} for index in range(20000)]
+    report = {'groups': [{'id': 'group_one', 'common_observed_cost': 19999., 'method_summaries': [{'method_id': 'method_one', 'mean': .19999}],
+        'trials': [{'id': 'trial_one', 'seed': 1, 'method_id': 'method_one', 'algorithm': 'random', 'status': 'completed',
+                    'best_objective': .19999, 'censored': False, 'method': {'runtime': 'package ' * 20000}, 'curve': curve}]}]}
+    identity = 'pi_command_' + content_hash([c['id'], 'comparison.report', 'compare'])[:32]
+    w.store.put('work_command', {'id': identity, 'campaign_id': c['id'], 'status': 'completed', 'outcome': report,
+        'request': {'operation': 'comparison.report', 'payload': {}}})
+    arguments = {'operation': 'comparison.report', 'payload': {}, 'request_key': 'compare', 'guidance_revision': 0}
+    result = invoke(prepared, 'campaign_command', arguments, 'compare')
+    assert len(json.dumps(result).encode()) <= COMMAND_RESULT_BYTES and result['outcome_bytes'] > 500000
+    assert result['comparison'][0]['method_summaries'] == report['groups'][0]['method_summaries']
+    assert result['comparison'][0]['trials'] == [{'id': 'trial_one', 'seed': 1, 'method_id': 'method_one', 'algorithm': 'random',
+        'status': 'completed', 'best_objective': .19999, 'censored': False, 'end_cost': 19999.}]
+    assert result['outcome_index']['fields'][0]['pointer'] == '/outcome/groups'
+    point = invoke(prepared, 'evidence_read', {'record_id': identity, 'pointer': '/outcome/groups/0/trials/0/curve/19999'}, 'page')
+    assert point == curve[-1]
+    # A small receipt is returned as it was saved.
+    w.store.put('work_command', {'id': 'pi_command_' + content_hash([c['id'], 'comparison.report', 'small'])[:32], 'campaign_id': c['id'],
+        'status': 'completed', 'outcome': {'groups': []}, 'request': {'operation': 'comparison.report', 'payload': {}}})
+    assert invoke(prepared, 'campaign_command', {**arguments, 'request_key': 'small'}, 'small')['outcome'] == {'groups': []}
+
+
+def test_no_tool_hands_the_model_more_than_it_can_hold(prepared, monkeypatch):
+    from optimization_framework.agents.tools import TOOL_RESULT_BYTES
+    monkeypatch.setattr(PiTools, 'inspect', lambda self, agent: {'history': 'x' * (TOOL_RESULT_BYTES + 1)})
+    result = invoke(prepared, 'campaign_inspect', call_id='too_large')
+    assert result['executed'] is True and 'at most' in result['error'] and len(json.dumps(result)) < 2000
+
+
+def test_inspection_lists_the_methods_a_task_can_run_with_their_parameters(prepared):
+    methods = {method['id']: method for method in invoke(prepared, 'campaign_inspect')['methods']}
+    task = prepared[0].current_tasks(prepared[1]['id'])[0]
+    assert methods['coordinate']['task_ids'] == [task['id']]
+    assert methods['coordinate']['parameters']['radius'] == {'type': 'number', 'default': .2, 'maximum': 1, 'exclusiveMinimum': 0}
+    assert set(methods['random']['parameters']) == {'initial_design'}
+    # Binary-only searches and the 2D Fourier methods cannot run on a continuous task.
+    assert not {'hillclimb', 'dqn', 'flrl_ppo'} & set(methods)
+
+
+def test_the_lead_reads_a_finding_of_another_campaign_only_once_it_is_referenced(prepared):
+    w, c, *_ = prepared
+    earlier = w.create_campaign(CampaignInput(name='Earlier campaign', tasks=[TaskInput(name='Quadratic', problem_id='bounded_continuous')]))
+    source = w.commands.execute(Command(id='earlier_source', campaign_id=earlier['id'], expected_revision=1, operation='source.record',
+        payload={'title': 'Earlier benchmark', 'url': 'https://example.org/benchmark', 'excerpt': 'A small benchmark.'}))['outcome']['source_id']
+    finding = w.commands.execute(Command(id='earlier_finding', campaign_id=earlier['id'], expected_revision=1, operation='finding.record',
+        payload={'content': 'A short screen did not rank the methods; seeds differed more than methods.', 'source_ids': [source],
+            'publish': True, 'problem_scope': 'The bounded quadratic instance.', 'limitations': ['Two seeds.'],
+            'study_ids': [earlier['active_study_id']]}))['outcome']
+    assert invoke(prepared, 'campaign_inspect', call_id='before')['reference_evidence'] == []
+    assert 'error' in invoke(prepared, 'evidence_read', {'record_id': finding['asset_id']}, 'unreferenced')
+    w.commands.execute(Command(id='reference_finding', campaign_id=c['id'], expected_revision=w.store.get(c['id'], 'campaign')['version'],
+        operation='asset.reuse', payload={'asset_id': finding['asset_id'], 'study_id': w.store.get(c['id'], 'campaign')['active_study_id'],
+            'decision': 'reference', 'intended_use': 'manager_evidence', 'rationale': 'Plan the screen with the earlier lesson in view.'}))
+    listed = invoke(prepared, 'campaign_inspect', call_id='after')['reference_evidence']
+    assert [row['asset_id'] for row in listed] == [finding['asset_id']]
+    assert listed[0]['content'].startswith('A short screen') and listed[0]['applicability']['limitations'] == ['Two seeds.']
+    whole = invoke(prepared, 'evidence_read', {'record_id': finding['asset_id']}, 'referenced')
+    assert whole['payload']['content'].startswith('A short screen') and whole['payload']['limitations'] == ['Two seeds.']
+    # The reference opens that finding alone: its evidence stays in the earlier campaign.
+    assert 'error' in invoke(prepared, 'evidence_read', {'record_id': source}, 'its_source')
+    assert 'error' in invoke(prepared, 'evidence_read', {'record_id': finding['finding_id']}, 'its_note')
+
+
+def test_the_lead_may_ask_for_a_journal_compaction_but_not_run_one(prepared):
+    from optimization_framework.agents.tools import OPERATIONS
+    assert 'journal.compaction_request' in OPERATIONS and 'journal.compact' not in OPERATIONS
+    refused = invoke(prepared, 'campaign_command', {'operation': 'journal.compact', 'payload': {}, 'request_key': 'compact', 'guidance_revision': 0}, 'compact')
+    assert refused['executed'] is False and not prepared[0].store.list('journal_compaction')
+    asked = invoke(prepared, 'campaign_command', {'operation': 'journal.compaction_request', 'payload': {'rationale': 'The results are recorded.'},
+        'request_key': 'ask', 'guidance_revision': 0}, 'ask')
+    assert 'journals left to compact' in asked['error']   # no experiment has run in this campaign

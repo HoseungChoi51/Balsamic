@@ -44,8 +44,13 @@ type ResourceSnapshot = {
   service?: { pid?: number; rss_bytes?: Measurement; peak_rss_bytes?: Measurement; threads?: Measurement; cpu_percent?: Measurement };
   workers: { configured_limit?: Measurement; running_count?: Measurement; queued_count?: Measurement; jobs: ResourceJob[] };
   budget?: { actual_seconds?: Measurement; allocated_seconds?: Measurement; limit_seconds?: Measurement; remaining_seconds?: Measurement; grants?: unknown[] } | null;
-  plans: ResourcePlan[]; warnings?: string[];
+  plans: ResourcePlan[]; warnings?: string[]; runtime?: RuntimeTask[];
 };
+type RuntimeLevel = { workers: number; status?: string; evaluations_per_second?: Measurement; overhead_share?: Measurement;
+  bytes_per_evaluation?: Measurement; solver_executions_per_evaluation?: Measurement; cpu_percent?: Measurement; gpu_percent?: Measurement };
+type RuntimeTask = { task_id: string; task_name: string; blocker?: string | null; gate_seconds?: Measurement; waived_flags?: string[]; requirement_id?: string | null;
+  profile?: { id: string; status: string; reason?: string | null; finished_at?: string; levels: RuntimeLevel[];
+    summary?: { verdict: string; reason?: string | null; flags: { id: string; message: string }[]; recommended_workers?: Measurement; evaluations_per_hour?: Measurement } } | null };
 type HistoryPoint = { at: number; cpu: Measurement; memory: Measurement };
 type GpuDevice = { id?: string; vendor?: string; utilization_percent?: Measurement; memory_total_bytes?: Measurement; memory_used_bytes?: Measurement; memory_kind?: string };
 
@@ -130,7 +135,34 @@ function Plan({ plan, now }: { plan: ResourcePlan; now: number }) {
   </article>;
 }
 
-export function ResourceDashboard({ campaignId }: { campaignId?: string }) {
+function deviceLoad(level: RuntimeLevel) {
+  if (finite(level.gpu_percent) && (!finite(level.cpu_percent) || level.gpu_percent >= level.cpu_percent)) return `GPU ${number(level.gpu_percent)}%`;
+  return finite(level.cpu_percent) ? `CPU ${number(level.cpu_percent)}%` : 'Unknown';
+}
+function Runtime({ task, measure }: { task: RuntimeTask; measure?: (taskId: string) => Promise<unknown> }) {
+  const [busy, setBusy] = useState(false), [error, setError] = useState('');
+  const profile = task.profile, summary = profile?.summary, running = profile?.status === 'running';
+  const verdict = !profile ? 'Not measured' : running ? 'Measuring' : profile.status === 'failed' ? 'Measurement failed'
+    : summary?.verdict === 'passed' ? 'No flags' : summary?.verdict === 'failed' ? 'Flagged' : 'Inconclusive';
+  const waived = (flag: string) => !!task.waived_flags?.some(item => item === flag || item === '*');
+  async function start() {
+    if (!measure) return;
+    setBusy(true); setError('');
+    try { await measure(task.task_id); } catch (e) { setError(errorText(e)); } finally { setBusy(false); }
+  }
+  return <div className="resource-runtime-task"><div className="resource-card-heading"><h3>{task.task_name}</h3><span className={`resource-source ${verdict === 'No flags' ? '' : 'forecast'}`}>{verdict}</span></div>
+    {finite(summary?.recommended_workers) && <p><strong>{number(summary?.evaluations_per_hour)}</strong> evaluations per hour at {number(summary?.recommended_workers)} worker{summary?.recommended_workers === 1 ? '' : 's'}{profile?.finished_at ? ` · measured ${when(profile.finished_at)}` : ''}</p>}
+    {(profile?.reason || summary?.reason) && <p>{profile?.reason || summary?.reason}</p>}
+    {!!profile?.levels.length && <div className="table-scroll"><table className="data-table"><thead><tr><th>Workers</th><th>Evaluations / s</th><th>Device load</th><th>Platform share of a step</th><th>Stored / evaluation</th><th>Solves / evaluation</th></tr></thead>
+      <tbody>{profile.levels.map(level => <tr key={level.workers}><td>{level.workers}</td><td>{level.status === 'measured' ? number(level.evaluations_per_second, 2) : label(level.status || 'measuring')}</td><td>{level.status === 'measured' ? deviceLoad(level) : '—'}</td>
+        <td>{finite(level.overhead_share) ? `${number(level.overhead_share * 100)}%` : '—'}</td><td>{finite(level.bytes_per_evaluation) ? bytes(level.bytes_per_evaluation) : '—'}</td><td>{finite(level.solver_executions_per_evaluation) ? number(level.solver_executions_per_evaluation, 1) : '—'}</td></tr>)}</tbody></table></div>}
+    {summary?.flags.map(flag => <div className="resource-blocker" key={flag.id}><strong>{label(flag.id)}{waived(flag.id) ? ' · waived' : ''}</strong><p>{flag.message}</p></div>)}
+    {task.blocker && finite(task.gate_seconds) && <p className="resource-footnote">Runs of {seconds(task.gate_seconds)} or longer cannot start yet. {task.blocker}{task.requirement_id && profile ? <> To waive, open <a href="#validation">Validation</a> and cite profile <code>{profile.id}</code>.</> : null}</p>}
+    <ErrorNotice text={error} />
+    {measure && <button className="button small secondary" disabled={busy || running} onClick={() => void start()}>{running ? 'Measuring…' : profile ? 'Measure again' : 'Measure now'}</button>}
+  </div>;
+}
+export function ResourceDashboard({ campaignId, measure }: { campaignId?: string; measure?: (taskId: string) => Promise<unknown> }) {
   const [snapshot, setSnapshot] = useState<ResourceSnapshot | null>(null), [history, setHistory] = useState<HistoryPoint[]>([]);
   const [error, setError] = useState(''), [refreshing, setRefreshing] = useState(false), [now, setNow] = useState(Date.now());
   const refresh = useRef<() => void>(() => {});
@@ -193,6 +225,10 @@ export function ResourceDashboard({ campaignId }: { campaignId?: string }) {
         {budget ? <><div className="resource-budget-grid"><div><span>Spent</span><strong>{seconds(budget.actual_seconds)}</strong></div><div><span>Unspent allocated time</span><strong>{seconds(reserved)}</strong></div><div><span>Free allocation</span><strong>{seconds(budget.remaining_seconds)}</strong></div><div><span>Authorized ceiling</span><strong>{seconds(budget.limit_seconds)}</strong></div></div>
           <div className="resource-budget-meter" role="img" aria-label={`Spent ${seconds(budget.actual_seconds)}, unspent allocated ${seconds(reserved)}, authorized ${seconds(budget.limit_seconds)}`}><i style={{ width: `${ratio(budget.actual_seconds, budget.limit_seconds)}%` }} /><i style={{ width: `${ratio(reserved, budget.limit_seconds)}%` }} /></div><p>Worker time sums execution across processes. Allocated time is authorization for jobs; it does not reserve physical RAM. Each protocol also has its own elapsed deadline.</p></> : <p>No campaign selected. Host measurements remain available; choose a campaign to see its allowance and resource plans.</p>}
       </section>
+      {!!snapshot.runtime?.length && <section className="resource-card resource-runtime" aria-label="Evaluator speed"><div className="resource-card-heading"><h2>Evaluator speed</h2><span className="resource-source">Measured profile</span></div>
+        <p>Short random-search probes at 1, 2, 4… workers on an idle workspace. Flags name symptoms to fix or waive before long runs; they do not say what causes them.</p>
+        {snapshot.runtime.map(task => <Runtime key={task.task_id} task={task} measure={measure && (async taskId => { await measure(taskId); refresh.current(); })} />)}
+      </section>}
       <section className="resource-card resource-jobs" aria-label="Current jobs"><div className="resource-card-heading"><h2>Current jobs</h2><span className="resource-source">Measured process usage</span></div>
         {!snapshot.workers.jobs?.length ? <p>No running or queued numerical jobs.</p> : <div className="table-scroll"><table className="data-table"><thead><tr><th>Job</th><th>State / PID</th><th>RSS / peak RSS</th><th>CPU</th><th>OS threads</th><th>Spent / remaining</th></tr></thead><tbody>{snapshot.workers.jobs.map(job => <tr key={job.id}>
           <td><strong>{label(job.algorithm || job.kind)}{typeof job.seed === 'number' && ` · seed ${job.seed}`}</strong><a href={job.kind === 'fixed_mask_job' ? '#validation' : `#experiments/${encodeURIComponent(job.id)}`}>{job.id}</a></td><td>{label(job.status)}<small>{label(job.process_state)}{job.pid ? ` · PID ${job.pid}` : ' · no process'}</small></td><td>{bytes(job.rss_bytes)} / {bytes(job.peak_rss_bytes)}</td><td>{finite(job.cpu_percent) ? `${number(job.cpu_percent, 1)}%` : 'Unknown'}</td><td>{number(job.threads)}</td><td>{seconds(job.spent_seconds)} / {seconds(job.remaining_seconds)}<small>{seconds(job.wall_seconds)} allowance</small></td>

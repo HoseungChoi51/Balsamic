@@ -122,3 +122,21 @@ for (const viewport of [{width:1440,height:900},{width:390,height:740}]) {
     expect(await history.evaluate(el=>el.scrollWidth-el.clientWidth)).toBeLessThanOrEqual(1);
   });
 }
+test('a campaign without a team names the model its lead agent would use and can start the team',async({page})=>{
+  const state:any=fixture(),writes:any[]=[];
+  state.settings.provider={configured:false,enabled:true,provider:'none',model:null,billing_mode:'none'};
+  state.agent_runtime={configuration:null,agents:[],questions:[],aliases:[],lead_model:{provider:'deepseek',model:'deepseek-v4-pro',effort:'max'}};
+  await mock(page,state,body=>{writes.push(body);
+    state.agent_runtime={configuration:{enabled:true,status:'running',control_revision:0,objective:'',provider:{configured:true}},lead_model:null,questions:[],aliases:[],
+      agents:[{id:'lead',role:'lead',status:'queued',provider:'deepseek',model:'deepseek-v4-pro',reasoning_effort:'max',objective:'',control_revision:0}]};});
+  await page.goto('/#models');
+  const manager=page.getByRole('complementary',{name:'Research conversation'});
+  if(!(await manager.isVisible())) await page.getByRole('button',{name:'Campaign manager',exact:true}).click();
+  await expect(manager.getByRole('link',{name:'Lead agent not started · Models',exact:true})).toBeVisible();
+  await expect(manager).toContainText('deepseek/deepseek-v4-pro');
+  const panel=page.locator('.agent-models');
+  await expect(panel).toContainText('hands the campaign to the lead agent on deepseek/deepseek-v4-pro · max');
+  await panel.getByRole('button',{name:'Start the agent team'}).click();
+  await expect(page.getByRole('complementary',{name:'Lead agent conversation'})).toContainText('deepseek-v4-pro');
+  expect(writes).toHaveLength(1);expect(writes[0]).toMatchObject({operation:'agent.activate',payload:{}});
+});

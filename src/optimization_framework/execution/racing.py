@@ -705,7 +705,8 @@ class AdaptiveRacing:
                     continue
                 objective = row.get("objectives", {}).get("mean_plus1_transmission")
                 if row.get("status") == "ok" and objective is not None and abs(objective - score) <= 1e-12:
-                    return row
+                    from optimization_framework.execution.metrics import unpacked
+                    return unpacked(row)
         return None
 
     def _validation_candidate(self, trial_id, score):

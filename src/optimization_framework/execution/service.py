@@ -60,8 +60,9 @@ class Workspace:
         self.thread = None
         self.processes = {}
         self.last_progress = {}
-        from optimization_framework.execution.metrics import MetricProjectionCache
+        from optimization_framework.execution.metrics import LargeJournalScalars, MetricProjectionCache
         self._metric_projections = MetricProjectionCache()
+        self._large_journals = LargeJournalScalars()
         self.research_threads = {}
         self.source_threads = {}
         self.on_trial_finished = None
@@ -94,6 +95,12 @@ class Workspace:
         self.study_executions = StudyExecutionService(self)
         from optimization_framework.execution.racing import AdaptiveRacing
         self.racing = AdaptiveRacing(self)
+        from optimization_framework.execution.runtime_profile import RuntimeProfiles
+        self.runtime = RuntimeProfiles(self)
+        from optimization_framework.execution.equivalence import Equivalences
+        self.equivalence = Equivalences(self)
+        from optimization_framework.execution.compaction import JournalCompaction
+        self.journals = JournalCompaction(self)
         self.maintenance_thread = None
         self.on_manager_tick = None
         from optimization_framework.research.discovery.controller import DiscoveryController
@@ -446,7 +453,7 @@ class Workspace:
                 raise ValueError("Campaign direction changed while this action was being prepared; ask the manager for a current proposal")
 
     def create_trial(self, request: TrialInput, validation=None, *, expected_context=None, frozen_prototype_id=None, execution=None,
-                     isolation_policy=None, captured_source=None, reproduction=None):
+                     isolation_policy=None, captured_source=None, reproduction=None, runtime_gate=True, continues=None):
         from optimization_framework.contracts.isolation import IsolationPolicy
         if captured_source is not None and isolation_policy is None:
             isolation_policy = IsolationPolicy()
@@ -467,6 +474,10 @@ class Workspace:
         evaluator_study_id = ((validation or {}).get("study_id") or (protocol or {}).get("study_id")
             or (execution or {}).get("study_id") or self.store.get(request.campaign_id, "campaign").get("active_study_id"))
         evaluator_bundle = self.evaluators.prepare(selected_task, study_id=evaluator_study_id)
+        if (runtime_gate and validation is None and not execution and not request.race_id and reproduction is None
+                and frozen_prototype_id is None and not request.confirmation_protocol_id):
+            # An ordinary long run waits until its evaluator's speed has been measured here; frozen protocols keep their own rules.
+            self.runtime.check(selected_task, evaluator_study_id, request.wall_seconds)
         selected_task = self.evaluators.task_view(selected_task)
         selected_hypothesis = self.store.get(request.hypothesis_id, "hypothesis") if request.hypothesis_id else None
         version_id = request.implementation_version_id or (selected_hypothesis or {}).get("implementation_version_id")
@@ -776,6 +787,13 @@ class Workspace:
                 record["experiment_spec_hash"] = content_hash(frozen_record)
                 record["experiment_spec"] = frozen_record
                 entries.append(("experiment_spec", {**frozen_record, "content_hash": record["experiment_spec_hash"]}, "experiment.frozen"))
+            if continues:
+                try:
+                    record.update(self._continuation(continues, record, directory))
+                except Exception:
+                    import shutil
+                    shutil.rmtree(directory, ignore_errors=True)
+                    raise
             atomic_json(directory / "spec.json", record)
             self.store.put_many([*entries, ("trial", record, "trial.queued")])
             self.resources.reserve_trial(record)
@@ -783,13 +801,68 @@ class Workspace:
             reserve_diagnostics(self.store, record)
             return record
 
+    def continue_trial(self, request):
+        """Queue a new experiment that goes on from where a finished one stopped, under the current source."""
+        predecessor = self.store.get(request.trial_id, "trial")
+        if predecessor.get("recipe") or predecessor["algorithm"] in {"validate", "recipe", "replay", "evaluate_asset"}:
+            raise ValueError("Select an optimization experiment to continue")
+        if predecessor["status"] in ACTIVE:
+            raise ValueError("The experiment is still running; pause or stop it before continuing it as a new one")
+        if any(predecessor.get(key) for key in ("confirmation_protocol_id", "execution_grant_id", "race_id", "isolation_policy", "reproduction")):
+            raise ValueError("An experiment of a frozen protocol is not continued outside it")
+        if predecessor.get("completion", {}).get("unit", "evaluation_requests") != "evaluation_requests":
+            raise ValueError("Only experiments that complete by evaluation requests can be continued")
+        if not read_json(self.job_dir(predecessor["id"]) / "checkpoints" / "latest.json"):
+            raise ValueError("The experiment has no saved state to continue from")
+        version = predecessor.get("implementation_version_id")
+        return self.create_trial(TrialInput(campaign_id=predecessor["campaign_id"], task_id=predecessor["task_id"],
+            algorithm="" if version else predecessor["algorithm"], implementation_version_id=version,
+            algorithm_config=predecessor["algorithm_config"], seed=predecessor["seed"], max_steps=request.max_steps or predecessor["max_steps"],
+            wall_seconds=request.wall_seconds, numerical_threads=predecessor.get("numerical_threads", 1),
+            schedule_steps=predecessor["schedule_steps"], hypothesis_id=predecessor.get("hypothesis_id"),
+            training=predecessor.get("training") or {}, initial_assets=predecessor.get("initial_assets", []),
+            reuse_decision_ids=predecessor.get("reuse_decision_ids", []), recovery=predecessor["recovery"],
+            question=f"Continues {predecessor['id']} from its saved state under the current source."),
+            continues={"trial": predecessor, "accept_unverified": request.accept_unverified})
+
+    def _continuation(self, source, record, directory):
+        """Pin the state a successor starts from, once it is known to be the same science."""
+        import hashlib
+        from optimization_framework.storage.artifacts import LocalArtifactStore
+        predecessor = source["trial"]
+        if content_hash(predecessor["problem"]) != content_hash(record["problem"]):
+            raise ValueError("The task's problem changed since this experiment ran; a continuation would mix two problems")
+        same = predecessor["scientific_source_hash"] == record["scientific_source_hash"]
+        equivalence = None if same else self.equivalence.passing(content_hash(predecessor["problem"]),
+            predecessor["scientific_source_hash"], record["scientific_source_hash"])
+        if not same and not equivalence and not source["accept_unverified"]:
+            raise ValueError("The source changed since this experiment ran. Run evaluator.equivalence on it first, so that the "
+                             "current evaluator is shown to reproduce its recorded results.")
+        origin = self.job_dir(predecessor["id"])
+        pointer = read_json(origin / "checkpoints" / "latest.json")
+        manifest = read_json(origin / "checkpoints" / (pointer["id"] + ".json"))
+        (directory / "continues").mkdir()
+        digest = hashlib.sha256()
+        with LocalArtifactStore(origin / "artifacts").checkpoint_stream(manifest) as stream, (directory / "continues" / "checkpoint.pkl").open("wb") as output:
+            for chunk in iter(lambda: stream.read(2 ** 20), b""):
+                digest.update(chunk)
+                output.write(chunk)
+        return {"chain_id": predecessor.get("chain_id", predecessor["id"]),
+                "continues": {"trial_id": predecessor["id"], "checkpoint_id": pointer["id"], "checkpoint_sha256": digest.hexdigest(),
+                              "same_source": same, "equivalence_id": equivalence["id"] if equivalence else None,
+                              "unverified": not same and not equivalence}}
+
+    def trial_archive(self, trial):
+        """A trial's archive; while it runs, its progress record leaves the archive to archive.json."""
+        archive = ((trial.get("progress") or {}).get("archive") or (trial.get("result") or {}).get("archive")
+                   or read_json(self.job_dir(trial["id"]) / "archive.json", []))
+        return archive.get("designs", archive.get("archive", [])) if isinstance(archive, dict) else archive
+
     def validate_trial(self, trial_id, request: ValidationInput):
         trial = self.store.get(trial_id, "trial")
         if trial.get("recipe") or trial["algorithm"] in {"validate", "recipe"}:
             raise ValueError("Select an optimization trial")
-        archive = trial.get("progress", {}).get("archive") or (trial.get("result") or {}).get("archive") or read_json(self.job_dir(trial_id) / "archive.json", [])
-        if isinstance(archive, dict):
-            archive = archive.get("designs", archive.get("archive", []))
+        archive = self.trial_archive(trial)
         if not archive:
             design = trial.get("progress", {}).get("best_design")
             if not design:
@@ -809,9 +882,7 @@ class Workspace:
         trial = self.store.get(trial_id, "trial")
         if trial.get("recipe") or trial["algorithm"] in {"recipe", "validate"}:
             raise ValueError("Select an optimization experiment as the source")
-        evidence = trial.get("progress") or trial.get("result") or {}
-        archive = evidence.get("archive", [])
-        subjects = [item.get("candidate", item.get("design")) for item in archive[:request.subject_limit]]
+        subjects = [item.get("candidate", item.get("design")) for item in self.trial_archive(trial)[:request.subject_limit]]
         problem = trial.get("problem") or problems.resolve("meent_grating", trial["physics"]).model_dump(mode="json")
         recipe = self.compile_recipe(trial, request.recipe_id, request.parameters, subjects)
         return self._queue_recipe(trial, recipe, TrialInput(campaign_id=trial["campaign_id"], task_id=trial["task_id"],
@@ -1346,6 +1417,8 @@ class Workspace:
                             break
                         if trial.get("race_id") and not self.racing.admission(trial, [row for row in trials if row["status"] in LIVE]):
                             continue
+                        if self.runtime.holds(trial):
+                            continue
                         if trial.get("execution_grant_id"):
                             grant = self.store.get(trial["execution_grant_id"], "execution_grant")
                             occupied = sum(t["status"] in LIVE and t.get("execution_grant_id") == grant["id"] for t in self.store.list_trials_in_status(LIVE))
@@ -1360,6 +1433,9 @@ class Workspace:
                         except Exception as exc:
                             trial.update(status="failed", reason=str(exc), finished_at=now())
                             self.store.put("trial", trial, "trial.failed")
+                self.runtime.advance()
+                self.equivalence.advance()
+                self.journals.advance()
                 if self.on_trial_finished:
                     self.on_trial_finished()
             except Exception as exc:
@@ -1374,6 +1450,12 @@ class Workspace:
             from optimization_framework.execution.metrics import recent_metrics
             rows = recent_metrics(path, limit)
             return [{field: row[field] for field in fields if field in row} for row in rows] if fields is not None else rows
+        from optimization_framework.execution.metrics import LARGE_JOURNAL_BYTES, recent_metrics
+        if path.exists() and path.stat().st_size > LARGE_JOURNAL_BYTES:
+            # Never load such a journal whole; its scalar columns are kept as it grows.
+            latest = recent_metrics(path, 1) if fields is not None else []
+            if not any(type(row.get(field)) in (list, dict) for row in latest for field in fields or ()):
+                return self._large_journals.read(path, fields)
         if fields is not None:
             return self._metric_projections.read(path, fields)
         if not path.exists():

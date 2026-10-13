@@ -4,6 +4,7 @@ Every physical operation is requested from the worker's evaluator. Optimizers
 never call MEENT themselves, including local polishing and cached-mask returns.
 """
 from copy import deepcopy
+import pickle
 
 import numpy as np
 
@@ -70,7 +71,26 @@ class FourierOptimizer:
             config = {**parameters, 'episode_length': self.horizon, 'complete_rollouts': name != 'flrl_ppo'}
             actions = min(parameters.get('tangent_dimensions', 4), self.d - 1) if name == 'flrl_ppo_residual' else self.d
             self.ppo = PPO(len(self._features()), actions, seed, config, cnn=name == 'flrl_ppo',
-                           frames=self.frames if name == 'flrl_ppo' else 1)
+                           frames=self.frames if name == 'flrl_ppo' else 1, modes=(self.geometry.nx, self.geometry.ny))
+        if parameters.get('warm_start_state'):
+            self._warm_start(parameters['warm_start_state'])
+
+    def _warm_start(self, path):
+        """Continue another run's search and learner state; the new trial counts its own steps and archive."""
+        with open(path, 'rb') as stream:
+            saved = pickle.load(stream)
+        # The saving run may itself have been warm-started, so that setting is left out of the comparison.
+        ours = lambda config: content_hash([self.name, self.instance.evaluation_identity,
+                                            {key: value for key, value in config.items() if key != 'warm_start_state'}])
+        theirs = saved['state']['config']
+        if (ours(theirs) != ours(self.config)
+                or saved['identity'] != content_hash([self.name, self.instance.evaluation_identity, theirs])):
+            raise ValueError('The warm-start state belongs to a different method, configuration or evaluator')
+        if saved['state']['pending'] is not None:
+            raise ValueError('The warm-start state was saved with a proposal outstanding')
+        self.__dict__.update(deepcopy({key: value for key, value in saved['state'].items() if key not in {'identity', 'config'}}))
+        if self.ppo:
+            self.ppo.load_state_dict(saved['ppo'])
 
     def _initial(self):
         if self.name == 'flrl_ppo':

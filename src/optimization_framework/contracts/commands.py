@@ -10,7 +10,8 @@ from optimization_framework.implementations.models import EvaluatorSpec, Evaluat
 Operation = Literal["agent.activate", "agent.message", "agent.control", "agent.rollback", "agent.configure", "fixed_mask.run", "campaign.create", "campaign.update", "context.edit", "issue.resolve", "trial.create", "trial.control", "trial.extension_request", "trial.validate", "draft.save", "draft.launch", "reproduction.draft", "reproduction.compare", "study.create", "study.nominate", "finalist.set", "study.freeze_template", "study.activate", "study.race.create", "study.race.control", "study.race.decide", "validation.run", "validation.require", "validation.execute", "validation.waive",
     "models.configure", "discovery.start", "discovery.control", "discovery.amend", "discovery.retry", "discovery.assessment.save", "discovery.assessment.launch", "discovery.assessment.decide", "asset.snapshot",
     "validation.revoke_waiver", "context.import", "inference.run", "asset.reuse", "asset.import_reference_set", "cost.reconcile", "comparison.report", "finding.record", "implementation.commission",
-    "implementation.reference", "implementation.bind_builtin", "implementation.attach", "evaluator.commission", "evaluator.attach", "implementation.control", "implementation.revalidate", "implementation.reuse", "implementation.resolve_runtime", "bundle.export", "bundle.inspect", "bundle.publish", "research.start", "research.retry", "research.control", "decision.resolve", "decision.refresh", "source.record", "source.ingest", "hypothesis.create", "hypothesis.review", "hypothesis.status", "hypothesis.nominate", "literature.search", "confirmation.schedule", "confirmation.validate", "confirmation.release"]
+    "implementation.reference", "implementation.bind_builtin", "implementation.attach", "evaluator.commission", "evaluator.attach", "implementation.control", "implementation.revalidate", "implementation.reuse", "implementation.resolve_runtime", "bundle.export", "bundle.inspect", "bundle.publish", "research.start", "research.retry", "research.control", "decision.resolve", "decision.refresh", "source.record", "source.ingest", "hypothesis.create", "hypothesis.review", "hypothesis.status", "hypothesis.nominate", "literature.search", "confirmation.schedule", "confirmation.validate", "confirmation.release",
+    "runtime.profile", "evaluator.equivalence", "trial.continue", "journal.compact", "journal.compaction_request"]
 
 
 class Command(Contract):
@@ -134,6 +135,9 @@ class InferenceRunInput(Contract):
 
 class ComparisonReportInput(Contract):
     study_id: str | None = None
+    trial_ids: list[str] | None = Field(default=None, min_length=1, max_length=200, description="Compare only these experiments. "
+        "Methods are compared at the largest cost every compared run reached, so name the long runs to compare them with each other: "
+        "a short run in the same study would otherwise set that cost. A continued run is named by its last experiment.")
     cost_axis: Literal["worker_seconds", "full_worker_seconds", "evaluation_requests", "solver_executions"] | None = None
     cost_view: Literal["full_attributed_cost", "actual_expenditure"] = "full_attributed_cost"
 
@@ -178,6 +182,42 @@ class ReuseInput(Contract):
 class AssetSnapshotInput(Contract):
     trial_id: str
     observation_id: str
+
+
+class RuntimeProfileInput(Contract):
+    """Measure a task's evaluator on this host: short random-search probes at 1, 2, 4... workers."""
+    task_id: str
+    probe_seconds: float = Field(default=30, ge=5, le=600)
+    max_evaluations: int = Field(default=2000, ge=10, le=100000)
+    warmup_evaluations: int = Field(default=2, ge=0, le=100)
+
+
+class EquivalenceInput(Contract):
+    """Replay a sample of a finished experiment's recorded candidates under the current source and compare the results."""
+    trial_id: str
+    sample: int = Field(default=12, ge=1, le=64)
+    absolute_tolerance: float = Field(default=1e-9, ge=0, le=1)
+    relative_tolerance: float = Field(default=1e-9, ge=0, le=1)
+    wall_seconds: float = Field(default=120, gt=0, le=86400)
+
+
+class TrialContinueInput(Contract):
+    """Go on from where a finished experiment stopped, as a new experiment under the current source."""
+    trial_id: str
+    wall_seconds: float = Field(gt=0, le=86400)
+    max_steps: int | None = Field(default=None, ge=1, le=10000000)
+    accept_unverified: bool = False
+
+
+class JournalCompactInput(Contract):
+    """Remove the evaluated designs from finished experiments' journals. Rows and numbers stay; what is removed cannot be brought back."""
+    trial_ids: list[str] | None = Field(default=None, min_length=1, max_length=1000)
+    study_id: str | None = Field(default=None, description="Without trial_ids: every finished experiment of this study, or of the campaign when omitted.")
+
+
+class JournalCompactionRequestInput(JournalCompactInput):
+    """Ask the researcher to approve a compaction, once the experiments' results have been analysed and recorded."""
+    rationale: str = Field(min_length=1, max_length=4000)
 
 
 class WaiverInput(Contract):

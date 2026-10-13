@@ -63,12 +63,38 @@ separate. Each model event records subscription calls and token usage; catalog
 API prices are not reported as charges. The implementation library projects the
 same child usage without reserving an additional paid API allowance.
 
+## What the lead agent is given
+
+[Lead agent readiness](lead-agent-readiness.md) keeps apart what of this is implemented and what is only proposed.
+
+`campaign_inspect` returns, besides the campaign, its tasks and hypotheses:
+
+- `methods`: every installed optimizer that can run on a current task, with the parameters its
+  `algorithm_config` accepts (type, allowed values, default). An experiment is built from this list.
+- `reference_evidence`: findings of earlier campaigns that the researcher referenced for this
+  campaign's study (Evidence view, "reference" for "manager evidence"). Each is a scoped claim
+  with limitations; `evidence_read` with its asset id returns it whole. Nothing else of the
+  earlier campaign becomes readable.
+
+Every tool result joins the model's context for the rest of its session, and a provider refuses a
+request above its size limit. A command receipt above 48 kB therefore comes back as an index of
+its outcome, to be read in pages with `evidence_read` and the listed pointers; a
+`comparison.report` also gives each method's summary and one line per experiment. No tool returns
+more than 256 kB. `comparison.report` itself keeps both ends of every run of equal best-so-far
+values instead of one point per evaluation, and leaves out runtime-profile probes and equivalence
+replays, which measure the evaluator and are no method's result. With `trial_ids` it compares
+only the named experiments, and a run continued with `trial.continue` is one row.
+
+The lead agent files `journal.compaction_request` after results are analysed and recorded; the
+researcher approves it in the decision inbox, and only then are evaluated designs removed from
+the finished experiments' journals.
+
 ## Numerical diagnostics
 
 `mask_create` makes deterministic full-size masks without putting all cells into
 model context. `fixed_mask.run` evaluates immutable masks at specified fidelities
 and retains objective values, energy totals, startup/evaluation times, cache flags,
-and actual solver counts. Each uncached TE/TM evaluation performs two solves.
+and actual solver counts. Each uncached evaluation is one solve that returns both polarizations.
 The implementation contract accepts the campaign's 32,768 cells. Independently
 frozen `inspect()` checks can verify unit norm, tangency, PSD, rank and finiteness.
 These checks establish declared invariants, not optimizer superiority.

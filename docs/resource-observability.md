@@ -6,6 +6,9 @@ planned work, with measured values and forecasts labeled separately. Open
 **Resources** in the application navigation. Reading the dashboard does not launch
 an optimization trial, RCWA evaluation, calibration, or benchmark.
 
+Each task's measured evaluator speed and its open flags are part of the same view;
+see [runtime efficiency](runtime-efficiency.md).
+
 The read-only API is `GET /api/v1/resources?campaign_id=<campaign ID>`. The PI can
 read the same campaign-scoped view with `resource_inspect`. This makes resource
 constraints visible to both the researcher and the agent before allocating work.

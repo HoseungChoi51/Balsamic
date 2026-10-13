@@ -128,3 +128,19 @@ def test_cross_task_comparison_weights_tasks_equally_not_number_of_seeds():
     assert aggregate["n_tasks"] == 2 and aggregate["n_pairs"] == 3
     assert aggregate["mean_difference"] == pytest.approx(.4)
     assert aggregate["ci95"] is not None
+
+
+def test_a_continued_run_is_read_as_one_run_on_cumulative_axes():
+    first = trial("r0", efficiency=.2)
+    second = trial("r0-continued", efficiency=.6, continues={"trial_id": "r0"}, chain_id="r0")
+    report = analyze_trials([first, second, trial("h0", "hillclimb", efficiency=.5)],
+                            {"r0": rows(.2), "r0-continued": rows(.6), "h0": rows(.5)}, [])
+    run = next(summary for summary in report["trials"] if summary["algorithm"] == "random")
+    assert [summary["id"] for summary in report["trials"]] == ["r0-continued", "h0"] and run["chain_trial_ids"] == ["r0", "r0-continued"]
+    assert run["allocation"] == {"max_steps": 40, "wall_seconds": 60} and run["solver_calls"] == 40 and run["full_allocation"]
+    assert run["curves"]["solver_calls"] == [{"x": 5, "efficiency": .1}, {"x": 20, "efficiency": .2}, {"x": 25, "efficiency": .3}, {"x": 40, "efficiency": .6}]
+    assert run["curves"]["elapsed_seconds"][-1] == {"x": 20, "efficiency": .6}
+    # A run that was not continued is unchanged, and the two are not mistaken for repeated seeds.
+    assert next(summary for summary in report["trials"] if summary["id"] == "h0")["allocation"] == {"max_steps": 20, "wall_seconds": 30}
+    json.dumps(report, allow_nan=False)
+

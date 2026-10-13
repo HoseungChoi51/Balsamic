@@ -245,6 +245,13 @@ def resolve(workspace, command):
                      # An estimate gets a margin; a stated request is granted exactly as shown.
                      "wall_seconds": trial["wall_seconds"] + (seconds if decision.get("requested_by") else max(5, seconds))})
         effect = {"child_command": child.model_dump(mode="json")}
+    elif values.choice == "0" and decision.get("journal_compaction"):
+        child = Command(id="decision_action_" + content_hash(command.id)[:32], campaign_id=command.campaign_id,
+            operation="journal.compact", expected_revision=campaign["version"],
+            expected_guidance_revision=workspace.memory.state(command.campaign_id)["guidance_revision"],
+            expected_authority_hash=workspace.commands.authority_hash(campaign),
+            payload={"trial_ids": decision["journal_compaction"]["trial_ids"]})
+        effect = {"child_command": child.model_dump(mode="json")}
     memory = workspace.memory.state(command.campaign_id)
     if not accounting_only:
         memory["guidance_revision"] += 1

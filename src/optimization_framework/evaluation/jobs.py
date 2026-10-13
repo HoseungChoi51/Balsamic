@@ -1,7 +1,10 @@
 """Connect immutable validation subjects, scheduler jobs, and measured results."""
+import json
+
 from optimization_framework.contracts.assets import Asset, CostSlice
 from optimization_framework.contracts.base import content_hash
 from optimization_framework.contracts.validation import ValidationRequirement, ValidationResult
+from optimization_framework.execution.metrics import PACKED, full_row, pack_candidate, scalar_rows
 from optimization_framework.execution.worker import iter_journal
 from optimization_framework.storage.sqlite import now
 
@@ -12,13 +15,26 @@ def snapshot_solutions(workspace, trial, candidates):
     Prefix costs resolve against the same append-only ledger as final outputs.
     Pending ingestion stays unknown; later work lies outside the fixed interval.
     """
-    directory = workspace.job_dir(trial["id"])
-    requests = list(iter_journal(directory / "requests.jsonl"))
+    directory, journal = workspace.job_dir(trial["id"]), workspace.job_dir(trial["id"]) / "observations.jsonl"
+    # A long search of large designs fills gigabytes of journal. Both journals are looked through
+    # for their scalar fields, and only the observations that carry a wanted candidate are read whole.
+    requests = [row for _, _, row in scalar_rows(directory / "requests.jsonl")]
     positions = {row["id"]: index for index, row in enumerate(requests)}
-    observations = [row for row in iter_journal(directory / "observations.jsonl") if row["request_id"] in positions]
-    if not observations:
+    # A journal holds a design as a list or, for a long binary one, as packed bits: look for either.
+    serialized = [tuple(json.dumps(form if type(form) is list else form[PACKED], separators=(",", ":")).encode()
+                        for form in ([candidate] if pack_candidate(candidate) is candidate else [candidate, pack_candidate(candidate)]))
+                  for candidate in candidates]
+    carrying, stop = [[] for _ in candidates], 0
+    for offset, line, row in scalar_rows(journal):
+        if row["request_id"] not in positions:
+            continue
+        stop = max(stop, positions[row["request_id"]] + 1)
+        if row["status"] == "ok":
+            for found, forms in zip(carrying, serialized):
+                if any(text in line for text in forms):
+                    found.append(offset)
+    if not stop:
         raise ValueError("No authoritative observation journal is available for this candidate snapshot")
-    stop = max(positions[row["request_id"]] for row in observations) + 1
     final_attempt = requests[stop - 1]["attempt_id"]
     prior_attempts = sorted({row["attempt_id"] for row in requests[:stop] if row["attempt_id"] != final_attempt})
     costs = [CostSlice(source_id=trial["id"], stop=stop),
@@ -34,11 +50,17 @@ def snapshot_solutions(workspace, trial, candidates):
         exposed.update(asset["exposed_instance_ids"])
         exposure_known &= asset["exposure_status"] == "known"
     result = []
-    for candidate in candidates:
-        matching = [row for row in observations if row["candidate"] == candidate and row["status"] == "ok"]
-        if not matching:
-            raise ValueError("The candidate has no successful authoritative observation in this search prefix")
-        observation = matching[-1]
+    for candidate, found in zip(candidates, carrying):
+        observation = next((row for row in (full_row(journal, offset) for offset in reversed(found)) if row["candidate"] == candidate), None)
+        if observation is None:
+            # Not found as it would be written today: compare every record before calling it absent.
+            for row in iter_journal(journal):
+                if row["request_id"] in positions and row["status"] == "ok" and row["candidate"] == candidate:
+                    observation = row
+        if observation is None:
+            raise ValueError("The candidate has no successful authoritative observation in this search prefix" + (
+                f"; this experiment's journals were compacted on {trial['journals_compacted_at']} and keep only a spread of its designs"
+                if trial.get("journals_compacted_at") else ""))
         request = requests[positions[observation["request_id"]]]
         result.append(workspace.assets.publish(Asset(
             id="snapshot_" + content_hash([trial["id"], stop, observation["id"]]), campaign_id=trial["campaign_id"],

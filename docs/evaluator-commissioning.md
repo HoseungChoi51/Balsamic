@@ -224,7 +224,8 @@ Independent fixture checks cover raw numerical values, configuration/fidelity,
 declared determinism and checkpoint continuation. A positive model review cannot
 override a failed numerical check. Fixture agreement establishes evidence for
 the recorded cases, not a proof over the whole declared domain or a performance
-claim for an optimizer. Cost records count isolated evaluator invocations and
+claim for an optimizer. How fast an evaluator runs is measured and gated
+separately; see [runtime efficiency](runtime-efficiency.md). Cost records count isolated evaluator invocations and
 measured elapsed work; they do not instrument arithmetic or internal solver
 operations inside candidate code.
 

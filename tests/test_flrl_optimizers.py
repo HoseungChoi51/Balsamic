@@ -88,7 +88,7 @@ def test_cache_preserves_hard_scores_and_counts_gradient_work_separately():
     second = evaluator.evaluate_proposal(mask, {'flrl_gradient': geometry.gradient_request(c, 5)})
     third = evaluator.evaluate_proposal(mask, {})
     assert first.objectives == second.objectives == third.objectives
-    assert first.solver_executions == second.solver_executions == 2
+    assert first.solver_executions == second.solver_executions == 1
     assert not first.cache_hit and second.cache_hit and third.cache_hit
     assert third.solver_executions == 0 and 'flrl_gradient' not in third.metadata
     with pytest.raises(ValueError, match='do not produce'):
@@ -121,6 +121,31 @@ def test_real_meent_steps_and_exact_checkpoint_continuation(name):
         assert optimizer.ppo.last_loss != 0
     if name in {'flrl_autograd_adam', 'flrl_ppo_polish', 'flrl_ppo_residual'}:
         assert optimizer.gradient_calls > 0
+
+
+@pytest.mark.parametrize('name', ['flrl_ppo', 'flrl_lsf_es'])
+def test_a_new_run_warm_started_from_a_saved_state_continues_the_search(name, tmp_path):
+    import pickle
+    instance = problem(); evaluator = Meent2DProblem().evaluator(instance)
+    optimizer = create(name, instance, parameters(name), seed=42, schedule_steps=40)
+    for _ in range(5): step(optimizer, evaluator, instance)
+    saved = tmp_path / 'state.pkl'
+    saved.write_bytes(pickle.dumps(optimizer.checkpoint()))
+    expected = [step(optimizer, evaluator, instance)[0].candidate for _ in range(6)]
+    continued = create(name, instance, {**parameters(name), 'warm_start_state': str(saved)}, seed=7, schedule_steps=40)
+    assert continued.identity != optimizer.identity and continued.config['warm_start_state'] == str(saved)
+    assert [step(continued, evaluator, instance)[0].candidate for _ in range(6)] == expected
+    # Its own checkpoints restore as usual, and a state from other settings is refused.
+    again = create(name, instance, {**parameters(name), 'warm_start_state': str(saved)}, seed=7, schedule_steps=40)
+    again.restore(continued.checkpoint())
+    assert step(again, evaluator, instance)[0].candidate == step(continued, evaluator, instance)[0].candidate
+    with pytest.raises(ValueError, match='different method, configuration or evaluator'):
+        create(name, instance, {**parameters(name), 'level_set_modes_x': 3, 'warm_start_state': str(saved)}, seed=7, schedule_steps=40)
+    # A warm-started run's state can warm-start a further run.
+    second = tmp_path / 'second.pkl'
+    second.write_bytes(pickle.dumps(continued.checkpoint()))
+    further = create(name, instance, {**parameters(name), 'warm_start_state': str(second)}, seed=3, schedule_steps=40)
+    assert step(further, evaluator, instance)[0].candidate == step(continued, evaluator, instance)[0].candidate
 
 
 def test_tangent_frame_and_zero_gradient_ablation():
@@ -198,7 +223,7 @@ def test_worker_accounts_physical_calls_and_only_archives_binary_scores(tmp_path
         assert set(record['candidate']) <= {0, 1}
         gradient = 'flrl_gradient' in request['proposal_metadata']
         assert gradient == ('flrl_gradient' in record['metadata'])
-        assert record['costs']['solver_executions'] == (0 if record['costs']['cache_hits'] else 2) + 2*gradient
+        assert record['costs']['solver_executions'] == (0 if record['costs']['cache_hits'] else 1) + gradient
     assert result['best_objective'] == max(r['objectives']['mean_plus1_transmission'] for r in records)
     restored = ExperimentWorker(tmp_path)
     assert restored.optimizer.inspect()['decisions'] == result['diagnostics']['decisions']

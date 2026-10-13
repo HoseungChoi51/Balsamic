@@ -17,7 +17,8 @@ def prototype_details(trial, study, task=None, hypothesis=None):
              or row.get("protected_cohort_id") or row.get("confirmation_protocol_id")
              for row in (trial, task or {})):
         reason = "Protected confirmation evidence cannot select a development finalist."
-    elif trial.get("status") != "completed":
+    elif trial.get("status") not in {"completed", "budget_exhausted"}:
+        # A run that used its whole time allocation is finished: quick runs are usually limited by time.
         reason = "Wait until this test run has completed before marking it as a finalist."
     elif trial.get("execution_contract") != 1:
         reason = "This historical run needs a versioned optimizer procedure before selection."

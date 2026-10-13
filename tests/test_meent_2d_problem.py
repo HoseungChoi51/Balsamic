@@ -37,7 +37,7 @@ def test_uniform_layers_have_no_first_order_and_conserve_power():
             "min_plus1_transmission": 0,
         }
         assert all(abs(total - 1) < 1e-10 for total in result.metadata["meent"]["energy_totals"])
-        assert result.solver_executions == 2
+        assert result.solver_executions == 1
 
 
 def test_x_invariant_stripe_agrees_with_one_dimensional_meent():
@@ -87,3 +87,18 @@ def test_implementation_fixture_honors_embedded_physical_fidelity():
     assert fixture.fidelity == {"rcwa_order_x": 10, "rcwa_order_y": 5}
     fallback = adapter.implementation_fixture(configuration(), 16 * 8)
     assert fallback.fidelity == {"rcwa_order_x": 1, "rcwa_order_y": 1}
+
+
+def test_one_solve_returns_what_a_solve_per_polarization_returns():
+    config = configuration()
+    adapter = Meent2DProblem()
+    evaluator = adapter.evaluator(adapter.resolve(config, {"rcwa_order_x": 3, "rcwa_order_y": 2}))
+    generator = torch.Generator().manual_seed(3)
+    candidate = torch.randint(0, 2, (config["grid_x"] * config["grid_y"],), generator=generator).tolist()
+    measured = evaluator.evaluate(candidate)
+    assert measured.solver_executions == 1
+    assert measured.objectives["te_plus1_transmission"] != pytest.approx(measured.objectives["tm_plus1_transmission"], abs=1e-4)
+    for pol, name in ((0, "te_plus1_transmission"), (1, "tm_plus1_transmission")):
+        evaluator.mee.pol = pol
+        orders = evaluator.mee.conv_solve().res.de_ti
+        assert measured.objectives[name] == pytest.approx(float(orders[orders.shape[0] // 2, orders.shape[1] // 2 + 1]), abs=1e-12)

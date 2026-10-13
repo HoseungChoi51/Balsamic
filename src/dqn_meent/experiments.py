@@ -15,12 +15,12 @@ def write_json(path, data):
     Path(path).write_text(json.dumps(data, indent=2, allow_nan=False) + "\n")
 
 
-def baseline(config, output_dir, method="random", budget=1000, seed=0):
+def baseline(config, output_dir, method="random", budget=1000, seed=0, tensorboard_dir=None):
     """Run the preserved baseline profile through the framework lifecycle."""
     if method not in {"random", "hillclimb"}:
         raise ValueError("Require random/hillclimb method")
     from .lifecycle import execute
-    return execute(config, output_dir, method=method, budget=budget, seed=seed)
+    return execute(config, output_dir, method=method, budget=budget, seed=seed, tensorboard_dir=tensorboard_dir)
 
 
 def evaluate_design(config, design, orders, tolerance=0.005):

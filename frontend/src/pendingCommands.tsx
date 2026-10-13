@@ -11,7 +11,7 @@ function label(entry: PendingCommand) {
   const names: Record<string, string> = { 'campaign.create': 'Create campaign', 'campaign.update': 'Revise campaign',
     'context.edit': 'Save campaign guidance', 'issue.resolve': 'Resolve manager issue', 'trial.create': 'Queue experiment',
     'trial.validate': 'Check physical convergence', 'draft.save': 'Save experiment draft', 'draft.launch': 'Launch experiment',
-    'study.create': 'Create linked study', 'validation.run': 'Run validation', 'validation.waive': 'Record validation waiver',
+    'study.create': 'Create linked study', 'validation.run': 'Run validation', 'validation.waive': 'Record validation waiver', 'runtime.profile': 'Measure evaluator speed',
     'hypothesis.create': 'Create idea', 'hypothesis.review': 'Save researcher comment', 'hypothesis.status': 'Change idea status' };
   return names[request.operation] || request.operation.replaceAll('.', ' ').replaceAll('_', ' ');
 }

@@ -202,3 +202,25 @@ test('a hanging refresh times out, preserves measurements, and allows retry', as
   await dashboard.getByRole('button', { name: 'Retry resource status' }).click();
   await expect(dashboard.getByRole('alert')).toHaveCount(0);
 });
+
+test('shows each task\'s measured evaluator speed, its flags and what keeps long runs from starting', async ({ page }) => {
+  const data = fixture();
+  data.state.tasks = [{ id: 'task-a', name: '2D deflector' }];
+  data.snapshot.runtime = [{ task_id: 'task-a', task_name: '2D deflector', gate_seconds: 600, flags: ['no_scaling'], waived_flags: [], requirement_id: 'runtime_requirement_1',
+    blocker: 'The runtime profile raises: [no_scaling] Two workers deliver 2.46 evaluations/s against 2.49 for one.',
+    profile: { id: 'runtime_profile_1', status: 'completed', finished_at: now, levels: [
+      { workers: 1, status: 'measured', evaluations_per_second: 2.49, gpu_percent: 45, cpu_percent: 5, overhead_share: 0.12, bytes_per_evaluation: 140000, solver_executions_per_evaluation: 1 },
+      { workers: 2, status: 'measured', evaluations_per_second: 2.46, gpu_percent: 46, cpu_percent: 9, overhead_share: 0.12, bytes_per_evaluation: 140000, solver_executions_per_evaluation: 1 }],
+      summary: { verdict: 'failed', recommended_workers: 1, evaluations_per_hour: 8964,
+        flags: [{ id: 'no_scaling', message: 'Two workers deliver 2.46 evaluations/s against 2.49 for one, while the device is 46% busy: concurrent workers are not sharing it.' }] } } }];
+  const { writes } = await setup(page, data);
+  const panel = page.getByRole('region', { name: 'Evaluator speed' });
+  await expect(panel.getByRole('heading', { name: '2D deflector' })).toBeVisible();
+  await expect(panel.getByText('Flagged', { exact: true })).toBeVisible();
+  await expect(panel.getByText('8964')).toBeVisible();
+  await expect(panel.getByRole('row', { name: /^2 2\.46 GPU 46% 12%/ })).toBeVisible();
+  await expect(panel.getByText('concurrent workers are not sharing it')).toBeVisible();
+  await expect(panel.getByText(/Runs of .* or longer cannot start yet/)).toContainText('runtime_profile_1');
+  await panel.getByRole('button', { name: 'Measure again' }).click();
+  await expect.poll(() => writes).toContain('POST');
+});

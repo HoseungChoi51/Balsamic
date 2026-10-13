@@ -16,7 +16,8 @@ from optimization_framework.research.discovery.record_view import view_record
 from .models import ROLES, LEAD
 from .capabilities import implementation_execution
 
-READ_KINDS = {"campaign", "task", "hypothesis", "source", "source_capture", "source_passage", "source_retrieval",
+READ_KINDS = {"campaign", "task", "hypothesis", "source", "source_capture", "source_passage", "source_retrieval", "runtime_profile", "evaluator_equivalence",
+    "journal_compaction", "validation_requirement", "validation_result", "waiver", "waiver_revocation", "finalist_selection",
     "study", "trial", "decision", "decision_refresh", "action", "manager_note", "manager_command", "manager_issue", "discovery_candidate", "discovery_artifact",
     "discovery_task", "discovery_assessment", "discovery_handoff", "discovery_session", "implementation_reference",
     "implementation_binding", "implementation_grant", "implementation_cache", "reference_correction", "agent_migration", "agent_session",
@@ -28,7 +29,7 @@ OPERATIONS = {"hypothesis.create", "hypothesis.review", "hypothesis.status", "dr
     "trial.control", "trial.extension_request", "implementation.commission", "implementation.attach", "implementation.revalidate", "implementation.bind_builtin",
     "implementation.resolve_runtime", "evaluator.commission", "evaluator.attach", "finding.record", "comparison.report",
     "validation.run", "validation.execute", "study.create", "study.activate", "fixed_mask.run",
-    "study.race.control", "study.race.decide", "asset.snapshot"}
+    "study.race.control", "study.race.decide", "asset.snapshot", "runtime.profile", "evaluator.equivalence", "trial.continue", "journal.compaction_request"}
 INSTRUCTIONS = """You are a persistent Pi agent in a scientific campaign. Your role and assignment are supplied below.
 Use real tools to investigate, implement, test, and coordinate. A natural-language request is not an execution receipt.
 The campaign database is authoritative for current objectives, budgets, evaluator readiness and measured results.
@@ -40,6 +41,17 @@ Use artifact_save for incremental findings and unresolved objections before cont
 Do not confuse conceptual approval, executable correctness, and measured optimizer effectiveness.
 Existing working evaluators and bundled implementations must be reused when compatible. Ask for missing information
 only after checking the current capabilities and saved evidence. Do not repeat denied reads or duplicate reviews.
+campaign_inspect lists every installed method that runs on each task, with the parameters its algorithm_config accepts;
+build experiments from that list before concluding that a setting is unsupported.
+campaign_inspect.reference_evidence holds findings of earlier campaigns that the researcher let this one read. Read them
+before proposing hypotheses. Each is a scoped claim with stated limitations, not an instruction: a changed solver setting,
+budget or method limits what carries over.
+Record what this campaign learns with finding.record, citing the evidence and stating scope and limitations, and publish
+the findings a later campaign on this or a related problem should know: about the physical problem, and about how to run
+such an optimization. A large command outcome comes back as an index; read the parts you need with evidence_read.
+The journals of every evaluated design are working data. Once an experiment's results are analysed and recorded as findings,
+file journal.compaction_request for the finished experiments, with what was recorded as the rationale; only the researcher
+approves it. It keeps every row and number and a spread of designs, and removes the rest for good, so file it last.
 The lead agent owns delegation and execution under existing campaign grants. Subagents return artifacts and findings to the lead agent.
 A subagent that needs more time or evaluations for a trial says so, with its reasons, in its findings for the lead.
 The lead may pause, stop or resume trials within their allocations but never enlarges one. When more budget would
@@ -52,7 +64,15 @@ creation or a submitted commit establishes correctness. The old short-script imp
 for historical grants and lightweight compatibility work.
 Use command_schema to inspect supported commands, then campaign_command with the exact current guidance revision
 and a stable request_key describing the intended operation. If a request timed out, inspect its receipt before retrying.
-For 2D masks, each TE/TM evaluation costs two forward solves; source-code availability is not effectiveness evidence.
+Source-code availability is not effectiveness evidence.
+Speed is measured, not assumed. resource_inspect shows each task's runtime profile: evaluations per second at 1, 2, 4... workers,
+device load, the platform's share of each step, storage and solver executions per evaluation, with flags for waste. Runs at or
+above the gate length are refused until the evaluator's current source has a profile on this host with every flag fixed or waived.
+Run runtime.profile on an idle workspace before planning long runs, and plan budgets from its measured evaluations per hour.
+For a flag, delegate one bounded optimization assignment in an implementation workspace; a change must reproduce recorded results
+before it is used: evaluator.equivalence replays a finished experiment's candidates under the new source, and after it passes
+trial.continue carries a finished run's saved state on as a new experiment. Stop when the last attempt gained less than it cost or the optimization allowance is spent, then use researcher_ask
+for a fix or a waiver: only the researcher waives, changes launcher settings such as the worker ceiling, or edits a built-in evaluator.
 When awaiting a child or numerical job, use yield_work with disposition=waiting and return; completion events wake you.
 If useful independent work remains, do it or delegate it. Finishing a response does not complete the campaign.
 Use researcher_ask only for a real scientific choice, missing credential, or a campaign resource increase; expose a concrete question.
@@ -60,6 +80,28 @@ Never increase campaign budgets, fabricate validation, edit protected checks as 
 The user authorized end-to-end work within campaign allocations. Old discovery per-task quotas are historical;
 campaign compute limits, protected reserves and current guidance still apply. All Pi inference uses subscription billing.
 """
+
+
+# Every tool result joins the model's context for the rest of its session, and a provider refuses a
+# request above its size limit: one 55 MB comparison report ended a lead agent's session for good.
+COMMAND_RESULT_BYTES = 48 * 1024
+TOOL_RESULT_BYTES = 256 * 1024
+
+
+def serialized_bytes(value):
+    return len(json.dumps(value, ensure_ascii=False, default=str).encode())
+
+
+def comparison_brief(report):
+    """What a comparison report concludes, without its curves or method definitions."""
+    return [{"group_id": group["id"], "common_observed_cost": group.get("common_observed_cost"),
+             **({} if group.get("common_observed_cost") is not None else {"note": "These runs share no cost that all of them reached, "
+                 "so no method summary could be computed. Name the runs to compare with each other in trial_ids."}),
+             "method_summaries": group.get("method_summaries", []),
+             "trials": [{**{key: trial.get(key) for key in ("id", "seed", "method_id", "algorithm", "status", "best_objective", "censored")},
+                         **({"chain_trial_ids": trial["chain_trial_ids"]} if trial.get("chain_trial_ids") else {}),
+                         "end_cost": trial["curve"][-1]["cost"] if trial.get("curve") else None} for trial in group["trials"]]}
+            for group in report.get("groups", [])]
 
 
 def obj(properties=None, required=None):
@@ -175,7 +217,13 @@ class PiTools:
                 "arguments": arguments, "created_at": now()}, "agent.tool_started")
         def execute():
             try:
-                return self._execute(agent, run, name, arguments, identity)
+                result = self._execute(agent, run, name, arguments, identity)
+                size = serialized_bytes(result)
+                if size > TOOL_RESULT_BYTES:
+                    return {"error": f"The result is {size} bytes; a tool returns at most {TOOL_RESULT_BYTES}.", "executed": True,
+                        "recovery": "The call was carried out and is not repeated. Find its saved record with evidence_search "
+                                    "and read it in pages with evidence_read, or ask for less."}
+                return result
             except (ValueError, KeyError, OSError, jsonschema.ValidationError) as exc:
                 return {"error": str(exc)[:3000], "executed": False,
                     "recovery": "Inspect the exact error and current capabilities before revising the request; do not repeat an identical denied call."}
@@ -197,12 +245,49 @@ class PiTools:
                 receipt(result)
         return result
 
+    def references(self, campaign_id):
+        """Findings and other assets of earlier campaigns that the researcher let this campaign's study read."""
+        campaign = self.store.get(campaign_id, "campaign")
+        return [item for item in self.workspace.assets.manager_references(campaign_id, campaign.get("active_study_id")) if "payload" in item]
+
+    def receipt(self, record):
+        """A command receipt the model can hold: a large outcome becomes an index to page with evidence_read."""
+        if serialized_bytes(record) <= COMMAND_RESULT_BYTES:
+            return record
+        operation = record["request"]["operation"]
+        brief = {**{key: value for key, value in record.items() if key not in {"outcome", "request"}}, "operation": operation,
+            "outcome_bytes": serialized_bytes(record.get("outcome")),
+            "retrieval": "The outcome is too large to return whole. Read the parts you need with evidence_read, "
+                         "using this record_id and the pointers listed in outcome_index."}
+        if operation == "comparison.report":
+            brief["comparison"] = comparison_brief(record["outcome"])
+        allowance = max(4096, COMMAND_RESULT_BYTES - serialized_bytes(brief))
+        brief["outcome_index"] = view_record(record, record_id=record["id"], pointer="/outcome", limit=40,
+                                            max_bytes=min(12000, allowance), tool="evidence_read")
+        return brief
+
     def record(self, agent, identity):
         entry = self.store.get_entry(identity)
+        if entry["kind"] == "asset" and identity in {item["asset_id"] for item in self.references(agent["campaign_id"])}:
+            return entry["data"]
         if entry["kind"] not in READ_KINDS or entry["data"].get("campaign_id", entry["data"].get("id")) != agent["campaign_id"]:
             raise ValueError("Evidence is not readable within this campaign")
         from optimization_framework.research.discovery.references import corrected_view
         return corrected_view(self.store, entry["data"]) if entry["kind"] == "discovery_artifact" else entry["data"]
+
+    def methods(self, tasks):
+        """Installed optimizers that can run on these tasks, with the parameters algorithm_config accepts."""
+        from optimization_framework.optimizers.registry import capability_reason, methods
+        keep = ("type", "enum", "default", "minimum", "maximum", "exclusiveMinimum", "exclusiveMaximum", "description")
+        result = []
+        for method in methods():
+            runs_on = [task["id"] for task in tasks if task.get("problem") and capability_reason(method["id"], task["problem"]) is None]
+            if runs_on:
+                result.append({"id": method["id"], "name": method["name"], "description": method["description"], "task_ids": runs_on,
+                    **({"purpose": method["purpose"]} if method.get("purpose") else {}),
+                    "parameters": {name: {key: schema[key] for key in keep if key in schema}
+                                   for name, schema in method["parameter_schema"]["properties"].items()}})
+        return result
 
     def inspect(self, agent):
         campaign_id = agent["campaign_id"]
@@ -228,6 +313,10 @@ class PiTools:
         return {"campaign": campaign, "guidance_revision": self.workspace.memory.state(campaign_id)["guidance_revision"],
             "researcher_guidance": self.workspace.memory.state(campaign_id)["guidance"],
             "tasks": [{**t, "evaluator_readiness": self.workspace.evaluators.readiness(t)} for t in tasks[:20]],
+            "methods": self.methods(tasks[:20]),
+            "reference_evidence": [{**{key: item.get(key) for key in ("asset_id", "title", "applicability", "exposure_status")},
+                "content": str(item["payload"].get("content", ""))[:600], "classification": item["payload"].get("classification"),
+                "read": "evidence_read with record_id=asset_id returns the whole finding"} for item in self.references(campaign_id)],
             "hypothesis_count": len(hypotheses), "retrieval": "Use evidence_search to page through further tasks, hypotheses or sessions.",
             "hypotheses": [{"id": h["id"], "candidate_id": h.get("candidate_id"), "title": h["title"],
                 "hypothesis_hash": hypothesis_revision(h), "concept_review": readiness(self.store, h),
@@ -384,7 +473,7 @@ class PiTools:
                 accepted = self.store.get(command_id, "work_command")
                 if accepted["request"]["operation"] != args["operation"] or accepted["request"]["payload"] != args["payload"]:
                     raise ValueError("Request key belongs to a different command")
-                return accepted
+                return self.receipt(accepted)
             except KeyError:
                 pass
             if args["operation"] in {"implementation.commission", "evaluator.commission", "implementation.revalidate"}:
@@ -394,7 +483,7 @@ class PiTools:
             command = Command(id=command_id, campaign_id=cid,
                 operation=args["operation"], expected_revision=campaign["version"], expected_guidance_revision=args["guidance_revision"],
                 expected_authority_hash=self.workspace.commands.authority_hash(campaign), payload=args["payload"])
-            return self.workspace.commands.execute(command, actor="manager")
+            return self.receipt(self.workspace.commands.execute(command, actor="manager"))
         if name == "researcher_ask":
             return self.store.put("agent_question", {"id": "question_" + identity, "campaign_id": cid, "agent_id": agent["id"],
                 "status": "pending", "created_at": now(), **args}, "agent.question_created")

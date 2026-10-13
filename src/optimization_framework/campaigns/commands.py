@@ -13,12 +13,12 @@ from optimization_framework.contracts.references import ReferenceImportInput
 from optimization_framework.contracts.bundles import BundleExportInput, BundleInspectInput, BundlePublishInput
 from optimization_framework.contracts.commands import EvaluatorCommissionInput, EvaluatorAttachInput, ImplementationControlInput, WaiverRevocationInput, RevalidationInput, ExecutableReuseInput, RuntimeResolutionInput
 from optimization_framework.contracts.commands import CampaignUpdateInput, ContextEditInput, IssueResolveInput, TrialControlInput, TrialValidationInput
-from optimization_framework.contracts.commands import TrialExtensionRequestInput
+from optimization_framework.contracts.commands import TrialExtensionRequestInput, JournalCompactInput, JournalCompactionRequestInput
 from optimization_framework.contracts.commands import HypothesisReviewInput, HypothesisStatusInput, HypothesisNominateInput
 from optimization_framework.contracts.commands import ResearchControlInput, ResearchRetryInput, DecisionResolveInput, DecisionRefreshInput, SourceRecordInput, SourceIngestInput
 from optimization_framework.contracts.commands import InferenceRunInput, FinalistSetInput
 from optimization_framework.contracts.manager import ContextImportInput
-from optimization_framework.contracts.commands import ComparisonReportInput
+from optimization_framework.contracts.commands import ComparisonReportInput, RuntimeProfileInput, EquivalenceInput, TrialContinueInput
 from optimization_framework.contracts.commands import AssetSnapshotInput
 from optimization_framework.contracts.racing import RaceCreateInput, RaceControlInput, RaceDecisionInput
 
@@ -33,6 +33,9 @@ DELEGATED.update({"fixed_mask.run", "hypothesis.create", "hypothesis.review", "h
 DELEGATED.update({"study.race.control", "study.race.decide"})
 DELEGATED.add("asset.snapshot")
 DELEGATED.add("trial.extension_request")
+DELEGATED.update({"runtime.profile", "evaluator.equivalence", "trial.continue"})
+# The lead asks; removing recorded designs is the researcher's decision (journal.compact is not delegated).
+DELEGATED.add("journal.compaction_request")
 
 
 class CommandService:
@@ -114,6 +117,8 @@ class CommandService:
             "study.race.create": RaceCreateInput, "study.race.control": RaceControlInput,
             "study.race.decide": RaceDecisionInput,
             "validation.require": RecipeInput, "validation.execute": ExecuteValidationInput, "validation.waive": WaiverInput,
+            "runtime.profile": RuntimeProfileInput, "evaluator.equivalence": EquivalenceInput, "trial.continue": TrialContinueInput,
+            "journal.compact": JournalCompactInput, "journal.compaction_request": JournalCompactionRequestInput,
             "validation.revoke_waiver": WaiverRevocationInput,
             "asset.reuse": ReuseInput, "finding.record": FindingInput, "implementation.commission": CommissionInput,
             "asset.snapshot": AssetSnapshotInput,
@@ -204,8 +209,11 @@ class CommandService:
                     from .inbox import check_issues
                     check_issues(self.workspace, command)
                     default_wall = 60 if command.operation == "trial.create" else 120
-                    if command.operation in {"trial.create", "validation.run", "validation.execute", "inference.run"} and command.payload.get("wall_seconds", default_wall) > campaign["delegated_trial_seconds"]:
+                    if (command.operation in {"trial.create", "validation.run", "validation.execute", "inference.run", "evaluator.equivalence", "trial.continue"}
+                            and command.payload.get("wall_seconds", default_wall) > campaign["delegated_trial_seconds"]):
                         raise ValueError("Command exceeds the manager's delegated per-experiment allowance")
+                    if command.operation == "trial.continue" and command.payload.get("accept_unverified"):
+                        raise ValueError("Only the researcher continues a run under an evaluator that was not shown to be equivalent")
                     # The manager may pause, stop or resume within an allocation; only the researcher enlarges one.
                     if command.operation == "trial.control" and (command.payload.get("action") == "extend"
                             or any(command.payload.get(key) is not None for key in ("max_steps", "wall_seconds"))):
@@ -376,11 +384,16 @@ class CommandService:
         if command.operation == "asset.snapshot":
             values = AssetSnapshotInput(**payload)
             trial = self._target(command, "trial_id", "trial")
-            from optimization_framework.execution.worker import iter_journal
-            observation = next((row for row in iter_journal(self.workspace.job_dir(trial["id"]) / "observations.jsonl")
+            from optimization_framework.execution.metrics import full_row, scalar_rows
+            journal = self.workspace.job_dir(trial["id"]) / "observations.jsonl"
+            observation = next((full_row(journal, offset) for offset, _, row in scalar_rows(journal)
                                 if row.get("id") == values.observation_id and row.get("status") == "ok"), None)
             if observation is None:
                 raise ValueError("Select an exact successful observation from this experiment's journal")
+            from optimization_framework.execution.compaction import has_design
+            if not has_design(observation):
+                raise ValueError(f"That observation's design was removed when this experiment's journals were compacted on {trial.get('journals_compacted_at')}; "
+                                 "its archive and a spread of its designs remain")
             from optimization_framework.evaluation.jobs import snapshot_solutions
             asset = snapshot_solutions(self.workspace, trial, [observation["candidate"]])[0]
             return {"asset_id": asset["id"], "observation_id": values.observation_id}
@@ -629,6 +642,49 @@ class CommandService:
             decision = ReuseDecision(id="reuse_" + command.id, campaign_id=command.campaign_id,
                 **values, authority=actor, created_at=now())
             return {"reuse_decision_id": self.workspace.assets.decide(decision)["id"]}
+        if command.operation == "evaluator.equivalence":
+            record = self.workspace.equivalence.start(command.campaign_id, EquivalenceInput(**payload))
+            return {"equivalence_id": record["id"], "replay_trial_id": record["replay_trial_id"], "candidates": len(record["expected"])}
+        if command.operation == "trial.continue":
+            self._target(command, "trial_id", "trial")
+            return self._trial_outcome(self.workspace.continue_trial(TrialContinueInput(**payload)), snapshot=actor == "researcher")
+        if command.operation == "journal.compact":
+            if actor != "researcher":
+                raise ValueError("Only the researcher removes recorded designs; file journal.compaction_request")
+            values = JournalCompactInput(**payload)
+            plan = self.workspace.journals.plan(command.campaign_id, trial_ids=values.trial_ids, study_id=values.study_id)
+            job = self.workspace.journals.start(command.campaign_id, plan["trial_ids"], authority=actor, identity="journal_compaction_" + command.id)
+            return {"compaction_id": job["id"], "trial_ids": job["trial_ids"], "bytes_before": job["bytes_before"], "kept": job["kept"]}
+        if command.operation == "journal.compaction_request":
+            # The researcher approves it in the decision inbox, which runs the
+            # compaction under researcher authority (research_commands.resolve).
+            values = JournalCompactionRequestInput(**payload)
+            plan = self.workspace.journals.plan(command.campaign_id, trial_ids=values.trial_ids, study_id=values.study_id)
+            if not plan["trial_ids"]:
+                raise ValueError("None of these experiments has journals left to compact")
+            campaign = self.store.get(command.campaign_id, "campaign")
+            lead = self.workspace.pi.owns(command.campaign_id)
+            count, size = len(plan["trial_ids"]), plan["bytes"] / 1e9
+            uncited = plan["not_cited_by_a_finding"]
+            title = f"Remove the evaluated designs from the journals of {count} finished experiment{'s' if count != 1 else ''} ({size:.2f} GB)?"
+            decision = {"id": "compaction_" + command.id, "campaign_id": command.campaign_id, "charter_version": campaign["version"],
+                "guidance_revision": self.workspace.memory.state(command.campaign_id)["guidance_revision"],
+                "question": title, "title": title, "rationale": values.rationale, "context": values.rationale,
+                "proposal": f"{'The lead agent' if lead else 'The campaign manager'} asks to compact the request and observation journals of {count} "
+                    f"finished experiment{'s' if count != 1 else ''}, which hold {size:.2f} GB. Every row and every number stays, with the designs of each "
+                    "experiment's archive, of its 32 best evaluations and of 32 spread over the run; results, metrics and saved states are untouched. "
+                    "The other evaluated designs are removed and cannot be brought back: they can no longer be snapshotted or replayed. "
+                    + (f"{len(uncited)} of these experiments {'is' if len(uncited) == 1 else 'are'} not cited by any recorded finding yet: " + ", ".join(uncited[:20])
+                       + (" …" if len(uncited) > 20 else "") + "." if uncited else "Every one of them is cited by a recorded finding."),
+                "options": [{"id": "0", "label": "Compact these journals", "description": "Runs under your authority; the removed designs are gone for good."},
+                            {"id": "1", "label": "Keep the journals", "description": "The requester is told and nothing changes."}],
+                "recommendation": "0" if not uncited else "1", "journal_compaction": {"trial_ids": plan["trial_ids"], "bytes": plan["bytes"]},
+                "requested_by": "lead" if lead else "manager", "audience": "researcher", "status": "pending", "created_at": now()}
+            self.store.put("decision", decision, "decision.created")
+            return {"decision_id": decision["id"], "trial_ids": plan["trial_ids"], "bytes": plan["bytes"], "not_cited_by_a_finding": uncited}
+        if command.operation == "runtime.profile":
+            profile = self.workspace.runtime.start(command.campaign_id, RuntimeProfileInput(**payload))
+            return {"runtime_profile_id": profile["id"], "levels": [level["workers"] for level in profile["levels"]]}
         if command.operation == "validation.waive":
             values = WaiverInput(**payload)
             requirement = self._target(command, "requirement_id", "validation_requirement")

@@ -64,7 +64,7 @@ def test_real_meent_uses_campaign_mask_order(method):
     optimizer = create(method, instance, {}, seed=7, schedule_steps=1)
     proposal = optimizer.propose()[0]
     result = Meent2DProblem().evaluator(instance).evaluate(proposal.candidate)
-    assert result.solver_executions == 2
+    assert result.solver_executions == 1
     assert result.objectives["mean_plus1_transmission"] == pytest.approx(
         (result.objectives["te_plus1_transmission"] + result.objectives["tm_plus1_transmission"]) / 2)
     optimizer.observe([observed(proposal, instance, result.objectives["mean_plus1_transmission"])])

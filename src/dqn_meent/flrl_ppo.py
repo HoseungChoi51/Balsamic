@@ -11,20 +11,73 @@ import torch
 from torch import nn
 
 
-class ActorCritic(nn.Module):
-    def __init__(self, observation_size, action_size, *, frames=1, cnn=False):
+class TransformerFeatures(nn.Module):
+    """Self-attention over the stacked Fourier-coefficient frames, in place of the reference CNN.
+
+    Tokens are the coefficients (their recent frames as features), the frames (their
+    coefficients as features), or every coefficient of every frame. A coefficient's position
+    is a learned embedding or a projection of its Fourier mode (kx, ky, real/imaginary part).
+    """
+
+    def __init__(self, coefficients, frames, modes, config):
         super().__init__()
-        self.frames, self.cnn = frames, cnn
-        self.features = nn.Sequential(nn.Conv2d(1, 32, 3, padding=1), nn.ReLU(),
-            nn.Conv2d(32, 64, 3, padding=1), nn.ReLU(), nn.MaxPool2d((2, 1)),
-            nn.Conv2d(64, 128, 3, padding=1), nn.ReLU(), nn.AdaptiveAvgPool2d((1, 1)), nn.Flatten()) if cnn else nn.Identity()
-        width = 128 if cnn else observation_size
+        self.coefficients, self.frames = coefficients, frames
+        self.tokens = config.get('transformer_tokens', 'coefficient')
+        self.pooling = config.get('transformer_pooling', 'mean')
+        self.width = width = config.get('transformer_width', 64)
+        self.embed = nn.Linear({'coefficient': frames, 'frame': coefficients, 'coefficient_frame': 1}[self.tokens], width)
+        nx, ny = modes
+        real = (nx + 1) * (ny + 1)
+        index = torch.arange(coefficients)
+        local = torch.where(index < real, index, index - real)
+        # The released ordering runs from the highest mode down, real parts before imaginary parts.
+        self.register_buffer('modes', torch.stack([(nx - local // (ny + 1)) / max(nx, 1), (ny - local % (ny + 1)) / max(ny, 1),
+                                                   (index >= real).float()], dim=1))
+        learned = config.get('transformer_positions', 'learned') == 'learned'
+        located = self.tokens != 'frame'
+        self.coefficient_position = nn.Parameter(.02 * torch.randn(coefficients, width)) if located and learned else None
+        self.mode_position = nn.Linear(3, width) if located and not learned else None
+        self.frame_position = nn.Parameter(.02 * torch.randn(frames, width)) if self.tokens != 'coefficient' else None
+        self.summary = nn.Parameter(.02 * torch.randn(1, 1, width)) if self.pooling == 'cls' else None
+        layer = nn.TransformerEncoderLayer(width, config.get('transformer_heads', 4),
+            config.get('transformer_feedforward', 2) * width, dropout=0., activation='gelu', batch_first=True, norm_first=True)
+        self.encoder = nn.TransformerEncoder(layer, config.get('transformer_layers', 2), norm=nn.LayerNorm(width),
+                                             enable_nested_tensor=False)
+
+    def forward(self, observations):
+        frames = observations.reshape(len(observations), self.frames, self.coefficients)  # the history is frame-major
+        position = self.coefficient_position if self.coefficient_position is not None else (
+            self.mode_position(self.modes) if self.mode_position is not None else None)
+        if self.tokens == 'coefficient':
+            tokens = self.embed(frames.transpose(1, 2)) + position
+        elif self.tokens == 'frame':
+            tokens = self.embed(frames) + self.frame_position
+        else:
+            tokens = (self.embed(frames.unsqueeze(-1)) + position + self.frame_position[:, None]).flatten(1, 2)
+        if self.summary is not None:
+            tokens = torch.cat([self.summary.expand(len(tokens), -1, -1), tokens], dim=1)
+        encoded = self.encoder(tokens)
+        return encoded[:, 0] if self.summary is not None else encoded.mean(dim=1)
+
+
+class ActorCritic(nn.Module):
+    def __init__(self, observation_size, action_size, *, frames=1, cnn=False, transformer=None, modes=None):
+        super().__init__()
+        self.frames, self.cnn = frames, cnn and transformer is None
+        if transformer is not None:
+            self.features = TransformerFeatures(observation_size // frames, frames, modes, transformer)
+        else:
+            self.features = nn.Sequential(nn.Conv2d(1, 32, 3, padding=1), nn.ReLU(),
+                nn.Conv2d(32, 64, 3, padding=1), nn.ReLU(), nn.MaxPool2d((2, 1)),
+                nn.Conv2d(64, 128, 3, padding=1), nn.ReLU(), nn.AdaptiveAvgPool2d((1, 1)), nn.Flatten()) if cnn else nn.Identity()
+        width = self.features.width if transformer is not None else 128 if cnn else observation_size
         def branch(output):
             return nn.Sequential(nn.Linear(width, 128), nn.ReLU(), nn.Linear(128, 128), nn.ReLU(),
                                  nn.Linear(128, 128), nn.ReLU(), nn.Linear(128, output))
         self.actor, self.critic = branch(action_size), branch(1)
         self.log_std = nn.Parameter(torch.zeros(action_size))
-        for module in self.modules():
+        # The attention layers keep PyTorch's own initialization; the reference scheme covers the rest.
+        for module in (self.modules() if transformer is None else [*self.actor.modules(), *self.critic.modules()]):
             if isinstance(module, (nn.Linear, nn.Conv2d)):
                 nn.init.orthogonal_(module.weight, np.sqrt(2)); nn.init.zeros_(module.bias)
         nn.init.orthogonal_(self.actor[-1].weight, .01)
@@ -38,12 +91,13 @@ class ActorCritic(nn.Module):
 
 
 class PPO:
-    def __init__(self, observation_size, action_size, seed, config, *, cnn=False, frames=1):
+    def __init__(self, observation_size, action_size, seed, config, *, cnn=False, frames=1, modes=None):
         self.config = dict(config)
         self.rng = np.random.default_rng(seed)
+        transformer = self.config if self.config.get('policy_network', 'cnn') == 'transformer' else None
         with torch.random.fork_rng(devices=[]):
             torch.manual_seed(seed)
-            self.network = ActorCritic(observation_size, action_size, cnn=cnn, frames=frames)
+            self.network = ActorCritic(observation_size, action_size, cnn=cnn, frames=frames, transformer=transformer, modes=modes)
         self.optimizer = torch.optim.Adam(self.network.parameters(), lr=config.get('ppo_learning_rate', .003), eps=1e-5)
         self.rollout, self.updates = [], 0
         self.gamma, self.lam = config.get('ppo_gamma', .9), config.get('ppo_gae_lambda', .95)

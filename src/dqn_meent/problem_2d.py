@@ -1,8 +1,12 @@
 """Installed MEENT evaluator for the FLRL two-dimensional beam deflector."""
 from __future__ import annotations
 
+import importlib.util
 import math
+import os
+import sys
 from copy import deepcopy
+from pathlib import Path
 from typing import Any
 
 from optimization_framework.contracts.base import content_hash
@@ -333,18 +337,45 @@ class Meent2DProblem:
                 "note": "Consistency over the tested 2D truncations is separate from independent evaluator correctness and scientific confirmation."}
 
 
+def _solver():
+    """The installed MEENT on CPU, or the Torch-only checkout named by GRATING_MEENT_2D_SOURCE on CUDA.
+
+    Both report version 0.13.2 and agree to about 1e-11 in every diffraction efficiency, so
+    each evaluation records which one produced it. The checkout loads under its own module
+    name, leaving the installed package to the NumPy 1D solver.
+    """
+    import torch
+
+    source = os.environ.get("GRATING_MEENT_2D_SOURCE")
+    if not source:
+        import meent
+        return meent, {"backend": 2, "device": 0}, {}
+    if not torch.cuda.is_available():
+        raise ValueError("GRATING_MEENT_2D_SOURCE selects the CUDA solver, but no CUDA device is available")
+    from optimization_framework.execution.source import checkout_identity
+    package = Path(source).expanduser().resolve() / "meent"
+    if "meent_2d_source" not in sys.modules:
+        spec = importlib.util.spec_from_file_location("meent_2d_source", package / "__init__.py",
+                                                      submodule_search_locations=[str(package)])
+        module = importlib.util.module_from_spec(spec)
+        sys.modules["meent_2d_source"] = module
+        spec.loader.exec_module(module)
+    # Its call_mee is Torch-only and has no backend argument.
+    return sys.modules["meent_2d_source"], {"device": 1}, {"source": checkout_identity(source), "device": "cuda"}
+
+
 class Meent2DEvaluator:
     def __init__(self, instance: ProblemInstance):
-        import meent
         import torch
 
+        meent, selection, self.provenance = _solver()
         if meent.__version__ != "0.13.2":
             raise ValueError("This evaluator requires MEENT 0.13.2")
         self.instance = instance
         self.torch = torch
         self.cache = {}
         self.mee = meent.call_mee(
-            backend=2, pol=0,
+            pol=0, **selection,
             n_top=instance.configuration["incident_n"],
             n_bot=instance.configuration["exit_n"],
             theta=torch.tensor(math.radians(instance.configuration["incident_angle_deg"]), dtype=torch.float64),
@@ -353,8 +384,17 @@ class Meent2DEvaluator:
             wavelength=instance.configuration["wavelength_nm"],
             period=torch.tensor([instance.configuration["period_x_nm"], instance.configuration["period_y_nm"]], dtype=torch.float64),
             thickness=torch.tensor([instance.configuration["thickness_nm"]], dtype=torch.float64),
-            type_complex=torch.complex128, device=0,
+            type_complex=torch.complex128,
         )
+
+    def _solve(self):
+        """Pure-TE and pure-TM results of the current cell, from one solve.
+
+        A 2D solve returns both incidences next to the one selected by ``pol``. Solving once
+        per polarization repeated the whole eigenproblem for values that agree to about 1e-15.
+        """
+        result = self.mee.conv_solve()
+        return result.res_te_inc, result.res_tm_inc
 
     def evaluate(self, candidate: list[int | float]) -> Evaluation:
         values = self.instance.candidate_schema.canonicalize(candidate)
@@ -366,9 +406,7 @@ class Meent2DEvaluator:
         efficiencies = []
         energy_totals = []
         with self.torch.no_grad():
-            for pol in (0, 1):
-                self.mee.pol = pol
-                result = self.mee.conv_solve().res
+            for result in self._solve():
                 transmitted = result.de_ti
                 reflected = result.de_ri
                 if transmitted.ndim != 2 or transmitted.shape != (
@@ -393,8 +431,8 @@ class Meent2DEvaluator:
                 "tm_plus1_transmission": tm,
                 "min_plus1_transmission": min(te, tm),
             },
-            metadata={"meent": {"version": "0.13.2", "energy_totals": energy_totals}},
-            solver_executions=2, cache_hit=False,
+            metadata={"meent": {"version": "0.13.2", "energy_totals": energy_totals, **self.provenance}},
+            solver_executions=1, cache_hit=False,
         )
 
     def checkpoint(self) -> dict:
@@ -428,19 +466,16 @@ class Meent2DEvaluator:
             field = torch.tensor(np.array(geometry.basis), dtype=torch.float64) @ coefficients
             density = torch.sigmoid(beta * field).reshape(1, config['grid_y'], config['grid_x'])
             self.mee.ucell = (1 + density * (config['silicon_n_1050'] ** 2 - 1)).sqrt() if request['material_map'] == 'permittivity' else 1 + density * (config['silicon_n_1050'] - 1)
-            scores = []
-            for pol in (0, 1):
-                self.mee.pol = pol
-                result = self.mee.conv_solve().res
-                scores.append(result.de_ti[self.instance.fidelity['rcwa_order_y'] + config['target_order_y'],
-                                          self.instance.fidelity['rcwa_order_x'] + config['target_order_x']])
+            scores = [result.de_ti[self.instance.fidelity['rcwa_order_y'] + config['target_order_y'],
+                                   self.instance.fidelity['rcwa_order_x'] + config['target_order_x']]
+                      for result in self._solve()]
             mean = (scores[0] + scores[1]) / 2
             gradient, = torch.autograd.grad(mean, coefficients)
             if not torch.isfinite(gradient).all() or not torch.isfinite(mean):
                 raise ValueError('MEENT returned nonfinite relaxed gradients')
             output = {'gradient': gradient.detach().tolist(), 'mean': float(mean.detach()),
                 'te': float(scores[0].detach()), 'tm': float(scores[1].detach()), 'beta': beta,
-                'material_map': request['material_map'], 'forward_solver_executions': 2, 'backward_calls': 1}
+                'material_map': request['material_map'], 'forward_solver_executions': 1, 'backward_calls': 1}
         self.mee.ucell = self.mee.ucell.detach()
         return output
 
@@ -448,7 +483,7 @@ class Meent2DEvaluator:
         """Account for hard scoring and an optional gradient at the same geometry.
 
         Only binary objectives enter the archive. Relaxed scores/gradients are
-        auxiliary observation metadata; each forward polarization is charged.
+        auxiliary observation metadata; each forward solve (both polarizations) is charged.
         """
         from dqn_meent.fourier import FourierGeometry
 
@@ -469,5 +504,5 @@ class Meent2DEvaluator:
                 self.cache.pop(next(iter(self.cache)))
         if request is not None:
             result = result.model_copy(update={"metadata": {**result.metadata, 'flrl_gradient': self.relaxed_gradient(request)},
-                                               "solver_executions": result.solver_executions + 2})
+                                               "solver_executions": result.solver_executions + 1})
         return result

@@ -20,7 +20,7 @@ LOG_FIELDS = ["step", "episode", "episode_step", "epsilon", "reward", "efficienc
               "best_efficiency", "loss", "evaluations", "solver_calls", "cache_hits", "elapsed_seconds"]
 
 
-def execute(config, output_dir, *, method="dqn", budget=None, seed=None, resume=None):
+def execute(config, output_dir, *, method="dqn", budget=None, seed=None, resume=None, tensorboard_dir=None):
     output = Path(output_dir).resolve()
     tc = config.training
     seed = tc.seed if seed is None else seed
@@ -98,7 +98,9 @@ def execute(config, output_dir, *, method="dqn", budget=None, seed=None, resume=
         spec.update(experiment_spec=frozen.model_dump(mode="json"), experiment_spec_hash=frozen.digest())
         atomic_json(output / "spec.json", spec)
         atomic_json(output / "config.json", config.to_dict())
-    result = run(output)
+    from .tracking import JournalFollower
+    with JournalFollower(output / "metrics.jsonl", tensorboard_dir, config, method, count, resumed=resume is not None):
+        result = run(output)
     return export_summary(config, output, result, method=method, seed=seed, resume=resume)
 
 
@@ -129,20 +131,27 @@ def export_summary(config, output, result, *, method, seed, resume=None):
     return summary
 
 
+def metric_row(record, method):
+    """Historical log fields of one journal record; resets and the initial evaluation have none."""
+    diagnostics = record["diagnostics"]
+    step = diagnostics.get("decisions", 0) if method == "dqn" else record["step"]
+    if step == 0 or (method == "dqn" and diagnostics.get("reward") is None):
+        return None
+    return {"step": step, "episode": diagnostics.get("episode", ""), "episode_step": diagnostics.get("episode_step", ""),
+        "epsilon": diagnostics.get("epsilon", ""), "reward": diagnostics.get("reward", ""),
+        "efficiency": record["objective"], "best_efficiency": record["best_objective"],
+        "loss": diagnostics.get("transition_loss") if diagnostics.get("transition_loss") is not None else "",
+        "evaluations": record["evaluations"], "solver_calls": record["solver_calls"], "cache_hits": record["cache_hits"],
+        "elapsed_seconds": record["elapsed_seconds"]}
+
+
 def project_metrics(output, method):
     """CSV is a replaceable projection; journals retain every physical attempt."""
     rows = {}
     for record in iter_journal(output / "metrics.jsonl"):
-        diagnostics = record["diagnostics"]
-        step = diagnostics.get("decisions", 0) if method == "dqn" else record["step"]
-        if step == 0 or (method == "dqn" and diagnostics.get("reward") is None):
-            continue
-        rows[step] = {"step": step, "episode": diagnostics.get("episode", ""), "episode_step": diagnostics.get("episode_step", ""),
-            "epsilon": diagnostics.get("epsilon", ""), "reward": diagnostics.get("reward", ""),
-            "efficiency": record["objective"], "best_efficiency": record["best_objective"],
-            "loss": diagnostics.get("transition_loss") if diagnostics.get("transition_loss") is not None else "",
-            "evaluations": record["evaluations"], "solver_calls": record["solver_calls"], "cache_hits": record["cache_hits"],
-            "elapsed_seconds": record["elapsed_seconds"]}
+        row = metric_row(record, method)
+        if row:
+            rows[row["step"]] = row
     with (output / "metrics.csv").open("w", newline="") as stream:
         writer = csv.DictWriter(stream, fieldnames=LOG_FIELDS)
         writer.writeheader()

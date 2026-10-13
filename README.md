@@ -125,6 +125,15 @@ uv run --no-sync dqn-meent evaluate --run runs/hillclimb-s0 --orders 15 25 40 60
 uv run --no-sync dqn-meent plot --runs runs/dqn-s0 runs/random-s0 runs/hillclimb-s0 --output runs/comparison.png
 ```
 
+To watch a run while it is in progress, add `--tensorboard-dir` to `train` or `baseline`:
+
+```bash
+uv run --no-sync dqn-meent train --config configs/starter.json --output runs/dqn-s0 --seed 0 --tensorboard-dir runs/tensorboard/dqn-s0
+uv run --no-sync tensorboard --logdir runs/tensorboard --host 127.0.0.1 --port 6007
+```
+
+Efficiency, loss, exploration, solver cost and the best design appear every 100 steps and on each improvement. The events are a view of the run's recorded journal: they do not change its numbers, and a resumed run continues the same curves. With `--workspace-url` the events are written when the run's evidence is exported, because the service already shows live curves at its `/tensorboard` page.
+
 Random search generates independent uniform binary designs after the initial all-Si design. Hill climbing proposes a random single-cell change and restarts after `2*N` rejected moves; it is not the article's exhaustive depth-1/depth-2 greedy baseline. Use several seeds for each algorithm before making comparative claims. Train a separate model for each wavelength/angle; this initial framework does not claim cross-condition generalization.
 
 A DQN training budget counts actions. Baseline budgets count evaluation requests, including the initial design. DQN also evaluates the initial design on each episode reset; after the first reset these normally hit the cache. The CSV logs both actual RCWA calls and cache hits, so compare actual solver calls and wall time as well as action count. Baseline and training each have separate caches. Higher-order evaluation uses fresh solvers and is a separate validation expense.

@@ -4,6 +4,8 @@ from optimization_framework.contracts.validation import ValidationRequirement, V
 
 
 DEFAULT_WAIVABLE = {"solution_fidelity", "learner_diagnostics"}
+# How fast an evaluator runs is not a scientific claim, so a study's frozen list of waivable kinds does not withhold it.
+ALWAYS_WAIVABLE = {"runtime_efficiency"}
 
 
 class ValidationService:
@@ -53,7 +55,7 @@ class ValidationService:
             raise ValueError("The subject changed; create a requirement for the new version")
         study = self.store.get(requirement["study_id"], "study")
         policy = study.get("validation_policy", {})
-        eligible = set(policy.get("waivable_kinds", DEFAULT_WAIVABLE))
+        eligible = set(policy.get("waivable_kinds", DEFAULT_WAIVABLE)) | ALWAYS_WAIVABLE
         if requirement["kind"] not in eligible:
             raise ValueError("The frozen study policy does not permit waiving this requirement")
         if requirement.get("scope", {}).get("mandatory_contract"):
@@ -98,7 +100,7 @@ class ValidationService:
             active = [row for row in active if "new_failed_result" not in row["invalidation_conditions"]
                       or self.store.record_position(row["id"]) > self.store.record_position(latest["id"])]
         state = "stale" if stale else "passed" if latest and latest["verdict"] == "passed" else "waived" if active else latest["verdict"] if latest else "pending"
-        waiver_allowed = (not stale and requirement["kind"] in set(policy.get("waivable_kinds", DEFAULT_WAIVABLE))
+        waiver_allowed = (not stale and requirement["kind"] in set(policy.get("waivable_kinds", DEFAULT_WAIVABLE)) | ALWAYS_WAIVABLE
             and not (latest and latest.get("measurements", {}).get("known_specification_failure"))
             and not requirement.get("scope", {}).get("mandatory_contract")
             and (requirement["recipe_id"] != "evaluator_numerical:v1" or study.get("scope") == "exploratory")

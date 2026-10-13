@@ -3,6 +3,8 @@ from optimization_framework.contracts.assets import Asset
 from optimization_framework.contracts.commands import FindingInput
 from optimization_framework.storage.sqlite import now
 
+MEASUREMENT_KINDS = ("runtime_profile", "evaluator_equivalence", "fixed_mask_job", "fixed_mask_report", "agent_artifact")
+
 
 def record(workspace, command, actor):
     store = workspace.store
@@ -11,6 +13,10 @@ def record(workspace, command, actor):
         raise ValueError("Only the researcher can endorse a conclusion")
     campaign = store.get(command.campaign_id, "campaign")
     visible = {item["id"] for _, item in workspace.memory._records(command.campaign_id)}
+    # Measurements of the evaluator and the agents' saved analyses are this campaign's evidence too:
+    # what a campaign learned about speed or numerical agreement is citable like an experiment.
+    for kind in MEASUREMENT_KINDS:
+        visible.update(item["id"] for item in store.list(kind, command.campaign_id))
     visible.update(item["asset_id"] for item in workspace.assets.manager_references(command.campaign_id, campaign.get("active_study_id")) if "payload" in item)
     if set([*values.source_ids, *values.counterevidence_for]) - visible:
         raise ValueError("Finding cites evidence outside the visible context; declare historical reference access first")
@@ -37,7 +43,8 @@ def record(workspace, command, actor):
                 + source.get("research_cost_asset_ids", []) + ([source["asset_id"]] if source.get("asset_id") else []))
             evidence_covered &= bool(candidates)
             dependencies.update(candidates)
-            if source.get("problem"):
+            # An experiment carries its problem; a measurement record names it by digest only.
+            if isinstance(source.get("problem"), dict):
                 exposed.add(source["problem"]["scientific_identity"])
         if actor == "manager" and command.id.startswith("action_"):
             try:

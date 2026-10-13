@@ -144,6 +144,28 @@ function AgentModelPanel({ state, refresh }: { state: State; refresh: () => Prom
   </div></Panel>;
 }
 
+const modelName = (model?: { provider?: string; model?: string; effort?: string | null } | null) =>
+  model?.model ? `${model.provider}/${model.model}${model.effort ? ` · ${model.effort}` : ''}` : '';
+
+/** Until its agent team starts, a campaign is run by the earlier campaign manager, not by the lead agent. */
+function StartTeamPanel({ state, refresh }: { state: State; refresh: () => Promise<void> }) {
+  const command = useCommand(state.campaign);
+  const [busy, setBusy] = useState(false), [error, setError] = useState('');
+  const lead = modelName(state.agent_runtime?.lead_model);
+  async function start() {
+    setBusy(true); setError('');
+    try { await command('agent.activate', {}); await refresh(); } catch (reason) { setError(errorText(reason)); } finally { setBusy(false); }
+  }
+  return <Panel title="Agent team" eyebrow="This campaign" className="agent-models"><div className="model-panel-body">
+    <p className="help-text">This campaign has no agent team yet, so its campaign manager is not the lead agent and does not follow the tiers above.
+      {lead ? ` Starting the team hands the campaign to the lead agent on ${lead}; every agent then follows its role's tier.`
+        : ' No model is available for a lead agent on this server.'}</p>
+    {lead && <p className="help-text">The lead agent begins working at once and may start experiments within the campaign's budget.</p>}
+    <ErrorNotice text={error} />
+    {lead && <button type="button" className="button primary" disabled={busy} onClick={() => void start()}>{busy ? 'Starting…' : 'Start the agent team'}</button>}
+  </div></Panel>;
+}
+
 /** The one place to choose models: workspace tiers, then this campaign's agents. */
 export function ModelControlPanel({ state, refresh }: { state: State; refresh: () => Promise<void> }) {
   return <div className="model-control-panel">
@@ -151,6 +173,6 @@ export function ModelControlPanel({ state, refresh }: { state: State; refresh: (
       <p>Tiers set the models for every agent role across campaigns. Below them, this campaign's agents show which model each one uses.</p></div></div>
     <ModelTiersPanel onSaved={refresh} />
     {state.agent_runtime?.configuration?.enabled ? <AgentModelPanel state={state} refresh={refresh} />
-      : <p className="help-text">{state.campaign ? 'This campaign has no agent team yet. When it starts, its agents follow the tiers above.' : 'Create a campaign to see its agents here.'}</p>}
+      : state.campaign ? <StartTeamPanel state={state} refresh={refresh} /> : <p className="help-text">Create a campaign to see its agents here.</p>}
   </div>;
 }

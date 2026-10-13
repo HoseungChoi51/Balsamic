@@ -225,6 +225,13 @@ class PiController:
         settings = tiers.load(self.store)
         return tiers.choice_for(settings, role) if settings.get("saved") else (None, None)
 
+    def lead_model(self):
+        """The model a newly started lead agent would run on, or None when no team can be started here."""
+        choice, _ = self.tier_choice(LEAD)
+        if choice or dev_profile():
+            return choice or profile_defaults()
+        return deepcopy(LEGACY_MODELS["roles"][LEAD]) if locked_provider() == "openai-codex" else None
+
     def configure(self, campaign_id, payload, command_id):
         values = Configure.model_validate(payload)
         if not dev_profile():
@@ -393,6 +400,8 @@ class PiController:
     def view(self, campaign_id):
         config = self.configuration(campaign_id)
         return {"configuration": config,
+            # Until the team starts, the legacy campaign manager runs the campaign instead of the lead agent.
+            "lead_model": None if (config or {}).get("enabled") else self.lead_model(),
             "agents": [{k: v for k, v in a.items() if k not in {"output_schema", "output"}}
                        for a in self.store.list("agent_session", campaign_id)],
             "questions": [q for q in self.store.list("agent_question", campaign_id) if q["status"] == "pending"],

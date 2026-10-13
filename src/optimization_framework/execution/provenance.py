@@ -184,6 +184,29 @@ def capture(directory, *, problem_ids, purpose="worker", recipe_ids=()):
     return manifest
 
 
+_current = {}
+
+
+def current_scientific_digest(problem_ids, recipe_ids=()):
+    """The scientific digest an experiment frozen now would record for these problems.
+
+    Freezing copies the source, so the answer is kept until a source file changes.
+    """
+    from optimization_framework.execution.source import package_directory, package_names
+    state = []
+    for name in package_names():
+        for folder, folders, names in os.walk(package_directory(name)):
+            folders[:] = sorted(item for item in folders if item != "__pycache__")
+            for item in sorted(names):
+                status = os.stat(os.path.join(folder, item))
+                state.append((folder, item, status.st_mtime_ns, status.st_size))
+    key = (tuple(problem_ids), tuple(sorted(set(recipe_ids))))
+    if _current.get(key, (None,))[0] != state:
+        with tempfile.TemporaryDirectory(prefix="capture-") as temporary:
+            _current[key] = (state, capture(temporary, problem_ids=list(problem_ids), recipe_ids=key[1])["scientific_digest"])
+    return _current[key][1]
+
+
 def _verify(directory, manifest, *, runtime=True):
     directory = Path(directory)
     saved = json.loads((directory / "execution-manifest.json").read_text())

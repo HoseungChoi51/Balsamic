@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import argparse
 import fcntl
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -25,6 +26,7 @@ from optimization_framework.contracts.base import content_hash, canonical_json
 from optimization_framework.contracts.experiments import RecoveryPolicy, ExperimentSpec
 from optimization_framework.contracts.problems import Observation, ProblemInstance
 from optimization_framework.evaluation.registry import problems
+from optimization_framework.execution.metrics import pack_candidate, unpacked
 from optimization_framework.optimizers.registry import create
 from optimization_framework.storage.artifacts import LocalArtifactStore, atomic_json
 from optimization_framework.storage.sqlite import now, read_json
@@ -71,7 +73,7 @@ def iter_journal(path):
     with path.open() as stream:
         for line in stream:
             try:
-                yield json.loads(line)
+                yield unpacked(json.loads(line))
             except ValueError:
                 # A torn final write is never reported as a completed observation.
                 if line.endswith("\n"):
@@ -97,6 +99,8 @@ def fingerprint(spec):
         identity["evaluator_eligibility"] = spec["evaluator_eligibility"]
     if spec.get("execution_manifest"):
         identity["execution_manifest_digest"] = content_hash(spec["execution_manifest"])
+    if spec.get("continues"):
+        identity["continues"] = spec["continues"]
     if spec.get("absolute_deadline"):
         identity["absolute_deadline"] = spec["absolute_deadline"]
         identity["execution_grant_id"] = spec["execution_grant_id"]
@@ -186,6 +190,8 @@ class ExperimentWorker:
         self.monotonic_deadline = time.monotonic() + max(0, self.deadline - time.time()) if self.deadline else None
         self.step = 0
         self.archive = []
+        self.journaled_best = None
+        self.published_archive = []
         self.last_value = None
         self.last_command, self.control_revision = "run", -1
         self.signal_command = None
@@ -279,7 +285,7 @@ class ExperimentWorker:
     def _restore(self):
         pointer = read_json(self.directory / "checkpoints" / "latest.json")
         if not pointer:
-            return
+            return self._continue()
         checkpoint_id = pointer["id"]
         if not checkpoint_id.startswith("checkpoint_") or len(checkpoint_id) != 75 or not all(c in "0123456789abcdef" for c in checkpoint_id[11:]):
             raise ValueError("Invalid checkpoint identifier")
@@ -298,6 +304,20 @@ class ExperimentWorker:
         self.observation_cursor = manifest["metadata"]["observation_cursor"]
         self.checkpoint_id = checkpoint_id
         self.last_checkpoint_step = self.step
+
+    def _continue(self):
+        """Start from the state another trial ended with; this trial keeps its own counters, budget and journals."""
+        source = self.spec.get("continues")
+        if not source:
+            return
+        data = (self.directory / "continues" / "checkpoint.pkl").read_bytes()
+        if hashlib.sha256(data).hexdigest() != source["checkpoint_sha256"]:
+            raise ValueError("The state this trial continues from changed after the trial was created")
+        state = pickle.loads(data)
+        self.optimizer.restore(state["optimizer"])
+        if source["same_source"]:
+            self.evaluator.restore(state["evaluator"])   # a changed evaluator starts with its own state
+        self.archive, self.last_value = state["archive"], state["last_value"]
 
     def save_checkpoint(self):
         state = {"optimizer": self.optimizer.checkpoint(), "evaluator": self.evaluator.checkpoint(),
@@ -331,7 +351,7 @@ class ExperimentWorker:
 
     def _record_observation(self, observation):
         value = observation.model_dump(mode="json")
-        append_json(self.directory / "observations.jsonl", value)
+        append_json(self.directory / "observations.jsonl", {**value, "candidate": pack_candidate(value["candidate"])})
         self._account_observation(value)
 
     def _account_observation(self, value):
@@ -361,7 +381,7 @@ class ExperimentWorker:
                    "proposal_id": proposal.id, "candidate": candidate, "created_at": now(), "spec_hash": self.spec_hash,
                    "proposal_metadata": proposal.metadata,
                    "fidelity": instance.fidelity, "evaluator_identity": instance.evaluation_identity}
-        append_json(self.directory / "requests.jsonl", request)
+        append_json(self.directory / "requests.jsonl", {**request, "candidate": pack_candidate(candidate)})
         self.request_count += 1
         started = time.monotonic()
         status, error, evaluation = "ok", None, None
@@ -397,7 +417,8 @@ class ExperimentWorker:
         if status == "ok":
             self.step += 1
             self.last_value = observation.objectives[self.problem.primary_objective.name]
-            entry = {"candidate": candidate, "objective": self.last_value, "observation_id": observation.id,
+            entry = {"candidate": candidate, "objective": self.last_value, "objectives": dict(observation.objectives),
+                     "observation_id": observation.id,
                      "fidelity": instance.fidelity, "scientific_identity": instance.scientific_identity,
                      "evaluator_identity": instance.evaluation_identity, "step": self.step}
             self.archive = [e for e in self.archive if e["candidate"] != candidate] + [entry]
@@ -424,6 +445,8 @@ class ExperimentWorker:
         result = {"schema_version": 1, "id": self.spec["id"], "attempt_id": self.attempt_id,
                 "status": status, "reason": reason, "step": self.step, "objective": self.last_value,
                 "objective_definition": self.problem.primary_objective.model_dump(), "best_objective": best["objective"] if best else None,
+                # Every objective the evaluator reported for the best design; absent for one found before this was kept.
+                "best_objectives": best.get("objectives") if best else None,
                 "best_candidate": best["candidate"] if best else None, "archive": self.archive,
                 "evaluations": self.request_count, "budget_requests": self.request_count, "solver_calls": self.solver_calls,
                 "cache_hits": self.cache_hits, "confirmed_observations": self.successful_observations,
@@ -447,6 +470,30 @@ class ExperimentWorker:
             result["recipe_result"] = self.optimizer.summary()
             result["validation"] = result["recipe_result"].get("subjects", [])
         return result
+
+    def journal_row(self, progress):
+        """One step's row of the metrics journal: its progress without designs an earlier row gave.
+
+        The archive is never repeated and the best design is given only where it changed (and
+        on an attempt's first row). progress.json always holds both, and the observation journal
+        holds every evaluated design; repeating them here cost over a megabyte per evaluation
+        of a 32,768-cell design.
+        """
+        best = self.archive[0] if self.archive else None
+        dropped = {"archive"} if best is not self.journaled_best else {"archive", "best_candidate", "best_design"}
+        self.journaled_best = best
+        return {key: value for key, value in progress.items() if key not in dropped}
+
+    def publish_progress(self, progress):
+        """The live progress record, and the archive in its own file only when it changed.
+
+        The archive holds several whole candidates; rewriting it with every step's record
+        cost over a megabyte per evaluation of a 32,768-cell design. A run's result holds both.
+        """
+        if len(self.archive) != len(self.published_archive) or any(a is not b for a, b in zip(self.archive, self.published_archive)):
+            atomic_json(self.directory / "archive.json", progress["archive"])
+            self.published_archive = list(self.archive)
+        atomic_json(self.directory / "progress.json", {key: value for key, value in progress.items() if key != "archive"})
 
     def publish_payload(self, raw, *, authority="optimizer"):
         item = dict(raw)
@@ -529,8 +576,8 @@ class ExperimentWorker:
                 if self.step-self.last_checkpoint_step >= self.policy.every_observations or time.monotonic()-self.checkpoint_time >= self.policy.every_seconds:
                     self.save_checkpoint()
                 progress = self.progress("running")
-                append_json(self.directory / "metrics.jsonl", progress)
-                atomic_json(self.directory / "progress.json", progress)
+                append_json(self.directory / "metrics.jsonl", self.journal_row(progress))
+                self.publish_progress(progress)
         except Exception as exc:
             status, reason = "failed", f"{type(exc).__name__}: {exc}"
             (self.directory / "error.txt").write_text(traceback.format_exc())
