@@ -22,7 +22,8 @@ to replace that outside session.
 | Ten findings of the transformer-policy experiment recorded and published | Done |
 | Rehearsal: the Lead runs the whole workflow once | Done: passed, after two fixes |
 | Finalists may be chosen from runs that ended at their time limit | Implemented, live |
-| Scores re-checked at higher RCWA orders before they are trusted | Not in place; see Part F |
+| Convergence test of the old campaign's best designs, recorded and in the report | Done; see Part F |
+| Scores re-checked at higher RCWA orders as a step of every campaign | Not in place; see Part F |
 | Lead reads files and runs its own analysis | Implemented, live, used once by a Lead |
 | Requests that apply themselves on approval | Implemented, live, used once by a Lead |
 | Lead changes code through an implementation workspace | Proposed, acceptable in dev mode only |
@@ -318,34 +319,82 @@ Seen and left as it is:
 Not exercised: a failing run or a rejected hypothesis; implementing a new method; a run longer
 than the Lead's limit; PPO at (10, 5); more than one reviewer or other agent roles.
 
-## Part F — Scores at the optimization's RCWA orders do not hold at higher orders
+## Part F — Scores at the searched RCWA orders do not hold at higher orders
 
-Found while checking the rehearsal's best result, by evaluating saved best designs again with the
-same evaluator at higher RCWA orders. These are direct evaluator calls made on 13 October, not
-campaign records. Each recorded value was reproduced exactly at the orders it was found at.
+First seen on 13 October while checking the rehearsal's best result, then tested on the three best
+designs of campaign `738bf861`.
+
+### What was run
+
+- **Campaign records.** The campaign's convergence recipe (`meent_2d_order_convergence:v1`) on
+  each long run's best design at orders (10, 8), (12, 10), (14, 12) and (18, 14): experiments
+  `trial_3403da5762864d63` (frame-token), `trial_62c85acd1a8f4bca` (coefficient-token) and
+  `trial_0a6c551f476149e0` (reference CNN). Its verdict compares the two highest orders with a
+  tolerance of half a point.
+- **Direct calls of the same evaluator**, not campaign records: orders (10, 5) to (26, 22), x and
+  y raised separately, and y raised to 36 with x held at 14, for those three designs and for the
+  rehearsal's evolution-strategy design. Kept in
+  `runs/transformer-screen-20261012/journal/convergence-study-20261013.json`.
+- Every score recorded at (10, 8) was reproduced to within 1e-13, and energy is conserved to
+  2e-11 at every order.
+
+### What it shows
 
 Mean efficiency, with TE / TM in brackets (%):
 
-| Design | (10, 5) | (10, 8) | (14, 12) | (18, 14) | (22, 18) | (26, 22) |
+| Design, and where it was found | (10, 5) | (10, 8) | (12, 10) | (18, 14) | (26, 22) | (14, 36) |
 |---|---|---|---|---|---|---|
-| Evolution strategy, rehearsal, found at (10, 5) | **93.75** (90.8 / 96.7) | 85.19 (73.5 / 96.9) | 71.95 (47.3 / 96.6) | 70.59 (44.5 / 96.7) | 68.63 (40.7 / 96.5) | 67.56 (38.7 / 96.4) |
-| Frame-token PPO, campaign `738bf861`, found at (10, 8) | 81.81 (69.2 / 94.5) | **88.25** (81.8 / 94.7) | 82.61 (70.8 / 94.4) | 77.33 (60.2 / 94.4) | 71.66 (49.0 / 94.4) | 69.05 (43.8 / 94.3) |
+| Frame-token PPO, (10, 8) | 81.81 | **88.25** (81.8 / 94.7) | 86.48 | 77.33 (60.2 / 94.4) | 69.05 (43.8 / 94.3) | 70.41 |
+| Coefficient-token PPO, (10, 8) | 79.42 | **84.12** (69.9 / 98.3) | 70.01 | 68.30 (37.9 / 98.7) | 67.48 (36.3 / 98.6) | 63.98 |
+| Reference CNN PPO, (10, 8) | 76.36 | **81.72** (71.8 / 91.6) | 65.71 | 70.24 (48.4 / 92.1) | 70.50 (49.2 / 91.8) | 70.79 |
+| Evolution strategy, rehearsal, (10, 5) | **93.75** (90.8 / 96.7) | 85.19 | 72.56 | 70.59 (44.5 / 96.7) | 67.56 (38.7 / 96.4) | 62.48 |
 
-- TM is stable to half a point across all orders. TE falls by 40 to 50 points and is still
-  changing at (26, 22), by 2 points for the first design and 5 for the second.
-- So neither 93.75% nor 88.25% is an established efficiency of its design. Both are values at the
-  orders the search ran at, and a search can gain from the solver's truncation error: the
-  evolution strategy reached 93.75% in 15 minutes at (10, 5).
-- What this does not show: the true efficiency of either design (no order here is shown to be
-  converged, and no second solver was used), or anything about designs this project has not
-  evaluated, the manuscript's included.
-- The recorded findings of campaign `738bf861` say that order convergence was not checked. They
-  do not yet say what this check found; that needs the campaign's own convergence recipe run on
-  the designs, so that the evidence is a campaign record.
+- **TM holds, TE does not.** From (10, 8) upwards TM moves by at most half a point; TE of the
+  three campaign designs falls by 23 to 38 points by (26, 22).
+- **The campaign's check fails two designs of three**: frame-token (5.3 points between its two
+  highest orders) and reference (1.4). It passes the coefficient-token design (0.15), which had
+  already fallen from 84.12% to 70.01% one step above the searched orders.
+- **The ranking does not survive.** The designs are 6.5 points apart at (10, 8) and 3.0 at
+  (26, 22), where the reference CNN's is highest.
+- **Only the reference CNN's design settles**: 70.1 to 70.8% at all eight settings with 14 or
+  more orders in each direction. The two transformer designs were still falling at (14, 36).
+- **The orders that were short are those in y**, the direction of the 525 nm period. Raising
+  only x from 10 to 26 moves the frame-token design from 88.25% to 86.19%; raising only y from 8
+  to 22 moves it to 77.40%.
+- **A search can gain from the truncation.** The evolution strategy reached 93.75% in 15
+  minutes at (10, 5); that design scores 67.56% at (26, 22).
+- **What it does not show**: the true efficiency of the transformer designs (still changing, and
+  no second solver was used), or anything about designs this project has not evaluated, the
+  manuscript's included.
 
-Consequence for the next campaign, undecided: RCWA orders (10, 5) match the manuscript's released
-code, and at those orders a score is cheap to raise and does not transfer. One evaluation took
-about 0.1 s at (10, 5) and, set-up included, 6 to 15 s at (22, 18) and (26, 22).
+### Where it is recorded
+
+- Campaign `738bf861`: published finding `finding_finding-transformer-policies-convergence-20261013`,
+  recorded as qualifying the findings on the efficiencies reached, the comparison with the
+  manuscript and what was unverified. A new campaign should reference it with the other ten.
+- The HTML report (`scripts/transformer_policy_report.py`): a section with a chart and both
+  tables; the findings and the results table now lead with it.
+
+### Consequence for the next campaign, undecided
+
+RCWA orders (10, 5) match the manuscript's released code, and at those orders a score is cheap to
+raise and does not transfer. One evaluation takes about 0.1 s at (10, 5), 0.2 s at (10, 8), 1.4 s at
+(18, 14), 6 to 14 s at (22, 18) and 13 to 15 s at (26, 22), so a search of 500,000 samples cannot
+run at orders where TE is stable. No step of the campaign workflow re-checks best designs at
+higher orders unless someone asks for it.
+
+### Faults found while running it, not fixed
+
+1. The convergence recipe holds every order's solver in one job. With (22, 18) and (26, 22) in
+   the ladder it ran out of GPU memory (15 to 22 GB), twice, while another job used part of the
+   GPU. The recorded ladder therefore stops at (18, 14).
+2. `validation.run` on a continued run did not answer within the request time (four attempts)
+   when the run's best design had been observed in an earlier experiment of the chain: the
+   service searches the whole journal for it. It answered at once for the experiment that found
+   the design.
+3. The evaluator loads the solver from a working checkout (`meent_2d_source`). That checkout was
+   edited on 13 October at 16:29 KST while the services ran; later experiments record its source
+   as modified. The scores reproduced, but nothing pins the solver for the length of a campaign.
 
 ## Not planned
 

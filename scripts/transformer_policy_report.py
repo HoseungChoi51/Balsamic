@@ -213,9 +213,64 @@ def sampling_chart(finalists):
     return plot.svg("Median efficiency of the designs each policy sampled, per half hour")
 
 
-def table(head, rows, numeric=()):
+LADDER = ((10, 5), (10, 8), (12, 10), (14, 12), (18, 14), (22, 18), (26, 22))
+SEARCHED = (10, 8)   # the RCWA orders every experiment of the campaign evaluated at
+STUDY_KEYS = {"frame": "frame-128x2-lr1e-3", "coef": "coef-128x4-lr3e-4", "reference": "reference", "es": "es"}
+
+
+def convergence(journal):
+    """Each best design evaluated again at higher RCWA orders.
+
+    Two sources: the campaign's own convergence check (experiments of the campaign), and a wider
+    sweep made by calling the same evaluator directly, which is not a campaign record.
+    Returns {"checks": {key: verdict...}, "values": {key: {(x, y): {mean, te, tm, record}}}, "designs": {...}}.
+    """
+    checked = json.loads((journal / "convergence-campaign-20261013.json").read_text())
+    study = json.loads((journal / "convergence-study-20261013.json").read_text())
+    values = {key: {} for key in STUDY_KEYS.values()}
+    for row in study["rows"]:
+        if "mean" in row and row["design"] in STUDY_KEYS:
+            values[STUDY_KEYS[row["design"]]][(row["x"], row["y"])] = {"mean": row["mean"], "te": row["te"], "tm": row["tm"], "record": False}
+    for key, row in checked.items():
+        for observation in row["observations"]:
+            if observation["repeat"] == 0:
+                order = (observation["fidelity"]["rcwa_order_x"], observation["fidelity"]["rcwa_order_y"])
+                objectives = observation["objectives"]
+                values[key][order] = {"mean": objectives["mean_plus1_transmission"], "te": objectives["te_plus1_transmission"],
+                                      "tm": objectives["tm_plus1_transmission"], "record": True}
+    return {"checks": {key: {name: row[name] for name in ("validation_trial_id", "numerical_status", "last_two_absolute_differences", "highest_fidelity")}
+                       for key, row in checked.items()},
+            "values": values, "designs": study["designs"],
+            "sources": sorted({row["source"] for row in study["rows"] if row.get("source")})}
+
+
+def convergence_chart(values):
+    plot = Plot(900, 430, (-.35, len(LADDER) - 1), (0, 100), right=70)
+    plot.axes(range(len(LADDER)), range(0, 101, 20), "RCWA orders (x, y)", "Efficiency of the same design (%)",
+              x_format=lambda index: f"({LADDER[index][0]}, {LADDER[index][1]})")
+    searched = LADDER.index(SEARCHED)
+    plot.parts.append(f'<line class="mark" x1="{plot.x(searched):.1f}" x2="{plot.x(searched):.1f}" y1="{plot.top}" y2="{plot.height - plot.bottom}"/>')
+    plot.text(plot.x(searched) + 6, plot.y(3), "orders of the searches")
+    ends = []
+    for key, (label, kind) in NAMES.items():
+        for quantity in ("te", "mean"):
+            points = [(index, 100 * values[key][order][quantity]) for index, order in enumerate(LADDER) if order in values[key]]
+            plot.line(points, kind + (" te" if quantity == "te" else ""))
+            for index, value in points:
+                if quantity == "mean":
+                    plot.parts.append(f'<circle class="dot {kind}" cx="{plot.x(index):.1f}" cy="{plot.y(value):.1f}" r="3"/>')
+        ends.append((points[-1][1], kind, f"{points[-1][1]:.1f}%"))
+    plot.ends(ends, plot.x(len(LADDER) - 1) + 10)
+    for index, (kind, content) in enumerate([*((kind, label + ": mean of TE and TM") for label, kind in NAMES.values()), ("ref te", "Dashed, in each color: TE alone")]):
+        y = plot.y(29) + 19 * index
+        plot.parts.append(f'<line class="series {kind}" x1="{plot.x(-.2):.1f}" x2="{plot.x(-.2) + 26:.1f}" y1="{y - 4:.1f}" y2="{y - 4:.1f}"/>')
+        plot.text(plot.x(-.2) + 34, y, content, "legend")
+    return plot.svg("Efficiency of each best design evaluated again at increasing RCWA orders")
+
+
+def table(head, rows, numeric=(), compact=False):
     cells = lambda tag, row: "".join(f'<{tag}{' class="num"' if index in numeric else ""}>{cell}</{tag}>' for index, cell in enumerate(row))
-    return ('<div class="scroll"><table><thead><tr>' + cells("th", head) + "</tr></thead><tbody>"
+    return (f'<div class="scroll"><table{' class="compact"' if compact else ""}><thead><tr>' + cells("th", head) + "</tr></thead><tbody>"
             + "".join("<tr>" + cells("td", row) + "</tr>" for row in rows) + "</tbody></table></div>")
 
 
@@ -249,6 +304,9 @@ ul { padding-left: 1.2em; display: flex; flex-direction: column; gap: 8px }
   border-block: 1px solid var(--rule); padding-block: 10px }
 .spec b { color: var(--fg); font-weight: 500 }
 .note, figcaption, .small { color: var(--muted); font-size: .88rem; max-width: 76ch }
+td .small { font-size: .78rem }
+table.compact th, table.compact td { padding: 8px 7px }
+table.compact .name { white-space: normal }
 figure { margin: 0; display: flex; flex-direction: column; gap: 10px; min-width: 0 }
 .chart, .scroll { overflow-x: auto; background: var(--panel); border: 1px solid var(--rule) }
 .chart svg { display: block; width: 100%; min-width: 680px; height: auto }
@@ -262,6 +320,7 @@ figure { margin: 0; display: flex; flex-direction: column; gap: 10px; min-width:
 .chart .series { fill: none; stroke-width: 2.2; stroke-linejoin: round }
 .chart .series.frame { stroke: var(--frame) } .chart .series.coef { stroke: var(--coef) } .chart .series.ref { stroke: var(--ref) }
 .chart .series.paper { stroke: var(--paper); stroke-dasharray: 7 4 }
+.chart .series.te { stroke-width: 1.4; stroke-dasharray: 5 4 }
 .chart .series.paper-best { stroke: var(--paper); stroke-width: 1.2; stroke-dasharray: 2 3 }
 .chart .series.adjoint { stroke: var(--muted); stroke-width: 1.2; stroke-dasharray: 2 3 }
 .chart .dot { stroke: none } .chart .dot.frame { fill: var(--frame) } .chart .dot.coef { fill: var(--coef) }
@@ -293,11 +352,40 @@ def render(data):
     paper_at = dict(MANUSCRIPT["curve_84"])
     paper_end, (band_low, band_high) = paper_at[100], MANUSCRIPT["band_84"]
     spread = (band_high - band_low) / 2
+    values, checks = data["convergence"]["values"], data["convergence"]["checks"]
+    orders = lambda pair: f"({pair[0]}, {pair[1]})"
+    common = [order for order in LADDER if all(order in values[f["key"]] for f in finalists)]
+    checked, highest = (18, 14), common[-1]   # the top of the campaign's own check, and of every order all three were evaluated at
+    again = lambda finalist, order, quantity="mean": values[finalist["key"]][order][quantity]
+    above = [order for order in common if LADDER.index(order) >= LADDER.index(SEARCHED)]
+    te_drop = [100 * (again(f, SEARCHED, "te") - again(f, highest, "te")) for f in finalists]
+    tm_range = max(100 * (max(again(f, order, "tm") for order in above) - min(again(f, order, "tm") for order in above)) for f in finalists)
+    spread_at = lambda order: 100 * (max(again(f, order) for f in finalists) - min(again(f, order) for f in finalists))
+    leader = lambda order: max(finalists, key=lambda f: again(f, order))
+    es = values["es"]
+    es_label = '<span class="name">Evolution strategy</span><br><span class="small">another campaign, searched at (10, 5)</span>'
+    cell = lambda entry: "–" if entry is None else f'{percent(entry["mean"])}<br><span class="small">{100 * entry["te"]:.1f} / {100 * entry["tm"]:.1f}</span>'
+    ladder = table(["Design", *(orders(order) + ("<br>searched" if order == SEARCHED else "") for order in LADDER)], [
+        *([name(f), *(cell(values[f["key"]].get(order)) for order in LADDER)] for f in (frame, coef, reference)),
+        [es_label, *(cell(es.get(order)) for order in LADDER)]],
+        numeric=range(1, len(LADDER) + 1), compact=True)
+    verdicts = {"converged": "passes", "unconverged": "fails"}
+    whose = {"frame-128x2-lr1e-3": "the frame-token transformer's", "coef-128x4-lr3e-4": "the coefficient-token transformer's", "reference": "the reference CNN's"}
+    # Orders raised in one direction at a time, and in y alone with x at 14.
+    ys = (12, 16, 22, 26, 30, 36)
+    in_y = table(["Design", *(orders((14, y)) for y in ys)], [
+        *([name(f), *(cell(values[f["key"]].get((14, y))) for y in ys)] for f in (frame, coef, reference)),
+        [es_label, *(cell(es.get((14, y))) for y in ys)]], numeric=range(1, len(ys) + 1), compact=True)
+    high = lambda finalist: [100 * entry["mean"] for order, entry in values[finalist["key"]].items() if min(order) >= 14]
+    last_step = lambda finalist: 100 * (again(finalist, (14, 30)) - again(finalist, (14, 36)))
+    difference = lambda finalist: 100 * checks[finalist["key"]]["last_two_absolute_differences"]["mean_plus1_transmission"]
 
-    results = table(["Policy", "Best at 3 h", "at 6 h", "at 12 h", "TE", "TM", "Designs evaluated", "Last new best"], [
+    results = table(["Policy", "Best at 3 h", "at 6 h", "at 12 h", "TE", "TM", f"Same design<br>at {orders(checked)}", f"at {orders(highest)}",
+                     "Designs<br>evaluated", "Last new best"], [
         [name(f), *(percent(f["by_hour"][hours]["best"]) for hours in ("3", "6", "12")),
          percent(f["best"]["objectives"]["te_plus1_transmission"]), percent(f["best"]["objectives"]["tm_plus1_transmission"]),
-         f"{f['evaluations']:,}", f"{clock(f['best']['hours'])}<br>design {f['best']['evaluation']:,}"] for f in finalists], numeric=range(1, 8))
+         percent(again(f, checked)), percent(again(f, highest)),
+         f"{f['evaluations']:,}", f"{clock(f['best']['hours'])}<br>design {f['best']['evaluation']:,}"] for f in finalists], numeric=range(1, 10), compact=True)
     matched = table(["Designs evaluated", '<span class="name"><span class="key paper"></span>Manuscript CNN</span><br>mean of 3 seeds', *(name(f) for f in (reference, frame, coef))], [
         [f"{count:,}", f"about {paper_at[count // 1000]:.1f}%", *(percent(f["best_at"][str(count)]) for f in (reference, frame, coef))]
         for count in CHECKPOINTS] + [["End of run", f"best design {MANUSCRIPT['best_84']}%<br>in {MANUSCRIPT['samples']:,}",
@@ -346,7 +434,8 @@ def render(data):
   <div class="kicker">Experiment report · 11 to 13 October 2026</div>
   <h1>Transformer policies for Fourier level-set reinforcement learning</h1>
   <p class="lede">Three PPO policies searched for a 2D dual-polarization beam deflector for twelve hours each. This report gives
-  what they found and sets it beside the results reported in the FLRL manuscript.</p>
+  what they found, shows that those scores fall when the solver keeps more diffraction orders, and sets the results beside those
+  reported in the FLRL manuscript.</p>
   <div class="spec"><span><b>λ</b> 1050 nm</span><span><b>θ</b> 75°</span><span><b>pol.</b> TE + TM</span>
   <span><b>Px × Py</b> 1087.04 × 525 nm</span><span><b>Si</b> 325 nm on silica</span><span><b>grid</b> 256 × 128</span>
   <span><b>(Nx, Ny)</b> (8, 4)</span><span><b>score</b> (TE + TM) / 2 into the +1 order</span></div>
@@ -355,30 +444,86 @@ def render(data):
 <section>
   <h2>Findings</h2>
   <ul>
-    <li><b>The frame-token transformer found the best design: {percent(best(frame))}</b> (TE {percent(frame["best"]["objectives"]["te_plus1_transmission"])},
-    TM {percent(frame["best"]["objectives"]["tm_plus1_transmission"])}) after {frame["best"]["evaluation"]:,} designs. The coefficient-token
-    transformer reached {percent(best(coef))}. The reference CNN, which is the manuscript's policy as implemented in this campaign,
-    stopped at {percent(best(reference))} after {reference["best"]["evaluation"]:,} designs and found nothing better in the
-    {reference["evaluations"] - reference["best"]["evaluation"]:,} that followed.</li>
-    <li><b>Against the manuscript's curve, the reference CNN is behind and the frame transformer is level.</b> At 100,000 designs the
-    manuscript's Figure 3a shows about {paper_end:.1f}% for its CNN policy (mean of three seeds). Here the reference CNN was at
-    {percent(reference["best_at"]["100000"])}, about {behind:.0f} points lower, and the frame transformer at {percent(frame["best_at"]["100000"])}.</li>
-    <li><b>No run approached the manuscript's best design of {MANUSCRIPT["best_84"]}%.</b> The manuscript reports that figure for 500,000 samples;
-    these runs ended near 115,000.</li>
-    <li><b>None of this is established yet.</b> Each policy ran with one seed, on a solver setup that differs from the manuscript's, and the
-    manuscript's own runs spread by about ±{spread:.0f} points at 100,000 samples. The {gap:.1f}-point lead of the frame transformer over
-    the reference and the reference's shortfall against the manuscript are both of that size.</li>
+    <li><b>The scores hold only at the solver orders the searches used.</b> Every search evaluated its designs at RCWA orders
+    {orders(SEARCHED)}. Evaluated again at {orders(checked)}, the best designs of the frame-token, coefficient-token and reference
+    policies score {percent(again(frame, checked))}, {percent(again(coef, checked))} and {percent(again(reference, checked))}, against
+    {percent(best(frame))}, {percent(best(coef))} and {percent(best(reference))}. At {orders(highest)} they score
+    {percent(again(frame, highest))}, {percent(again(coef, highest))} and {percent(again(reference, highest))}. TM stays within
+    {tm_range:.1f} points; TE falls by {min(te_drop):.0f} to {max(te_drop):.0f} points. No order tried is shown to be converged, so the
+    true efficiency of these designs is not known.</li>
+    <li><b>At the searched orders the frame-token transformer found the best design, {percent(best(frame))}</b>
+    (TE {percent(frame["best"]["objectives"]["te_plus1_transmission"])}, TM {percent(frame["best"]["objectives"]["tm_plus1_transmission"])})
+    after {frame["best"]["evaluation"]:,} designs, ahead of the coefficient-token transformer ({percent(best(coef))}) and the reference CNN
+    ({percent(best(reference))}), which is the manuscript's policy as implemented in this campaign. At {orders(highest)} the three designs
+    lie within {spread_at(highest):.1f} points of each other and {whose[leader(highest)["key"]]} is highest: the {gap:.1f}-point lead
+    does not survive. The reference CNN's design is also the only one whose score settles, between {min(high(reference)):.1f} and
+    {max(high(reference)):.1f}% at every setting with 14 or more orders in each direction.</li>
+    <li><b>Against the manuscript's curve, at the searched orders, the reference CNN is behind and the frame transformer is level.</b>
+    At 100,000 designs the manuscript's Figure 3a shows about {paper_end:.1f}% for its CNN policy (mean of three seeds). Here the reference
+    CNN was at {percent(reference["best_at"]["100000"])}, about {behind:.0f} points lower, and the frame transformer at
+    {percent(frame["best_at"]["100000"])}. No run approached the manuscript's best design of {MANUSCRIPT["best_84"]}%, reported for 500,000
+    samples; these runs ended near 115,000.</li>
+    <li><b>None of the comparisons is established.</b> The scores depend on the solver orders, as above; each policy ran with one seed;
+    the solver setup differs from the manuscript's; and the manuscript's own runs spread by about ±{spread:.0f} points at 100,000 samples.
+    Whether the manuscript's designs hold at higher orders was not tested here: its released code evaluates at (10, 5).</li>
   </ul>
   {results}
-  <p class="note">Efficiency is the fraction of incident power sent into the transmitted (+1, 0) order, averaged over TE and TM. TE and TM
-  are those of each policy's best design. One seed per policy.</p>
+  <p class="note">Efficiency is the fraction of incident power sent into the transmitted (+1, 0) order, averaged over TE and TM. The first
+  five columns are at the searched orders {orders(SEARCHED)}; TE and TM are those of each policy's best design. One seed per policy.</p>
+</section>
+
+<section>
+  <h2>The same designs at higher RCWA orders</h2>
+  <p>RCWA keeps a finite number of diffraction orders in each direction. The searches kept {orders(SEARCHED)}. Below, each policy's best
+  design is evaluated again by the same evaluator with more orders; nothing else changes.</p>
+  <figure>{convergence_chart(values)}
+  <figcaption>Solid lines: mean of TE and TM. Dashed lines: TE alone. TM is not drawn; it changes by at most {tm_range:.1f} points
+  from {orders(SEARCHED)} upwards.</figcaption></figure>
+  {ladder}
+  <p class="note">Mean efficiency, with TE / TM beneath. For the three policies, {orders(SEARCHED)} to {orders(checked)} are the campaign's own
+  convergence check; the other cells are direct calls of the same evaluator on 13 October and are not campaign records.</p>
+  <ul>
+    <li><b>TM holds and TE does not.</b> TE of the three designs falls from {percent(again(frame, SEARCHED, "te"), 1)}, {percent(again(coef, SEARCHED, "te"), 1)}
+    and {percent(again(reference, SEARCHED, "te"), 1)} at {orders(SEARCHED)} to {percent(again(frame, highest, "te"), 1)},
+    {percent(again(coef, highest, "te"), 1)} and {percent(again(reference, highest, "te"), 1)} at {orders(highest)}.</li>
+    <li><b>The campaign's check fails two designs of three.</b> It compares the two highest orders it ran, (14, 12) and {orders(checked)},
+    and allows half a point. The frame-token design differs by {difference(frame):.1f} points and {verdicts[checks[frame["key"]]["numerical_status"]]};
+    the reference design by {difference(reference):.1f} and {verdicts[checks[reference["key"]]["numerical_status"]]}; the coefficient-token
+    design by {difference(coef):.2f} and {verdicts[checks[coef["key"]]["numerical_status"]]}, having already fallen from
+    {percent(again(coef, SEARCHED))} to {percent(again(coef, (12, 10)))} one step above the searched orders.</li>
+    <li><b>The designs end close together, in another order.</b> They are {spread_at(SEARCHED):.1f} points apart at {orders(SEARCHED)},
+    {spread_at(checked):.1f} at {orders(checked)} and {spread_at(highest):.1f} at {orders(highest)}, where {whose[leader(highest)["key"]]}
+    is highest. The frame-token design keeps its score longest and then falls furthest.</li>
+    <li><b>A search can gain from the truncation.</b> In a later campaign that searched at (10, 5), a plain evolution strategy over the same
+    85 coefficients reached {percent(es[(10, 5)]["mean"])} within 15 minutes. That design scores {percent(es[SEARCHED]["mean"])} at
+    {orders(SEARCHED)} and {percent(es[highest]["mean"])} at {orders(highest)} (last row of the table).</li>
+    <li><b>What this does not show.</b> Two of the three designs are still changing at the highest orders tried and no second solver was
+    used, so these are not the designs' true efficiencies. The manuscript's designs were not evaluated here.</li>
+  </ul>
+  <h3>Where the orders are needed</h3>
+  <p>Raising only the x orders of the frame-token design from 10 to 26, with y held at 8, moves it from {percent(again(frame, (10, 8)))} to
+  {percent(again(frame, (26, 8)))}. Raising only the y orders from 8 to 22, with x held at 10, moves it to {percent(again(frame, (10, 22)))}.
+  The orders the searches were short of are those in y, the direction of the 525 nm period. The table raises y alone with x held at 14.</p>
+  {in_y}
+  <p class="note">Mean efficiency, with TE / TM beneath; direct calls of the evaluator. Holding x at 14 is itself a truncation: at 22 orders
+  in y the frame-token design scores {percent(again(frame, (14, 22)))} with 14 orders in x and {percent(again(frame, (26, 22)))} with 26.</p>
+  <ul>
+    <li><b>The reference CNN's design has settled.</b> From (14, 26) to (14, 36) it moves by
+    {abs(100 * (again(reference, (14, 26)) - again(reference, (14, 36)))):.2f} points, and over all {len(high(reference))} settings with 14 or more
+    orders in each direction it stays between {min(high(reference)):.1f} and {max(high(reference)):.1f}%.</li>
+    <li><b>The two transformer designs have not.</b> Between (14, 30) and (14, 36) the frame-token design still loses {last_step(frame):.1f} points
+    and the coefficient-token design {last_step(coef):.1f}.</li>
+    <li><b>Orders (10, 5) and (10, 8) are far from enough for TE on this problem.</b> A check that a later search could apply to its
+    best designs is agreement between two settings that differ in the y orders, at 20 or more.</li>
+  </ul>
 </section>
 
 <section>
   <h2>Comparison with the manuscript</h2>
   <figure>{progress_chart(finalists)}
-  <figcaption>Best efficiency found so far against the number of designs evaluated. The dashed curve is the manuscript's (8, 4) result
-  from its Figure 3a, read from the drawn curve to about half a point; it ends at 100,000 samples because the figure does.</figcaption></figure>
+  <figcaption>Best efficiency found so far against the number of designs evaluated, each at its own solver orders: {orders(SEARCHED)} here,
+  (10, 5) in the manuscript's released code. The dashed curve is the manuscript's (8, 4) result from its Figure 3a, read from the drawn
+  curve to about half a point; it ends at 100,000 samples because the figure does.</figcaption></figure>
   {matched}
   <p>The reference CNN kept pace with the manuscript's curve for the first 50,000 designs and was ahead of it early on. The difference
   comes afterwards: the manuscript's curve keeps rising to about {paper_end:.1f}% at 100,000 samples, while the reference here set its last
@@ -437,17 +582,19 @@ def render(data):
   <h2>Best designs</h2>
   <div class="designs">{designs}</div>
   <p class="note">Silicon is dark. Each panel shows the unit cell twice in x (horizontal, the deflection direction) and twice in y.</p>
-  <p>The frame transformer's design is the only one that raises TE above 80%; the other two reach their mean through TM with TE near 70%.
-  These designs have not been re-evaluated at higher RCWA orders or with another solver.</p>
+  <p>The figures under the designs are at the searched orders {orders(SEARCHED)}. There the frame transformer's design is the only one that
+  raises TE above 80%; at {orders(highest)} its TE is {percent(again(frame, highest, "te"), 1)}. None of the designs has been evaluated with
+  another solver.</p>
 </section>
 
 <section>
   <h2>Limits of this comparison</h2>
   <ul>
     <li><b>One seed per policy.</b> The ranking of the three policies could change with another seed.</li>
+    <li><b>The scores are not converged in RCWA order.</b> See the section above. A search at fixed low orders can raise its score by
+    fitting the truncation, and nothing in these runs guarded against it.</li>
     <li><b>The solver setup is not the manuscript's.</b> RCWA orders are (10, 8) here against (10, 5) in the released code, and the MEENT
-    versions differ. No convergence study and no cross-version check is recorded in this campaign, so the same structure may score
-    differently in the two setups by an unknown amount.</li>
+    versions differ. No cross-version check is recorded, so the same structure may score differently in the two setups by an unknown amount.</li>
     <li><b>The reference is an adaptation, not a reproduction.</b> It uses one environment and the campaign's own PPO loop, and it ran for
     less than a quarter of the manuscript's samples.</li>
     <li><b>The solver code changed during the runs.</b> The first three hours (1.5 for the coefficient-token transformer) solved each design
@@ -460,6 +607,11 @@ def render(data):
 <section>
   <h2>Records</h2>
   {records}
+  <p class="note">Convergence checks (recipe <code>meent_2d_order_convergence:v1</code>, orders {orders(SEARCHED)} to {orders(checked)}):
+  {", ".join(f'<code>{checks[f["key"]]["validation_trial_id"]}</code> for the {NAMES[f["key"]][0].lower()}' for f in finalists)}.
+  The wider sweep is in <code>convergence-study-20261013.json</code>. When both ran, the solver checkout had uncommitted changes
+  ({", ".join(f"<code>{source}</code>" for source in data["convergence"]["sources"])}); every score recorded at {orders(SEARCHED)} was reproduced
+  to within 1e-13.</p>
   <p class="note">Campaign <code>campaign_738bf861-d57f-4667-a797-669fc1bb101f</code>, "2D dual-polarization beam deflector — Octavian FLRL
   paper". Each policy's row lists its successive experiments; together they are one run. Summaries are in
   <code>runs/transformer-screen-20261012/journal/</code> (<code>screen-summary.json</code>, <code>finalist-summary.json</code>), and this page is
@@ -487,7 +639,7 @@ def main():
     cache = arguments.output / "report-data.json"
     if arguments.refresh or not cache.is_file():
         cache.write_text(json.dumps(extract(arguments.journal, arguments.trial_files)))
-    page = render(json.loads(cache.read_text()))
+    page = render({**json.loads(cache.read_text()), "convergence": convergence(arguments.journal)})
     (arguments.output / "index.html").write_text(
         '<!doctype html>\n<html lang="en">\n<head>\n<meta charset="utf-8">\n<meta name="viewport" content="width=device-width, initial-scale=1">\n'
         + page.replace("<main>", "</head>\n<body>\n<main>", 1) + "</body>\n</html>\n")
