@@ -20,8 +20,17 @@ class ModelChoice(Contract):
     effort: THINKING | None = None
 
 
+# The lead agent's standing assignment. Starting the team starts no work: what the campaign does next is
+# the researcher's to ask for, one request at a time or several stages in one.
+STANDING_OBJECTIVE = "Carry out what the researcher of this campaign asks for, report the result, and wait for the next request."
+# The default of earlier versions, which told the lead to work through the campaign unasked. Saved records are migrated.
+FORMER_OBJECTIVE = "Continue the campaign from its saved evidence and unfinished requests."
+# Every turn the platform starts without a researcher's message begins with this line.
+NOTICE = "[Platform notice. This is not a request from the researcher.]\n"
+
+
 class Activate(Contract):
-    objective: str = Field(default="Continue the campaign from its saved evidence and unfinished requests.", min_length=1, max_length=20000)
+    objective: str = Field(default=STANDING_OBJECTIVE, min_length=1, max_length=20000)
     max_subagents: int = Field(default=4, ge=1, le=8)
     delegated: bool = True
     # Default model for the campaign's agents; it also fixes the campaign's model family.

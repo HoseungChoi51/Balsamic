@@ -42,7 +42,7 @@ export function PiAgentPanel({ state, refresh, connectionError }: { state: State
   const agents: Json[] = runtime.agents || [];
   const lead = agents.find(a => a.role === 'lead');
   return <><section className="research-progress pi-panel" aria-label="Agent team">
-    <div className="research-progress-heading"><div><h2>Lead agent</h2><Badge>{config.provider?.configured ? lead?.status || config.status : 'waiting for sign-in'}</Badge></div>
+    <div className="research-progress-heading"><div><h2>Lead agent</h2><Badge>{!config.provider?.configured ? 'waiting for sign-in' : lead?.status === 'waiting' && !config.request_open ? 'waiting for your request' : lead?.status || config.status}</Badge></div>
       <div className="research-progress-actions">
         {config.status === 'running' ? <button className="button small secondary" disabled={busy} onClick={() => void control('pause')}>Pause agents</button>
           : <button className="button small primary" disabled={busy} onClick={() => void control('resume')}>Resume agents</button>}
@@ -56,7 +56,9 @@ export function PiAgentPanel({ state, refresh, connectionError }: { state: State
     </div>}
     {connectionError && <p className="research-progress-stale">Connection interrupted. Showing the last received agent status.</p>}
     {config.sync_error && <ErrorNotice text={`Agent status could not be synchronized: ${config.sync_error}. Saved work is retained; synchronization will retry.`} />}
-    <p>{lead?.activity || 'Your campaign and saved work are ready. The lead agent will continue your latest request after sign-in.'}</p>
+    <p>{lead?.status === 'waiting' && !config.request_open && config.provider?.configured
+      ? 'The lead agent acts on your requests and starts nothing by itself. Tell it what to do next.'
+      : lead?.activity || 'Your campaign and saved work are ready. The lead agent will take up your latest request after sign-in.'}</p>
     {(runtime.questions || []).map((q: Json) => <article className="research-direction" key={q.id}>
       <strong>Lead agent’s request</strong><TextContent text={q.question} /><TextContent text={q.reason} />
       <button className="button small secondary" onClick={() => setQuestion(q.id)}>Answer this request</button>
@@ -115,10 +117,11 @@ export function PiConversation({state,refresh,onClose}:{state:State;refresh:()=>
       followLatest.current=area.scrollHeight-area.scrollTop-area.clientHeight<48;
     }}><p><a href="#notebook">Open the agent team and controls</a></p>
       {!state.agent_runtime?.configuration.provider?.configured && <p>Sign in through the agent team panel to begin. Your messages will stay queued.</p>}
+      {!messages.length && <p>The lead agent is waiting for your first message. It starts nothing until you ask for it.</p>}
       {messages.map(m=><article className={`message ${m.role==='user'?'user':'assistant'}`} key={m.id}><div className="message-meta"><span>{m.role==='user'?'You':'Lead agent'}</span></div><TextContent text={m.content} /></article>)}
       <p><a href="#notebook/conversation">Earlier campaign discussions</a></p>
     </div><form className="research-composer" onSubmit={send}><label className="sr-only" htmlFor="pi-sidebar-message">Message to lead agent</label>
-      <textarea id="pi-sidebar-message" rows={3} value={message} onChange={event=>setMessage(event.target.value)} placeholder="Guide the lead agent’s next step…" />
+      <textarea id="pi-sidebar-message" rows={3} value={message} onChange={event=>setMessage(event.target.value)} placeholder="Tell the lead agent what to do next…" />
       <div className="composer-footer"><span>Steer current work</span><button className="send-button" disabled={busy||!message.trim()} aria-label="Send message to lead agent"><Icon name="send" size={17} /></button></div>
       <ErrorNotice text={error} /></form>
   </aside>;

@@ -158,9 +158,9 @@ function StartTeamPanel({ state, refresh }: { state: State; refresh: () => Promi
   }
   return <Panel title="Agent team" eyebrow="This campaign" className="agent-models"><div className="model-panel-body">
     <p className="help-text">This campaign has no agent team yet, so its campaign manager is not the lead agent and does not follow the tiers above.
-      {lead ? ` Starting the team hands the campaign to the lead agent on ${lead}; every agent then follows its role's tier.`
+      {lead ? ` Starting the team gives the campaign a lead agent on ${lead}; every agent then follows its role's tier.`
         : ' No model is available for a lead agent on this server.'}</p>
-    {lead && <p className="help-text">The lead agent begins working at once and may start experiments within the campaign's budget.</p>}
+    {lead && <p className="help-text">Starting the team starts no work. The lead agent waits for your first message and carries out what you ask for, within the campaign's budget.</p>}
     <ErrorNotice text={error} />
     {lead && <button type="button" className="button primary" disabled={busy} onClick={() => void start()}>{busy ? 'Starting…' : 'Start the agent team'}</button>}
   </div></Panel>;

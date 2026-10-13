@@ -135,7 +135,8 @@ test('a campaign without a team names the model its lead agent would use and can
   await expect(manager.getByRole('link',{name:'Lead agent not started · Models',exact:true})).toBeVisible();
   await expect(manager).toContainText('deepseek/deepseek-v4-pro');
   const panel=page.locator('.agent-models');
-  await expect(panel).toContainText('hands the campaign to the lead agent on deepseek/deepseek-v4-pro · max');
+  await expect(panel).toContainText('gives the campaign a lead agent on deepseek/deepseek-v4-pro · max');
+  await expect(panel).toContainText('Starting the team starts no work. The lead agent waits for your first message');
   await panel.getByRole('button',{name:'Start the agent team'}).click();
   await expect(page.getByRole('complementary',{name:'Lead agent conversation'})).toContainText('deepseek-v4-pro');
   expect(writes).toHaveLength(1);expect(writes[0]).toMatchObject({operation:'agent.activate',payload:{}});

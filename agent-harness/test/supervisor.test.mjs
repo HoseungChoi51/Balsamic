@@ -120,3 +120,16 @@ test('model and thinking changes apply at the next turn; the role is fixed', asy
   await until(()=>s.view('lead').events.some(e=>e.type==='model.changed'));
   assert.equal(f.runtimes.length,1);
 });
+
+test('a turn returns everything the agent wrote, not only its closing line', async t=>{
+  const f=fixture(t), s=f.supervisor;
+  await s.submit('pi',request('answer')); await until(()=>f.runtimes[0]?.finish);
+  const say = text => f.runtimes[0].listener({type:'message_end',message:{role:'assistant',content:[{type:'text',text}],usage:{}}});
+  say('The full answer.'); say(''); say('Done; waiting for your next request.');
+  f.runtimes[0].finish(); await until(()=>s.view('pi').runs.answer.status==='completed');
+  assert.equal(s.view('pi').runs.answer.result.text,'The full answer.\n\nDone; waiting for your next request.');
+  // The next turn starts empty; with nothing written, the runtime's last text stands.
+  await s.submit('pi',request('next')); await until(()=>s.view('pi').runs.next.status==='running');
+  f.runtimes[0].finish(); await until(()=>s.view('pi').runs.next.status==='completed');
+  assert.equal(s.view('pi').runs.next.result.text,'saved');
+});

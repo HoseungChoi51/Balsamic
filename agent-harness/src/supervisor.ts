@@ -40,7 +40,7 @@ export class Supervisor {
     }
   }
   save(agent: any) {
-    const {runtime, busy, ...persisted} = agent;
+    const {runtime, busy, turnTexts, ...persisted} = agent;   // a turn's texts live only while it runs
     atomic(path.join(this.directory, agent.id, 'state.json'), persisted);
     this.changed.add(agent.id);
     if (this.notify && !this.flushTimer) this.flushTimer = setTimeout(() => this.flush(), 200);
@@ -118,6 +118,7 @@ export class Supervisor {
           if (event.type === 'message_end' && event.message?.role === 'assistant') {
             const message = event.message;
             const content = message.content.filter((c: any) => c.type === 'text').map((c: any) => c.text).join('\n');
+            if (content.trim()) (agent.turnTexts ||= []).push(content);
             const usage: any = Object.fromEntries(['input', 'output', 'cacheRead', 'cacheWrite', 'reasoning', 'totalTokens']
               .map(key => [key, message.usage?.[key] || 0]));
             // Pi prices every call from its catalog; whether that is a charge depends on billing.
@@ -138,6 +139,7 @@ export class Supervisor {
       }
       if (this.closing || agent.control) {run.status = agent.control || 'interrupted'; return;}
       if (run.deadline_at) deadlineTimer = setTimeout(() => { expired = true; void agent.runtime.abort(); }, Math.max(1, run.deadline_at * 1000 - Date.now()));
+      agent.turnTexts = [];
       await agent.runtime.prompt(`[Assignment ${run.id}]\n${run.text}`);
       if (expired) throw new Error('Implementation time allocation exhausted; session and artifacts are saved.');
       const last = agent.runtime.messages?.filter((m: any) => m.role === 'assistant').at(-1);
@@ -145,7 +147,9 @@ export class Supervisor {
       // abort() can return before prompt() settles. Preserve shutdown's durable
       // interruption marker even if close() has already cleared agent.control.
       run.status = agent.control || (run.status === 'interrupted' || last?.stopReason === 'aborted' ? 'interrupted' : 'completed');
-      run.result = {text: agent.runtime.getLastAssistantText() || ''};
+      // Everything the agent wrote in the turn, in order. An answer written before the turn's last tool
+      // call (the checkpoint, usually) is otherwise lost behind the closing line that follows it.
+      run.result = {text: agent.turnTexts?.length ? agent.turnTexts.join('\n\n') : agent.runtime.getLastAssistantText() || ''};
     } catch (e: any) {
       run.status = agent.control || (run.status === 'interrupted' ? 'interrupted' : 'failed'); run.error = String(e.message || e).slice(0, 1500);
     } finally {

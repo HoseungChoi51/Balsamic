@@ -44,7 +44,8 @@ discovery working-context limit and per-task tool/source quotas are not on this
 path. Campaign compute allocations and protected validation reserves still apply.
 
 `agent.activate` records a migration manifest, archives legacy sessions, preserves
-their artifacts/costs/unfinished states, pins existing H labels, and queues the PI.
+their artifacts/costs/unfinished states, pins existing H labels, and creates the lead
+agent. It starts no turn: the lead agent waits for the researcher (see the next section).
 One workspace lease and one Pi session serialize each campaign's manager. The
 PI delegates focused assignments; independent implementation roles are created
 by the library under a frozen grant, with separate sessions and private workspaces.
@@ -62,6 +63,34 @@ Conceptual approval, executable validation, and empirical effectiveness remain
 separate. Each model event records subscription calls and token usage; catalog
 API prices are not reported as charges. The implementation library projects the
 same child usage without reserving an additional paid API allowance.
+
+## The lead agent acts on requests
+
+The lead agent designs and carries out experiments as the researcher asks through the interface.
+It does not work through a campaign by itself, and there is no setting that makes it do so. A
+scripted run, such as a reproduction used as a test, is driven the same way: by sending it requests.
+
+- **Starting the team starts no work.** No model call is made until the researcher's first message.
+  A request the researcher left unanswered before the team existed is handed over as that first message.
+- **A request is open from a researcher's message until the lead reports it fulfilled** with
+  `yield_work(complete)`, which is refused while experiments, subagents, questions or jobs of the
+  campaign are still outstanding. The campaign's agent record carries this as `request_open`. The
+  researcher's answer to something the lead filed (an approval, a trial extension) opens it again.
+- **Outcomes wake the lead only while a request is open.** These are finished or failed experiments,
+  validations, fixed-mask jobs, implementation results and the end of a runtime profile (once, not
+  once per probe). Without an open request they wake nobody; the lead reads the current state at
+  its next request. A change the researcher makes to the campaign is not an outcome and never wakes it.
+- **Turns the platform starts are marked.** Outcome notices, a subagent's result, a resumption and
+  the request for a missing checkpoint begin with `[Platform notice. This is not a request from the
+  researcher.]`, and tell the lead to carry the open request on and start nothing it did not ask for.
+- **A turn's message is everything the agent wrote in it**, in order, not only its last line: an
+  answer written before the closing checkpoint call would otherwise be hidden behind the remark that follows.
+- **The instructions name the stages** (runtime profile, hypotheses, review, experiments, longer
+  runs, validation, comparison, findings, journal clean-up) and allow one only when a request covers
+  it. A request may cover several stages or the whole workflow. A question gets an answer, not actions.
+
+The first two rules and the wake-up rule are enforced by the controller. That the lead stays within
+a request once a turn has started rests on its instructions and on the model following them.
 
 ## What the lead agent is given
 
@@ -85,8 +114,8 @@ values instead of one point per evaluation, and leaves out runtime-profile probe
 replays, which measure the evaluator and are no method's result. With `trial_ids` it compares
 only the named experiments, and a run continued with `trial.continue` is one row.
 
-The lead agent files `journal.compaction_request` after results are analysed and recorded; the
-researcher approves it in the decision inbox, and only then are evaluated designs removed from
+The lead agent files `journal.compaction_request` when the researcher asks for the clean-up, after
+results are analysed and recorded; the researcher approves it in the decision inbox, and only then are evaluated designs removed from
 the finished experiments' journals.
 
 ### Files and the agents' own analysis

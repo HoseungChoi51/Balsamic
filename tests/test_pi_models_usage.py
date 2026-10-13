@@ -112,6 +112,10 @@ def test_api_spending_at_the_cap_holds_new_turns(tmp_path, monkeypatch):
     workspace, record, lead = campaign(tmp_path, monkeypatch, budget=1)
     assert workspace.pi._within_llm_budget(record["id"])
     workspace.pi._receive(lead["id"], {"runs": {}, "cursor": 1, "events": [message(1, 1.5)]})
+    # With no turn waiting there is nothing on hold to report.
+    assert not workspace.pi._within_llm_budget(record["id"])
+    assert not workspace.store.list("manager_issue", record["id"])
+    workspace.pi.message(record["id"], {"message": "Summarise the results."}, "request_at_the_cap")
     assert not workspace.pi._within_llm_budget(record["id"])
     issues = workspace.store.list("manager_issue", record["id"])
     assert any(issue["code"] == "llm_budget" for issue in issues)

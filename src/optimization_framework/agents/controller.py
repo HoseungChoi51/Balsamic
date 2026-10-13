@@ -17,7 +17,7 @@ from . import usage as llm_usage
 from .client import PiClient
 from .families import family_of, check_same_family
 from . import tiers
-from .models import Activate, Configure, Message, Control, ROLES, LEAD
+from .models import Activate, Configure, Message, Control, ROLES, LEAD, STANDING_OBJECTIVE, FORMER_OBJECTIVE, NOTICE
 
 ACTIVE = {"queued", "submitted", "running"}
 TERMINAL = {"completed", "failed", "stopped", "interrupted"}
@@ -87,10 +87,14 @@ class PiController:
                 if "provider" not in agent:
                     changes["provider"] = "openai-codex"
                     changes["family"] = family_of("openai-codex", agent.get("model"))
+                if changes.get("role", agent["role"]) == LEAD and agent.get("objective") == FORMER_OBJECTIVE:
+                    changes["objective"] = STANDING_OBJECTIVE
                 if changes:
                     self.store.put("agent_session", {**agent, **changes})
             for config in self.store.list("agent_campaign"):
                 changed = False
+                if config.get("objective") == FORMER_OBJECTIVE:
+                    config["objective"] = STANDING_OBJECTIVE; changed = True
                 if "pi_id" in config:
                     config["lead_id"] = config.pop("pi_id"); changed = True
                 if "llm_family" not in config:
@@ -147,6 +151,8 @@ class PiController:
         config = {"id": "pi_campaign_" + campaign_id, "campaign_id": campaign_id, "enabled": True,
             "status": "running", "control_revision": 0, "max_subagents": values.max_subagents,
             "objective": values.objective, "migration_id": manifest["id"], "created_at": now(), "event_cursor": event_cursor,
+            # No request is open until the researcher writes; until then nothing wakes the lead.
+            "request_open": False,
             "provider": {"configured": False, "reason": "Checking Pi connection"}}
         default = values.model.model_dump() if values.model else profile_defaults() if dev_profile() else None
         if default:
@@ -170,10 +176,19 @@ class PiController:
                 "label": f"H{index:02d}", "record_id": hypothesis["id"], "candidate_id": hypothesis.get("candidate_id")})
         lead = self.create_agent(campaign_id, LEAD, values.objective, "lead_" + campaign_id)
         config["lead_id"] = lead["id"]; self.store.put("agent_campaign", config)
-        self.enqueue(lead, "pi_boot_" + command_id, "Continue the migrated campaign. Inspect campaign state and the migration manifest, "
-            "reuse completed work, reconcile unfinished assignments, and act on the latest unfulfilled researcher request. "
-            "Do not repeat conceptual reviews or treat already runnable evaluators as absent.\n" + values.objective)
+        # Starting the team starts no turn. The lead's first turn is the researcher's first message
+        # (or a request the researcher left unanswered before the team existed, see admit_legacy).
+        lead.update(status="waiting", activity="Waiting for your first request. Nothing is started until you ask for it.")
+        self.store.put("agent_session", lead)
         return self.view(campaign_id)
+
+    def _request(self, campaign_id, open):
+        """Record whether a researcher's request is open. Outcomes of work wake the lead only while one is."""
+        config = self.configuration(campaign_id)
+        if bool(config.get("request_open")) != open:
+            config["request_open"] = open
+            config["request_changed_at"] = now()
+            self.store.put("agent_campaign", config, "agent.request_opened" if open else "agent.request_closed")
 
     def create_agent(self, campaign_id, role, objective, identity, *, parent_id=None, evidence_ids=None, grant_id=None, output_schema=None):
         if role not in ROLES:
@@ -323,6 +338,7 @@ class PiController:
         config = self.configuration(command["campaign_id"])
         agent = self.store.get(config["lead_id"], "agent_session")
         request = command["request"]
+        self._request(command["campaign_id"], True)
         run = self.enqueue(agent, "pi_run_" + command["id"], request["message"] + "\nResearch request details: " + json.dumps(request)
             + ("\nReview the frozen decision refresh record " + command["decision_refresh_id"] if command.get("decision_refresh_id") else ""), mode="steer",
                            manager_command_id=command["id"])
@@ -348,9 +364,10 @@ class PiController:
         agent = self.store.get(values.agent_id or config["lead_id"], "agent_session")
         if agent["campaign_id"] != campaign_id:
             raise ValueError("Agent belongs to another campaign")
-        if config["status"] == "completed":
+        if config["status"] == "completed":   # saved by earlier versions, which closed the team when the lead called its work complete
             config["status"] = "running"
             self.store.put("agent_campaign", config)
+        self._request(campaign_id, True)
         state = self.workspace.memory.state(campaign_id)
         state["guidance_revision"] += 1
         self.store.put("manager_state", state, "manager.guidance_changed")
@@ -393,8 +410,12 @@ class PiController:
                     self.enqueue(agent, resumed_id, saved["input"], mode=saved["mode"])
                     saved.update(status="stopped", superseded_by=resumed_id)
                     self.store.put("agent_run", saved)
-                self.enqueue(agent, "pi_resume_" + content_hash([command_id, agent["id"]])[:28],
-                    "Resume this assignment from saved session history. Inspect recorded tool receipts and current campaign state before acting; do not duplicate accepted work.")
+                if agent["role"] == LEAD and not undispatched and not self.configuration(campaign_id).get("request_open"):
+                    # Nothing was in progress: the lead goes back to waiting for a request.
+                    agent.update(status="waiting"); self.store.put("agent_session", agent)
+                    continue
+                self.enqueue(agent, "pi_resume_" + content_hash([command_id, agent["id"]])[:28], NOTICE +
+                    "The researcher resumed the agent team. Resume this assignment from saved session history. Inspect recorded tool receipts and current campaign state before acting; do not duplicate accepted work.")
         return record
 
     def view(self, campaign_id):
@@ -414,8 +435,10 @@ class PiController:
         active = any(a["status"] in {"queued", "running"} for a in agents)
         ready = config.get("provider", {}).get("configured", False)
         status = config["status"] if config["status"] in {"paused", "stopped", "completed"} else "running" if active and ready else "waiting"
-        return {"status": status, "headline": "Lead agent " + ("is working" if status == "running" else status),
+        idle = status in {"waiting", "completed"} and ready and not config.get("request_open")
+        return {"status": status, "headline": "Lead agent is waiting for your request" if idle else "Lead agent " + ("is working" if status == "running" else status),
             "message": config.get("provider", {}).get("reason") or ("Connect Pi to OpenAI Codex to continue saved work." if not ready
+                else "The lead agent acts on your requests and starts nothing by itself. Send it a message to begin." if idle
                 else "Persistent Pi sessions coordinate the campaign and its subagents."), "active": status == "running",
             "task_counts": {**Counter(a["status"] for a in agents), "total": len(agents)},
             "agents": [{"task_id": a["id"], "role": a["role"], "stage": "campaign" if a["role"] == LEAD else "assignment",
@@ -626,29 +649,33 @@ class PiController:
                             "role": "assistant", "origin": "pi", "agent_id": agent_id, "content": text, "created_at": now()}, "message.created")
                     if agent["parent_agent_id"] and (run.get("result") or {}).get("delivery") != "steering_queued":
                         parent = self.store.get(agent["parent_agent_id"], "agent_session")
-                        self.enqueue(parent, "pi_child_result_" + content_hash(rid)[:28],
+                        self.enqueue(parent, "pi_child_result_" + content_hash(rid)[:28], NOTICE +
                             f"Subagent {agent_id} ({agent['role']}) finished with status {run['status']}. "
-                            f"Read agent run {rid} and its artifacts. Continue the campaign or revise the assignment; a completed response is not proof of scientific completion.")
+                            f"Read agent run {rid} and its artifacts, and use them for the researcher's request that the assignment belongs to, "
+                            "or revise the assignment; a completed response is not proof of scientific completion.")
                     if run["status"] == "interrupted" and not agent.get("grant_id"):
-                        self.enqueue(agent, "pi_recover_" + content_hash(rid)[:28],
+                        self.enqueue(agent, "pi_recover_" + content_hash(rid)[:28], NOTICE +
                             f"Assignment {rid} was interrupted by a harness restart. Read saved receipts and continue from persisted history. Do not repeat committed operations.")
                     if agent["role"] == LEAD and run["status"] == "completed" and (run.get("result") or {}).get("delivery") != "steering_queued":
                         disposition = run.get("disposition", {})
-                        # A turn that calls the work complete does not close the campaign while another turn waits:
-                        # a researcher's message that arrived meanwhile would never be delivered.
                         waiting = any(other["status"] == "queued" for other in self.store.list_agent_runs(agent["id"]) if other["id"] != rid)
                         if disposition.get("disposition") == "complete" and not waiting:
-                            config = self.configuration(agent["campaign_id"])
-                            config.update(status="completed", completed_at=now())
-                            self.store.put("agent_campaign", config, "agent.objective_completed")
+                            # The request is fulfilled and, as yield_work checked, nothing it started is still running.
+                            # The team stays available; the lead is not woken again until the researcher writes.
+                            # A message that arrived meanwhile is the next request and keeps it open.
+                            agent["uncheckpointed_turns"] = 0
+                            self._request(agent["campaign_id"], False)
                         elif not disposition:
-                            # A response boundary isn't task completion. Continue
-                            # with a checkpoint; repeated empty turns ask clearly.
+                            # A turn that ends without saying how it ends leaves the request open. Ask for
+                            # the checkpoint; repeated silent turns go to the researcher.
                             stalls = agent.get("uncheckpointed_turns", 0) + 1
                             agent["uncheckpointed_turns"] = stalls
                             if stalls <= 2:
-                                self.enqueue(agent, "pi_continue_" + content_hash(rid)[:28],
-                                    "Continue the authorized objective using tools. If awaiting work, call yield_work(waiting). If a real blocker needs researcher input, call researcher_ask and yield_work(waiting). Save evidence and use yield_work(complete) only when the objective is achieved.")
+                                self.enqueue(agent, "pi_continue_" + content_hash(rid)[:28], NOTICE +
+                                    "Your last turn ended without yield_work. If the researcher's request is fulfilled, or you only answered a question, "
+                                    "call yield_work(complete) with a one-line summary. If jobs or assistants you started for the request are still running, "
+                                    "or you asked the researcher something, call yield_work(waiting). If a part of the request itself is still undone, do that "
+                                    "part first. Start nothing the request did not ask for, and write no further message unless there is something new to report.")
                             else:
                                 self.store.put("agent_question", {"id": "pi_stalled_" + rid, "campaign_id": agent["campaign_id"],
                                     "agent_id": agent_id, "status": "pending", "created_at": now(),
@@ -683,20 +710,33 @@ class PiController:
         rows = self.store.events(campaign_id, after=config.get("event_cursor", 0), limit=500)
         if not rows:
             return
+        # Outcomes of work. A runtime profile reports once, when it ends, not once per probe. What the researcher
+        # changes in the campaign is not an outcome: the lead reads the current state at its next request.
+        probes = {trial_id for profile in self.store.list("runtime_profile", campaign_id) for level in profile.get("levels", [])
+                  for trial_id in level.get("trial_ids", [])}
         relevant = [r for r in rows if r["kind"] in {"trial.evidence_cataloged", "trial.failed", "trial.interrupted",
             "implementation.attached", "implementation.ready", "implementation.evidence_updated",
-            "validation.measured", "fixed_mask.completed", "campaign.updated"}]
+            "validation.measured", "fixed_mask.completed", "runtime.profile_completed", "runtime.profile_failed"}
+            and r["data"].get("record_id") not in probes]
+        answers = []
         for row in rows:
             if row["kind"] == "implementation.updated" and row["data"].get("record_id"):
                 grant = self.store.get(row["data"]["record_id"], "implementation_grant")
                 if grant["status"] in {"failed", "interrupted", "blocked", "cancelled", "needs_reconciliation"}:
                     relevant.append(row)
-            # The lead waits for the researcher's answer to its own requests, such as a trial extension.
+            # The researcher's answer to what the lead filed, such as a trial extension, is addressed to the lead.
             if row["kind"] == "decision.resolved" and row["data"].get("record_id"):
                 if self.store.get(row["data"]["record_id"], "decision").get("requested_by") == "lead":
-                    relevant.append(row)
+                    answers.append(row)
         config["event_cursor"] = rows[-1]["id"]; self.store.put("agent_campaign", config)
+        if answers:
+            self._request(campaign_id, True)
+        elif not config.get("request_open"):
+            return   # no request is open: nothing here is the lead's to act on
+        relevant = sorted(relevant + answers, key=lambda row: row["id"])
         if relevant:
             agent = self.store.get(config["lead_id"], "agent_session")
-            self.enqueue(agent, "pi_events_" + content_hash([r["id"] for r in relevant])[:28],
-                "New campaign outcomes are available. Inspect the records and continue:\n" + json.dumps(relevant))
+            self.enqueue(agent, "pi_events_" + content_hash([r["id"] for r in relevant])[:28], NOTICE +
+                "Work in this campaign has new outcomes, listed below. If they belong to the researcher's open request, inspect the records and carry "
+                "that request on, and report when it is fulfilled. If more of that work is still running, or they do not concern the request, call "
+                "yield_work and return. Start nothing the request did not ask for.\n" + json.dumps(relevant))

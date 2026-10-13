@@ -38,9 +38,12 @@ def prepared(tmp_path, monkeypatch):
     workspace.commands.execute(Command(id='activate', campaign_id=campaign['id'], expected_revision=1,
         operation='agent.activate', payload={'objective': 'Implement the selected method within the existing allocation'}))
     agent = workspace.store.list('agent_session')[0]
-    run = workspace.store.list('agent_run')[0]
+    # Starting the team starts no turn; the lead's first turn is a researcher's request.
+    assert not workspace.store.list('agent_run')
+    workspace.pi._request(campaign['id'], True)
+    run = workspace.pi.enqueue(agent, 'pi_run_first_request', 'Implement the selected method within the existing allocation')
     run['status'] = 'submitted'; workspace.store.put('agent_run', run)
-    return workspace, campaign, agent, run
+    return workspace, campaign, workspace.store.get(agent['id'], 'agent_session'), run
 
 
 def invoke(prepared, name, args=None, call_id='call'):
@@ -526,15 +529,117 @@ def test_a_message_that_arrives_as_the_lead_finishes_is_still_delivered(prepared
     w, c, lead, first = prepared
     finish = lambda run: w.pi._receive(lead['id'], {'runs': {run['id']: {'status': 'completed', 'result': {'text': 'Done'}}}, 'events': [], 'cursor': 0})
     complete = lambda run: w.store.put('agent_run', {**w.store.get(run['id'], 'agent_run'), 'status': 'submitted', 'disposition': {'disposition': 'complete', 'summary': 'All done'}})
-    # The lead's turn calls the campaign complete while the researcher's next message already waits.
+    # The lead's turn calls its request fulfilled while the researcher's next message already waits.
     message = w.pi.message(c['id'], {'message': 'One more thing before you stop.'}, 'late_message')
     complete(first); finish(first)
-    assert w.pi.configuration(c['id'])['status'] == 'running' and w.store.get(message['id'], 'agent_run')['status'] == 'queued'
-    # With nothing waiting, the same disposition completes the campaign...
+    assert w.pi.configuration(c['id'])['request_open'] and w.store.get(message['id'], 'agent_run')['status'] == 'queued'
+    # With nothing waiting, the same disposition closes the request. The team stays available.
     complete(message); finish(message)
-    assert w.pi.configuration(c['id'])['status'] == 'completed'
-    # ...and a turn queued for the lead afterwards takes it up again at the next synchronization.
-    later = w.pi.enqueue(w.store.get(lead['id'], 'agent_session'), 'pi_run_later', 'A follow-up')
+    config = w.pi.configuration(c['id'])
+    assert config['status'] == 'running' and not config['request_open']
+    assert w.store.get(lead['id'], 'agent_session')['status'] == 'waiting'
+    # The next message is the next request and is dispatched.
+    later = w.pi.message(c['id'], {'message': 'A follow-up'}, 'later')
     w.pi.client = Client()
     w.pi._sync(c['id'])
-    assert w.pi.configuration(c['id'])['status'] == 'running' and w.store.get(later['id'], 'agent_run')['status'] in {'submitted', 'running'}
+    assert w.pi.configuration(c['id'])['request_open'] and w.store.get(later['id'], 'agent_run')['status'] in {'submitted', 'running'}
+
+
+def activated(tmp_path, monkeypatch, payload=None):
+    monkeypatch.setenv('GRATING_LLM_ENABLED', 'true')
+    monkeypatch.setenv('GRATING_LLM_DISABLED', 'false')
+    monkeypatch.setenv('GRATING_PI_PROVIDER', 'openai-codex')
+    workspace = Workspace(tmp_path)
+    campaign = workspace.create_campaign(CampaignInput(name='Service campaign', compute_budget_seconds=100, validation_reserve_seconds=10,
+        tasks=[TaskInput(name='Quadratic', problem_id='bounded_continuous', configuration={})]))
+    workspace.commands.execute(Command(id='start_team', campaign_id=campaign['id'], expected_revision=1, operation='agent.activate', payload=payload or {}))
+    return workspace, campaign, workspace.store.get(workspace.pi.configuration(campaign['id'])['lead_id'], 'agent_session')
+
+
+def test_starting_the_team_starts_no_work_until_the_researcher_asks(tmp_path, monkeypatch):
+    from optimization_framework.agents.models import NOTICE, STANDING_OBJECTIVE
+    w, c, lead = activated(tmp_path, monkeypatch)
+    client = Client(); w.pi.client = client
+    config = w.pi.configuration(c['id'])
+    assert config['status'] == 'running' and not config['request_open'] and config['objective'] == STANDING_OBJECTIVE
+    assert lead['status'] == 'waiting' and 'first request' in lead['activity'] and lead['objective'] == STANDING_OBJECTIVE
+    # Nothing is queued, and synchronizing submits nothing to the model.
+    w.pi._sync(c['id'])
+    assert not w.store.list('agent_run') and client.submissions == []
+    assert w.pi.progress(c['id'])['headline'] == 'Lead agent is waiting for your request'
+    # An experiment the researcher starts by hand finishes without waking the lead...
+    task = w.current_tasks(c['id'])[0]
+    trial = w.create_trial(TrialInput(campaign_id=c['id'], task_id=task['id'], algorithm='coordinate', max_steps=2, wall_seconds=5))
+    w.store.put('trial', {**w.store.get(trial['id'], 'trial'), 'status': 'completed'}, 'trial.evidence_cataloged')
+    w.pi._campaign_events(c['id'])
+    assert not w.store.list('agent_run')
+    # ...and so does pausing and resuming the team.
+    w.pi.control(c['id'], {'action': 'pause', 'expected_control_revision': 0}, 'pause')
+    w.pi.control(c['id'], {'action': 'resume', 'expected_control_revision': 1}, 'resume')
+    assert not w.store.list('agent_run') and w.store.get(lead['id'], 'agent_session')['status'] == 'waiting'
+    # The researcher's first message is the lead's first turn, delivered as written.
+    run = w.pi.message(c['id'], {'message': 'Propose three hypotheses. Do not run anything yet.'}, 'first')
+    w.pi._sync(c['id'])
+    assert client.submissions == [run['id']] and run['input'] == 'Propose three hypotheses. Do not run anything yet.'
+    assert w.pi.configuration(c['id'])['request_open'] and not run['input'].startswith(NOTICE)
+
+
+def test_outcomes_wake_the_lead_only_for_an_open_request_and_a_profile_reports_once(tmp_path, monkeypatch):
+    from optimization_framework.agents.models import NOTICE
+    w, c, lead = activated(tmp_path, monkeypatch)
+    task = w.current_tasks(c['id'])[0]
+    woken = lambda: [run for run in w.store.list('agent_run') if run['id'].startswith('pi_events_')]
+    def finished(event='trial.evidence_cataloged'):
+        trial = w.create_trial(TrialInput(campaign_id=c['id'], task_id=task['id'], algorithm='coordinate', max_steps=2, wall_seconds=5))
+        w.store.put('trial', {**w.store.get(trial['id'], 'trial'), 'status': 'completed'}, event)
+        return trial
+    w.pi.message(c['id'], {'message': 'Measure the runtime, then run one short experiment.'}, 'request')
+    # The probes of a runtime profile do not wake the lead one by one; the profile's end does, once.
+    probes = [finished(), finished()]
+    profile = {'id': 'runtime_profile_test', 'campaign_id': c['id'], 'status': 'running', 'levels': [{'workers': 2, 'trial_ids': [probe['id'] for probe in probes]}]}
+    w.store.put('runtime_profile', profile, 'runtime.profile_started')
+    w.pi._campaign_events(c['id'])
+    assert not woken()
+    w.store.put('runtime_profile', {**profile, 'status': 'completed'}, 'runtime.profile_completed')
+    w.pi._campaign_events(c['id'])
+    assert len(woken()) == 1 and woken()[0]['input'].startswith(NOTICE) and 'runtime.profile_completed' in woken()[0]['input']
+    # An experiment of the request wakes it; a change the researcher makes to the campaign does not.
+    experiment = finished()
+    w.pi._campaign_events(c['id'])
+    assert len(woken()) == 2 and experiment['id'] in woken()[-1]['input']
+    w.store.put('campaign', w.store.get(c['id'], 'campaign'), 'campaign.updated')
+    w.pi._campaign_events(c['id'])
+    assert len(woken()) == 2
+    # Once the lead reports the request fulfilled, later outcomes are not its business until the researcher writes again.
+    w.pi._request(c['id'], False)
+    finished()
+    w.pi._campaign_events(c['id'])
+    assert len(woken()) == 2
+    w.pi.message(c['id'], {'message': 'Summarise what ran.'}, 'second')
+    w.pi._campaign_events(c['id'])
+    assert len(woken()) == 2   # what happened meanwhile is read from the campaign state, not replayed as wake-ups
+
+
+def test_a_silent_turn_is_asked_for_its_checkpoint_not_told_to_continue(prepared):
+    from optimization_framework.agents.models import NOTICE
+    w, c, lead, first = prepared
+    w.pi._receive(lead['id'], {'runs': {first['id']: {'status': 'completed', 'result': {'text': 'Here is my answer.'}}}, 'events': [], 'cursor': 0})
+    nudges = [run for run in w.store.list('agent_run') if run['id'].startswith('pi_continue_')]
+    assert len(nudges) == 1 and nudges[0]['input'].startswith(NOTICE)
+    assert 'yield_work(complete)' in nudges[0]['input'] and 'Start nothing the request did not ask for' in nudges[0]['input']
+    assert 'Continue the authorized objective' not in nudges[0]['input'] and w.pi.configuration(c['id'])['request_open']
+
+
+def test_instructions_make_the_lead_act_on_requests_and_saved_assignments_follow(prepared):
+    from optimization_framework.agents.models import FORMER_OBJECTIVE, STANDING_OBJECTIVE
+    from optimization_framework.agents.controller import PiController
+    w, c, lead, run = prepared
+    instructions = PiTools(w.pi).manifest(lead['id'], run['id'])['instructions']
+    assert "at the researcher's request" in instructions and 'start one only when a request covers it' in instructions
+    assert 'end-to-end' not in instructions and 'If useful independent work remains' not in instructions
+    # A team started by an earlier version was told to continue the campaign by itself; its saved assignment is replaced.
+    w.store.put('agent_session', {**w.store.get(lead['id'], 'agent_session'), 'objective': FORMER_OBJECTIVE})
+    w.store.put('agent_campaign', {**w.pi.configuration(c['id']), 'objective': FORMER_OBJECTIVE})
+    restarted = PiController(w)
+    assert restarted.store.get(lead['id'], 'agent_session')['objective'] == STANDING_OBJECTIVE
+    assert restarted.configuration(c['id'])['objective'] == STANDING_OBJECTIVE

@@ -27,13 +27,13 @@ to replace that outside session.
 | Lead reads files and runs its own analysis | Implemented, live, used once by a Lead |
 | Requests that apply themselves on approval | Implemented, live, used once by a Lead |
 | Lead changes code through an implementation workspace | Proposed, acceptable in dev mode only |
+| Lead acts only on the researcher's requests; starting the team starts no work | Implemented, live, checked with a Lead; see Part G |
 
 "Live" means the running services on X670 use the code (last restarted on 13 October 2026).
 "Not live" means the code is in the working tree and tested, and the services still run the old
 code. "Tested"
 alone means the automated tests pass; where a change was also checked on the running service, the
-item says so. No Lead has used any of it yet: that is the rehearsal. Nothing on this page is
-committed.
+item says so. Everything on this page is committed on branch `lead-readiness`.
 
 ## Why this was needed
 
@@ -395,6 +395,70 @@ higher orders unless someone asks for it.
 3. The evaluator loads the solver from a working checkout (`meent_2d_source`). That checkout was
    edited on 13 October at 16:29 KST while the services ran; later experiments record its source
    as modified. The scores reproduced, but nothing pins the solver for the length of a campaign.
+
+## Part G — The Lead acts on requests (13 October 2026)
+
+### What went wrong
+
+A campaign created from the preset as a real campaign (`campaign_7cc90a3b`) had its agent team
+started at 20:02 KST. The Lead began at once: it launched a runtime profile 29 seconds later, and
+each probe that finished woke it again. Before the researcher's "stop" reached it, it had taken
+8 turns and 86 model calls ($0.57) for work nobody asked for.
+
+This was the design, not a slip of the model. Starting the team queued a first turn that said
+"continue the campaign", the Lead's instructions said the researcher had "authorized end-to-end
+work", every outcome in the campaign woke it with "inspect the records and continue", and the
+Start panel announced that the lead agent "begins working at once". The rehearsal in Part E
+showed that the Lead can carry out each stage. It is not how a campaign is meant to run: the
+Lead designs and carries out experiments as the researcher asks, and does not run a programme.
+
+### What changed
+
+| Change | Where | Enforced by |
+|---|---|---|
+| Starting the team starts no turn; the Lead waits for the first message | `agents/controller.py` `activate` | The controller |
+| A request is open from a researcher's message until the Lead reports it fulfilled; outcomes wake the Lead only while one is open | `controller.py` `_request`, `_campaign_events`, `_receive` | The controller |
+| A runtime profile wakes the Lead once, at its end, not once per probe; a change the researcher makes to the campaign wakes nobody | `controller.py` `_campaign_events` | The controller |
+| Resuming a paused team starts a Lead turn only if a request was in progress | `controller.py` `control` | The controller |
+| Turns the platform starts are marked as notices, not requests | `agents/models.py` `NOTICE` | The Lead's instructions |
+| The Lead's instructions: act on requests, one stage only when a request covers it, a question gets an answer | `agents/tools.py` `INSTRUCTIONS` | The model following them |
+| The standing assignment replaces "continue the campaign"; saved teams are migrated at start-up | `agents/models.py`, `controller.py` `_migrate_records` | The controller |
+| A turn returns everything the Lead wrote, not only its last line | `agent-harness/src/supervisor.ts` | The harness |
+| The Start panel and the Lead's status say that it waits for a request | `frontend/src/models.tsx`, `piAgents.tsx` | — |
+
+There is no setting that restores the old behaviour. A scripted run, such as a reproduction used
+as a test, sends the Lead requests like a researcher would.
+
+### Checked
+
+- Automated: 1,296 tests pass (the full suite, before the harness change); the 49 agent tests and
+  the 12 harness tests pass with it. New tests are in `tests/test_pi_agents.py`
+  (`test_starting_the_team_starts_no_work_until_the_researcher_asks`,
+  `test_outcomes_wake_the_lead_only_for_an_open_request_and_a_profile_reports_once`,
+  `test_a_silent_turn_is_asked_for_its_checkpoint_not_told_to_continue`,
+  `test_instructions_make_the_lead_act_on_requests_and_saved_assignments_follow`) and in
+  `agent-harness/test/supervisor.test.mjs`.
+- On the running service, after the restart: no campaign's Lead took a turn and no model call was made.
+- With a Lead on DeepSeek V4 Pro, in a scratch campaign from the same preset and charter text
+  (`campaign_service-check-20261013-a`, team stopped afterwards, $0.12 in all):
+
+  | Step | What the Lead did |
+  |---|---|
+  | Team started, no message for 150 s | Nothing: no turn, no command, no model call |
+  | "What can you do for me in this campaign, and what would you suggest as the first step?" | One turn, read the campaign and the host, answered, started nothing, closed the request ($0.03) |
+  | "Create two hypotheses ..., each runnable with an installed method. Nothing else for now." | One turn, two `hypothesis.create` commands, no experiment, no profile, closed the request |
+
+Not checked with a Lead: a request that starts experiments and is woken by their outcomes; a
+request covering several stages; a subagent's result; an approval answered while no request is
+open. The first of these is covered by the automated tests only.
+
+### Seen during the check
+
+- The first question's answer was 3,280 characters, written before the Lead's last tool call; the
+  conversation showed only the 624-character closing line that followed. Fixed by the harness
+  change above. A turn's message now also carries the short remarks the Lead makes between tool calls.
+- After each researcher message the Lead's first commands are still refused once for an outdated
+  guidance revision (Part E). Not addressed.
 
 ## Not planned
 
