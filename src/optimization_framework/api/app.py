@@ -95,6 +95,10 @@ class ImplementationControl(Model):
     action: Literal["cancel", "resume", "close_uncertain"]
 
 
+class RemovalInput(Model):
+    keep: Literal["nothing", "summary", "records"]
+
+
 def create_app(directory=None, max_workers=2, start_workers=True, implementation_client=None, frontend_directory=None):
     workspace = Workspace(directory or os.environ.get("GRATING_WORKSPACE", "runs/workspace"), max_workers=max_workers,
                           implementation_client=implementation_client)
@@ -543,6 +547,26 @@ def create_app(directory=None, max_workers=2, start_workers=True, implementation
     def update_campaign(campaign_id: str, body: CampaignUpdate, request: Request):
         return compatibility_command(workspace, request, "campaign.update", body.model_dump(mode="json", exclude_none=True),
             campaign_id=campaign_id)["outcome"]["campaign"]
+
+    @app.get("/api/v1/campaigns/{campaign_id}/removal")
+    def removal_plan(campaign_id: str):
+        return workspace.removal.plan(campaign_id)
+
+    @app.post("/api/v1/campaigns/{campaign_id}/removal")
+    def remove_campaign(campaign_id: str, body: RemovalInput):
+        # Removing a campaign is the researcher's alone and leaves no command behind: the commands go with it.
+        workspace.store.get(campaign_id, "campaign")
+        try:
+            removed = workspace.removal.remove(campaign_id, body.keep)
+        except ValueError as exc:
+            # Answered here: the general handler would file the refusal as an issue of the campaign.
+            return JSONResponse({"detail": str(exc)}, status_code=409)
+        state_body.cache_clear()   # other campaigns' cached views still list the removed one
+        return removed
+
+    @app.get("/api/v1/removed-campaigns")
+    def removed_campaigns():
+        return workspace.removal.removed()
 
     @app.get("/api/campaigns/{campaign_id}/charters")
     def charters(campaign_id: str):

@@ -1,0 +1,25 @@
+.campaign-links{display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:0 10px}
+.campaign-links>button{white-space:nowrap}
+.remove-campaign-link{border:0;background:none;display:flex;align-items:center;gap:5px;color:#a08a7b;font-size:10px;padding:8px 0 0}
+.remove-campaign-link:hover:not(:disabled){color:#a65f48}
+.remove-campaign-link:disabled{opacity:.45}
+.removal-facts{font-size:12px;line-height:1.75;color:#5f6f5d;margin:0 0 16px}
+.removal-blockers{background:#fdf0eb;border:1px solid #f0d4c7;border-radius:7px;padding:12px 14px;color:#a65f48;font-size:11px;line-height:1.7;margin:0 0 16px}
+.removal-blockers ul{margin:6px 0 0;padding-left:17px}
+.removal-choices{border:0;padding:0;margin:0;min-width:0;display:flex;flex-direction:column;gap:9px}
+.removal-choices legend{font-size:12px;font-weight:650;color:#3f5745;padding:0;margin-bottom:10px}
+.removal-choices label{display:flex;align-items:flex-start;gap:11px;border:1px solid #e1e7d8;border-radius:8px;padding:12px 14px;cursor:pointer;background:#fff}
+.removal-choices label:hover{border-color:#c9d6bd}
+.removal-choices label.chosen{border-color:#7f9f86;background:#f6faf2}
+.removal-choices input{margin:3px 0 0;flex-shrink:0;width:auto}
+.removal-choices label>span{display:flex;flex-direction:column;gap:4px;min-width:0}
+.removal-choices strong{font-size:12px;color:#33483a;font-weight:650}
+.removal-choices label>span>span{font-size:11px;line-height:1.7;color:#6f7f6c}
+.removal-choices:disabled label{cursor:default;opacity:.55}
+.removal-where{font-size:11px;line-height:1.7;color:#6f7f6c;margin:14px 0 0}
+.removal-path{display:block;font:10px/1.6 ui-monospace,SFMono-Regular,Consolas,monospace;background:#f6f8f2;border:1px solid #e6ebde;border-radius:6px;padding:7px 9px;margin-top:6px;color:#4d5f4f;overflow-wrap:anywhere;user-select:all}
+.removal-confirm{font-size:11px;color:#5f6f5d;margin:16px 0 0}
+.removal-confirm input{width:auto}
+.removal-result p{font-size:12px;line-height:1.75;color:#5f6f5d;margin:0 0 6px}
+.removal-result .removal-path{margin:0 0 14px}
+.removal-result .removal-blockers{margin-top:14px}

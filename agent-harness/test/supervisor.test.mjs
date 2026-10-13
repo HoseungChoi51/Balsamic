@@ -133,3 +133,16 @@ test('a turn returns everything the agent wrote, not only its closing line', asy
   f.runtimes[0].finish(); await until(()=>s.view('pi').runs.next.status==='completed');
   assert.equal(s.view('pi').runs.next.result.text,'saved');
 });
+test('forgetting an agent ends its turn, deletes its saved session and leaves the others', async t=>{
+  const f=fixture(t), s=f.supervisor;
+  await s.submit('gone',request('first')); await s.submit('stays',request('other'));
+  await until(()=>f.runtimes.length===2 && f.runtimes.every(r=>r.finish));
+  assert.ok(fs.existsSync(path.join(f.directory,'gone','state.json')));
+  assert.deepEqual(await s.forget('gone'),{removed:true});
+  assert.equal(s.view('gone'),null); assert.ok(!fs.existsSync(path.join(f.directory,'gone')));
+  assert.equal(s.view('stays').runs.other.status,'running'); assert.ok(fs.existsSync(path.join(f.directory,'stays','state.json')));
+  // Nothing of it comes back: not after a restart, and an unknown agent is simply not there.
+  assert.equal(new Supervisor(f.directory,f.factory,f.gateway,'private-auth').view('gone'),null);
+  assert.deepEqual(await s.forget('gone'),{removed:false});
+  await assert.rejects(s.forget('../stays'),/Invalid identity/);
+});

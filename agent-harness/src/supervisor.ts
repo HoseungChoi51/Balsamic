@@ -40,6 +40,7 @@ export class Supervisor {
     }
   }
   save(agent: any) {
+    if (agent.removed) return;   // its directory is gone; a turn that was still settling has nothing to save
     const {runtime, busy, turnTexts, ...persisted} = agent;   // a turn's texts live only while it runs
     atomic(path.join(this.directory, agent.id, 'state.json'), persisted);
     this.changed.add(agent.id);
@@ -54,6 +55,7 @@ export class Supervisor {
   event(agent: any, type: string, data: any = {}) {
     // Never publish hidden reasoning or authentication material.
     const item = {seq: ++agent.seq, type, occurred_at: new Date().toISOString(), ...data};
+    if (agent.removed) return item;
     fs.appendFileSync(path.join(this.directory, agent.id, 'events.jsonl'), JSON.stringify(item) + '\n', {mode: 0o600});
     this.save(agent);
     return item;
@@ -168,6 +170,22 @@ export class Supervisor {
       await agent.runtime?.abort(); this.save(agent);
     } else void this.pump(agent);
     return {status: agent.control || 'idle'};
+  }
+  // Forget an agent whose campaign was removed: end its turn, drop it, and delete its saved session.
+  async forget(id: string) {
+    const agent = this.agents.get(safeID(id));
+    const directory = path.join(this.directory, id);
+    if (agent) {
+      agent.control = 'stopped';
+      for (const run of Object.values(agent.runs) as any[]) if (run.status === 'queued') run.status = 'stopped';
+      await agent.runtime?.abort();
+      for (let waited = 0; agent.busy && waited < 10000; waited += 50) await new Promise(resolve => setTimeout(resolve, 50));
+      agent.removed = true; this.agents.delete(id); this.changed.delete(id);
+      agent.runtime?.dispose?.(); agent.runtime = null;
+    }
+    const existed = fs.existsSync(directory);
+    fs.rmSync(directory, {recursive: true, force: true});
+    return {removed: Boolean(agent) || existed};
   }
   async close() {
     this.closing = true;

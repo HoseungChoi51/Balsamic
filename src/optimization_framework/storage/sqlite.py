@@ -35,6 +35,9 @@ class Store:
         # counts are enough to reuse derived trial queries between writes.
         self._revisions = Counter()
         self._derived = {}
+        # Campaigns removed while this process runs. A background pass that read one of
+        # their records before the removal must not write it back afterwards.
+        self.removed_campaigns = set()
         with self.connection() as db:
             db.executescript("""
                 PRAGMA journal_mode=WAL;
@@ -91,9 +94,11 @@ class Store:
             self._local.connection = db
             self._local.depth = 0
             self._local.written = set()
+            self._local.removing = set()
             try:
                 yield db
                 db.commit()
+                self.removed_campaigns |= self._local.removing   # only once the deletion is committed
             except BaseException:
                 db.rollback()
                 raise
@@ -134,6 +139,10 @@ class Store:
         """Commit related records and their journal entries together."""
         with self.connection() as db:
             for kind, record, event in entries:
+                if record.get("campaign_id") in self.removed_campaigns:
+                    raise ValueError("This campaign was removed from the workspace")
+                if kind == "campaign":
+                    self.removed_campaigns.discard(record["id"])   # the identity is free to be used again
                 existing = db.execute("SELECT kind, data FROM records WHERE id=?", (record["id"],)).fetchone()
                 if existing:
                     previous = json.loads(existing["data"])
@@ -323,6 +332,39 @@ class Store:
         with self.connection() as db:
             rows = db.execute(query).fetchall()
         return [json.loads(row["data"]) for row in rows]
+
+    def delete_campaign(self, campaign_id: str) -> dict:
+        """Delete every row of a campaign: its records, events, agent log, search index and model-call accounting.
+
+        Runs in the caller's transaction. Returns the number of rows deleted per table. What other
+        campaigns hold is not touched; the caller checks beforehand that none of it points here.
+        """
+        counts = {}
+        with self.connection() as db:
+            tables = {row[0] for row in db.execute("SELECT name FROM sqlite_master WHERE type='table'")}
+            counts["cost_positions"] = db.execute("DELETE FROM cost_positions WHERE cost_event_id IN "
+                "(SELECT id FROM records WHERE kind='cost_event' AND campaign_id=?)", (campaign_id,)).rowcount
+            counts["records"] = 0
+            # One indexed delete per kind; a single delete by campaign alone would scan every record.
+            for kind in [row[0] for row in db.execute("SELECT DISTINCT kind FROM records")]:
+                removed = db.execute("DELETE FROM records WHERE kind=? AND campaign_id=?", (kind, campaign_id)).rowcount
+                if removed:
+                    counts["records"] += removed
+                    self._local.written.add(kind)
+                    self._revisions[kind] += 1
+            counts["records"] += db.execute("DELETE FROM records WHERE id=? AND kind='campaign'", (campaign_id,)).rowcount
+            self._local.written.add("campaign")
+            self._revisions["campaign"] += 1
+            counts["events"] = db.execute("DELETE FROM events WHERE campaign_id=?", (campaign_id,)).rowcount
+            for table in ("agent_events", "agent_log_offsets", "agent_log_projection", "manager_search", "llm_usage"):
+                if table in tables:
+                    counts[table] = db.execute(f"DELETE FROM {table} WHERE campaign_id=?", (campaign_id,)).rowcount
+            if "agent_payloads" in tables:
+                # Payloads are stored once per content; keep those another campaign's log still points to.
+                counts["agent_payloads"] = db.execute("DELETE FROM agent_payloads WHERE digest NOT IN "
+                    "(SELECT payload_ref FROM agent_events WHERE payload_ref IS NOT NULL)").rowcount
+            self._local.removing.add(campaign_id)
+        return counts
 
     def record_position(self, record_id):
         """Durable insertion order, independent of a producer's claimed clock."""

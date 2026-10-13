@@ -51,6 +51,7 @@ const server = http.createServer(async (req, res) => {
     const match = url.pathname.match(/^\/v1\/agents\/([a-zA-Z0-9_-]+)(?:\/(runs|control))?$/);
     if (!match) { res.statusCode = 404; res.end('{}'); return; }
     if (req.method === 'GET' && !match[2]) { const value = supervisor.view(match[1], Number(url.searchParams.get('after') || 0)); res.statusCode = value ? 200 : 404; res.end(JSON.stringify(value)); return; }
+    if (req.method === 'DELETE' && !match[2]) { res.end(JSON.stringify(await supervisor.forget(match[1]))); return; }
     if (req.method !== 'POST' || !match[2]) { res.statusCode = 405; res.end('{}'); return; }
     let raw = ''; for await (const chunk of req) { raw += chunk; if (Buffer.byteLength(raw) > 2 * 1024 * 1024) throw new Error('Request exceeds transport limit; use evidence references'); }
     const body = JSON.parse(raw);

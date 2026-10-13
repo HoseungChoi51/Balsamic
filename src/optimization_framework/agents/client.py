@@ -48,3 +48,7 @@ class PiClient:
 
     def control(self, agent_id, action):
         return self.request("POST", f"/v1/agents/{agent_id}/control", {"action": action})
+
+    def forget(self, agent_id):
+        """End the agent and delete its saved session; used when its campaign is removed."""
+        return self.request("DELETE", f"/v1/agents/{agent_id}")
