@@ -89,6 +89,36 @@ The lead agent files `journal.compaction_request` after results are analysed and
 researcher approves it in the decision inbox, and only then are evaluated designs removed from
 the finished experiments' journals.
 
+### Files and the agents' own analysis
+
+Agents other than the protected implementation roles can read two places outside the database:
+
+- `file_list`, `file_read` and `file_search` with root `repository` reach this server's checkout,
+  limited to the files git tracks. Credentials, run data and Pi's runtime state are never tracked,
+  so they are never listed, read or searched.
+- With root `experiment` and a `trial_id` they reach that experiment's directory, for experiments
+  of the agent's own campaign, without its saved states.
+
+`analysis_run` runs a Python script that the agent wrote into its work directory
+(`workspace_write`) in a bubblewrap sandbox: the named experiments are mounted read-only at
+`/data/<trial_id>`, the interpreter and the framework's source are read-only, the work directory
+is the only writable place, and there is no network, no GPU, and nothing else of the host (not
+the workspace database, not the user's configuration or keys). A script runs for at most 300 s
+and a campaign's agents for 7,200 s in all; the last 12 kB of its output is returned.
+
+Whatever an agent reads is sent to its model provider. The repository root therefore exposes the
+committed code and documents of this checkout to that provider; nothing outside the two roots is
+reachable.
+
+### What only the researcher grants
+
+Campaign limits (compute, model spending, the per-experiment limit, the validation reserve),
+waivers and the worker ceiling are the researcher's. An agent files `approval.request` with one
+of them and its reason; it appears in the decision inbox, and approval applies it as the
+researcher's own command (`campaign.update`, `validation.waive` or `workers.set`). Declining
+changes nothing. A changed worker ceiling holds until the services restart, when the launcher
+configuration's `workers` applies again. The per-experiment limit may be set up to 86,400 s.
+
 ## Numerical diagnostics
 
 `mask_create` makes deterministic full-size masks without putting all cells into

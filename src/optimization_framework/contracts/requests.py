@@ -62,7 +62,7 @@ class CampaignInput(Model):
     llm_budget_usd: float = Field(default=5, ge=0, le=10000)
     autonomy: Literal["manual", "guided", "delegated"] = "guided"
     tasks: list[TaskInput] = Field(min_length=1, max_length=100)
-    delegated_trial_seconds: float = Field(default=60, gt=0, le=3600)
+    delegated_trial_seconds: float = Field(default=60, gt=0, le=86400)   # at most what one experiment may run
     validation_reserve_seconds: float = Field(default=120, ge=0)
     implementation_compute_budget_seconds: float = Field(default=0, ge=0, le=604800)
 
@@ -80,7 +80,7 @@ class CampaignUpdate(Model):
     llm_budget_usd: float | None = Field(default=None, ge=0, le=10000)
     autonomy: Literal["manual", "guided", "delegated"] | None = None
     tasks: list[TaskInput] | None = Field(default=None, min_length=1, max_length=100)
-    delegated_trial_seconds: float | None = Field(default=None, gt=0, le=3600)
+    delegated_trial_seconds: float | None = Field(default=None, gt=0, le=86400)
     validation_reserve_seconds: float | None = Field(default=None, ge=0)
     implementation_compute_budget_seconds: float | None = Field(default=None, ge=0, le=604800)
 

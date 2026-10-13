@@ -14,6 +14,7 @@ from optimization_framework.contracts.bundles import BundleExportInput, BundleIn
 from optimization_framework.contracts.commands import EvaluatorCommissionInput, EvaluatorAttachInput, ImplementationControlInput, WaiverRevocationInput, RevalidationInput, ExecutableReuseInput, RuntimeResolutionInput
 from optimization_framework.contracts.commands import CampaignUpdateInput, ContextEditInput, IssueResolveInput, TrialControlInput, TrialValidationInput
 from optimization_framework.contracts.commands import TrialExtensionRequestInput, JournalCompactInput, JournalCompactionRequestInput
+from optimization_framework.contracts.commands import ApprovalRequestInput, WorkerCeilingInput
 from optimization_framework.contracts.commands import HypothesisReviewInput, HypothesisStatusInput, HypothesisNominateInput
 from optimization_framework.contracts.commands import ResearchControlInput, ResearchRetryInput, DecisionResolveInput, DecisionRefreshInput, SourceRecordInput, SourceIngestInput
 from optimization_framework.contracts.commands import InferenceRunInput, FinalistSetInput
@@ -36,6 +37,8 @@ DELEGATED.add("trial.extension_request")
 DELEGATED.update({"runtime.profile", "evaluator.equivalence", "trial.continue"})
 # The lead asks; removing recorded designs is the researcher's decision (journal.compact is not delegated).
 DELEGATED.add("journal.compaction_request")
+# Limits, waivers and the worker ceiling are the researcher's: an agent asks, and approval applies the change.
+DELEGATED.add("approval.request")
 
 
 class CommandService:
@@ -119,6 +122,7 @@ class CommandService:
             "validation.require": RecipeInput, "validation.execute": ExecuteValidationInput, "validation.waive": WaiverInput,
             "runtime.profile": RuntimeProfileInput, "evaluator.equivalence": EquivalenceInput, "trial.continue": TrialContinueInput,
             "journal.compact": JournalCompactInput, "journal.compaction_request": JournalCompactionRequestInput,
+            "approval.request": ApprovalRequestInput, "workers.set": WorkerCeilingInput,
             "validation.revoke_waiver": WaiverRevocationInput,
             "asset.reuse": ReuseInput, "finding.record": FindingInput, "implementation.commission": CommissionInput,
             "asset.snapshot": AssetSnapshotInput,
@@ -648,6 +652,63 @@ class CommandService:
         if command.operation == "trial.continue":
             self._target(command, "trial_id", "trial")
             return self._trial_outcome(self.workspace.continue_trial(TrialContinueInput(**payload)), snapshot=actor == "researcher")
+        if command.operation == "workers.set":
+            if actor != "researcher":
+                raise ValueError("Only the researcher changes the worker ceiling; file approval.request")
+            values = WorkerCeilingInput(**payload)
+            previous = self.workspace.max_workers
+            # The scheduler reads the ceiling on every pass, so the change holds from the next one. A runtime
+            # profile measured under the old ceiling is no longer current, and a new one measures up to this one.
+            self.workspace.max_workers = values.workers
+            self.store.put_immutable("worker_ceiling_change", {"id": "worker_ceiling_" + command.id, "campaign_id": command.campaign_id,
+                "previous": previous, "workers": values.workers, "rationale": values.rationale, "authority": actor, "created_at": now(),
+                "lasts": "Until the services restart; the launcher configuration's workers setting applies then."}, "workers.changed")
+            return {"previous": previous, "workers": values.workers}
+        if command.operation == "approval.request":
+            # The researcher approves it in the decision inbox, which issues the change
+            # under researcher authority (research_commands.resolve).
+            values = ApprovalRequestInput(**payload)
+            campaign = self.store.get(command.campaign_id, "campaign")
+            asker = "The lead agent" if self.workspace.pi.owns(command.campaign_id) else "The campaign manager"
+            request = {"kind": values.kind}
+            if values.kind == "campaign_limits":
+                CampaignUpdate(**values.limits)
+                changes = {key: value for key, value in values.limits.items() if campaign.get(key) != value}
+                if not changes:
+                    raise ValueError("The campaign already has these limits")
+                request["limits"] = changes
+                shown = "; ".join(f"{key} {campaign.get(key):g} to {value:g}" for key, value in changes.items())
+                title, approve = f"Change campaign limits ({shown})?", "Change the limits"
+                proposal = f"{asker} asks to change this campaign's limits: {shown}. The change is recorded as a budget amendment under your authority."
+            elif values.kind == "waiver":
+                requirement = self._target(command, "requirement_id", "validation_requirement")
+                for identity in values.evidence_ids:
+                    if self.store.get(identity).get("campaign_id") != command.campaign_id:
+                        raise ValueError("A waiver request cites this campaign's own measurements")
+                results = [row for row in self.store.list("validation_result", command.campaign_id) if row["requirement_id"] == requirement["id"]]
+                request.update(requirement_id=requirement["id"], evidence_ids=values.evidence_ids)
+                title, approve = f"Waive the {requirement['kind'].replace('_', ' ')} check ({requirement['id']})?", "Waive the check"
+                proposal = (f"{asker} asks you to waive a check that now blocks work. " +
+                    (f"Its last result: {results[-1]['verdict']}. {results[-1].get('rationale', '')} " if results else "It has no result yet. ") +
+                    "A waiver is yours alone, is recorded with this reason, and can be revoked.")
+            else:
+                if values.workers == self.workspace.max_workers:
+                    raise ValueError(f"The worker ceiling is already {values.workers}")
+                request["workers"] = values.workers
+                title, approve = f"Change the worker ceiling from {self.workspace.max_workers} to {values.workers}?", "Change the ceiling"
+                proposal = (f"{asker} asks for {values.workers} experiments to run at once instead of {self.workspace.max_workers}. It applies at once, to every "
+                    "campaign on this server, until the services restart; to keep it, set workers in the launcher configuration. "
+                    "A runtime profile measured under the old ceiling is no longer current.")
+            decision = {"id": "approval_" + command.id, "campaign_id": command.campaign_id, "charter_version": campaign["version"],
+                "guidance_revision": self.workspace.memory.state(command.campaign_id)["guidance_revision"],
+                "question": title, "title": title, "rationale": values.rationale, "context": values.rationale, "proposal": proposal,
+                "options": [{"id": "0", "label": approve, "description": "Applied at once as your own command."},
+                            {"id": "1", "label": "Leave it as it is", "description": "The requester is told and nothing changes."}],
+                "recommendation": "0", "approval_request": request,
+                "requested_by": "lead" if self.workspace.pi.owns(command.campaign_id) else "manager", "audience": "researcher",
+                "status": "pending", "created_at": now()}
+            self.store.put("decision", decision, "decision.created")
+            return {"decision_id": decision["id"], "request": request}
         if command.operation == "journal.compact":
             if actor != "researcher":
                 raise ValueError("Only the researcher removes recorded designs; file journal.compaction_request")

@@ -23,8 +23,8 @@ to replace that outside session.
 | Rehearsal: the Lead runs the whole workflow once | Done: passed, after two fixes |
 | Finalists may be chosen from runs that ended at their time limit | Implemented, live |
 | Scores re-checked at higher RCWA orders before they are trusted | Not in place; see Part F |
-| Lead reads files and runs its own analysis | Proposed, acceptable to the researcher |
-| Requests that apply themselves on approval | Proposed, acceptable to the researcher |
+| Lead reads files and runs its own analysis | Implemented, live, used once by a Lead |
+| Requests that apply themselves on approval | Implemented, live, used once by a Lead |
 | Lead changes code through an implementation workspace | Proposed, acceptable in dev mode only |
 
 "Live" means the running services on X670 use the code (last restarted on 13 October 2026).
@@ -218,36 +218,58 @@ at (10, 5) from which the new campaign's compute budget is set. Needs Part A liv
 - Reference the ten findings in the new campaign's Evidence view before activating the Lead.
 - Worker ceiling: stay at 4 and waive the `unsaturated` flag, unless a higher ceiling is tried.
 
-## Part C — Proposed: widening the Lead's access
+## Part C — Widening the Lead's access
 
-Not implemented. The researcher's position on 13 October: points 1 and 2 are fine, point 3 is
-acceptable in dev mode only, and **the decision is made final after the rehearsal**. Nothing in
-this part is built before then.
+The researcher approved points 1 and 2 on 13 October after the rehearsal; point 3 stays proposed.
 
-Today the Lead reads database records in pages, runs no code, cannot change code (implementation
-workspaces are off on this host and its instructions forbid modifying the running app), and
-cannot apply a change the researcher approves.
+### C1. Read access and its own analysis — implemented
 
-1. **Read access and its own analysis.** Read-only access to the repository and the run
-   directories, with credentials excluded, and a sandbox in which the Lead runs scripts it writes
-   over the journals. This is most of what the outside session did (saturation analysis, report
-   data).
-2. **Requests that apply themselves on approval.** Budget, per-experiment limit, waiver, worker
-   ceiling with restart, feature switches. Today only a run extension works this way
-   (`trial.extension_request`); everything else is a free-text question that someone must then
-   act on.
-3. **Code changes, in dev mode only.** Switch on the implementation workspace (a coding session
-   in a container with a copy of the repository) and add a path from an accepted commit to the
-   running services. Dev mode is a server started with a Pi profile (`pi_profile` in the launcher
-   configuration, as on X670); a locked-mode server would not offer this. Untested on this host,
-   and the largest piece.
+`src/optimization_framework/agents/files.py`, `agents/tools.py`
 
-Open with this proposal:
+- `file_list`, `file_read`, `file_search`: the repository, limited to the files git tracks, and
+  the directories of the campaign's own experiments without their saved states.
+- `analysis_run`: the agent's own Python script in a sandbox, with the experiments it names
+  mounted read-only at `/data/<trial_id>`, numpy and the framework's journal readers importable,
+  no network, no GPU, at most 300 s a run and 7,200 s per campaign.
+- What the agent reads goes to its model provider. Outside the repository's tracked files and
+  the campaign's experiments nothing is reachable: the private MEENT source and the manuscript lie
+  outside the checkout, and credentials are untracked.
+- Tests: `tests/test_pi_agents.py::test_agents_read_committed_repository_files_and_their_own_experiments_only`,
+  `::test_an_agent_analyses_its_experiments_with_its_own_script_in_a_sandbox`.
 
-- **What the Lead's model may read.** The Lead runs on a hosted model (DeepSeek's API on X670),
-  so whatever it reads leaves the host. Whether the private MEENT source and the unpublished
-  manuscript are excluded, allowed, or the Lead moves to another provider is undecided.
-  Credentials are excluded in every case.
+### C2. Requests that apply themselves on approval — implemented
+
+`campaigns/commands.py`, `campaigns/research_commands.py`, `contracts/commands.py`
+
+- `approval.request` with kind `campaign_limits`, `waiver` or `worker_ceiling` puts a decision in
+  the inbox; approval issues `campaign.update`, `validation.waive` or `workers.set` under the
+  researcher's authority. Run extensions and journal compaction already worked this way.
+- The per-experiment limit may now be set up to 86,400 s (it was capped at 3,600 s), in the
+  campaign form as well. This goes with the request and was not separately confirmed.
+- `workers.set` changes the ceiling of the running services at once and until they restart; the
+  launcher configuration is not rewritten.
+- Not covered: switching features on, and anything that needs a restart.
+- Test: `tests/test_pi_agents.py::test_what_only_the_researcher_grants_is_asked_for_and_applied_on_approval`.
+
+### Checked with a Lead on the running service
+
+On 13 October the rehearsal campaign's Lead was asked to use the new tools. It found and read the
+compaction rules in the repository's documents and stated them correctly; wrote a script and ran
+it in the sandbox over four experiments (0.5 s, the evaluation counts and window medians it
+printed match the records); and filed a request to raise the per-experiment limit from 1,200 s to
+7,200 s, which was applied on approval as a budget amendment.
+
+That check found a fault, now fixed (`agents/controller.py`): a researcher's message that arrived
+while the Lead's last turn was calling the campaign complete was never delivered, because the
+campaign was closed with the message still waiting. Test:
+`tests/test_pi_agents.py::test_a_message_that_arrives_as_the_lead_finishes_is_still_delivered`.
+
+### C3. Code changes, in dev mode only — proposed
+
+Switch on the implementation workspace (a coding session in a container with a copy of the
+repository) and add a path from an accepted commit to the running services. Dev mode is a server
+started with a Pi profile (`pi_profile` in the launcher configuration, as on X670); a locked-mode
+server would not offer this. Untested on this host, and the largest piece. Not built.
 
 ## Part D — Found on the running service
 

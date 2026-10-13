@@ -245,6 +245,19 @@ def resolve(workspace, command):
                      # An estimate gets a margin; a stated request is granted exactly as shown.
                      "wall_seconds": trial["wall_seconds"] + (seconds if decision.get("requested_by") else max(5, seconds))})
         effect = {"child_command": child.model_dump(mode="json")}
+    elif values.choice == "0" and decision.get("approval_request"):
+        request = decision["approval_request"]
+        reason = decision["rationale"] + (" Researcher: " + values.comment if values.comment else "")
+        operation, payload = {
+            "campaign_limits": lambda: ("campaign.update", {**request["limits"], "rationale": reason[:5000]}),
+            "waiver": lambda: ("validation.waive", {"requirement_id": request["requirement_id"], "rationale": reason, "evidence_ids": request["evidence_ids"]}),
+            "worker_ceiling": lambda: ("workers.set", {"workers": request["workers"], "rationale": reason[:5000]}),
+        }[request["kind"]]()
+        child = Command(id="decision_action_" + content_hash(command.id)[:32], campaign_id=command.campaign_id,
+            operation=operation, expected_revision=campaign["version"],
+            expected_guidance_revision=workspace.memory.state(command.campaign_id)["guidance_revision"],
+            expected_authority_hash=workspace.commands.authority_hash(campaign), payload=payload)
+        effect = {"child_command": child.model_dump(mode="json")}
     elif values.choice == "0" and decision.get("journal_compaction"):
         child = Command(id="decision_action_" + content_hash(command.id)[:32], campaign_id=command.campaign_id,
             operation="journal.compact", expected_revision=campaign["version"],

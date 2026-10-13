@@ -17,7 +17,7 @@ from .models import ROLES, LEAD
 from .capabilities import implementation_execution
 
 READ_KINDS = {"campaign", "task", "hypothesis", "source", "source_capture", "source_passage", "source_retrieval", "runtime_profile", "evaluator_equivalence",
-    "journal_compaction", "validation_requirement", "validation_result", "waiver", "waiver_revocation", "finalist_selection",
+    "journal_compaction", "worker_ceiling_change", "campaign_budget_amendment", "validation_requirement", "validation_result", "waiver", "waiver_revocation", "finalist_selection",
     "study", "trial", "decision", "decision_refresh", "action", "manager_note", "manager_command", "manager_issue", "discovery_candidate", "discovery_artifact",
     "discovery_task", "discovery_assessment", "discovery_handoff", "discovery_session", "implementation_reference",
     "implementation_binding", "implementation_grant", "implementation_cache", "reference_correction", "agent_migration", "agent_session",
@@ -29,7 +29,7 @@ OPERATIONS = {"hypothesis.create", "hypothesis.review", "hypothesis.status", "dr
     "trial.control", "trial.extension_request", "implementation.commission", "implementation.attach", "implementation.revalidate", "implementation.bind_builtin",
     "implementation.resolve_runtime", "evaluator.commission", "evaluator.attach", "finding.record", "comparison.report",
     "validation.run", "validation.execute", "study.create", "study.activate", "fixed_mask.run",
-    "study.race.control", "study.race.decide", "asset.snapshot", "runtime.profile", "evaluator.equivalence", "trial.continue", "journal.compaction_request"}
+    "study.race.control", "study.race.decide", "asset.snapshot", "runtime.profile", "evaluator.equivalence", "trial.continue", "journal.compaction_request", "approval.request"}
 INSTRUCTIONS = """You are a persistent Pi agent in a scientific campaign. Your role and assignment are supplied below.
 Use real tools to investigate, implement, test, and coordinate. A natural-language request is not an execution receipt.
 The campaign database is authoritative for current objectives, budgets, evaluator readiness and measured results.
@@ -71,8 +71,16 @@ above the gate length are refused until the evaluator's current source has a pro
 Run runtime.profile on an idle workspace before planning long runs, and plan budgets from its measured evaluations per hour.
 For a flag, delegate one bounded optimization assignment in an implementation workspace; a change must reproduce recorded results
 before it is used: evaluator.equivalence replays a finished experiment's candidates under the new source, and after it passes
-trial.continue carries a finished run's saved state on as a new experiment. Stop when the last attempt gained less than it cost or the optimization allowance is spent, then use researcher_ask
-for a fix or a waiver: only the researcher waives, changes launcher settings such as the worker ceiling, or edits a built-in evaluator.
+trial.continue carries a finished run's saved state on as a new experiment. Stop when the last attempt gained less than it cost or the optimization allowance is spent, then file
+approval.request for a waiver or another worker ceiling, or use researcher_ask for a fix to a built-in evaluator: only the researcher grants these.
+Campaign limits (compute, model spending, the per-experiment limit), waivers and the worker ceiling are the researcher's. When one stands
+in the way of the campaign, file approval.request with the measurement that shows it; the change is applied when the researcher approves.
+Use researcher_ask for scientific choices and for what approval.request does not cover.
+file_list, file_read and file_search read this server's repository (its committed source, tests and documents) and the files of this
+campaign's experiments (root "experiment" with a trial_id). Read the code or the documents before concluding how something works.
+To analyse journals or results beyond what a record shows, write a Python script with workspace_write and run it with analysis_run: the
+experiments you name are mounted read-only at /data/<trial_id>; numpy and optimization_framework.execution.metrics (scalar_rows, full_row,
+recent_metrics) can be imported; there is no network and no GPU. Print a short result: whatever a tool returns stays in your context.
 When awaiting a child or numerical job, use yield_work with disposition=waiting and return; completion events wake you.
 If useful independent work remains, do it or delegate it. Finishing a response does not complete the campaign.
 Use researcher_ask only for a real scientific choice, missing credential, or a campaign resource increase; expose a concrete question.
@@ -131,9 +139,20 @@ TOOLS = {
     "implementation_workspace_validate": ("Commission independent validation of one committed source submission within the campaign's implementation allocation. Supply either a frozen envelope_id or a spec; prefer the short envelope ID when available.", obj({"workspace_id": S, "submission_id": S, "envelope_id": S, "spec": {"type": "object"}, "compute_seconds": {"type": "number", "exclusiveMinimum": 0, "maximum": 86400}, "request_key": S}, ["workspace_id", "submission_id", "compute_seconds", "request_key"])),
     "researcher_ask": ("Save a concrete researcher question and stop for its answer only when required.", obj({"question": S, "reason": S}, ["question", "reason"])),
     "yield_work": ("Checkpoint task disposition. Waiting jobs wake the lead agent automatically; completion must cite actual evidence.", obj({"disposition": {"enum": ["waiting", "complete", "handoff"]}, "summary": S, "evidence_ids": {"type": "array", "items": S, "maxItems": 100}}, ["disposition", "summary"])),
-    "workspace_list": ("List this implementation assignment's isolated files.", obj()),
-    "workspace_read": ("Read a text file from this assignment's isolated development directory.", obj({"path": S}, ["path"])),
-    "workspace_write": ("Write a package or development test file in this assignment's isolated directory.", obj({"path": S, "content": S}, ["path", "content"])),
+    "file_list": ("List a directory of this server's repository (committed files only) or of one of this campaign's experiments.",
+        obj({"root": {"enum": ["repository", "experiment"]}, "trial_id": S, "path": S}, ["root"])),
+    "file_read": ("Read lines of a text file from the repository or from one of this campaign's experiments. Long lines are cut; use analysis_run for journals.",
+        obj({"root": {"enum": ["repository", "experiment"]}, "trial_id": S, "path": S, "first_line": {"type": "integer", "minimum": 1},
+             "lines": {"type": "integer", "minimum": 1, "maximum": 2000}, "max_bytes": {"type": "integer", "minimum": 1024, "maximum": 65536}}, ["root", "path"])),
+    "file_search": ("Find lines matching a regular expression in the repository or in one experiment's files; returns paths and line numbers.",
+        obj({"root": {"enum": ["repository", "experiment"]}, "trial_id": S, "query": S, "path": S, "glob": S,
+             "limit": {"type": "integer", "minimum": 1, "maximum": 100}}, ["root", "query"])),
+    "analysis_run": ("Run a Python script from your work directory in a sandbox with the named experiments mounted read-only at /data/<trial_id>. "
+        "No network, no GPU; numpy and the framework's journal readers are available. Returns the end of its output.",
+        obj({"path": S, "trial_ids": {"type": "array", "items": S, "maxItems": 40}, "seconds": {"type": "number", "exclusiveMinimum": 0, "maximum": 300}}, ["path"])),
+    "workspace_list": ("List the files of your own work directory.", obj()),
+    "workspace_read": ("Read a text file from your own work directory.", obj({"path": S}, ["path"])),
+    "workspace_write": ("Write a file in your own work directory: a package or test file, or an analysis script for analysis_run.", obj({"path": S, "content": S}, ["path", "content"])),
     "workspace_run": ("Run a Python development script in a network-disabled OS sandbox under the implementation grant.", obj({"path": S, "seconds": {"type": "number", "exclusiveMinimum": 0, "maximum": 30}}, ["path"])),
     "submit_output": ("Submit the structured result required by the frozen implementation service contract.", obj({"result": {"type": "object"}}, ["result"])),
 }
@@ -145,7 +164,8 @@ class PiTools:
         self.workspace, self.store = controller.workspace, controller.store
 
     def names(self, agent):
-        names = {"campaign_inspect", "resource_inspect", "evidence_search", "evidence_read", "source_search", "source_ingest", "source_read", "artifact_save", "mask_create", "yield_work"}
+        names = {"campaign_inspect", "resource_inspect", "evidence_search", "evidence_read", "source_search", "source_ingest", "source_read", "artifact_save", "mask_create", "yield_work",
+                 "file_list", "file_read", "file_search", "workspace_list", "workspace_read", "workspace_write", "analysis_run"}
         if agent["role"] == LEAD:
             names |= {"delegate", "agent_message", "agent_cancel", "command_schema", "campaign_command", "researcher_ask",
                       "implementation_workspace_create", "implementation_workspace_inspect", "implementation_workspace_message",
@@ -510,6 +530,12 @@ class PiTools:
             saved_run = self.store.get(run["id"], "agent_run")
             saved_run["output"] = args["result"]; self.store.put("agent_run", saved_run)
             return {"saved": True}
+        if name.startswith("file_"):
+            from .files import Files
+            return getattr(Files(self, agent), name.removeprefix("file_"))(args)
+        if name == "analysis_run":
+            from .files import analysis_run
+            return analysis_run(self, agent, args)
         if name.startswith("workspace_"):
             return self._files(agent, name, args)
         raise ValueError("Unknown tool")

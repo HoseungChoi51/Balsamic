@@ -518,7 +518,9 @@ class PiController:
                             self.store.put("agent_run", run)
             with self.workspace.lock, self.store.transaction():
                 config = self.configuration(campaign_id)
-                if config["status"] == "completed" and any(c["status"] in {"queued", "waiting_provider", "waiting_discovery"} for c in self.store.list("manager_command", campaign_id)):
+                # A completed campaign is taken up again by a queued researcher request, in either form.
+                lead_waits = any(run["status"] == "queued" for run in self.store.list_agent_runs(config["lead_id"]))
+                if config["status"] == "completed" and (lead_waits or any(c["status"] in {"queued", "waiting_provider", "waiting_discovery"} for c in self.store.list("manager_command", campaign_id))):
                     config["status"] = "running"
                     self.store.put("agent_campaign", config)
                 if config["status"] != "running":
@@ -632,7 +634,10 @@ class PiController:
                             f"Assignment {rid} was interrupted by a harness restart. Read saved receipts and continue from persisted history. Do not repeat committed operations.")
                     if agent["role"] == LEAD and run["status"] == "completed" and (run.get("result") or {}).get("delivery") != "steering_queued":
                         disposition = run.get("disposition", {})
-                        if disposition.get("disposition") == "complete":
+                        # A turn that calls the work complete does not close the campaign while another turn waits:
+                        # a researcher's message that arrived meanwhile would never be delivered.
+                        waiting = any(other["status"] == "queued" for other in self.store.list_agent_runs(agent["id"]) if other["id"] != rid)
+                        if disposition.get("disposition") == "complete" and not waiting:
                             config = self.configuration(agent["campaign_id"])
                             config.update(status="completed", completed_at=now())
                             self.store.put("agent_campaign", config, "agent.objective_completed")

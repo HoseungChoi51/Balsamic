@@ -11,7 +11,7 @@ Operation = Literal["agent.activate", "agent.message", "agent.control", "agent.r
     "models.configure", "discovery.start", "discovery.control", "discovery.amend", "discovery.retry", "discovery.assessment.save", "discovery.assessment.launch", "discovery.assessment.decide", "asset.snapshot",
     "validation.revoke_waiver", "context.import", "inference.run", "asset.reuse", "asset.import_reference_set", "cost.reconcile", "comparison.report", "finding.record", "implementation.commission",
     "implementation.reference", "implementation.bind_builtin", "implementation.attach", "evaluator.commission", "evaluator.attach", "implementation.control", "implementation.revalidate", "implementation.reuse", "implementation.resolve_runtime", "bundle.export", "bundle.inspect", "bundle.publish", "research.start", "research.retry", "research.control", "decision.resolve", "decision.refresh", "source.record", "source.ingest", "hypothesis.create", "hypothesis.review", "hypothesis.status", "hypothesis.nominate", "literature.search", "confirmation.schedule", "confirmation.validate", "confirmation.release",
-    "runtime.profile", "evaluator.equivalence", "trial.continue", "journal.compact", "journal.compaction_request"]
+    "runtime.profile", "evaluator.equivalence", "trial.continue", "journal.compact", "journal.compaction_request", "approval.request", "workers.set"]
 
 
 class Command(Contract):
@@ -218,6 +218,36 @@ class JournalCompactInput(Contract):
 class JournalCompactionRequestInput(JournalCompactInput):
     """Ask the researcher to approve a compaction, once the experiments' results have been analysed and recorded."""
     rationale: str = Field(min_length=1, max_length=4000)
+
+
+LIMITS = ("compute_budget_seconds", "llm_budget_usd", "delegated_trial_seconds", "implementation_compute_budget_seconds", "validation_reserve_seconds")
+
+
+class ApprovalRequestInput(Contract):
+    """Ask the researcher for something only they grant. On approval it is applied as the researcher's own command."""
+    kind: Literal["campaign_limits", "waiver", "worker_ceiling"]
+    rationale: str = Field(min_length=1, max_length=5000, description="What the change makes possible and the measurement behind it")
+    limits: dict[str, float] = Field(default_factory=dict, description="campaign_limits: the new value of each limit to change, among " + ", ".join(LIMITS))
+    requirement_id: str | None = Field(default=None, description="waiver: the validation requirement to waive")
+    evidence_ids: list[str] = Field(default_factory=list, max_length=50, description="waiver: the measurements the researcher should judge it by")
+    workers: int | None = Field(default=None, ge=1, le=64, description="worker_ceiling: experiments that may run at once on this server")
+
+    @model_validator(mode="after")
+    def one_request(self):
+        given = {"campaign_limits": bool(self.limits), "waiver": self.requirement_id is not None, "worker_ceiling": self.workers is not None}
+        if not given[self.kind] or sum(given.values()) != 1:
+            raise ValueError("Give exactly the fields of the chosen kind: limits, requirement_id with evidence_ids, or workers")
+        if set(self.limits) - set(LIMITS):
+            raise ValueError("Unknown campaign limit: " + ", ".join(sorted(set(self.limits) - set(LIMITS))))
+        if self.kind == "waiver" and not self.evidence_ids:
+            raise ValueError("A waiver request names the measurements it rests on")
+        return self
+
+
+class WorkerCeilingInput(Contract):
+    """How many experiments run at once on this server. In effect until the services restart; the launcher configuration sets it then."""
+    workers: int = Field(ge=1, le=64)
+    rationale: str = Field(min_length=1, max_length=5000)
 
 
 class WaiverInput(Contract):

@@ -1,12 +1,13 @@
 """Authority, durable recovery and evidence isolation for the Pi replacement."""
 from concurrent.futures import ThreadPoolExecutor
 import json
+from pathlib import Path
 from types import SimpleNamespace
 import pytest
 
 from optimization_framework.agents.api import active_implementation_grant
 from optimization_framework.agents.tools import PiTools
-from optimization_framework.contracts.requests import CampaignInput, TaskInput
+from optimization_framework.contracts.requests import CampaignInput, TaskInput, TrialInput
 from optimization_framework.contracts.commands import Command
 from optimization_framework.execution.service import Workspace
 from optimization_framework.storage.sqlite import now
@@ -402,3 +403,138 @@ def test_the_lead_may_ask_for_a_journal_compaction_but_not_run_one(prepared):
     asked = invoke(prepared, 'campaign_command', {'operation': 'journal.compaction_request', 'payload': {'rationale': 'The results are recorded.'},
         'request_key': 'ask', 'guidance_revision': 0}, 'ask')
     assert 'journals left to compact' in asked['error']   # no experiment has run in this campaign
+
+
+def test_agents_read_committed_repository_files_and_their_own_experiments_only(prepared, tmp_path, monkeypatch):
+    from optimization_framework.agents import files
+    w, c, *_ = prepared
+    repository = tmp_path / "checkout"
+    for name, text in {"docs/guide.md": "first\nsecond needle\nthird\n", "src/module.py": "value = 1\n", "secrets.env": "KEY=needle\n",
+                       "runs/journal.jsonl": "needle\n"}.items():
+        (repository / name).parent.mkdir(parents=True, exist_ok=True)
+        (repository / name).write_text(text)
+    monkeypatch.setattr(files, "REPOSITORY", repository)
+    monkeypatch.setattr(files, "tracked", lambda: frozenset({"docs/guide.md", "src/module.py"}))   # what git tracks: no credentials, no run data
+    top = invoke(prepared, 'file_list', {'root': 'repository'}, 'top')
+    assert [(entry['name'], entry['type']) for entry in top['entries']] == [('docs', 'directory'), ('src', 'directory')]
+    assert invoke(prepared, 'file_list', {'root': 'repository', 'path': 'docs'}, 'docs')['entries'] == [{'name': 'guide.md', 'type': 'file', 'bytes': 26}]
+    page = invoke(prepared, 'file_read', {'root': 'repository', 'path': 'docs/guide.md', 'lines': 2}, 'page')
+    assert (page['content'], page['last_line'], page['next_first_line']) == ('first\nsecond needle', 2, 3)
+    rest = invoke(prepared, 'file_read', {'root': 'repository', 'path': 'docs/guide.md', 'first_line': 3}, 'rest')
+    assert (rest['content'], rest['next_first_line']) == ('third', None)
+    for call, path in enumerate(['secrets.env', 'runs/journal.jsonl', '../outside', '/etc/passwd', 'docs']):
+        assert 'error' in invoke(prepared, 'file_read', {'root': 'repository', 'path': path}, f'closed{call}')
+    found = invoke(prepared, 'file_search', {'root': 'repository', 'query': 'needle'}, 'search')
+    assert found['matches'] == [{'path': 'docs/guide.md', 'line': 2, 'text': 'second needle'}] and found['complete']
+    assert invoke(prepared, 'file_search', {'root': 'repository', 'query': 'value', 'glob': '*.md'}, 'glob')['matches'] == []
+    # An experiment's directory: its own campaign's only, without saved states.
+    task = w.current_tasks(c['id'])[0]
+    trial = invoke(prepared, 'campaign_command', {'operation': 'trial.create', 'guidance_revision': 0, 'request_key': 'trial',
+        'payload': {'task_id': task['id'], 'algorithm': 'coordinate', 'max_steps': 2, 'wall_seconds': 5}}, 'trial')['outcome']['trial_id']
+    directory = w.job_dir(trial)
+    (directory / 'checkpoints').mkdir(exist_ok=True)
+    (directory / 'checkpoints' / 'state.pkl').write_bytes(b'\x80')
+    names = [entry['name'] for entry in invoke(prepared, 'file_list', {'root': 'experiment', 'trial_id': trial}, 'trial_files')['entries']]
+    assert 'spec.json' in names and 'checkpoints' not in names
+    assert '"coordinate"' in invoke(prepared, 'file_read', {'root': 'experiment', 'trial_id': trial, 'path': 'spec.json'}, 'spec')['content']
+    assert 'error' in invoke(prepared, 'file_read', {'root': 'experiment', 'trial_id': trial, 'path': 'checkpoints/state.pkl'}, 'state')
+    w.store.put('trial', {'id': 'trial_elsewhere', 'campaign_id': 'campaign_elsewhere', 'status': 'completed'})
+    assert 'error' in invoke(prepared, 'file_list', {'root': 'experiment', 'trial_id': 'trial_elsewhere'}, 'elsewhere')
+
+
+def test_an_agent_analyses_its_experiments_with_its_own_script_in_a_sandbox(prepared):
+    import shutil, subprocess
+    if not shutil.which('bwrap') or subprocess.run(['bwrap', '--unshare-all', '--ro-bind', '/usr', '/usr', '--ro-bind', '/lib', '/lib',
+            '--ro-bind', '/lib64', '/lib64', '--ro-bind', '/bin', '/bin', '/usr/bin/true'], capture_output=True).returncode:
+        pytest.skip('This host cannot establish the sandbox namespaces')
+    w, c, agent, _ = prepared
+    task = w.current_tasks(c['id'])[0]
+    trial = invoke(prepared, 'campaign_command', {'operation': 'trial.create', 'guidance_revision': 0, 'request_key': 'trial',
+        'payload': {'task_id': task['id'], 'algorithm': 'coordinate', 'max_steps': 2, 'wall_seconds': 5}}, 'trial')['outcome']['trial_id']
+    script = f'''import json, os, numpy
+from optimization_framework.execution.metrics import scalar_rows
+print("algorithm", json.load(open("/data/{trial}/spec.json"))["algorithm"], "| numpy", numpy.zeros(2).sum())
+print("workspace", os.path.exists("{w.directory}"), "| credentials", [os.path.exists(os.path.join("{Path.home()}", name)) for name in (".config", ".ssh", ".pi")])
+try:
+    open("/data/{trial}/spec.json", "w")
+except OSError as error:
+    print("experiment files are read-only:", type(error).__name__)
+open("result.txt", "w").write("kept")
+'''
+    assert invoke(prepared, 'workspace_write', {'path': 'look.py', 'content': script}, 'write')['saved']
+    result = invoke(prepared, 'analysis_run', {'path': 'look.py', 'trial_ids': [trial], 'seconds': 60}, 'run')
+    assert result['exit_code'] == 0, result
+    assert 'algorithm coordinate | numpy 0.0' in result['stdout'] and 'read-only: OSError' in result['stdout']
+    # Neither the workspace (database, other campaigns) nor the user's configuration and keys exist inside the sandbox.
+    assert 'workspace False | credentials [False, False, False]' in result['stdout'] and result['mounted'] == ['/data/' + trial]
+    assert invoke(prepared, 'workspace_read', {'path': 'result.txt'}, 'kept')['content'] == 'kept'
+    assert w.store.get(agent['id'], 'agent_session')['analysis_seconds'] > 0
+    invoke(prepared, 'workspace_write', {'path': 'slow.py', 'content': 'import time\ntime.sleep(30)\n'}, 'slow')
+    assert invoke(prepared, 'analysis_run', {'path': 'slow.py', 'seconds': 1}, 'timeout')['status'] == 'timeout'
+    # Another campaign's experiment cannot be mounted, and a script must be the agent's own file.
+    w.store.put('trial', {'id': 'trial_elsewhere', 'campaign_id': 'campaign_elsewhere', 'status': 'completed'})
+    assert 'error' in invoke(prepared, 'analysis_run', {'path': 'look.py', 'trial_ids': ['trial_elsewhere']}, 'foreign')
+    assert 'error' in invoke(prepared, 'analysis_run', {'path': '../look.py'}, 'outside')
+
+
+def test_what_only_the_researcher_grants_is_asked_for_and_applied_on_approval(prepared, monkeypatch):
+    w, c, *_ = prepared
+    cid = c['id']
+    ask = lambda key, payload: invoke(prepared, 'campaign_command', {'operation': 'approval.request', 'request_key': key,
+        'guidance_revision': w.memory.state(cid)['guidance_revision'], 'payload': payload}, key)
+    approve = lambda key, decision, choice='0': w.commands.execute(Command(id=key, campaign_id=cid, expected_revision=w.store.get(cid, 'campaign')['version'],
+        operation='decision.resolve', payload={'decision_id': decision, 'choice': choice, 'comment': 'Agreed', 'expected_resolution_revision': 0}))
+    # A campaign limit: the lead cannot set it, and nothing changes until the researcher approves.
+    limit = ask('limit', {'kind': 'campaign_limits', 'limits': {'delegated_trial_seconds': 7200, 'compute_budget_seconds': 400},
+        'rationale': 'A full run takes two hours at the measured speed.'})
+    decision = w.store.get(limit['outcome']['decision_id'], 'decision')
+    assert decision['status'] == 'pending' and 'delegated_trial_seconds 60 to 7200' in decision['title']
+    assert w.store.get(cid, 'campaign')['delegated_trial_seconds'] == 60
+    approve('approve_limit', decision['id'])
+    campaign = w.store.get(cid, 'campaign')
+    assert (campaign['delegated_trial_seconds'], campaign['compute_budget_seconds']) == (7200, 400)
+    assert w.store.list('campaign_budget_amendment', cid)[0]['limits'] == {'compute_budget_seconds': 400, 'delegated_trial_seconds': 7200}
+    assert 'already has these limits' in ask('same', {'kind': 'campaign_limits', 'limits': {'compute_budget_seconds': 400}, 'rationale': 'Again.'})['error']
+    assert 'error' in ask('too_long', {'kind': 'campaign_limits', 'limits': {'delegated_trial_seconds': 90000}, 'rationale': 'More than a day.'})
+    # The worker ceiling: declined leaves it, approved changes it at once.
+    before = w.max_workers
+    ceiling = ask('ceiling', {'kind': 'worker_ceiling', 'workers': before + 3, 'rationale': 'Throughput was still rising at the ceiling.'})
+    approve('decline_ceiling', ceiling['outcome']['decision_id'], '1')
+    assert w.max_workers == before and not w.store.list('worker_ceiling_change', cid)
+    ceiling = ask('ceiling_again', {'kind': 'worker_ceiling', 'workers': before + 3, 'rationale': 'Throughput was still rising at the ceiling.'})
+    approve('approve_ceiling', ceiling['outcome']['decision_id'])
+    assert w.max_workers == before + 3 and w.store.list('worker_ceiling_change', cid)[0]['previous'] == before
+    direct = invoke(prepared, 'campaign_command', {'operation': 'workers.set', 'payload': {'workers': 1, 'rationale': 'x'},
+        'request_key': 'direct', 'guidance_revision': 0}, 'direct')
+    assert direct['executed'] is False and w.max_workers == before + 3   # the lead cannot set it itself
+    # A waiver of a check that blocks work.
+    monkeypatch.setenv('GRATING_RUNTIME_GATE_SECONDS', '100')
+    task = w.current_tasks(cid)[0]
+    with pytest.raises(ValueError, match='runtime'):
+        w.create_trial(TrialInput(campaign_id=cid, task_id=task['id'], algorithm='coordinate', max_steps=2, wall_seconds=120))
+    requirement = w.store.list('validation_requirement', cid)[0]
+    assert 'error' in ask('bare', {'kind': 'waiver', 'requirement_id': requirement['id'], 'rationale': 'No evidence named.'})
+    waiver = ask('waiver', {'kind': 'waiver', 'requirement_id': requirement['id'], 'evidence_ids': [task['id']], 'rationale': 'A rehearsal; speed is not at issue.'})
+    assert not w.store.list('waiver', cid)
+    approve('approve_waiver', waiver['outcome']['decision_id'])
+    granted = w.store.list('waiver', cid)[0]
+    assert (granted['requirement_id'], granted['authority'], granted['evidence_ids']) == (requirement['id'], 'researcher', [task['id']])
+    assert granted['rationale'].startswith('A rehearsal; speed is not at issue.') and 'Agreed' in granted['rationale']
+
+
+def test_a_message_that_arrives_as_the_lead_finishes_is_still_delivered(prepared):
+    w, c, lead, first = prepared
+    finish = lambda run: w.pi._receive(lead['id'], {'runs': {run['id']: {'status': 'completed', 'result': {'text': 'Done'}}}, 'events': [], 'cursor': 0})
+    complete = lambda run: w.store.put('agent_run', {**w.store.get(run['id'], 'agent_run'), 'status': 'submitted', 'disposition': {'disposition': 'complete', 'summary': 'All done'}})
+    # The lead's turn calls the campaign complete while the researcher's next message already waits.
+    message = w.pi.message(c['id'], {'message': 'One more thing before you stop.'}, 'late_message')
+    complete(first); finish(first)
+    assert w.pi.configuration(c['id'])['status'] == 'running' and w.store.get(message['id'], 'agent_run')['status'] == 'queued'
+    # With nothing waiting, the same disposition completes the campaign...
+    complete(message); finish(message)
+    assert w.pi.configuration(c['id'])['status'] == 'completed'
+    # ...and a turn queued for the lead afterwards takes it up again at the next synchronization.
+    later = w.pi.enqueue(w.store.get(lead['id'], 'agent_session'), 'pi_run_later', 'A follow-up')
+    w.pi.client = Client()
+    w.pi._sync(c['id'])
+    assert w.pi.configuration(c['id'])['status'] == 'running' and w.store.get(later['id'], 'agent_run')['status'] in {'submitted', 'running'}
