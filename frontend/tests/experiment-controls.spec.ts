@@ -23,7 +23,9 @@ test('a reloaded browser reconciles accepted and unaccepted actions with the ori
   await page.getByRole('button', { name: 'New campaign', exact: true }).click();
   const dialog = page.getByRole('dialog');
   await dialog.getByLabel('Campaign name').fill(`Reload recovery ${Date.now()}`);
+  await dialog.getByLabel('Unit of compute cap').selectOption('s');
   await dialog.getByLabel('Compute cap (seconds)', { exact: true }).fill('200');
+  await dialog.getByLabel('Unit of validation reserve').selectOption('s');
   await dialog.getByLabel('Validation reserve (seconds)').fill('0');
   await dialog.getByLabel('API spending cap (USD)').fill('0');
   await dialog.getByLabel('Problem adapter').selectOption('bounded_continuous');
@@ -51,8 +53,9 @@ test('a reloaded browser reconciles accepted and unaccepted actions with the ori
   expect(await journal()).toEqual([]);
   await pending.getByRole('button', { name: 'Dismiss', exact: true }).click();
 
-  await page.getByRole('button', { name: 'Problem workbench', exact: true }).click();
+  await page.getByRole('button', { name: 'Problem', exact: true }).click();
   await page.getByRole('button', { name: 'Revise charter' }).click();
+  await dialog.getByLabel('Unit of compute cap').selectOption('s');
   await dialog.getByLabel('Compute cap (seconds)', { exact: true }).fill('210');
   await dialog.getByRole('button', { name: 'Save new version' }).click();
   await expect(dialog.getByText('Failed to fetch', { exact: true })).toBeVisible();
@@ -123,6 +126,7 @@ test('experiment controls recover replies after reload and keep the frozen proce
     await dialog.getByRole('button', { name: 'Extend allocation' }).click();
     dialog = page.getByRole('dialog');
     await dialog.getByLabel('New total evaluation limit').fill('1000003');
+    await dialog.getByLabel('Unit of new total time cap').selectOption('s');
     await dialog.getByLabel('New total time cap (seconds)').fill('25');
     await dialog.getByRole('button', { name: 'Update trial', exact: true }).click();
     await expect(dialog.getByText('Failed to fetch', { exact: true })).toBeVisible();

@@ -362,3 +362,18 @@ def test_interrupted_provider_reservation_is_closed_once_without_refund_or_repla
         assert client.get("/api/state", params={"campaign_id": charter["id"]}).json()["budget"]["llm_spent_usd"] == .4
     finally:
         workspace.close()
+
+
+def test_the_model_spend_of_the_state_includes_the_agents_and_the_report_writer(client):
+    from optimization_framework.agents import usage as llm_usage
+    charter, _ = create_campaign(client)
+    store = client.app.state.workspace.store
+    agent = {"id": "agent_lead", "role": "lead", "provider": "deepseek", "model": "deepseek-v4-pro"}
+    llm_usage.record(store, charter["id"], agent, "pi:agent_lead:1", {"billing": "api", "usage": {"cost_usd": .25}, "occurred_at": "2026-10-14T00:00:00Z"})
+    llm_usage.record(store, charter["id"], {**agent, "id": "report_job", "role": "report_writer"}, "report:1",
+                     {"billing": "api", "usage": {"cost_usd": .5}, "occurred_at": "2026-10-14T00:01:00Z"})
+    llm_usage.record(store, "another_campaign", agent, "pi:agent_lead:2", {"billing": "api", "usage": {"cost_usd": 9}, "occurred_at": "2026-10-14T00:02:00Z"})
+    # Agents' calls arrive with their events, which renew the state; here a charter change does.
+    assert client.put(f"/api/campaigns/{charter['id']}", json={"llm_budget_usd": 2}).status_code == 200
+    state = client.get("/api/state", params={"campaign_id": charter["id"]}).json()
+    assert state["budget"]["llm_spent_usd"] == pytest.approx(.75)

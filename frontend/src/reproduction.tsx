@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { DurationField } from './duration';
 import type { FormEvent } from 'react';
 import { api, errorText } from './api';
 import type { Json, State } from './api';
@@ -42,7 +43,7 @@ export function ReproductionPanel({ state, actions }: { state: State; actions: W
         <Field label="Reproduction problem"><select required value={task} onChange={e => setTask(e.target.value)}>
           <option value="">Select the matching problem</option>{state.tasks.map(item => <option key={item.id} value={item.id}>{item.name}{source?.compatible_task_ids.includes(item.id) ? ' · exact match' : ''}</option>)}
         </select></Field>
-        <Field label="Reproduction wall allowance (seconds)"><input type="number" min="1" max="86400" required value={wall} onChange={e => setWall(e.target.value)} /></Field>
+        <DurationField label="Reproduction wall allowance" seconds={wall} onChange={setWall} max={86400} />
       </div>
       {source?.unsupported_reason && <p className="help-text">{source.unsupported_reason}</p>}
       {source && !source.compatible_task_ids.length && <p className="help-text">This campaign needs the original problem, fidelity and exact evaluator version. You can save a draft to review the missing requirements.</p>}
@@ -101,7 +102,7 @@ export function ReproductionDraftForm({ state, draft, onClose, onDone, onSaved, 
     <form onSubmit={save} onChange={() => setDirty(true)}><div className="form-grid">
       <Field label="Reproduction title"><input required value={title} onChange={e => setTitle(e.target.value)} /></Field>
       <Field label="Destination problem"><select required value={task} onChange={e => setTask(e.target.value)}>{state.tasks.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}</select></Field>
-      <Field label="Wall allowance (seconds)"><input required type="number" min="1" max="86400" value={wall} onChange={e => setWall(e.target.value)} /></Field>
+      <DurationField label="Wall allowance" seconds={wall} onChange={setWall} max={86400} />
       <Field label="Evaluation request allowance"><input required type="number" min="1" max="10000000" value={steps} onChange={e => setSteps(e.target.value)} /></Field>
       {(readiness?.reproduction_inputs || []).map((input: Json) => <Field key={input.asset_id} wide label={`Reuse authorization: ${input.title}`}
         hint="Record an optimizer-input reuse decision for this study in the asset library if none is available.">

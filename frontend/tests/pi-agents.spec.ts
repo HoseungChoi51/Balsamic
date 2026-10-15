@@ -23,30 +23,34 @@ async function mock(page:Page,state:any,write:(body:any)=>any) {
     return route.fulfill({json:state});
   });
 }
-test('Lead agent questions have a working answer form and expose the parent and child sessions',async({page})=>{
+test('the lead agent\'s question is answered from the chat, and the Agents page shows the parent and child sessions',async({page})=>{
   const state=fixture(),writes:any[]=[];await mock(page,state,body=>{writes.push(body);state.agent_runtime.questions=[];});
-  await page.goto('/#notebook');const panel=page.getByRole('region',{name:'Agent team'});
+  await page.goto('/#agents');const panel=page.getByRole('region',{name:'Agent team'});
   await expect(panel).toContainText('gpt-6-astra');await expect(panel).toContainText('gpt-6-sol');
-  await panel.getByRole('button',{name:'Answer this request'}).click();
-  await panel.getByLabel('Your answer to the lead agent').fill('Use mean TE/TM efficiency at order +1.');
-  await panel.getByRole('button',{name:'Send to lead agent'}).click();
-  await expect(panel).toContainText('Message saved for the lead agent.');
+  await expect(panel).toContainText('reports to the lead agent');
+  const chat=page.getByRole('complementary',{name:'Lead agent conversation'});
+  await expect(chat).toContainText('Which scientific objective should the pilot use?');
+  await chat.getByRole('button',{name:'Answer this question'}).click();
+  await chat.getByLabel('Your answer to the lead agent').fill('Use mean TE/TM efficiency at order +1.');
+  await chat.getByRole('button',{name:'Send answer to the lead agent'}).click();
+  await expect(chat.getByRole('textbox',{name:'Message to the lead agent'})).toHaveValue('');
+  await expect(chat).not.toContainText('Which scientific objective should the pilot use?');
   expect(writes).toHaveLength(1);expect(writes[0]).toMatchObject({operation:'agent.message',payload:{question_id:'question',mode:'steer'}});
 });
 test('network failure preserves the draft and retries the same command identity',async({page})=>{
   const state=fixture(),writes:any[]=[];await mock(page,state,body=>{writes.push(body);return writes.length===1?{status:503,json:{detail:'Temporary network failure'}}:undefined;});
-  await page.goto('/#notebook');const panel=page.getByRole('region',{name:'Agent team'});
-  await panel.getByLabel('Message the lead agent').fill('Continue from the saved H12 handoff.');
-  await panel.getByRole('button',{name:'Send to lead agent'}).click();
-  await expect(panel.getByRole('alert')).toContainText('Temporary network failure');
-  await expect(panel.getByLabel('Message the lead agent')).toHaveValue('Continue from the saved H12 handoff.');
-  await panel.getByRole('button',{name:'Send to lead agent'}).click();
-  await expect(panel.getByLabel('Message the lead agent')).toHaveValue('');
+  await page.goto('/#overview');const chat=page.getByRole('complementary',{name:'Lead agent conversation'});
+  await chat.getByRole('textbox',{name:'Message to the lead agent'}).fill('Continue from the saved H12 handoff.');
+  await chat.getByRole('button',{name:'Send message to the lead agent'}).click();
+  await expect(chat.getByRole('alert')).toContainText('Temporary network failure');
+  await expect(chat.getByRole('textbox',{name:'Message to the lead agent'})).toHaveValue('Continue from the saved H12 handoff.');
+  await chat.getByRole('button',{name:'Send message to the lead agent'}).click();
+  await expect(chat.getByRole('textbox',{name:'Message to the lead agent'})).toHaveValue('');
   expect(writes).toHaveLength(2);expect(writes[0].id).toBe(writes[1].id);
 });
 test('pause and child cancellation pin the current control revision',async({page})=>{
   const state=fixture(),writes:any[]=[];await mock(page,state,body=>{writes.push(body);});
-  await page.goto('/#notebook');const panel=page.getByRole('region',{name:'Agent team'});
+  await page.goto('/#agents');const panel=page.getByRole('region',{name:'Agent team'});
   await panel.getByRole('button',{name:'Pause agents',exact:true}).click();
   await expect(panel).toContainText('Pause requested');
   await panel.getByRole('button',{name:'Stop',exact:true}).click();
@@ -97,7 +101,7 @@ for (const viewport of [{width:1440,height:900},{width:390,height:740}]) {
     if(viewport.width<1200) await page.getByRole('button',{name:'Lead agent',exact:true}).click();
     const sidebar=page.getByRole('complementary',{name:'Lead agent conversation'});
     const history=sidebar.getByRole('region',{name:'Lead agent message history'});
-    const composer=sidebar.getByLabel('Message to lead agent',{exact:true});
+    const composer=sidebar.getByLabel('Message to the lead agent',{exact:true});
     const gap=()=>history.evaluate(el=>el.scrollHeight-el.clientHeight-el.scrollTop);
     await expect(composer).toBeInViewport();
     await expect(sidebar.getByRole('button',{name:'Close research panel'})).toBeInViewport();

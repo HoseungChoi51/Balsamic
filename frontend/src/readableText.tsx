@@ -40,14 +40,14 @@ function paragraphs(text: string): string[][] {
   }).flat();
 }
 
-export function ReadableText({ text, preview = 0, className = '' }: { text?: string | null; preview?: number; className?: string }) {
+export function ReadableText({ text, preview = 0, className = '', more = 'Show full charter' }: { text?: string | null; preview?: number; className?: string; more?: string }) {
   const [open, setOpen] = useState(false);
   if (!text) return null;
   const groups = paragraphs(text);
   const sentences = groups.flat();
   if (preview && !open && sentences.length > preview) {
     return <div className={`readable-text ${className}`}><p>{inline(sentences.slice(0, preview).join(' '))}{' '}
-      <button type="button" className="text-button readable-more" onClick={() => setOpen(true)}>Show full charter</button></p></div>;
+      <button type="button" className="text-button readable-more" onClick={() => setOpen(true)}>{more}</button></p></div>;
   }
   return <div className={`readable-text ${className}`}>{groups.map((group, index) => <p key={index}>{inline(group.join(' '))}</p>)}
     {preview > 0 && sentences.length > preview && <button type="button" className="text-button readable-more" onClick={() => setOpen(false)}>Show less</button>}</div>;

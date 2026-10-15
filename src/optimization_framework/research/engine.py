@@ -285,7 +285,10 @@ class LLMAdapter:
 
     def __init__(self, max_calls: int = 8, max_output_tokens: int = 1800,
                  budget_usd: float | None = None, usage: dict | None = None,
-                 reservation_callback: Callable[[dict], None] | None = None, config: dict | None = None):
+                 reservation_callback: Callable[[dict], None] | None = None, config: dict | None = None,
+                 spend_guard: Callable[[float], None] | None = None, harness=None):
+        # spend_guard(dollars) refuses a harness call the campaign's model budget cannot cover; harness is its client.
+        self.spend_guard, self.harness = spend_guard, harness
         self.config = copy.deepcopy(config) if config is not None else provider_status()
         self.model_policy = self.config.pop("model_policy", None)
         self.base_config = copy.deepcopy(self.config)
@@ -385,6 +388,8 @@ class LLMAdapter:
             raise BudgetUnavailable("The research context exceeds the bounded prompt allowance; narrow the question or archive older discussion first.")
         if self.config["transport"] == "codex_exec":
             return self._call_codex(role, system, content, result_type)
+        if self.config["transport"] == "pi":
+            return self._call_pi(role, system, content, result_type, input_reservation)
         reserved = None
         if self.config["pricing_known"]:
             reserved = (input_reservation * self.config["input_usd_per_million"] +
@@ -546,6 +551,83 @@ class LLMAdapter:
                 "role": role, "reservation_id": call_id, "provider": self.config["provider"], "model": self.config["model"],
                 "usage": copy.deepcopy(self.usage), **payload})
 
+    def _call_pi(self, role, system, content, result_type, input_reservation):
+        """One call through the agent harness, which holds the sign-in and the price catalogue of the lead agent's provider.
+
+        A call billed per token is first reserved at its upper bound and refused when the campaign cannot cover it;
+        afterwards the harness's own figures replace the reservation. A failed call is not repeated.
+        """
+        from optimization_framework.agents.client import PiClient
+        billed = self.config["billing_mode"] != "subscription"
+        output_reservation = int(self.config.get("max_output_tokens") or self.max_output_tokens)
+        reserved = None
+        if billed:
+            if not self.config["pricing_known"]:
+                raise ValueError("This model has no listed price, so the cost of a call cannot be bounded; no call was made.")
+            reserved = (input_reservation * self.config["input_usd_per_million"]
+                        + output_reservation * self.config["output_usd_per_million"]) / 1_000_000
+            if self.spend_guard:
+                self.spend_guard(reserved)
+        previous = copy.deepcopy(self.usage)
+        self._record_model()
+        reservation = {"id": _identifier("pi_reservation"), "role": role, "model": self.config["model"],
+                       "reasoning_effort": self.config.get("reasoning_effort"), "billing_mode": self.config["billing_mode"],
+                       "input_tokens_reserved": input_reservation, "output_tokens_reserved": output_reservation, "cost_usd_reserved": reserved}
+        self.usage.update(calls=self.usage["calls"] + 1, pending_reservation=reservation, billing_mode=self.config["billing_mode"],
+                          token_accounting="contains_pending_provider_reservation")
+        if reserved is None:
+            self.usage.update(subscription_calls=self.usage.get("subscription_calls", 0) + 1, cost_accounting="subscription_allowance")
+        else:
+            self.usage.update(reserved_cost_usd=self.usage.get("reserved_cost_usd", 0.0) + reserved, cost_usd=(self.usage.get("cost_usd") or 0.0) + reserved,
+                              api_cost_usd=self.usage.get("api_cost_usd", 0.0) + reserved, pricing_known=True,
+                              cost_accounting="contains_pending_provider_reservation")
+        if self.reservation_callback:
+            try:
+                self.reservation_callback({"type": "provider_call_reserved", "role": role, "reservation_id": reservation["id"],
+                                           "reservation": reservation, "usage": copy.deepcopy(self.usage)})
+                self._request_event(role, reservation["id"], system, content)
+            except BaseException:
+                self.usage = previous
+                try:
+                    self.reservation_callback({"type": "provider_call_cancelled_before_send", "role": role,
+                                               "reservation_id": reservation["id"], "usage": copy.deepcopy(self.usage)})
+                except BaseException:
+                    pass
+                raise
+        call_started = time.monotonic()
+        try:
+            response = (self.harness or PiClient()).complete(self.config.get("live_id") or reservation["id"], {
+                "provider": self.config["pi_provider"], "model": self.config["model"], "effort": self.config.get("reasoning_effort"),
+                "system": system, "prompt": content, "label": role, "max_tokens": output_reservation})
+            if response is None:
+                raise ValueError("the agent service is an earlier version without single model calls; restart it")
+        except ValueError as exc:
+            # The provider may have been reached: the reservation stands as a conservative charge.
+            self._reserve_unknown()
+            self._response_event(role, reservation["id"], error="harness_call_failed", error_message=str(exc))
+            raise ValueError(f"The model call failed: {exc}. It may have been charged and was not repeated.") from None
+        finally:
+            self.usage["elapsed_seconds"] = self.usage.get("elapsed_seconds", 0) + time.monotonic() - call_started
+            self.usage["timed_calls"] = self.usage.get("timed_calls", 0) + 1
+        measured = response.get("usage") or {}
+        self.usage["input_tokens"] += sum(int(measured.get(key) or 0) for key in ("input", "cacheRead", "cacheWrite"))
+        self.usage["output_tokens"] += int(measured.get("output") or 0)
+        if reserved is not None:
+            actual = float(measured.get("cost_usd") or 0.0)
+            for key in ("reserved_cost_usd", "cost_usd", "api_cost_usd"):
+                self.usage[key] += actual - reserved
+        self.usage.pop("pending_reservation", None)
+        self.usage["token_accounting"] = previous.get("token_accounting", "provider_reported")
+        self.usage["cost_accounting"] = "subscription_allowance" if reserved is None else "harness_price_catalogue"
+        self._response_event(role, reservation["id"], output=response.get("text"), status=response.get("stop_reason"),
+                             harness_call={key: response.get(key) for key in ("usage", "provider", "model", "billing", "thinking_level", "occurred_at")})
+        try:
+            if response.get("stop_reason") == "length":
+                raise ValueError("The reply was cut at the model's output limit.")
+            return structured_reply(response.get("text"), result_type)
+        except (TypeError, ValueError, ValidationError) as exc:
+            raise ValueError("The model returned an invalid structured result; the call is charged and was not retried.") from exc
+
     def _call_codex(self, role, system, content, result_type=RoleResult):
         from optimization_framework.research.codex_provider import CodexProviderError, run_codex
 
@@ -635,6 +717,18 @@ class LLMAdapter:
             return result_type.model_validate_json(response["text"])
         except (KeyError, TypeError, ValueError, ValidationError) as exc:
             raise ValueError("Codex returned an invalid structured research result; subscription usage is retained and no retry was made.") from exc
+
+
+def structured_reply(text, result_type):
+    """A model's JSON reply, which may come in a code fence or with words around it."""
+    value = (text or "").strip()
+    if value.startswith("```"):
+        value = value.split("\n", 1)[-1].rsplit("```", 1)[0].strip()
+    if not value.startswith("{"):
+        start, end = value.find("{"), value.rfind("}")
+        if 0 <= start < end:
+            value = value[start:end + 1]
+    return result_type.model_validate_json(value)
 
 
 def _safe_context(context: dict) -> dict:

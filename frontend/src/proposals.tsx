@@ -38,7 +38,7 @@ export function ProposalComposer({ state, actions, operation, parent, onClose }:
   return <Modal title={title} description="The campaign manager coordinates generation, independent review, and empirical follow-up." onClose={onClose}>
     <form onSubmit={submit}>
       {!hasDiscovery && <div className="callout" role="status"><strong>Start discovery to generate proposals</strong><p>Open Research notebook → Discovery, choose the problem and session limits, then select Start discovery. Return here to request proposals.</p><a className="button secondary" href="#notebook/discovery" onClick={onClose}>Set up discovery</a></div>}
-      {session?.status === 'paused' && <div className="callout proposal-paused-notice" role="status"><strong>Discovery is paused</strong><p>Your request will be saved in the queue. Select Resume discovery in the progress panel when you want the agents to begin.</p></div>}
+      {session?.status === 'paused' && <div className="callout proposal-paused-notice" role="status"><strong>Discovery is paused</strong><p>Your request will be saved in the queue. Select Resume discovery on Overview when you want the agents to begin.</p></div>}
       {operation !== 'expand' && <Field label={operation === 'hybrid' ? 'First parent proposal' : 'Parent proposal'}>
         <select aria-label="First parent proposal" value={first} onChange={e => setFirst(e.target.value)}>
           {parents.map(h => <option key={h.id} value={h.id}>{h.title}</option>)}

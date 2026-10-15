@@ -1,5 +1,5 @@
 import { Children, cloneElement, isValidElement, useEffect, useId, useRef } from 'react';
-import type { ReactElement, ReactNode } from 'react';
+import type { KeyboardEvent, ReactElement, ReactNode } from 'react';
 
 export function Icon({ name, size = 20 }: { name: string; size?: number }) {
   const paths: Record<string, ReactNode> = {
@@ -44,6 +44,16 @@ export function Modal({ title, description, onClose, children, wide = false }: {
   const ref = useRef<HTMLDialogElement>(null);
   useEffect(() => { const el = ref.current; el?.showModal(); return () => el?.close(); }, []);
   return <dialog ref={ref} className={`modal ${wide ? 'wide-modal' : ''}`} onCancel={onClose} onClick={e => { if (e.target === ref.current) { const r = ref.current.getBoundingClientRect(); if (e.clientX < r.left || e.clientX > r.right || e.clientY < r.top || e.clientY > r.bottom) onClose(); } }}><div className="modal-title"><div><h2>{title}</h2>{description && <p>{description}</p>}</div><button type="button" className="icon-button" aria-label="Close dialog" onClick={onClose}><Icon name="close" /></button></div>{children}</dialog>;
+}
+/** In a message box: Enter sends and Shift+Enter starts a new line. Enter that confirms an input-method composition does neither. */
+export function sendOnEnter(event: KeyboardEvent<HTMLTextAreaElement>) {
+  if (event.key !== 'Enter' || event.shiftKey || event.nativeEvent.isComposing || event.keyCode === 229) return;
+  event.preventDefault(); event.currentTarget.form?.requestSubmit();
+}
+/** The tabs of a page; each tab is an address of its own (see useSubpage). */
+export function PageTabs({ label, tabs, current, onSelect }: { label: string; tabs: readonly (readonly [string, string])[]; current: string; onSelect: (tab: string) => void }) {
+  return <div className="segment-tabs page-tabs" role="tablist" aria-label={label}>{tabs.map(([id, name]) =>
+    <button key={id} type="button" role="tab" aria-selected={current === id} className={current === id ? 'selected' : ''} onClick={() => onSelect(id)}>{name}</button>)}</div>;
 }
 export function ErrorNotice({ text }: { text: string }) { return text ? <div className="error-notice" role="alert"><Icon name="warning" size={18} /><span>{text}</span></div> : null; }
 

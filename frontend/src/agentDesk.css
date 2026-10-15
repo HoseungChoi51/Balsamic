@@ -1,0 +1,18 @@
+/* The agent in charge of a page: one line above the page, opening into its conversation. */
+.agent-desk{border:1px solid #e1e8d8;background:#fbfcf8;border-radius:9px;margin:0 0 22px;overflow:hidden}
+.agent-desk-line{display:flex;align-items:center;gap:10px;width:100%;min-width:0;border:0;background:none;padding:10px 14px;text-align:left;font-size:12px;color:#5f6f5d;cursor:pointer}
+.agent-desk-line:hover{background:#f3f6ee}
+.agent-desk-line>strong{color:#2d5c45;font-weight:650;white-space:nowrap}
+.agent-desk-status{color:#7d8a78;white-space:nowrap;max-width:28ch;overflow:hidden;text-overflow:ellipsis}
+.agent-desk-question{background:#b6874c;color:#fff;border-radius:5px;padding:1px 7px;font-size:10px;white-space:nowrap}
+.agent-desk-last{flex:1;min-width:0;color:#8b9785;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.agent-desk-toggle{color:#5f7e51;font-weight:600;white-space:nowrap;font-size:11px}
+.agent-desk-dot{width:7px;height:7px;border-radius:50%;background:#c9d6b8;flex-shrink:0}
+.agent-desk-dot.working{background:#85a06e;animation:working-pulse 1.4s ease-in-out infinite}
+.agent-desk-dot.new{background:none;border:1px solid #c9d6b8}
+@media(prefers-reduced-motion:reduce){.agent-desk-dot.working{animation:none}}
+.agent-desk-body{border-top:1px solid #e8eee0;background:#fff;display:flex;flex-direction:column;padding-bottom:10px}
+.agent-desk-body .research-body{max-height:min(420px,55vh);padding:14px 16px 6px}
+.agent-desk-body .research-composer{margin:8px 16px 0}
+.agent-desk-controls{display:flex;gap:14px;justify-content:flex-end;padding:8px 18px 0;font-size:11px}
+@media(max-width:780px){.agent-desk-last{display:none}.agent-desk-status{max-width:16ch}}

@@ -1,6 +1,6 @@
 # Lead agent readiness: what is implemented and what is proposed
 
-Status on 13 October 2026. This page keeps two things apart: changes that exist in the code, and
+Status on 14 October 2026. This page keeps two things apart: changes that exist in the code, and
 changes that are only proposed. An item moves from one part to the other when it is built and
 tested, and the date is updated.
 
@@ -28,12 +28,22 @@ to replace that outside session.
 | Requests that apply themselves on approval | Implemented, live, used once by a Lead |
 | Lead changes code through an implementation workspace | Proposed, acceptable in dev mode only |
 | Lead acts only on the researcher's requests; starting the team starts no work | Implemented, live, checked with a Lead; see Part G |
+| Enter sends a chat message; Shift+Enter starts a new line | Implemented, live; see Part H |
+| The Lead's steps and reasoning shown while it works; progress notes folded | Implemented, live, checked with a Lead and a reviewer on a scratch campaign; see Part H |
+| The Lead answers briefly and links the page that shows the details | Implemented, live, checked with a Lead; rests partly on the model; see Part H |
+| Agent discussions page: rounds, replies, verdicts, the Lead's responses | Implemented, live, checked on a scratch campaign; see Part H |
+| Reports asked in the chat, written by the staged writer on the Lead's model | Implemented, live, one report written on a scratch campaign; see Part H |
+| Menu in groups; pages merged; no Lead panel above the pages; an Agents page | Implemented, live; see Part I |
+| Page agents: discussion moderator, experiment operator, implementation lead | Implemented, live, each checked once on a scratch campaign; see Part I |
+| Experiments: short and long runs apart, runs edited or run again, obsolete runs hidden, the operator's rules and presentation | Implemented, live, checked with the operator on a scratch campaign; see Part J |
+| The review rounds drawn as a graph | Implemented, tested; see Part K |
 
-"Live" means the running services on X670 use the code (last restarted on 13 October 2026).
+"Live" means the running services on X670 use the code (last restarted on 14 October 2026).
 "Not live" means the code is in the working tree and tested, and the services still run the old
 code. "Tested"
 alone means the automated tests pass; where a change was also checked on the running service, the
-item says so. Everything on this page is committed on branch `lead-readiness`.
+item says so. Parts A to G are committed on branch `lead-readiness`. Parts H to K are in the working
+tree and not committed.
 
 ## Why this was needed
 
@@ -460,9 +470,247 @@ open. The first of these is covered by the automated tests only.
 - After each researcher message the Lead's first commands are still refused once for an outdated
   guidance revision (Part E). Not addressed.
 
+## Part H — The chat as the main interface (14 October 2026)
+
+### What was missing
+
+The researcher now runs a campaign by talking to the Lead. In the first campaign run that way
+(`campaign_d6bcb1be`, 13 and 14 October):
+
+- Enter did not send a message.
+- While the Lead worked the chat showed nothing, and afterwards it kept every "still waiting" note:
+  17 of the Lead's 62 messages were such notes.
+- The Lead answered everything in the chat, including tables that a page already shows, and never
+  pointed to a page. Asked for a report, it pasted the table and saved a record that no page opens.
+  The writer on the Reports page could not run on this machine, which has no subscription model.
+- Three specialists and eight reviewers had been asked, had answered and had given 31 verdicts.
+  All of it was saved and no page showed it. The Notebook listed their replies as "Campaign manager".
+
+### What changed
+
+| Change | Where |
+|---|---|
+| Enter sends, Shift+Enter starts a new line; Enter that confirms composed (Korean) text does neither | `frontend/src/ui.tsx` `sendOnEnter`, `piAgents.tsx`, `research.tsx` |
+| The harness keeps, in memory only, the steps and the end of the reasoning of each running turn | `agent-harness/src/supervisor.ts` `begin`, `observe`, `liveView`; `GET /v1/live` |
+| The workspace serves it with each tool call as one readable line; an agent's activity uses the same lines | `agents/tools.py` `step_label`; `controller.py` `live`; `GET /api/v1/campaigns/{id}/agents/live` |
+| The chat shows it while the Lead works, and what the Lead waits for while it waits | `frontend/src/agentLive.tsx`, `piAgents.tsx` |
+| A reply records the kind of turn it came from and how the turn ended; progress notes the Lead has superseded fold into one line | `controller.py` `turn_marks`, `_migrate_records`; `piAgents.tsx` `chatEntries` |
+| The Lead's instructions: short replies that link pages, no narration, no message in a notice turn with nothing new | `agents/tools.py` `INSTRUCTIONS`, `PAGES`, `command_page` |
+| Agent discussions page, built from saved records | `agents/discussions.py`; `frontend/src/discussions.tsx` |
+| Single model calls through the harness, with its sign-in and prices | `agent-harness/src/runtime.ts` `completeOnce`; `POST /v1/complete/<id>` |
+| The report writer runs its stages on the Lead's model and charges the campaign, with a stop at the budget | `research/engine.py` `_call_pi`; `reports/writer.py` `start`; `reports/pipeline.py` `afford`; `controller.py` `report_model`, `model_allowance` |
+| The Lead starts the writer and is woken at its end | `agents/tools.py` `report_write`, `report_answer`; `controller.py` `_campaign_events` |
+| The Reports page lists the stages, the model, the cost so far and the reasoning of the running call | `frontend/src/reports.tsx` |
+| A saved `yield_work` ends the turn (Pi's `terminate`), so a model cannot keep writing closing lines and yielding again; its summary is the status line, in plain words | `agent-harness/src/supervisor.ts`; `agents/tools.py` `INSTRUCTIONS`, `yield_work` |
+| Verdicts, assistants' replies and saved analyses the Lead names reach the writer under their own ids and kinds | `agents/tools.py` `report_write`, `AGENT_RECORD_KINDS`; `reports/evidence.py` `freeze` |
+| A report call is capped at 64,000 output tokens, reasoning included, and reserved at that cap instead of the model's own limit; the page shows spent and held amounts apart | `controller.py` `REPORT_CALL_OUTPUT_TOKENS`; `research/engine.py` `_call_pi`; `frontend/src/reports.tsx` |
+| A Lead turn keeps its separate texts; the chat shows the closing one and folds lines written beside earlier tool calls ("1 earlier note from this turn"), unless an earlier text is much longer | `agent-harness/src/supervisor.ts`; `controller.py` `_receive`; `frontend/src/piAgents.tsx` `turnParts` |
+| A claim's passage in a draft is found across a subheading and despite typographic quotes and dashes; the writer is asked for one sentence per claim | `reports/pipeline.py` `located`; `reports/editorial.py` |
+| The page is sent with `Cache-Control: no-cache`, so a browser shows a new build on its next load instead of the cached one | `api/app.py` (frontend route) |
+
+What is enforced by the code: reasoning reaches no saved record; a billed report call the budget
+cannot cover is not made; a failed call is not repeated; the Lead cannot call a request fulfilled
+while a report it started is being written; a turn ends when its `yield_work` is saved. What rests on the Lead following its instructions:
+that its replies are short, that they link pages, and that it stays silent in a notice turn with
+nothing new.
+
+### Live check (14 October)
+
+After the final round ended, both services were restarted and a scratch campaign (removed afterwards,
+nothing kept) was run with DeepSeek V4 Pro at maximum effort. Total model spend: $0.93.
+
+- Asked for one hypothesis and one review, the Lead recorded the hypothesis, asked a proposal
+  reviewer and answered with links to Hypotheses and Agent discussions. The chat showed its steps and
+  reasoning while it worked and what it waited for while the reviewer worked; the discussions page
+  showed the round, the reply, the "revise" verdict and the Lead's response.
+- Asked for a report, the Lead started the writer with one short reply and a link to Reports; the
+  page showed the stages, the model and the reasoning of the running call. The Lead linked the draft
+  when it was done. The report took 9 calls, 16 minutes and $0.36.
+- Problems found and fixed during the check (rows added to the table above): the Lead called
+  `yield_work` three times in one turn and repeated itself; it wrote lines beside intermediate tool
+  calls that duplicated its closing message; a report could not see the reviewer's verdict it was
+  about; each report call was reserved at the model's 384,000-token limit (about $1.57), so the
+  writer stopped at a $2 budget; one job ($0.34) failed because the editor's passage for a claim ran
+  across a subheading; a browser kept showing the previous build after an update.
+- The Lead filed a request to raise the scratch campaign's model budget when the writer stopped. That
+  was the right move under its rules; it was left unanswered and the campaign was removed.
+
+### Not done
+
+- Revising a draft through the Lead. The draft's own "request a revision" uses the same writer.
+- Separate models per report stage; all stages use the Lead's model.
+- Folding rests on the kind of turn and on what follows a note, not on what the note says: once
+  the Lead has written again, a long interim note is folded like a short one, and opens with a click.
+  A note you replied to and the newest note are never folded.
+- The status line the Lead gives when it ends a turn is told to avoid record ids; DeepSeek still
+  included one once after the change. Nothing removes them.
+
+## Part I — Pages with one job each, and an agent in charge where one helps (14 October 2026)
+
+### What was wrong
+
+- Every page except four opened with the Lead's panel: its status, pause and stop, a message box,
+  the whole agent team and the implementation workspaces. The Lead's chat already sits beside every
+  page, so on most pages the panel only repeated it.
+- The menu listed 19 pages in one column. Some were parts of others: Agent discussions belongs to
+  Hypotheses, Experiment drafts to Experiments, Models, LLM usage and Campaign memory to the agents.
+- The only agent the researcher could talk to was the Lead, which needs the whole campaign in view.
+  The review rounds, the running of experiments and the building of implementations each need less,
+  and no agent owned them: the Lead created a one-off assistant per assignment and moderated the
+  review rounds itself.
+
+### What changed
+
+| Change | Where |
+|---|---|
+| Menu in groups: Overview and Decision inbox; Research (Problem, Hypotheses, Implementations, Experiments, Results, Studies, Reports); Evidence (Validation, Research assets, Notebook); Operations (Agents, Resources). 14 entries instead of 19 | `frontend/src/App.tsx` `menu` |
+| Running work is marked on its page's entry: experiments running, a review round, an implementation being built, a report being written, decisions waiting | `frontend/src/activity.ts`, `App.tsx` |
+| Merged pages keep their addresses: `#discussions` opens `#hypotheses/rounds`, `#drafts` `#experiments`, `#models`, `#llm-usage` and `#memory` the Agents tabs, `#notebook/agent-log` `#agents/log` | `frontend/src/routes.ts` |
+| No Lead panel above the pages. Pause, stop, sign-in and the team go to Agents › Team; the Lead's questions to the chat, where they can be answered or dismissed; the implementation workspaces to Implementations | `App.tsx`; `frontend/src/agentsPage.tsx`; `piAgents.tsx` `AgentConversation` |
+| Agents page with tabs Team, Models, Guidance (was Campaign memory), Usage (was LLM usage), Log | `frontend/src/agentsPage.tsx` |
+| Hypotheses with tabs Proposals and Review rounds (was Agent discussions) | `frontend/src/hypothesesPage.tsx` |
+| Problem (was Problem workbench): the charter, its revisions, the problem instances and their evaluators; the study list it repeated is on Studies only | `frontend/src/problemViews.tsx` |
+| Drafts not yet started appear on Experiments, and only when there are any; the Experiment drafts page is gone | `frontend/src/experimentForm.tsx` `DraftsPanel` |
+| Overview: a "Now" panel with what runs and what waits, linked to its page, and both budgets; the open campaign-manager issues folded into one line | `frontend/src/problemViews.tsx` |
+| The Notebook's Agent runs and Discovery tabs only for campaigns of the older campaign manager; Problem importer reached from New campaign | `frontend/src/research.tsx`, `App.tsx` |
+| Three page agents, one each per campaign, created when first written to: the discussion moderator (Hypotheses), the experiment operator (Experiments), the implementation lead (Implementations) | `agents/models.py` `PAGE_AGENTS`, `PAGE_OBJECTIVES`; `controller.py` `page_agent` |
+| Each sees the commands of its page only. The moderator asks specialists and reviewers, whose results come back to it. The operator starts, pauses, extends and stops runs within the campaign's allocations. The implementation lead commissions implementations and uses coding workspaces | `agents/tools.py` `ROLE_OPERATIONS`, `PiTools.names`, `schema` |
+| On its page, one line with its state and last word, opening into its conversation | `frontend/src/agentDesk.tsx` |
+| Who hears what: a request on a page is that agent's own, and its outcome does not wake the Lead; the Lead's request (`page_agent_message`) comes back to the Lead. An experiment's or a job's outcome wakes the agent that started it, read from its tool receipts. The Lead's "still running" check ignores what page agents do for the researcher directly | `controller.py` `ask_page_agent`, `starter`, `_campaign_events`, `_receive`; `tools.py` `outstanding` |
+| Page agents do not count toward the limit on assistants at work | `controller.py` `_sync` |
+| Review rounds run by the moderator: what set the round off (your message, the Lead's request, an earlier round) and who ran it | `agents/discussions.py`; `frontend/src/discussions.tsx` |
+| The researcher can set an agent's question aside without answering it (`agent.question_dismiss`); no agent is woken | `controller.py` `dismiss_question` |
+| The model spend in the workspace state includes the agents' and the report writer's calls (it showed $0.00 for a campaign that had spent $9.99) | `api/app.py` |
+| An agent's closing message carries the answer and its numbers, not only a pointer to them; the moderator reports verdicts in the reviewer's word and does not record them twice | `agents/tools.py` `INSTRUCTIONS`, `manifest` |
+
+What is enforced by the code: a page agent's commands are limited to its page; the moderator asks
+only specialists and reviewers; a request to a page agent does not open the Lead's request; the
+Lead cannot complete while a page agent works on its request. What rests on the Lead following its
+instructions: that it hands page work to the page agents instead of doing it itself. It keeps all
+its tools, so nothing it did before stops working.
+
+### Checked
+
+- Python: 9 tests in `tests/test_page_agents.py` (tools per role, who hears what, the moderator's
+  rounds, the limit on assistants, a stopped page agent taking the next request, dismissing a
+  question), one in `tests/test_workspace_api.py` (model spend), the updated discussions and page
+  tests.
+- Browser: `frontend/tests/page-layout.spec.ts` (menu and markers, old addresses, no Lead panel on
+  pages, the operator's bar, the moderator's bar, Agents › Team, a question shortened and dismissed);
+  about 20 older specs moved to the new places.
+- Screenshots of the new pages with this campaign's saved data, read-only, at 1440 and 390 pixels.
+
+### Live check of the page agents (14 October)
+
+Both services were restarted with this part, and a scratch campaign (removed afterwards, nothing
+kept) was run with DeepSeek V4 Pro at maximum effort. Total model spend: $0.18 in 35 calls.
+
+- **Experiment operator, asked on its page** to start one short run and stop it: it started the run,
+  stopped it within a few seconds, read the run's files and reported 10 evaluations and the best
+  score ($0.06). The Lead was not woken and its request stayed closed.
+- **The Lead, asked in the chat** to have a proposal reviewed through the moderator: it handed the
+  round to the moderator (`page_agent_message`) and linked Review rounds; the moderator asked one
+  proposal reviewer, whose answer went to the moderator; the moderator reported back and the Lead
+  gave the verdict in one line with links. Review rounds showed the round as the moderator's,
+  started by the Lead's request, with the reviewer's "test" verdict.
+- **Implementation lead, asked on its page** what a simple genetic algorithm would take: it read the
+  installed methods and the code, answered that one is installed (`population`), named the experiment
+  operator for running it, and started nothing.
+- Seen and changed: the operator's closing message said it had the measurements without giving them
+  (they were only in its status line); the moderator and the Lead called the "test" verdict "stand",
+  and the moderator saved the reviewer's text again as a free-text review. The instructions now ask
+  for the answer in the closing message and for verdicts in the reviewer's word, recorded once.
+- Seen and left: an outcome that arrives while an agent is still at work is delivered as a short
+  extra turn after it finishes (here, $0.002, "nothing further to do"). The Lead has always been
+  handled the same way, so that a researcher's message arriving meanwhile is not lost.
+- The page agents ran on the campaign's model: model tiers are not used on this machine.
+
+### Not done
+
+- The Lead may still do page work itself; the instructions ask it not to.
+- Campaigns of the older campaign manager show their progress panel on Overview only.
+
+## Part J — Experiments run by rules the operator keeps (14 October 2026)
+
+### What was wrong
+
+- A run the agents started could not be edited or run again with changes; only "Design an experiment" offered the form.
+- Obsolete runs (failed out of memory, superseded) stayed in the list for good.
+- Screening runs of 5 minutes and final runs of 4 hours were listed together, with speed probes among them.
+- Nothing said how runs are named, how many may run at once, or in what order; each agent decided anew.
+- Opening a run of the 2D problem listed its 32,768-cell design as a table, one row per cell.
+- Time was entered in seconds everywhere, including campaign budgets of days.
+
+### What changed
+
+| Change | Where |
+|---|---|
+| Experiments has tabs: short runs, long runs, checks (validation, recipes, diagnostics, speed probes) and rules. Short and long are split at the rules' threshold, by default the runtime gate (10 minutes); the parts of a continued run are listed together | `campaigns/experiment_rules.py` `classify`; `api/app.py` (each run's `run_kind`); `frontend/src/experimentsPage.tsx` |
+| A queued run is edited in the experiment form and the edited run replaces it; any run can be run again with changes, its settings filling the form. A run that started stays as it is | `frontend/src/experimentForm.tsx` (`template`, `replaces`) |
+| Finished runs are hidden from the page, with a reason and who hid them, and shown again on request (`trial.hide`). Their records stay; findings and reports may still cite them | `experiment_rules.py` `hide` |
+| Experiment rules per campaign, with revisions: how runs are named, the short/long threshold, how many of the campaign's runs may go at once, how runs are chosen and ordered (screening by successive halving across strategies, model-based sampling within one) | `experiment_rules.py`; `experiments.rules` |
+| The scheduler holds back a campaign's runs above its limit; checks, speed probes and race runs are not held | `execution/service.py` `_over_campaign_limit` |
+| The experiment operator keeps the rules and is told them every turn; the lead reads them in `campaign_inspect` and asks the operator how runs are going | `agents/tools.py` `manifest`, `INSTRUCTIONS` |
+| `experiment_progress`: runs at work in queue order and the latest finished, with time and evaluations used and allotted, the best score, and whether a running run still improves | `agents/experiments.py` `progress` |
+| `config_suggest`: the next settings to try, a space-filling spread at first, then expected improvement under a Gaussian process fitted to the scores | `agents/experiments.py` `suggest` |
+| `lead_ask`: a page agent asks the lead about a proposal's reasoning or the researcher's intent; the answer comes back to it, and that lead turn neither opens nor closes the researcher's request | `controller.py` `ask_lead`, `_receive` |
+| What the list and a run's entry show is part of the rules (presentation), chosen by the operator after asking the lead, from what the page can draw: the design as a mask image, a strip or a short table; the learning curve; the objectives; counts and time; settings; files; the question. Until chosen, a default drawn from the problem: a grid design is an image, and a design of hundreds of values is never listed | `experiment_rules.py` `Presentation`, `default_presentation`; `frontend/src/runViews.tsx` |
+| A run's curve is read as a few hundred points of the columns it needs, not its whole journal | `api/app.py` metrics (`fields`, `points`) |
+| Long time entries in minutes (campaign budgets in hours), with a unit beside the number | `frontend/src/duration.tsx` |
+| An agent that calls a request complete gives its reply in `yield_work`'s `report`, which the chat shows as its message; without it the call is refused. DeepSeek had written "Now I can report" and ended the turn with the numbers only in its status line | `agents/tools.py` `yield_work`; `controller.py` `_receive` |
+| A question the operator asks the lead, and the lead's answer, show in both conversations as an exchange between them | `frontend/src/piAgents.tsx` |
+
+### Live check (14 October)
+
+A scratch campaign (removed afterwards, nothing kept) on the 2D problem, with DeepSeek V4 Pro at maximum
+effort; model spend $0.22.
+
+- Asked to decide the presentation, the operator asked the lead (`lead_ask`); the lead answered with what
+  matters for this problem (the grating drawn in 2D, TE, TM and the minimum beside the mean); the operator
+  recorded it with its reason.
+- Asked for a tiny screen, it started random and coordinate search for 30 evaluations each, named by the
+  rule ("Screen · random floor · random · seed 1"), listed as short runs.
+- Found and fixed: its closing message said it would report and the turn ended with the numbers only in
+  its status line (twice), which led to the required `report`; it described a curve with TE and TM lines
+  that the page cannot draw, which led to the schema saying exactly what each section draws.
+- After the fix, asked again, its reply gave both scores with their TE/TM split, said one seed each cannot
+  rank them, and suggested three population-search settings with reasons. It chose them itself rather than
+  with `config_suggest`, and called a mutation rate of 0.005 "about 1/n" for 32,768 cells (1/n is 0.00003).
+
+What is enforced by the code: the limit on runs at once; hiding only finished runs; a presentation that
+fits the design (rows × columns equal to its size, no table of hundreds of values); the operator's
+commands limited to its page. What rests on the operator following its instructions: naming runs by
+the rule, the order of runs, and asking the lead before choosing the presentation.
+
+### Not done
+
+- The learning curve draws the primary objective only. The journals keep the other objectives (TE, TM, the
+  minimum) inside a nested record per row, so a curve of them would read a long run's whole journal
+  (over 100 MB) at every refresh. Asked for by the lead in the live check; it needs a scalar column per objective.
+- The per-run allocations of a confirmation study (a dense table on Studies) are still entered in seconds.
+- Results does not leave hidden runs out of its comparisons.
+
+## Part K — The review rounds as a graph (15 October 2026)
+
+The researcher asked to see the agents' discussion during hypothesis generation as a DAG, as ThoughtDAG
+draws conversations. ThoughtDAG is an app (web, desktop, CLI, MCP; MIT), not a component that can be
+embedded; its Session Atlas reads our Pi session files but draws each agent's session apart, without the
+links between the lead, the moderator and the reviewers. The graph is drawn in our own page instead, from
+the records the Review rounds list already reads.
+
+| Change | Where |
+|---|---|
+| Review rounds has a List / Graph switch (`#hypotheses/rounds/graph`). The graph runs left to right: what set a round off, the round, each assistant asked, its response, the verdicts on proposals (labelled and coloured), the proposals each round created, and each revision | `frontend/src/discussionGraph.tsx`, `discussions.tsx` |
+| A card opens its full text beside the graph (over it on a phone); a proposal can be followed, dimming the rest; an assistant at work pulses with its current step | same |
+| Each proposal revision names the round whose turn created it and the role that did, read from its `hypothesis.create` receipt; unreviewed proposals are listed too (the table keeps to reviewed ones) | `agents/discussions.py` |
+| Drawn with `@xyflow/react` 12.12.0 and `@dagrejs/dagre` 3.1.1 (MIT, pinned), in a chunk loaded only when the graph opens (243 kB; the main bundle grew 2 kB) | `frontend/package.json` |
+
+The layout is computed again only when nodes appear or go, so a live update does not move the picture.
+Nothing is written and no model is called: the graph reads what the list reads.
+
 ## Not planned
 
 - Several parallel environments, Stable-Baselines3 PPO, and parity with MEENT 0.9.5 for the new
   campaign.
-- An HTML report command; the summary step is findings plus the interface's comparison views.
+- An HTML report command of the Lead's own. Since Part H a report is written by the staged writer, which the Lead starts.
 - Reviving the old campaign's Lead session.

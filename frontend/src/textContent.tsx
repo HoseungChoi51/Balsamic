@@ -3,7 +3,8 @@ import type { Components } from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 
 const components: Components = {
-  a: ({ href, children }) => href ? <a href={href} target={/^https?:\/\//.test(href) ? '_blank' : undefined} rel="noreferrer">{children}</a> : <span>{children}</span>,
+  // A link to one of the application's pages (#…) switches the page here; any other link opens beside it.
+  a: ({ href, children }) => href ? <a href={href} target={href.startsWith('#') ? undefined : '_blank'} rel="noreferrer">{children}</a> : <span>{children}</span>,
   table: ({ children }) => <div className="markdown-table"><table>{children}</table></div>,
   // Messages support text markup without loading remote images from model output.
   img: ({ alt }) => <span>{alt}</span>,

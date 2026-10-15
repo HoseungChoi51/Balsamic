@@ -149,7 +149,7 @@ function ReviewProgress({ id, progress, decisions, busy, retry }: { id: string; 
     <div className="row-between"><div><h2 id={`review-${id}-title`}>{heading}</h2>
       <p role="status">{progress.completed} of {progress.total} reviews complete{progress.running > 0 && ` · ${progress.running} running`}
         {progress.failed > 0 && ` · ${progress.failed} failed`}</p></div>
-      <a className="button small secondary" href="#notebook/agent-log"><Icon name="notebook" size={14} />View agent log</a></div>
+      <a className="button small secondary" href="#agents/log"><Icon name="notebook" size={14} />View agent log</a></div>
     <p className="help-text">{decisions.length} {decisions.length === 1 ? 'decision' : 'decisions'} in this reassessment · Up to {progress.max_parallel_reviews} reviewers at once</p>
     {progress.phase === 'synthesizing' && <p>The campaign manager is reconciling the reports and dependencies before publishing current requests.</p>}
     {progress.phase === 'completed' && <p>The manager has finished consolidating the review. Read the report and any current recommendations before deciding.</p>}

@@ -39,6 +39,8 @@ DELEGATED.update({"runtime.profile", "evaluator.equivalence", "trial.continue"})
 DELEGATED.add("journal.compaction_request")
 # Limits, waivers and the worker ceiling are the researcher's: an agent asks, and approval applies the change.
 DELEGATED.add("approval.request")
+# The experiment operator keeps the experiment rules and takes runs it superseded off the Experiments page.
+DELEGATED.update({"experiments.rules", "trial.hide"})
 
 
 class CommandService:
@@ -95,14 +97,15 @@ class CommandService:
     def describe():
         """Use the application's schemas in prompts instead of a second tool model."""
         from optimization_framework.research.discovery.models import DiscoveryStart, DiscoveryControl, DiscoveryAmend, DiscoveryRetry
-        from optimization_framework.agents.models import Activate, Configure, Message, Control, Rollback
+        from .experiment_rules import ExperimentRulesInput, TrialHideInput
+        from optimization_framework.agents.models import Activate, Configure, Message, Control, QuestionDismiss, Rollback
         from optimization_framework.agents.diagnostics import FixedMaskInput
         from optimization_framework.research.model_policy import ModelPolicyUpdate
         from optimization_framework.implementations.references import ReferenceInput
         from optimization_framework.implementations.builtin import BuiltinBindingInput
         from optimization_framework.research.discovery.assessment import AssessmentSave, AssessmentLaunch, AssessmentDecision
         models = {"agent.activate": Activate, "agent.message": Message, "agent.control": Control, "agent.rollback": Rollback,
-            "agent.configure": Configure,
+            "agent.configure": Configure, "agent.question_dismiss": QuestionDismiss,
             "fixed_mask.run": FixedMaskInput, "comparison.report": ComparisonReportInput, "campaign.create": CampaignInput, "campaign.update": CampaignUpdateInput,
             "models.configure": ModelPolicyUpdate,
             "discovery.start": DiscoveryStart, "discovery.control": DiscoveryControl, "discovery.amend": DiscoveryAmend, "discovery.retry": DiscoveryRetry,
@@ -123,6 +126,7 @@ class CommandService:
             "runtime.profile": RuntimeProfileInput, "evaluator.equivalence": EquivalenceInput, "trial.continue": TrialContinueInput,
             "journal.compact": JournalCompactInput, "journal.compaction_request": JournalCompactionRequestInput,
             "approval.request": ApprovalRequestInput, "workers.set": WorkerCeilingInput,
+            "experiments.rules": ExperimentRulesInput, "trial.hide": TrialHideInput,
             "validation.revoke_waiver": WaiverRevocationInput,
             "asset.reuse": ReuseInput, "finding.record": FindingInput, "implementation.commission": CommissionInput,
             "asset.snapshot": AssetSnapshotInput,
@@ -269,6 +273,8 @@ class CommandService:
             return self.workspace.pi.rollback(command.campaign_id, payload)
         if command.operation == "agent.configure":
             return self.workspace.pi.configure(command.campaign_id, payload, command.id)
+        if command.operation == "agent.question_dismiss":
+            return self.workspace.pi.dismiss_question(command.campaign_id, payload)
         if command.operation == "fixed_mask.run":
             from optimization_framework.agents.diagnostics import reserve
             return reserve(self.workspace, command.campaign_id, payload, command.id)
@@ -652,6 +658,12 @@ class CommandService:
         if command.operation == "trial.continue":
             self._target(command, "trial_id", "trial")
             return self._trial_outcome(self.workspace.continue_trial(TrialContinueInput(**payload)), snapshot=actor == "researcher")
+        if command.operation == "experiments.rules":
+            from .experiment_rules import update
+            return update(self.store, command.campaign_id, payload, actor)
+        if command.operation == "trial.hide":
+            from .experiment_rules import hide
+            return hide(self.store, command.campaign_id, payload, actor)
         if command.operation == "workers.set":
             if actor != "researcher":
                 raise ValueError("Only the researcher changes the worker ceiling; file approval.request")

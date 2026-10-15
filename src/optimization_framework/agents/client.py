@@ -14,13 +14,13 @@ def service_token():
 
 
 class PiClient:
-    def request(self, method, route, body=None):
+    def request(self, method, route, body=None, *, timeout=15):
         url = os.environ.get("GRATING_PI_URL", "http://127.0.0.1:8768")
         request = Request(url + route, method=method,
             data=json.dumps(body).encode() if body is not None else None,
             headers={"Authorization": "Bearer " + service_token(), "Content-Type": "application/json"})
         try:
-            with urlopen(request, timeout=15) as response:
+            with urlopen(request, timeout=timeout) as response:
                 return json.load(response)
         except HTTPError as exc:
             if exc.code == 404:
@@ -48,6 +48,14 @@ class PiClient:
 
     def control(self, agent_id, action):
         return self.request("POST", f"/v1/agents/{agent_id}/control", {"action": action})
+
+    def live(self, agent_ids):
+        """What these agents are doing right now. Held by the harness in memory; it is shown, not saved."""
+        return self.request("GET", "/v1/live?ids=" + ",".join(agent_ids), timeout=4)
+
+    def complete(self, call_id, body, *, timeout=1800):
+        """One model call outside any agent session, with the harness's sign-in and prices: a stage of the report writer."""
+        return self.request("POST", f"/v1/complete/{call_id}", body, timeout=timeout)
 
     def forget(self, agent_id):
         """End the agent and delete its saved session; used when its campaign is removed."""

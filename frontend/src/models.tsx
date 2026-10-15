@@ -139,8 +139,7 @@ function AgentModelPanel({ state, refresh }: { state: State; refresh: () => Prom
           : <><td>{agent.provider ? `${agent.provider}/` : ''}{agent.model}</td>{!dev && <td>{agent.reasoning_effort || 'Model default'}</td>}</>}
       </tr>)}
     </tbody></table></div>
-    <p className="help-text">Usage and cost per agent and model are on the <a href="#llm-usage">LLM usage</a> page.</p>
-    <a className="button secondary" href="#notebook">Open the lead agent conversation</a>
+    <p className="help-text">Usage and cost per agent and model are in the <a href="#agents/usage">Usage</a> tab; pausing and stopping agents is in the <a href="#agents">Team</a> tab.</p>
   </div></Panel>;
 }
 

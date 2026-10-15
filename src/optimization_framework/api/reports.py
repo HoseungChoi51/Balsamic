@@ -6,17 +6,21 @@ from fastapi.responses import HTMLResponse, Response
 
 from optimization_framework.reports.document import clean_source, review_html
 from optimization_framework.reports.service import Feedback, Reports
-from optimization_framework.reports.writer import ReportWriter, WriterRequest
+from optimization_framework.reports.writer import WriterRequest
 from optimization_framework.reports.editorial import DraftRequest, FocusAnswer
 
 
 def install(app, workspace):
-    reports, writer = Reports(workspace.store), ReportWriter(workspace)
+    reports, writer = Reports(workspace.store), workspace.report_writer
     app.state.reports, app.state.report_writer = reports, writer
 
     @app.get("/api/reports")
     def listing(campaign_id: str | None = None):
-        return {"reports": reports.listing(campaign_id), "jobs": [public_job(job) for job in workspace.store.list("report_writer_job", campaign_id)]}
+        # The model a new report of this campaign would be written with, when it is the lead agent's (billed to the campaign).
+        model = workspace.pi.report_model(campaign_id, cached=True) if campaign_id and workspace.pi.owns(campaign_id) else None
+        return {"reports": reports.listing(campaign_id), "jobs": [public_job(job) for job in workspace.store.list("report_writer_job", campaign_id)],
+                "writer": None if not model else {"model": model["model"], "reasoning_effort": model["reasoning_effort"], "billing_mode": model["billing_mode"],
+                    "allowance_usd": workspace.pi.model_allowance(campaign_id)}}
 
     @app.post("/api/report-writer/jobs")
     def write(request: DraftRequest):
@@ -79,5 +83,7 @@ def install(app, workspace):
 
 
 def public_job(job):
+    provider = job.get("provider_snapshot") or {}
     return {key: value for key, value in job.items() if key not in {"input", "figures", "provider_snapshot"}} | {
-        "notes": job["input"].get("instruction", ""), "artifacts_url": f"/api/report-writer/jobs/{job['id']}/artifacts"}
+        "notes": job["input"].get("instruction", ""), "artifacts_url": f"/api/report-writer/jobs/{job['id']}/artifacts",
+        "model": provider.get("model"), "reasoning_effort": provider.get("reasoning_effort"), "billing_mode": provider.get("billing_mode")}

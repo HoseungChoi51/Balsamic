@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import { DurationField } from './duration';
 import type { FormEvent } from 'react';
 import { api, errorText, providerStatus } from './api';
 import type { Json, State } from './api';
@@ -80,7 +81,7 @@ export function DiscoveryPanel({ state, refresh }: { state: State; refresh: () =
         <Field label="Model call limit"><input aria-label="Model call limit" type="number" min={4} max={10000} value={calls} onChange={e => setCalls(Number(e.target.value))} /></Field>
         <Field label="Concurrent tasks"><input aria-label="Concurrent tasks" type="number" min={1} max={8} value={parallel} onChange={e => setParallel(Number(e.target.value))} /></Field>
         <Field label="Source request limit"><input aria-label="Source request limit" type="number" min={0} max={1000} value={sourceLimit} onChange={e => setSourceLimit(Number(e.target.value))} /></Field>
-        <Field label="Experiment allocation (seconds)"><input aria-label="Experiment allocation (seconds)" type="number" min={0} max={604800} value={experimentSeconds} onChange={e => setExperimentSeconds(Number(e.target.value))} /></Field>
+        <DurationField label="Experiment allocation" seconds={String(experimentSeconds)} onChange={value => setExperimentSeconds(Number(value))} min={0} max={604800} required={false} />
       </div>
       <p>API usage remains inside the campaign cap. Three calls are reserved for the manager. Numerical experiments and implementation work retain their campaign permissions and budgets.</p>
       <button className="button primary" disabled={busy || !taskId || !objective.trim()}>Start discovery</button>
@@ -180,7 +181,7 @@ function DiscoveryDiscussion({ target, state, session, refresh, onClose }: {
       const outcome = await command('research.start', { mode: 'discuss', message: `${reference}\n\n${note.trim()}` });
       setSaved(true);
       setNotice(session.status === 'paused'
-        ? 'Message saved for the campaign manager. Discovery is paused; resume it in the progress panel to process your message.'
+        ? 'Message saved for the campaign manager. Discovery is paused; resume it on Overview to process your message.'
         : researchRequestNotice(state, outcome));
       // An accepted message stays accepted even if the following read fails.
       try { await refresh(); }

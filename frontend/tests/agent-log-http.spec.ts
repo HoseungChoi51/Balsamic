@@ -6,7 +6,7 @@ test('actual HTTP role workflow is visible through the file-backed SSE panel', a
   const base = process.env.AGENT_LOG_HTTP_TEST_URL, output = process.env.AGENT_LOG_HTTP_OUTPUT;
   test.skip(!base || !output, 'Requires scripts/qualify_agent_log_http.py; provider outputs are fixtures.');
   await page.goto(base!);
-  await page.getByRole('button', { name: 'Research notebook', exact: true }).click();
+  await page.getByRole('button', { name: 'Notebook', exact: true }).click();
   await page.getByRole('button', { name: 'Agent log', exact: true }).click();
   const panel = page.getByRole('region', { name: 'Agent work log' });
   await expect(panel).toContainText('trace.jsonl');

@@ -74,6 +74,31 @@ export async function applySpec(session: any, spec: any) {
   if (spec.effort && session.thinkingLevel !== spec.effort) session.setThinkingLevel(spec.effort);
 }
 
+/**
+ * One model call with the saved sign-in, outside any agent session: system text and one prompt in, the reply's text out.
+ * The stream is passed to `observe` as it arrives, so the caller can show the reasoning without keeping it.
+ */
+export async function completeOnce(authPath: string, input: any, observe: (event: any) => void, signal?: AbortSignal) {
+  const provider = input.provider || LEGACY_PROVIDER;
+  const runtime = await modelRuntime(authPath);
+  await runtime.refresh({providers: [provider], allowNetwork: false});
+  const model = runtime.getModel(provider, input.model);
+  if (!model) throw new Error(`Model unavailable: ${provider}/${input.model}`);
+  const auth = await runtime.checkAuth(provider).catch(() => undefined);
+  if (!auth) throw new Error(`No sign-in or key is configured for ${provider}`);
+  const stream = runtime.streamSimple(model, {systemPrompt: String(input.system || ''),
+    messages: [{role: 'user', content: String(input.prompt || ''), timestamp: Date.now()}]},
+    {...(input.effort && input.effort !== 'off' ? {reasoning: input.effort} : {}), ...(input.max_tokens ? {maxTokens: input.max_tokens} : {}), signal} as any);
+  for await (const event of stream) observe({type: 'message_update', assistantMessageEvent: event});
+  const message: any = await stream.result();
+  if (message.stopReason === 'error' || message.stopReason === 'aborted') throw new Error(message.errorMessage || 'Provider request failed');
+  const usage: any = Object.fromEntries(['input', 'output', 'cacheRead', 'cacheWrite', 'reasoning', 'totalTokens'].map(key => [key, message.usage?.[key] || 0]));
+  usage.cost_usd = message.usage?.cost?.total || 0;
+  return {text: message.content.filter((part: any) => part.type === 'text').map((part: any) => part.text).join('\n'), usage,
+    stop_reason: message.stopReason, provider: message.provider || provider, model: message.model || input.model, thinking_level: input.effort || null,
+    billing: auth.type === 'oauth' ? 'subscription' : auth.type === 'api_key' ? 'api' : 'unknown', occurred_at: new Date().toISOString()};
+}
+
 function levels(model: any) {
   if (!model.reasoning) return ['off'];
   const map = model.thinkingLevelMap;
@@ -93,7 +118,7 @@ export async function authStatus(authPath: string) {
   }
   const models = Object.keys(providers).flatMap(id => runtime.getModels(id).map((m: any) => ({
     provider: id, id: m.id, name: m.name, reasoning: Boolean(m.reasoning), thinking_levels: levels(m),
-    context_window: m.contextWindow, cost: m.cost})));
+    context_window: m.contextWindow, max_tokens: m.maxTokens, cost: m.cost})));
   let defaults: any = {provider: LOCKED_PROVIDER, model: null, effort: null};
   if (profile) {
     const settings = SettingsManager.create(profile, profile);

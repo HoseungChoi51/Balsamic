@@ -9,6 +9,7 @@ export type Trial = {
   status: string; seed: number; max_steps: number; wall_seconds: number; priority: number; control_revision?: number;
   created_at: string; updated_at?: string; progress: Json; result?: Json; validation?: Json;
   problem?: Json; study_id?: string; execution_contract?: number; diagnostic_grant_id?: string; recipe?: Json;
+  run_kind?: 'short' | 'long' | 'check'; hidden?: Json; implementation_version_id?: string; completion?: Json; recovery?: Json; diagnostics?: Json[];
   algorithm_config?: Json; error?: string; experiment_question?: string; question?: string; reason?: string; physics?: Json; task_name?: string; charter_version?: number; source_hash?: string; schedule_steps?: number; execution_seconds?: number; training?: Json;
 };
 export type Hypothesis = {

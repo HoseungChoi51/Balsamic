@@ -33,7 +33,7 @@ test('research, decisions and sources recover accepted replies after a browser r
   }
   await page.goto(base!);
   const initial = await state();
-  await page.getByRole('button', { name: 'Research notebook', exact: true }).click();
+  await page.getByRole('button', { name: 'Notebook', exact: true }).click();
   await page.getByRole('button', { name: 'Agent runs', exact: true }).click();
   await page.getByRole('button', { name: 'Resume research', exact: true }).click();
   await recover();
@@ -57,7 +57,7 @@ test('research, decisions and sources recover accepted replies after a browser r
   expect((await state()).decisions[0]).toMatchObject({ status: 'resolved', resolution_revision: 1,
     comment: 'Keep this rationale through a lost reply.' });
 
-  await page.getByRole('button', { name: 'Research notebook', exact: true }).click();
+  await page.getByRole('button', { name: 'Notebook', exact: true }).click();
   await page.getByRole('button', { name: 'Source library', exact: true }).click();
   await page.getByLabel('Add a paper by DOI or URL').fill('https://example.org/paper');
   await page.getByRole('button', { name: 'Retrieve paper', exact: true }).click();

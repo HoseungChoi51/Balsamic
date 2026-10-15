@@ -643,3 +643,89 @@ def test_instructions_make_the_lead_act_on_requests_and_saved_assignments_follow
     restarted = PiController(w)
     assert restarted.store.get(lead['id'], 'agent_session')['objective'] == STANDING_OBJECTIVE
     assert restarted.configuration(c['id'])['objective'] == STANDING_OBJECTIVE
+
+
+def test_the_live_view_names_each_step_and_saves_nothing(prepared):
+    w, c, a, r = prepared
+    a['status'] = 'running'; w.store.put('agent_session', a)
+    client = Client(); w.pi.client = client
+    client.live = lambda ids: {a['id']: {'run_id': r['id'], 'phase': 'tool', 'started_at': now(), 'updated_at': now(), 'finished_at': None,
+        'thinking': 'Compare H5 and H6 first.', 'text': '',
+        'steps': [{'tool': 'campaign_inspect', 'args': {}, 'finished_at': now()},
+                  {'tool': 'campaign_command', 'args': {'operation': 'trial.create', 'payload': {'title': 'H6 seed 0'}}},
+                  {'tool': 'evidence_read', 'args': {'record_id': 'trial_9a3d71ea86eb4321'}, 'finished_at': now(), 'failed': True},
+                  {'tool': 'yield_work', 'args': {}}]}}
+    kinds = ('agent_session', 'agent_run', 'message', 'agent_tool_intent')
+    before = (w.store.revision(*kinds), len(w.store.events(c['id'])))
+    live = w.pi.live(c['id'])['agents']
+    assert [(row['role'], row['phase'], row['thinking'], row['run_id']) for row in live] == [('lead', 'tool', 'Compare H5 and H6 first.', r['id'])]
+    assert live[0]['steps'] == [{'label': "Reading the campaign's state", 'done': True, 'failed': False},
+                                {'label': 'Starting an experiment: H6 seed 0', 'done': False, 'failed': False},
+                                {'label': 'Reading experiment …eb4321', 'done': True, 'failed': True}]
+    # Shown, not saved: the reasoning reaches no record and no event.
+    assert (w.store.revision(*kinds), len(w.store.events(c['id']))) == before
+    # A turn that has ended shows nothing, and an unreachable agent service leaves the agent listed without steps.
+    client.live = lambda ids: {a['id']: {'run_id': r['id'], 'finished_at': now(), 'thinking': 'earlier', 'steps': [{'tool': 'campaign_inspect'}]}}
+    assert [(row['steps'], row['thinking'], row['phase']) for row in w.pi.live(c['id'])['agents']] == [([], '', 'queued')]
+    def unreachable(ids): raise ValueError('Pi service is unavailable')
+    client.live = unreachable
+    assert [row['phase'] for row in w.pi.live(c['id'])['agents']] == ['queued']
+    # An idle team has nothing to show, and the harness is not asked.
+    w.store.put('agent_session', {**w.store.get(a['id'], 'agent_session'), 'status': 'waiting'})
+    assert w.pi.live(c['id']) == {'agents': [], 'reports': []}
+    with pytest.raises(KeyError):
+        w.pi.live('campaign_unknown')
+
+
+def test_a_tool_call_shows_as_readable_activity(prepared):
+    w, c, a, r = prepared
+    w.pi._receive(a['id'], {'runs': {r['id']: {'status': 'running'}}, 'cursor': 1,
+        'events': [{'seq': 1, 'occurred_at': now(), 'type': 'tool_execution_start', 'tool': 'campaign_inspect', 'summary': 'tool execution start'}]})
+    assert w.store.get(a['id'], 'agent_session')['activity'] == "Reading the campaign's state"
+
+
+def test_a_reply_records_the_kind_of_turn_it_came_from(prepared):
+    from optimization_framework.agents.controller import PiController
+    from optimization_framework.agents.models import NOTICE
+    w, c, a, r = prepared
+    w.store.put('agent_run', {**w.store.get(r['id'], 'agent_run'), 'disposition': {'disposition': 'waiting', 'summary': 'Three runs started.'}})
+    w.pi._receive(a['id'], {'runs': {r['id']: {'status': 'completed', 'result': {'text': 'Started three runs.'}}}, 'events': [], 'cursor': 0})
+    reply = w.store.get('message_' + r['id'], 'message')
+    assert (reply['turn'], reply['disposition']) == ('request', 'waiting')
+    notice = w.pi.enqueue(w.store.get(a['id'], 'agent_session'), 'pi_events_one', NOTICE + 'Work in this campaign has new outcomes.')
+    w.store.put('agent_run', {**notice, 'status': 'submitted'})
+    w.pi._receive(a['id'], {'runs': {notice['id']: {'status': 'completed', 'result': {'text': 'Still waiting on two runs.'}}}, 'events': [], 'cursor': 0})
+    note = w.store.get('message_pi_events_one', 'message')
+    assert (note['turn'], note['disposition']) == ('notice', None) and 'parts' not in note
+    # A turn with lines written beside earlier tool calls keeps them apart, so the chat can fold them.
+    later = w.pi.enqueue(w.store.get(a['id'], 'agent_session'), 'pi_events_two', NOTICE + 'Work in this campaign has new outcomes.')
+    w.store.put('agent_run', {**later, 'status': 'submitted'})
+    w.pi._receive(a['id'], {'runs': {later['id']: {'status': 'completed', 'result': {'text': 'Restarting the writer.\n\nThe writer restarted; see Reports.',
+        'parts': ['Restarting the writer.', 'The writer restarted; see Reports.']}}}, 'events': [], 'cursor': 0})
+    both = w.store.get('message_pi_events_two', 'message')
+    assert both['parts'] == ['Restarting the writer.', 'The writer restarted; see Reports.'] and both['content'].endswith('see Reports.')
+    # A reply saved before replies were marked is marked once, when the service starts.
+    w.store.put('message', {key: value for key, value in reply.items() if key not in {'turn', 'disposition'}})
+    assert 'turn' not in w.store.get(reply['id'], 'message')
+    PiController(w)
+    marked = w.store.get(reply['id'], 'message')
+    assert (marked['turn'], marked['disposition'], marked['content']) == ('request', 'waiting', 'Started three runs.')
+
+
+def test_the_lead_is_given_the_pages_and_a_receipt_names_the_page_of_what_it_created(prepared):
+    from optimization_framework.agents.tools import INSTRUCTIONS, command_page
+    pages = invoke(prepared, 'campaign_inspect')['pages']
+    links = [page['link'] for page in pages]
+    assert len(set(links)) == len(links) and {'#experiments', '#hypotheses', '#hypotheses/rounds', '#implementations', '#reports', '#comparison', '#agents'} <= set(links)
+    assert all(page['name'] and page['shows'] for page in pages)
+    assert 'campaign_inspect.pages' in INSTRUCTIONS and 'link the page instead' in INSTRUCTIONS
+    assert command_page({'request': {'operation': 'trial.create'}, 'outcome': {'trial_id': 'trial_1'}}) == '#experiments/trial_1'
+    assert command_page({'request': {'operation': 'hypothesis.create'}, 'outcome': {'hypothesis_id': 'h'}}) == '#hypotheses'
+    assert command_page({'request': {'operation': 'draft.save'}, 'outcome': {'draft_id': 'd'}}) == '#experiments'
+    assert command_page({'request': {'operation': 'study.race.decide'}, 'outcome': None}) is None
+    # A real receipt carries it, small or large.
+    tools = PiTools(prepared[0].pi)
+    record = {'id': 'pi_command_x', 'status': 'completed', 'request': {'operation': 'comparison.report', 'payload': {}}, 'outcome': {'groups': []}}
+    assert tools.receipt(record)['page'] == '#comparison'
+    assert tools.receipt({**record, 'outcome': {'groups': [], 'filler': 'x' * 60000}})['page'] == '#comparison'
+    assert 'page' not in tools.receipt({**record, 'request': {'operation': 'study.race.decide', 'payload': {}}})

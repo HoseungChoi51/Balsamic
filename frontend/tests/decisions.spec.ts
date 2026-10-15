@@ -301,7 +301,7 @@ test('one batch displays parallel work, failed-call retry, manager synthesis and
   await expect(batch.getByRole('status')).toHaveText('1 of 3 reviews complete · 2 running');
   await expect(batch.getByText('2 decisions in this reassessment · Up to 3 reviewers at once')).toBeVisible();
   await expect(batch.getByText('Resources and permission boundaries')).toBeVisible();
-  await expect(batch.getByRole('link', { name: 'View agent log' })).toHaveAttribute('href', '#notebook/agent-log');
+  await expect(batch.getByRole('link', { name: 'View agent log' })).toHaveAttribute('href', '#agents/log');
   await expect(page.getByRole('radio', { name: /^Proceed/ }).first()).toBeDisabled();
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
   await page.screenshot({ path: info.outputPath('parallel-decision-reviews-mobile.png'), fullPage: true });

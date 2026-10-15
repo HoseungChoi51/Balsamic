@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import { DurationField } from './duration';
 import type { FormEvent } from 'react';
 import { api, errorText } from './api';
 import type { Json, State } from './api';
@@ -56,7 +57,8 @@ export function CampaignForm({ state, editing, initial, onClose, onDone, onImpor
   const [current] = useState(editing ? state.campaign : null);
   const command = useCommand(current);
   const [name, setName] = useState(current?.name || 'Optimizer research');
-  const [objective, setObjective] = useState(current?.objective || 'Develop an effective optimizer for the selected problem under the declared resource budget.');
+  const chartered = Boolean(current?.charter);
+  const [objective, setObjective] = useState(chartered ? current?.research_question || '' : current?.objective || 'Develop an effective optimizer for the selected problem under the declared resource budget.');
   const [compute, setCompute] = useState(String(current?.compute_budget_seconds ?? 3600));
   const [implementationCompute, setImplementationCompute] = useState(String(current?.implementation_compute_budget_seconds ?? 0));
   const [llm, setLlm] = useState(String(current?.llm_budget_usd ?? 5));
@@ -125,20 +127,21 @@ export function CampaignForm({ state, editing, initial, onClose, onDone, onImpor
   async function save(event: FormEvent) {
     event.preventDefault(); setError(''); setBusy(true);
     try {
-      const tasks = instances.map(row => {
+      const tasks = chartered ? [] : instances.map(row => {
         const { configuration, fidelity } = row.evaluator_manifest ? { configuration: row.configuration, fidelity: row.fidelity } : values(row);
         const problem = row.evaluator_manifest?.id || row.problem_id;
         return { ...(row.id ? { id: row.id } : {}), name: row.name, split: row.split, ...(problem ? { problem_id: problem } : {}), configuration,
           ...(row.evaluator_manifest || Object.keys(fidelity).length ? { fidelity } : {}), ...(row.evaluator_manifest ? { evaluator_manifest: row.evaluator_manifest } : {}) };
       });
-      const payload = { name, objective, compute_budget_seconds: Number(compute), implementation_compute_budget_seconds: Number(implementationCompute),
-        llm_budget_usd: Number(llm), validation_reserve_seconds: Math.min(Number(reserve), Number(compute)), delegated_trial_seconds: Number(delegated), autonomy, tasks };
+      const limits = { compute_budget_seconds: Number(compute), implementation_compute_budget_seconds: Number(implementationCompute),
+        llm_budget_usd: Number(llm), validation_reserve_seconds: Math.min(Number(reserve), Number(compute)), delegated_trial_seconds: Number(delegated), autonomy };
+      const payload = chartered ? { name, research_question: objective, ...limits } : { name, objective, ...limits, tasks };
       const result = await command(current ? 'campaign.update' : 'campaign.create', payload);
       onDone(result.campaign);
     } catch (e) { setError(errorText(e)); } finally { setBusy(false); }
   }
   const adapterName = (id: string) => adapters.find(a => a.id === id)?.name || id;
-  return <Modal wide title={current ? 'Revise the experiment charter' : 'Start a research campaign'} description={current ? 'Changes create a new charter version. Earlier experiments retain their original problem definitions.' : 'Choose a starting problem, then define the scientific question and boundaries. You can revise them as evidence develops.'} onClose={onClose}><form onSubmit={save}>
+  return <Modal wide title={chartered ? 'Campaign settings' : current ? 'Revise the experiment charter' : 'Start a research campaign'} description={current ? 'Changes create a new charter version. Earlier experiments retain their original problem definitions.' : 'Choose a starting problem, then define the scientific question and boundaries. You can revise them as evidence develops.'} onClose={onClose}><form onSubmit={save}>
     {!current && <section className="setup-start" aria-label="Starting point"><h3>Start from</h3><div className="setup-cards">
       {examples.map(example => <button type="button" key={example.id} className={`setup-card ${selected === example.id ? 'selected' : ''}`} aria-pressed={selected === example.id} onClick={() => { touched.current = true; apply(example); }}>
         <strong>{example.name}</strong><span>{example.summary}</span>
@@ -148,14 +151,15 @@ export function CampaignForm({ state, editing, initial, onClose, onDone, onImpor
         <strong>Blank problem</strong><span>Pick an installed problem adapter, or declare a new problem whose evaluator is built later.</span></button>
     </div></section>}
     <div className="form-grid"><Field label="Campaign name" wide><input value={name} onChange={e => setName(e.target.value)} required maxLength={180} /></Field>
-      <Field label="Research objective" wide><textarea value={objective} onChange={e => setObjective(e.target.value)} rows={4} required /></Field>
-      <Field label="Compute cap (seconds)" hint="Total numerical execution budget across the campaign."><input type="number" value={compute} onChange={e => setCompute(e.target.value)} min="1" step="1" required /></Field>
-      <Field label="Implementation compute cap (seconds)" hint="Separate allocation for building and validating reusable implementations."><input type="number" min="0" step="1" value={implementationCompute} onChange={e => setImplementationCompute(e.target.value)} required /></Field>
+      <Field label={chartered ? 'Research question' : 'Research objective'} hint={chartered ? 'The problem itself is the charter; revise it from the Problem page.' : undefined} wide>
+        <textarea value={objective} onChange={e => setObjective(e.target.value)} rows={4} required={!chartered} /></Field>
+      <DurationField label="Compute cap" unit="h" hint="Total numerical execution budget across the campaign." seconds={compute} onChange={setCompute} />
+      <DurationField label="Implementation compute cap" unit="h" hint="Separate allocation for building and validating reusable implementations." seconds={implementationCompute} onChange={setImplementationCompute} min={0} />
       <Field label="API spending cap (USD)" hint="Applies only to paid API calls. Subscription calls are not charged here."><input type="number" value={llm} onChange={e => setLlm(e.target.value)} min="0" step="0.01" required /></Field>
-      <Field label="Validation reserve (seconds)" hint="Held back from ordinary optimization trials."><input type="number" value={reserve} onChange={e => setReserve(e.target.value)} min="0" max={compute} required /></Field>
-      <Field label="Agent per-experiment limit (seconds)" hint="The most time one experiment the agents start may use."><input type="number" value={delegated} onChange={e => setDelegated(e.target.value)} min="1" max="86400" step="1" required /></Field>
+      <DurationField label="Validation reserve" hint="Held back from ordinary optimization trials." seconds={reserve} onChange={setReserve} min={0} max={Number(compute) || undefined} />
+      <DurationField label="Agent per-experiment limit" hint="The most time one experiment the agents start may use." seconds={delegated} onChange={setDelegated} max={86400} />
       <Field label="Research autonomy"><select value={autonomy} onChange={e => setAutonomy(e.target.value)}><option value="manual">Manual · researcher chooses each experiment</option><option value="guided">Guided · propose actions and request decisions</option><option value="delegated">Delegated · allow bounded, eligible probes</option></select></Field></div>
-    <div className="form-section-title"><h3>Problem instances</h3><button type="button" className="button small secondary" onClick={() => { touched.current = true; setInstances(rows => [...rows, { ...(rows.at(-1) || blankInstance(adapters[0], 0)), id: undefined, name: `Configuration ${rows.length + 1}` }]); }}><Icon name="plus" size={15} />Add configuration</button></div>
+    {!chartered && <><div className="form-section-title"><h3>Problem instances</h3><button type="button" className="button small secondary" onClick={() => { touched.current = true; setInstances(rows => [...rows, { ...(rows.at(-1) || blankInstance(adapters[0], 0)), id: undefined, name: `Configuration ${rows.length + 1}` }]); }}><Icon name="plus" size={15} />Add configuration</button></div>
     <p className="help-text">Each instance fixes the problem's configuration and evaluation fidelity. Test instances remain governed by the study confirmation policy.</p>
     <div className="task-editors">{instances.map((row, index) => <div className="task-editor" key={index}><div className="form-grid">
       <Field label={`Configuration ${index + 1}`}><input value={row.name} onChange={e => update(index, { name: e.target.value })} required /></Field>
@@ -176,7 +180,7 @@ export function CampaignForm({ state, editing, initial, onClose, onDone, onImpor
           {Object.keys(row.fidelitySchema.properties || {}).length > 0 && <fieldset className="setup-fields wide"><legend>Evaluation fidelity</legend><div className="form-grid">
             <SchemaFields schema={row.fidelitySchema} values={row.fidelity} setValues={fidelity => update(index, { fidelity })} /></div></fieldset>}</>}
       {!row.evaluator_manifest && <div className="wide setup-instance-actions"><button type="button" className="text-button" onClick={() => toggleJson(index)}>{row.json ? 'Edit as fields' : 'Edit as JSON'}</button></div>}
-    </div>{instances.length > 1 && <button type="button" className="text-button danger" onClick={() => { touched.current = true; setInstances(rows => rows.filter((_, i) => i !== index)); }}>Remove configuration</button>}</div>)}</div>
+    </div>{instances.length > 1 && <button type="button" className="text-button danger" onClick={() => { touched.current = true; setInstances(rows => rows.filter((_, i) => i !== index)); }}>Remove configuration</button>}</div>)}</div></>}
     <ErrorNotice text={error} />
     <div className="modal-actions"><button className="button secondary" type="button" onClick={onClose}>Cancel</button><button className="button primary" disabled={busy}>{busy ? 'Saving…' : current ? 'Save new version' : 'Create campaign'}<Icon name="arrow" size={16} /></button></div>
   </form></Modal>;

@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { DurationField } from './duration';
 import type { Json, State, Task } from './api';
 import { api, errorText, seconds } from './api';
 import { useCommand } from './commands';
@@ -134,7 +135,7 @@ export function EvaluatorRequest({ task, state, onClose, onDone }: { task: Task;
     <form onSubmit={commission}><div className="form-grid">
       <Field label="Evaluator specification" wide><textarea required rows={4} value={mechanism} onChange={e => setMechanism(e.target.value)} /></Field>
       <Field label="Evaluator acceptance criteria" wide><textarea required rows={3} value={criteria} onChange={e => setCriteria(e.target.value)} /></Field>
-      <Field label="Evaluator time allocation (seconds)"><input type="number" required min="1" max="86400" value={compute} onChange={e => setCompute(e.target.value)} /></Field>
+      <DurationField label="Evaluator time allocation" seconds={compute} onChange={setCompute} max={86400} />
       <Field label="Evaluator maximum model calls"><input type="number" required min="1" max="20" value={calls} onChange={e => setCalls(e.target.value)} /></Field>
       <Field label="Evaluator API allocation (USD)"><input type="number" required min="0" step="0.01" value={apiCap} onChange={e => setApiCap(e.target.value)} /></Field>
       <Field label="Maximum time per evaluation (seconds)"><input type="number" required min="0.01" step="any" max="3600" value={timeout} onChange={e => setTimeoutValue(e.target.value)} /></Field>

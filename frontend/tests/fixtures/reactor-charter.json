@@ -1,0 +1,3804 @@
+{
+ "id": "problem_charter_0c35a64392cd451b",
+ "initial": {
+  "id": "problem_charter_0c35a64392cd451b",
+  "source": {
+   "kind": "example",
+   "id": "reactor_example",
+   "name": "Flow reactor",
+   "campaign": {
+    "name": "Flow reactor study",
+    "research_question": "Which ligand gives the best yield?",
+    "compute_budget_seconds": 7200,
+    "autonomy": "guided"
+   }
+  },
+  "import_id": null,
+  "campaign_ids": [],
+  "confirmed": [],
+  "confirmed_revision": null,
+  "history": [
+   {
+    "revision": 1,
+    "at": "2026-10-15T08:01:35.143009+00:00",
+    "by": "researcher",
+    "rationale": "Started",
+    "hash": "25c17717e33eac0ad06559e779ca8ca49695124cd691fd403817798060806e39"
+   }
+  ],
+  "revision": 1,
+  "created_at": "2026-10-15T08:01:35.142517+00:00",
+  "charter": {
+   "schema_version": 1,
+   "title": "Flow reactor yield",
+   "summary": "Maximize the yield of a flow reaction at {pressure_bar}.",
+   "text": "A tubular reactor of {reactor_volume_ml} runs at {pressure_bar} and {temperature_c}. The residence time follows from the flow rate: {residence_time_s:.3g}.",
+   "quantities": {
+    "reactor_volume_ml": {
+     "description": "Reactor volume",
+     "kind": "number",
+     "role": "input",
+     "value": 10.0,
+     "expression": null,
+     "units": "mL",
+     "range": [
+      0.0,
+      null
+     ],
+     "origin": "source",
+     "citation": 1,
+     "accepted": false,
+     "note": ""
+    },
+    "flow_rate_ml_min": {
+     "description": "Flow rate",
+     "kind": "number",
+     "role": "input",
+     "value": 2.0,
+     "expression": null,
+     "units": "mL/min",
+     "range": [
+      0.1,
+      20.0
+     ],
+     "origin": "source",
+     "citation": 1,
+     "accepted": false,
+     "note": ""
+    },
+    "residence_time_s": {
+     "description": "Residence time",
+     "kind": "number",
+     "role": "derived",
+     "value": null,
+     "expression": "reactor_volume_ml / flow_rate_ml_min * 60",
+     "units": "s",
+     "range": null,
+     "origin": "computed",
+     "citation": null,
+     "accepted": false,
+     "note": ""
+    },
+    "pressure_bar": {
+     "description": "Back pressure",
+     "kind": "number",
+     "role": "input",
+     "value": 5.0,
+     "expression": null,
+     "units": "bar",
+     "range": null,
+     "origin": "assumed",
+     "citation": null,
+     "accepted": false,
+     "note": "The statement gives no back pressure; 5 bar is usual for this solvent"
+    },
+    "temperature_c": {
+     "description": "Reaction temperature",
+     "kind": "number",
+     "role": "input",
+     "value": 80.0,
+     "expression": null,
+     "units": "C",
+     "range": [
+      20.0,
+      200.0
+     ],
+     "origin": "source",
+     "citation": 1,
+     "accepted": false,
+     "note": ""
+    },
+    "max_temperature_c": {
+     "description": "Decomposition temperature of the product",
+     "kind": "number",
+     "role": "input",
+     "value": 150.0,
+     "expression": null,
+     "units": "C",
+     "range": null,
+     "origin": "source",
+     "citation": 1,
+     "accepted": false,
+     "note": ""
+    },
+    "solvent_viscosity_cp": {
+     "description": "Solvent viscosity at the temperature",
+     "kind": "number",
+     "role": "derived",
+     "value": null,
+     "expression": "table(viscosity, temperature_c)",
+     "units": "cP",
+     "range": null,
+     "origin": "computed",
+     "citation": null,
+     "accepted": false,
+     "note": ""
+    },
+    "repeats": {
+     "description": "Repeat measurements per condition",
+     "kind": "integer",
+     "role": "input",
+     "value": 3,
+     "expression": null,
+     "units": "1",
+     "range": null,
+     "origin": "source",
+     "citation": 1,
+     "accepted": false,
+     "note": ""
+    }
+   },
+   "tables": {
+    "viscosity": {
+     "description": "Solvent viscosity",
+     "x_units": "C",
+     "y_units": "cP",
+     "points": [
+      [
+       20.0,
+       1.0
+      ],
+      [
+       100.0,
+       0.3
+      ],
+      [
+       200.0,
+       0.15
+      ]
+     ],
+     "citation": 1
+    }
+   },
+   "variables": [
+    {
+     "name": "loadings",
+     "description": "Catalyst, ligand and additive loading, scaled",
+     "representation": "continuous",
+     "shape": [
+      3
+     ],
+     "lower": 0.0,
+     "upper": 1.0,
+     "values": [],
+     "units": "1",
+     "meaning": "",
+     "layout": ""
+    }
+   ],
+   "constraints": [
+    {
+     "id": "below_decomposition",
+     "statement": "Run below {max_temperature_c}.",
+     "kind": "hard",
+     "form": "quantities",
+     "test": "temperature_c <= max_temperature_c",
+     "terms": [],
+     "relation": null,
+     "bound": null,
+     "citation": null
+    },
+    {
+     "id": "loading_budget",
+     "statement": "The scaled loadings add up to at most 2.",
+     "kind": "hard",
+     "form": "linear",
+     "test": null,
+     "terms": [
+      {
+       "variable": "loadings",
+       "weight": "sum",
+       "weights": null
+      }
+     ],
+     "relation": "le",
+     "bound": 2.0,
+     "citation": null
+    }
+   ],
+   "objective": {
+    "name": "isolated_yield",
+    "direction": "maximize",
+    "units": "fraction",
+    "definition": "Isolated yield, mean of {repeats} repeats",
+    "citation": null
+   },
+   "metrics": [
+    {
+     "name": "selectivity",
+     "units": "fraction",
+     "direction": "maximize",
+     "definition": ""
+    }
+   ],
+   "evaluator": {
+    "kind": "declared",
+    "problem_id": "flow_reactor_yield",
+    "configuration": {
+     "residence_time_s": "residence_time_s",
+     "temperature_c": "temperature_c",
+     "pressure_bar": "pressure_bar"
+    },
+    "fidelity": {
+     "repeats": "repeats"
+    },
+    "deterministic": false,
+    "notes": "Run the reaction and measure yield by HPLC."
+   },
+   "instances": [
+    {
+     "name": "Base conditions",
+     "split": "development",
+     "values": {},
+     "note": ""
+    }
+   ],
+   "references": [],
+   "citations": [
+    {
+     "id": 1,
+     "source": "documents/statement.md.txt",
+     "location": "para 2",
+     "quote": ""
+    }
+   ],
+   "assumptions": [],
+   "questions": [
+    {
+     "id": "objective_basis",
+     "question": "Is yield measured as isolated yield or by HPLC area?",
+     "options": [
+      "Isolated yield",
+      "HPLC area percent"
+     ],
+     "about": [
+      "isolated_yield"
+     ],
+     "blocking": true,
+     "answer": null,
+     "answered_at": null,
+     "sent": false
+    }
+   ],
+   "waivers": [],
+   "forked_from": null
+  },
+  "title": "Flow reactor yield",
+  "status": "draft",
+  "updated_at": "2026-10-15T08:01:35.143006+00:00",
+  "values": {
+   "reactor_volume_ml": 10.0,
+   "flow_rate_ml_min": 2.0,
+   "pressure_bar": 5.0,
+   "temperature_c": 80.0,
+   "max_temperature_c": 150.0,
+   "repeats": 3,
+   "residence_time_s": 300.0,
+   "solvent_viscosity_cp": 0.4750000000000001
+  },
+  "errors": {},
+  "rendered": {
+   "text": "A tubular reactor of 10 mL runs at 5 bar and 80 C. The residence time follows from the flow rate: 300 s.",
+   "summary": "Maximize the yield of a flow reaction at 5 bar.",
+   "objective": "Isolated yield, mean of 3 repeats",
+   "constraint below_decomposition": "Run below 150 C.",
+   "constraint loading_budget": "The scaled loadings add up to at most 2."
+  },
+  "references": [],
+  "findings": [
+   {
+    "key": "assumption.unaccepted:pressure_bar",
+    "code": "assumption.unaccepted",
+    "severity": "blocking",
+    "message": "pressure_bar = 5 bar is an assumption: The statement gives no back pressure; 5 bar is usual for this solvent. Accept it, change it, or ask for a change.",
+    "about": [
+     "pressure_bar"
+    ],
+    "waivable": false
+   },
+   {
+    "key": "quantity.unused:solvent_viscosity_cp",
+    "code": "quantity.unused",
+    "severity": "warning",
+    "message": "solvent_viscosity_cp reaches nothing: no evaluator field takes it, and no relation, bound, shape or test uses it. Give it to the evaluator, or remove it.",
+    "about": [
+     "solvent_viscosity_cp"
+    ],
+    "waivable": false
+   },
+   {
+    "key": "question.open:objective_basis",
+    "code": "question.open",
+    "severity": "blocking",
+    "message": "Open question: Is yield measured as isolated yield or by HPLC area?",
+    "about": [
+     "isolated_yield"
+    ],
+    "waivable": true
+   }
+  ],
+  "blocking": 2,
+  "instances": [
+   {
+    "name": "Base conditions",
+    "values": {
+     "reactor_volume_ml": 10.0,
+     "flow_rate_ml_min": 2.0,
+     "pressure_bar": 5.0,
+     "temperature_c": 80.0,
+     "max_temperature_c": 150.0,
+     "repeats": 3,
+     "residence_time_s": 300.0,
+     "solvent_viscosity_cp": 0.4750000000000001
+    }
+   }
+  ],
+  "lineage": null,
+  "proposals": []
+ },
+ "preview_flow4": {
+  "charter": {
+   "schema_version": 1,
+   "title": "Flow reactor yield",
+   "summary": "Maximize the yield of a flow reaction at {pressure_bar}.",
+   "text": "A tubular reactor of {reactor_volume_ml} runs at {pressure_bar} and {temperature_c}. The residence time follows from the flow rate: {residence_time_s:.3g}.",
+   "quantities": {
+    "reactor_volume_ml": {
+     "description": "Reactor volume",
+     "kind": "number",
+     "role": "input",
+     "value": 10.0,
+     "expression": null,
+     "units": "mL",
+     "range": [
+      0.0,
+      null
+     ],
+     "origin": "source",
+     "citation": 1,
+     "accepted": false,
+     "note": ""
+    },
+    "flow_rate_ml_min": {
+     "description": "Flow rate",
+     "kind": "number",
+     "role": "input",
+     "value": 4,
+     "expression": null,
+     "units": "mL/min",
+     "range": [
+      0.1,
+      20.0
+     ],
+     "origin": "researcher",
+     "citation": 1,
+     "accepted": false,
+     "note": ""
+    },
+    "residence_time_s": {
+     "description": "Residence time",
+     "kind": "number",
+     "role": "derived",
+     "value": null,
+     "expression": "reactor_volume_ml / flow_rate_ml_min * 60",
+     "units": "s",
+     "range": null,
+     "origin": "computed",
+     "citation": null,
+     "accepted": false,
+     "note": ""
+    },
+    "pressure_bar": {
+     "description": "Back pressure",
+     "kind": "number",
+     "role": "input",
+     "value": 5.0,
+     "expression": null,
+     "units": "bar",
+     "range": null,
+     "origin": "assumed",
+     "citation": null,
+     "accepted": false,
+     "note": "The statement gives no back pressure; 5 bar is usual for this solvent"
+    },
+    "temperature_c": {
+     "description": "Reaction temperature",
+     "kind": "number",
+     "role": "input",
+     "value": 80.0,
+     "expression": null,
+     "units": "C",
+     "range": [
+      20.0,
+      200.0
+     ],
+     "origin": "source",
+     "citation": 1,
+     "accepted": false,
+     "note": ""
+    },
+    "max_temperature_c": {
+     "description": "Decomposition temperature of the product",
+     "kind": "number",
+     "role": "input",
+     "value": 150.0,
+     "expression": null,
+     "units": "C",
+     "range": null,
+     "origin": "source",
+     "citation": 1,
+     "accepted": false,
+     "note": ""
+    },
+    "solvent_viscosity_cp": {
+     "description": "Solvent viscosity at the temperature",
+     "kind": "number",
+     "role": "derived",
+     "value": null,
+     "expression": "table(viscosity, temperature_c)",
+     "units": "cP",
+     "range": null,
+     "origin": "computed",
+     "citation": null,
+     "accepted": false,
+     "note": ""
+    },
+    "repeats": {
+     "description": "Repeat measurements per condition",
+     "kind": "integer",
+     "role": "input",
+     "value": 3,
+     "expression": null,
+     "units": "1",
+     "range": null,
+     "origin": "source",
+     "citation": 1,
+     "accepted": false,
+     "note": ""
+    }
+   },
+   "tables": {
+    "viscosity": {
+     "description": "Solvent viscosity",
+     "x_units": "C",
+     "y_units": "cP",
+     "points": [
+      [
+       20.0,
+       1.0
+      ],
+      [
+       100.0,
+       0.3
+      ],
+      [
+       200.0,
+       0.15
+      ]
+     ],
+     "citation": 1
+    }
+   },
+   "variables": [
+    {
+     "name": "loadings",
+     "description": "Catalyst, ligand and additive loading, scaled",
+     "representation": "continuous",
+     "shape": [
+      3
+     ],
+     "lower": 0.0,
+     "upper": 1.0,
+     "values": [],
+     "units": "1",
+     "meaning": "",
+     "layout": ""
+    }
+   ],
+   "constraints": [
+    {
+     "id": "below_decomposition",
+     "statement": "Run below {max_temperature_c}.",
+     "kind": "hard",
+     "form": "quantities",
+     "test": "temperature_c <= max_temperature_c",
+     "terms": [],
+     "relation": null,
+     "bound": null,
+     "citation": null
+    },
+    {
+     "id": "loading_budget",
+     "statement": "The scaled loadings add up to at most 2.",
+     "kind": "hard",
+     "form": "linear",
+     "test": null,
+     "terms": [
+      {
+       "variable": "loadings",
+       "weight": "sum",
+       "weights": null
+      }
+     ],
+     "relation": "le",
+     "bound": 2.0,
+     "citation": null
+    }
+   ],
+   "objective": {
+    "name": "isolated_yield",
+    "direction": "maximize",
+    "units": "fraction",
+    "definition": "Isolated yield, mean of {repeats} repeats",
+    "citation": null
+   },
+   "metrics": [
+    {
+     "name": "selectivity",
+     "units": "fraction",
+     "direction": "maximize",
+     "definition": ""
+    }
+   ],
+   "evaluator": {
+    "kind": "declared",
+    "problem_id": "flow_reactor_yield",
+    "configuration": {
+     "residence_time_s": "residence_time_s",
+     "temperature_c": "temperature_c",
+     "pressure_bar": "pressure_bar"
+    },
+    "fidelity": {
+     "repeats": "repeats"
+    },
+    "deterministic": false,
+    "notes": "Run the reaction and measure yield by HPLC."
+   },
+   "instances": [
+    {
+     "name": "Base conditions",
+     "split": "development",
+     "values": {},
+     "note": ""
+    }
+   ],
+   "references": [],
+   "citations": [
+    {
+     "id": 1,
+     "source": "documents/statement.md.txt",
+     "location": "para 2",
+     "quote": ""
+    }
+   ],
+   "assumptions": [],
+   "questions": [
+    {
+     "id": "objective_basis",
+     "question": "Is yield measured as isolated yield or by HPLC area?",
+     "options": [
+      "Isolated yield",
+      "HPLC area percent"
+     ],
+     "about": [
+      "isolated_yield"
+     ],
+     "blocking": true,
+     "answer": null,
+     "answered_at": null,
+     "sent": false
+    }
+   ],
+   "waivers": [],
+   "forked_from": null
+  },
+  "values": {
+   "reactor_volume_ml": 10.0,
+   "flow_rate_ml_min": 4,
+   "pressure_bar": 5.0,
+   "temperature_c": 80.0,
+   "max_temperature_c": 150.0,
+   "repeats": 3,
+   "residence_time_s": 150.0,
+   "solvent_viscosity_cp": 0.4750000000000001
+  },
+  "errors": {},
+  "rendered": {
+   "text": "A tubular reactor of 10 mL runs at 5 bar and 80 C. The residence time follows from the flow rate: 150 s.",
+   "summary": "Maximize the yield of a flow reaction at 5 bar.",
+   "objective": "Isolated yield, mean of 3 repeats",
+   "constraint below_decomposition": "Run below 150 C.",
+   "constraint loading_budget": "The scaled loadings add up to at most 2."
+  },
+  "references": [],
+  "findings": [
+   {
+    "key": "assumption.unaccepted:pressure_bar",
+    "code": "assumption.unaccepted",
+    "severity": "blocking",
+    "message": "pressure_bar = 5 bar is an assumption: The statement gives no back pressure; 5 bar is usual for this solvent. Accept it, change it, or ask for a change.",
+    "about": [
+     "pressure_bar"
+    ],
+    "waivable": false
+   },
+   {
+    "key": "quantity.unused:solvent_viscosity_cp",
+    "code": "quantity.unused",
+    "severity": "warning",
+    "message": "solvent_viscosity_cp reaches nothing: no evaluator field takes it, and no relation, bound, shape or test uses it. Give it to the evaluator, or remove it.",
+    "about": [
+     "solvent_viscosity_cp"
+    ],
+    "waivable": false
+   },
+   {
+    "key": "question.open:objective_basis",
+    "code": "question.open",
+    "severity": "blocking",
+    "message": "Open question: Is yield measured as isolated yield or by HPLC area?",
+    "about": [
+     "isolated_yield"
+    ],
+    "waivable": true
+   }
+  ],
+  "blocking": 2,
+  "instances": [
+   {
+    "name": "Base conditions",
+    "values": {
+     "reactor_volume_ml": 10.0,
+     "flow_rate_ml_min": 4,
+     "pressure_bar": 5.0,
+     "temperature_c": 80.0,
+     "max_temperature_c": 150.0,
+     "repeats": 3,
+     "residence_time_s": 150.0,
+     "solvent_viscosity_cp": 0.4750000000000001
+    }
+   }
+  ],
+  "diff": [
+   {
+    "part": "value",
+    "name": "flow_rate_ml_min",
+    "change": "changed",
+    "before": "2 mL/min",
+    "after": "4 mL/min",
+    "role": "input"
+   },
+   {
+    "part": "value",
+    "name": "residence_time_s",
+    "change": "changed",
+    "before": "300 s",
+    "after": "150 s",
+    "role": "derived"
+   }
+  ]
+ },
+ "saved": {
+  "id": "problem_charter_0c35a64392cd451b",
+  "source": {
+   "kind": "example",
+   "id": "reactor_example",
+   "name": "Flow reactor",
+   "campaign": {
+    "name": "Flow reactor study",
+    "research_question": "Which ligand gives the best yield?",
+    "compute_budget_seconds": 7200,
+    "autonomy": "guided"
+   }
+  },
+  "import_id": null,
+  "campaign_ids": [],
+  "confirmed": [],
+  "confirmed_revision": null,
+  "history": [
+   {
+    "revision": 1,
+    "at": "2026-10-15T08:01:35.143009+00:00",
+    "by": "researcher",
+    "rationale": "Started",
+    "hash": "25c17717e33eac0ad06559e779ca8ca49695124cd691fd403817798060806e39"
+   },
+   {
+    "revision": 2,
+    "at": "2026-10-15T08:01:35.286832+00:00",
+    "by": "researcher",
+    "rationale": "Edited by the researcher",
+    "hash": "adf240492b514156763ec1ebbb9646c7d2b8a8f7058f6eca0968cf2b876d058b"
+   }
+  ],
+  "revision": 2,
+  "created_at": "2026-10-15T08:01:35.142517+00:00",
+  "charter": {
+   "schema_version": 1,
+   "title": "Flow reactor yield",
+   "summary": "Maximize the yield of a flow reaction at {pressure_bar}.",
+   "text": "A tubular reactor of {reactor_volume_ml} runs at {pressure_bar} and {temperature_c}. The residence time follows from the flow rate: {residence_time_s:.3g}.",
+   "quantities": {
+    "reactor_volume_ml": {
+     "description": "Reactor volume",
+     "kind": "number",
+     "role": "input",
+     "value": 10.0,
+     "expression": null,
+     "units": "mL",
+     "range": [
+      0.0,
+      null
+     ],
+     "origin": "source",
+     "citation": 1,
+     "accepted": false,
+     "note": ""
+    },
+    "flow_rate_ml_min": {
+     "description": "Flow rate",
+     "kind": "number",
+     "role": "input",
+     "value": 4,
+     "expression": null,
+     "units": "mL/min",
+     "range": [
+      0.1,
+      20.0
+     ],
+     "origin": "researcher",
+     "citation": 1,
+     "accepted": false,
+     "note": ""
+    },
+    "residence_time_s": {
+     "description": "Residence time",
+     "kind": "number",
+     "role": "derived",
+     "value": null,
+     "expression": "reactor_volume_ml / flow_rate_ml_min * 60",
+     "units": "s",
+     "range": null,
+     "origin": "computed",
+     "citation": null,
+     "accepted": false,
+     "note": ""
+    },
+    "pressure_bar": {
+     "description": "Back pressure",
+     "kind": "number",
+     "role": "input",
+     "value": 5.0,
+     "expression": null,
+     "units": "bar",
+     "range": null,
+     "origin": "assumed",
+     "citation": null,
+     "accepted": false,
+     "note": "The statement gives no back pressure; 5 bar is usual for this solvent"
+    },
+    "temperature_c": {
+     "description": "Reaction temperature",
+     "kind": "number",
+     "role": "input",
+     "value": 80.0,
+     "expression": null,
+     "units": "C",
+     "range": [
+      20.0,
+      200.0
+     ],
+     "origin": "source",
+     "citation": 1,
+     "accepted": false,
+     "note": ""
+    },
+    "max_temperature_c": {
+     "description": "Decomposition temperature of the product",
+     "kind": "number",
+     "role": "input",
+     "value": 150.0,
+     "expression": null,
+     "units": "C",
+     "range": null,
+     "origin": "source",
+     "citation": 1,
+     "accepted": false,
+     "note": ""
+    },
+    "solvent_viscosity_cp": {
+     "description": "Solvent viscosity at the temperature",
+     "kind": "number",
+     "role": "derived",
+     "value": null,
+     "expression": "table(viscosity, temperature_c)",
+     "units": "cP",
+     "range": null,
+     "origin": "computed",
+     "citation": null,
+     "accepted": false,
+     "note": ""
+    },
+    "repeats": {
+     "description": "Repeat measurements per condition",
+     "kind": "integer",
+     "role": "input",
+     "value": 3,
+     "expression": null,
+     "units": "1",
+     "range": null,
+     "origin": "source",
+     "citation": 1,
+     "accepted": false,
+     "note": ""
+    }
+   },
+   "tables": {
+    "viscosity": {
+     "description": "Solvent viscosity",
+     "x_units": "C",
+     "y_units": "cP",
+     "points": [
+      [
+       20.0,
+       1.0
+      ],
+      [
+       100.0,
+       0.3
+      ],
+      [
+       200.0,
+       0.15
+      ]
+     ],
+     "citation": 1
+    }
+   },
+   "variables": [
+    {
+     "name": "loadings",
+     "description": "Catalyst, ligand and additive loading, scaled",
+     "representation": "continuous",
+     "shape": [
+      3
+     ],
+     "lower": 0.0,
+     "upper": 1.0,
+     "values": [],
+     "units": "1",
+     "meaning": "",
+     "layout": ""
+    }
+   ],
+   "constraints": [
+    {
+     "id": "below_decomposition",
+     "statement": "Run below {max_temperature_c}.",
+     "kind": "hard",
+     "form": "quantities",
+     "test": "temperature_c <= max_temperature_c",
+     "terms": [],
+     "relation": null,
+     "bound": null,
+     "citation": null
+    },
+    {
+     "id": "loading_budget",
+     "statement": "The scaled loadings add up to at most 2.",
+     "kind": "hard",
+     "form": "linear",
+     "test": null,
+     "terms": [
+      {
+       "variable": "loadings",
+       "weight": "sum",
+       "weights": null
+      }
+     ],
+     "relation": "le",
+     "bound": 2.0,
+     "citation": null
+    }
+   ],
+   "objective": {
+    "name": "isolated_yield",
+    "direction": "maximize",
+    "units": "fraction",
+    "definition": "Isolated yield, mean of {repeats} repeats",
+    "citation": null
+   },
+   "metrics": [
+    {
+     "name": "selectivity",
+     "units": "fraction",
+     "direction": "maximize",
+     "definition": ""
+    }
+   ],
+   "evaluator": {
+    "kind": "declared",
+    "problem_id": "flow_reactor_yield",
+    "configuration": {
+     "residence_time_s": "residence_time_s",
+     "temperature_c": "temperature_c",
+     "pressure_bar": "pressure_bar"
+    },
+    "fidelity": {
+     "repeats": "repeats"
+    },
+    "deterministic": false,
+    "notes": "Run the reaction and measure yield by HPLC."
+   },
+   "instances": [
+    {
+     "name": "Base conditions",
+     "split": "development",
+     "values": {},
+     "note": ""
+    }
+   ],
+   "references": [],
+   "citations": [
+    {
+     "id": 1,
+     "source": "documents/statement.md.txt",
+     "location": "para 2",
+     "quote": ""
+    }
+   ],
+   "assumptions": [],
+   "questions": [
+    {
+     "id": "objective_basis",
+     "question": "Is yield measured as isolated yield or by HPLC area?",
+     "options": [
+      "Isolated yield",
+      "HPLC area percent"
+     ],
+     "about": [
+      "isolated_yield"
+     ],
+     "blocking": true,
+     "answer": null,
+     "answered_at": null,
+     "sent": false
+    }
+   ],
+   "waivers": [],
+   "forked_from": null
+  },
+  "title": "Flow reactor yield",
+  "status": "draft",
+  "updated_at": "2026-10-15T08:01:35.286826+00:00",
+  "values": {
+   "reactor_volume_ml": 10.0,
+   "flow_rate_ml_min": 4,
+   "pressure_bar": 5.0,
+   "temperature_c": 80.0,
+   "max_temperature_c": 150.0,
+   "repeats": 3,
+   "residence_time_s": 150.0,
+   "solvent_viscosity_cp": 0.4750000000000001
+  },
+  "errors": {},
+  "rendered": {
+   "text": "A tubular reactor of 10 mL runs at 5 bar and 80 C. The residence time follows from the flow rate: 150 s.",
+   "summary": "Maximize the yield of a flow reaction at 5 bar.",
+   "objective": "Isolated yield, mean of 3 repeats",
+   "constraint below_decomposition": "Run below 150 C.",
+   "constraint loading_budget": "The scaled loadings add up to at most 2."
+  },
+  "references": [],
+  "findings": [
+   {
+    "key": "assumption.unaccepted:pressure_bar",
+    "code": "assumption.unaccepted",
+    "severity": "blocking",
+    "message": "pressure_bar = 5 bar is an assumption: The statement gives no back pressure; 5 bar is usual for this solvent. Accept it, change it, or ask for a change.",
+    "about": [
+     "pressure_bar"
+    ],
+    "waivable": false
+   },
+   {
+    "key": "quantity.unused:solvent_viscosity_cp",
+    "code": "quantity.unused",
+    "severity": "warning",
+    "message": "solvent_viscosity_cp reaches nothing: no evaluator field takes it, and no relation, bound, shape or test uses it. Give it to the evaluator, or remove it.",
+    "about": [
+     "solvent_viscosity_cp"
+    ],
+    "waivable": false
+   },
+   {
+    "key": "question.open:objective_basis",
+    "code": "question.open",
+    "severity": "blocking",
+    "message": "Open question: Is yield measured as isolated yield or by HPLC area?",
+    "about": [
+     "isolated_yield"
+    ],
+    "waivable": true
+   }
+  ],
+  "blocking": 2,
+  "instances": [
+   {
+    "name": "Base conditions",
+    "values": {
+     "reactor_volume_ml": 10.0,
+     "flow_rate_ml_min": 4,
+     "pressure_bar": 5.0,
+     "temperature_c": 80.0,
+     "max_temperature_c": 150.0,
+     "repeats": 3,
+     "residence_time_s": 150.0,
+     "solvent_viscosity_cp": 0.4750000000000001
+    }
+   }
+  ],
+  "lineage": null,
+  "proposals": []
+ },
+ "answered": {
+  "id": "problem_charter_0c35a64392cd451b",
+  "source": {
+   "kind": "example",
+   "id": "reactor_example",
+   "name": "Flow reactor",
+   "campaign": {
+    "name": "Flow reactor study",
+    "research_question": "Which ligand gives the best yield?",
+    "compute_budget_seconds": 7200,
+    "autonomy": "guided"
+   }
+  },
+  "import_id": null,
+  "campaign_ids": [],
+  "confirmed": [],
+  "confirmed_revision": null,
+  "history": [
+   {
+    "revision": 1,
+    "at": "2026-10-15T08:01:35.143009+00:00",
+    "by": "researcher",
+    "rationale": "Started",
+    "hash": "25c17717e33eac0ad06559e779ca8ca49695124cd691fd403817798060806e39"
+   },
+   {
+    "revision": 2,
+    "at": "2026-10-15T08:01:35.286832+00:00",
+    "by": "researcher",
+    "rationale": "Edited by the researcher",
+    "hash": "adf240492b514156763ec1ebbb9646c7d2b8a8f7058f6eca0968cf2b876d058b"
+   },
+   {
+    "revision": 3,
+    "at": "2026-10-15T08:01:35.288869+00:00",
+    "by": "researcher",
+    "rationale": "Answered: Is yield measured as isolated yield or by HPLC area?",
+    "hash": "c83a68d1570440248f57fff1d3efcd6f2700c675e766ccb6d810954fdaba2916"
+   }
+  ],
+  "revision": 3,
+  "created_at": "2026-10-15T08:01:35.142517+00:00",
+  "charter": {
+   "schema_version": 1,
+   "title": "Flow reactor yield",
+   "summary": "Maximize the yield of a flow reaction at {pressure_bar}.",
+   "text": "A tubular reactor of {reactor_volume_ml} runs at {pressure_bar} and {temperature_c}. The residence time follows from the flow rate: {residence_time_s:.3g}.",
+   "quantities": {
+    "reactor_volume_ml": {
+     "description": "Reactor volume",
+     "kind": "number",
+     "role": "input",
+     "value": 10.0,
+     "expression": null,
+     "units": "mL",
+     "range": [
+      0.0,
+      null
+     ],
+     "origin": "source",
+     "citation": 1,
+     "accepted": false,
+     "note": ""
+    },
+    "flow_rate_ml_min": {
+     "description": "Flow rate",
+     "kind": "number",
+     "role": "input",
+     "value": 4,
+     "expression": null,
+     "units": "mL/min",
+     "range": [
+      0.1,
+      20.0
+     ],
+     "origin": "researcher",
+     "citation": 1,
+     "accepted": false,
+     "note": ""
+    },
+    "residence_time_s": {
+     "description": "Residence time",
+     "kind": "number",
+     "role": "derived",
+     "value": null,
+     "expression": "reactor_volume_ml / flow_rate_ml_min * 60",
+     "units": "s",
+     "range": null,
+     "origin": "computed",
+     "citation": null,
+     "accepted": false,
+     "note": ""
+    },
+    "pressure_bar": {
+     "description": "Back pressure",
+     "kind": "number",
+     "role": "input",
+     "value": 5.0,
+     "expression": null,
+     "units": "bar",
+     "range": null,
+     "origin": "assumed",
+     "citation": null,
+     "accepted": false,
+     "note": "The statement gives no back pressure; 5 bar is usual for this solvent"
+    },
+    "temperature_c": {
+     "description": "Reaction temperature",
+     "kind": "number",
+     "role": "input",
+     "value": 80.0,
+     "expression": null,
+     "units": "C",
+     "range": [
+      20.0,
+      200.0
+     ],
+     "origin": "source",
+     "citation": 1,
+     "accepted": false,
+     "note": ""
+    },
+    "max_temperature_c": {
+     "description": "Decomposition temperature of the product",
+     "kind": "number",
+     "role": "input",
+     "value": 150.0,
+     "expression": null,
+     "units": "C",
+     "range": null,
+     "origin": "source",
+     "citation": 1,
+     "accepted": false,
+     "note": ""
+    },
+    "solvent_viscosity_cp": {
+     "description": "Solvent viscosity at the temperature",
+     "kind": "number",
+     "role": "derived",
+     "value": null,
+     "expression": "table(viscosity, temperature_c)",
+     "units": "cP",
+     "range": null,
+     "origin": "computed",
+     "citation": null,
+     "accepted": false,
+     "note": ""
+    },
+    "repeats": {
+     "description": "Repeat measurements per condition",
+     "kind": "integer",
+     "role": "input",
+     "value": 3,
+     "expression": null,
+     "units": "1",
+     "range": null,
+     "origin": "source",
+     "citation": 1,
+     "accepted": false,
+     "note": ""
+    }
+   },
+   "tables": {
+    "viscosity": {
+     "description": "Solvent viscosity",
+     "x_units": "C",
+     "y_units": "cP",
+     "points": [
+      [
+       20.0,
+       1.0
+      ],
+      [
+       100.0,
+       0.3
+      ],
+      [
+       200.0,
+       0.15
+      ]
+     ],
+     "citation": 1
+    }
+   },
+   "variables": [
+    {
+     "name": "loadings",
+     "description": "Catalyst, ligand and additive loading, scaled",
+     "representation": "continuous",
+     "shape": [
+      3
+     ],
+     "lower": 0.0,
+     "upper": 1.0,
+     "values": [],
+     "units": "1",
+     "meaning": "",
+     "layout": ""
+    }
+   ],
+   "constraints": [
+    {
+     "id": "below_decomposition",
+     "statement": "Run below {max_temperature_c}.",
+     "kind": "hard",
+     "form": "quantities",
+     "test": "temperature_c <= max_temperature_c",
+     "terms": [],
+     "relation": null,
+     "bound": null,
+     "citation": null
+    },
+    {
+     "id": "loading_budget",
+     "statement": "The scaled loadings add up to at most 2.",
+     "kind": "hard",
+     "form": "linear",
+     "test": null,
+     "terms": [
+      {
+       "variable": "loadings",
+       "weight": "sum",
+       "weights": null
+      }
+     ],
+     "relation": "le",
+     "bound": 2.0,
+     "citation": null
+    }
+   ],
+   "objective": {
+    "name": "isolated_yield",
+    "direction": "maximize",
+    "units": "fraction",
+    "definition": "Isolated yield, mean of {repeats} repeats",
+    "citation": null
+   },
+   "metrics": [
+    {
+     "name": "selectivity",
+     "units": "fraction",
+     "direction": "maximize",
+     "definition": ""
+    }
+   ],
+   "evaluator": {
+    "kind": "declared",
+    "problem_id": "flow_reactor_yield",
+    "configuration": {
+     "residence_time_s": "residence_time_s",
+     "temperature_c": "temperature_c",
+     "pressure_bar": "pressure_bar"
+    },
+    "fidelity": {
+     "repeats": "repeats"
+    },
+    "deterministic": false,
+    "notes": "Run the reaction and measure yield by HPLC."
+   },
+   "instances": [
+    {
+     "name": "Base conditions",
+     "split": "development",
+     "values": {},
+     "note": ""
+    }
+   ],
+   "references": [],
+   "citations": [
+    {
+     "id": 1,
+     "source": "documents/statement.md.txt",
+     "location": "para 2",
+     "quote": ""
+    }
+   ],
+   "assumptions": [],
+   "questions": [
+    {
+     "id": "objective_basis",
+     "question": "Is yield measured as isolated yield or by HPLC area?",
+     "options": [
+      "Isolated yield",
+      "HPLC area percent"
+     ],
+     "about": [
+      "isolated_yield"
+     ],
+     "blocking": true,
+     "answer": "Isolated yield",
+     "answered_at": "2026-10-15T08:01:35.288689+00:00",
+     "sent": false
+    }
+   ],
+   "waivers": [],
+   "forked_from": null
+  },
+  "title": "Flow reactor yield",
+  "status": "draft",
+  "updated_at": "2026-10-15T08:01:35.288867+00:00",
+  "values": {
+   "reactor_volume_ml": 10.0,
+   "flow_rate_ml_min": 4,
+   "pressure_bar": 5.0,
+   "temperature_c": 80.0,
+   "max_temperature_c": 150.0,
+   "repeats": 3,
+   "residence_time_s": 150.0,
+   "solvent_viscosity_cp": 0.4750000000000001
+  },
+  "errors": {},
+  "rendered": {
+   "text": "A tubular reactor of 10 mL runs at 5 bar and 80 C. The residence time follows from the flow rate: 150 s.",
+   "summary": "Maximize the yield of a flow reaction at 5 bar.",
+   "objective": "Isolated yield, mean of 3 repeats",
+   "constraint below_decomposition": "Run below 150 C.",
+   "constraint loading_budget": "The scaled loadings add up to at most 2."
+  },
+  "references": [],
+  "findings": [
+   {
+    "key": "assumption.unaccepted:pressure_bar",
+    "code": "assumption.unaccepted",
+    "severity": "blocking",
+    "message": "pressure_bar = 5 bar is an assumption: The statement gives no back pressure; 5 bar is usual for this solvent. Accept it, change it, or ask for a change.",
+    "about": [
+     "pressure_bar"
+    ],
+    "waivable": false
+   },
+   {
+    "key": "quantity.unused:solvent_viscosity_cp",
+    "code": "quantity.unused",
+    "severity": "warning",
+    "message": "solvent_viscosity_cp reaches nothing: no evaluator field takes it, and no relation, bound, shape or test uses it. Give it to the evaluator, or remove it.",
+    "about": [
+     "solvent_viscosity_cp"
+    ],
+    "waivable": false
+   }
+  ],
+  "blocking": 1,
+  "instances": [
+   {
+    "name": "Base conditions",
+    "values": {
+     "reactor_volume_ml": 10.0,
+     "flow_rate_ml_min": 4,
+     "pressure_bar": 5.0,
+     "temperature_c": 80.0,
+     "max_temperature_c": 150.0,
+     "repeats": 3,
+     "residence_time_s": 150.0,
+     "solvent_viscosity_cp": 0.4750000000000001
+    }
+   }
+  ],
+  "lineage": null,
+  "proposals": []
+ },
+ "ready": {
+  "id": "problem_charter_0c35a64392cd451b",
+  "source": {
+   "kind": "example",
+   "id": "reactor_example",
+   "name": "Flow reactor",
+   "campaign": {
+    "name": "Flow reactor study",
+    "research_question": "Which ligand gives the best yield?",
+    "compute_budget_seconds": 7200,
+    "autonomy": "guided"
+   }
+  },
+  "import_id": null,
+  "campaign_ids": [],
+  "confirmed": [],
+  "confirmed_revision": null,
+  "history": [
+   {
+    "revision": 1,
+    "at": "2026-10-15T08:01:35.143009+00:00",
+    "by": "researcher",
+    "rationale": "Started",
+    "hash": "25c17717e33eac0ad06559e779ca8ca49695124cd691fd403817798060806e39"
+   },
+   {
+    "revision": 2,
+    "at": "2026-10-15T08:01:35.286832+00:00",
+    "by": "researcher",
+    "rationale": "Edited by the researcher",
+    "hash": "adf240492b514156763ec1ebbb9646c7d2b8a8f7058f6eca0968cf2b876d058b"
+   },
+   {
+    "revision": 3,
+    "at": "2026-10-15T08:01:35.288869+00:00",
+    "by": "researcher",
+    "rationale": "Answered: Is yield measured as isolated yield or by HPLC area?",
+    "hash": "c83a68d1570440248f57fff1d3efcd6f2700c675e766ccb6d810954fdaba2916"
+   },
+   {
+    "revision": 4,
+    "at": "2026-10-15T08:01:35.290888+00:00",
+    "by": "researcher",
+    "rationale": "Accepted assumptions",
+    "hash": "75dca96a9bd6950adf2b0c60ad266a8751c6424c97db864669060f08a70ad9a7"
+   }
+  ],
+  "revision": 4,
+  "created_at": "2026-10-15T08:01:35.142517+00:00",
+  "charter": {
+   "schema_version": 1,
+   "title": "Flow reactor yield",
+   "summary": "Maximize the yield of a flow reaction at {pressure_bar}.",
+   "text": "A tubular reactor of {reactor_volume_ml} runs at {pressure_bar} and {temperature_c}. The residence time follows from the flow rate: {residence_time_s:.3g}.",
+   "quantities": {
+    "reactor_volume_ml": {
+     "description": "Reactor volume",
+     "kind": "number",
+     "role": "input",
+     "value": 10.0,
+     "expression": null,
+     "units": "mL",
+     "range": [
+      0.0,
+      null
+     ],
+     "origin": "source",
+     "citation": 1,
+     "accepted": false,
+     "note": ""
+    },
+    "flow_rate_ml_min": {
+     "description": "Flow rate",
+     "kind": "number",
+     "role": "input",
+     "value": 4,
+     "expression": null,
+     "units": "mL/min",
+     "range": [
+      0.1,
+      20.0
+     ],
+     "origin": "researcher",
+     "citation": 1,
+     "accepted": false,
+     "note": ""
+    },
+    "residence_time_s": {
+     "description": "Residence time",
+     "kind": "number",
+     "role": "derived",
+     "value": null,
+     "expression": "reactor_volume_ml / flow_rate_ml_min * 60",
+     "units": "s",
+     "range": null,
+     "origin": "computed",
+     "citation": null,
+     "accepted": false,
+     "note": ""
+    },
+    "pressure_bar": {
+     "description": "Back pressure",
+     "kind": "number",
+     "role": "input",
+     "value": 5.0,
+     "expression": null,
+     "units": "bar",
+     "range": null,
+     "origin": "assumed",
+     "citation": null,
+     "accepted": true,
+     "note": "The statement gives no back pressure; 5 bar is usual for this solvent"
+    },
+    "temperature_c": {
+     "description": "Reaction temperature",
+     "kind": "number",
+     "role": "input",
+     "value": 80.0,
+     "expression": null,
+     "units": "C",
+     "range": [
+      20.0,
+      200.0
+     ],
+     "origin": "source",
+     "citation": 1,
+     "accepted": false,
+     "note": ""
+    },
+    "max_temperature_c": {
+     "description": "Decomposition temperature of the product",
+     "kind": "number",
+     "role": "input",
+     "value": 150.0,
+     "expression": null,
+     "units": "C",
+     "range": null,
+     "origin": "source",
+     "citation": 1,
+     "accepted": false,
+     "note": ""
+    },
+    "solvent_viscosity_cp": {
+     "description": "Solvent viscosity at the temperature",
+     "kind": "number",
+     "role": "derived",
+     "value": null,
+     "expression": "table(viscosity, temperature_c)",
+     "units": "cP",
+     "range": null,
+     "origin": "computed",
+     "citation": null,
+     "accepted": false,
+     "note": ""
+    },
+    "repeats": {
+     "description": "Repeat measurements per condition",
+     "kind": "integer",
+     "role": "input",
+     "value": 3,
+     "expression": null,
+     "units": "1",
+     "range": null,
+     "origin": "source",
+     "citation": 1,
+     "accepted": false,
+     "note": ""
+    }
+   },
+   "tables": {
+    "viscosity": {
+     "description": "Solvent viscosity",
+     "x_units": "C",
+     "y_units": "cP",
+     "points": [
+      [
+       20.0,
+       1.0
+      ],
+      [
+       100.0,
+       0.3
+      ],
+      [
+       200.0,
+       0.15
+      ]
+     ],
+     "citation": 1
+    }
+   },
+   "variables": [
+    {
+     "name": "loadings",
+     "description": "Catalyst, ligand and additive loading, scaled",
+     "representation": "continuous",
+     "shape": [
+      3
+     ],
+     "lower": 0.0,
+     "upper": 1.0,
+     "values": [],
+     "units": "1",
+     "meaning": "",
+     "layout": ""
+    }
+   ],
+   "constraints": [
+    {
+     "id": "below_decomposition",
+     "statement": "Run below {max_temperature_c}.",
+     "kind": "hard",
+     "form": "quantities",
+     "test": "temperature_c <= max_temperature_c",
+     "terms": [],
+     "relation": null,
+     "bound": null,
+     "citation": null
+    },
+    {
+     "id": "loading_budget",
+     "statement": "The scaled loadings add up to at most 2.",
+     "kind": "hard",
+     "form": "linear",
+     "test": null,
+     "terms": [
+      {
+       "variable": "loadings",
+       "weight": "sum",
+       "weights": null
+      }
+     ],
+     "relation": "le",
+     "bound": 2.0,
+     "citation": null
+    }
+   ],
+   "objective": {
+    "name": "isolated_yield",
+    "direction": "maximize",
+    "units": "fraction",
+    "definition": "Isolated yield, mean of {repeats} repeats",
+    "citation": null
+   },
+   "metrics": [
+    {
+     "name": "selectivity",
+     "units": "fraction",
+     "direction": "maximize",
+     "definition": ""
+    }
+   ],
+   "evaluator": {
+    "kind": "declared",
+    "problem_id": "flow_reactor_yield",
+    "configuration": {
+     "residence_time_s": "residence_time_s",
+     "temperature_c": "temperature_c",
+     "pressure_bar": "pressure_bar"
+    },
+    "fidelity": {
+     "repeats": "repeats"
+    },
+    "deterministic": false,
+    "notes": "Run the reaction and measure yield by HPLC."
+   },
+   "instances": [
+    {
+     "name": "Base conditions",
+     "split": "development",
+     "values": {},
+     "note": ""
+    }
+   ],
+   "references": [],
+   "citations": [
+    {
+     "id": 1,
+     "source": "documents/statement.md.txt",
+     "location": "para 2",
+     "quote": ""
+    }
+   ],
+   "assumptions": [],
+   "questions": [
+    {
+     "id": "objective_basis",
+     "question": "Is yield measured as isolated yield or by HPLC area?",
+     "options": [
+      "Isolated yield",
+      "HPLC area percent"
+     ],
+     "about": [
+      "isolated_yield"
+     ],
+     "blocking": true,
+     "answer": "Isolated yield",
+     "answered_at": "2026-10-15T08:01:35.288689+00:00",
+     "sent": false
+    }
+   ],
+   "waivers": [],
+   "forked_from": null
+  },
+  "title": "Flow reactor yield",
+  "status": "draft",
+  "updated_at": "2026-10-15T08:01:35.290885+00:00",
+  "values": {
+   "reactor_volume_ml": 10.0,
+   "flow_rate_ml_min": 4,
+   "pressure_bar": 5.0,
+   "temperature_c": 80.0,
+   "max_temperature_c": 150.0,
+   "repeats": 3,
+   "residence_time_s": 150.0,
+   "solvent_viscosity_cp": 0.4750000000000001
+  },
+  "errors": {},
+  "rendered": {
+   "text": "A tubular reactor of 10 mL runs at 5 bar and 80 C. The residence time follows from the flow rate: 150 s.",
+   "summary": "Maximize the yield of a flow reaction at 5 bar.",
+   "objective": "Isolated yield, mean of 3 repeats",
+   "constraint below_decomposition": "Run below 150 C.",
+   "constraint loading_budget": "The scaled loadings add up to at most 2."
+  },
+  "references": [],
+  "findings": [
+   {
+    "key": "quantity.unused:solvent_viscosity_cp",
+    "code": "quantity.unused",
+    "severity": "warning",
+    "message": "solvent_viscosity_cp reaches nothing: no evaluator field takes it, and no relation, bound, shape or test uses it. Give it to the evaluator, or remove it.",
+    "about": [
+     "solvent_viscosity_cp"
+    ],
+    "waivable": false
+   }
+  ],
+  "blocking": 0,
+  "instances": [
+   {
+    "name": "Base conditions",
+    "values": {
+     "reactor_volume_ml": 10.0,
+     "flow_rate_ml_min": 4,
+     "pressure_bar": 5.0,
+     "temperature_c": 80.0,
+     "max_temperature_c": 150.0,
+     "repeats": 3,
+     "residence_time_s": 150.0,
+     "solvent_viscosity_cp": 0.4750000000000001
+    }
+   }
+  ],
+  "lineage": null,
+  "proposals": []
+ },
+ "proposed": {
+  "id": "problem_charter_0c35a64392cd451b",
+  "source": {
+   "kind": "example",
+   "id": "reactor_example",
+   "name": "Flow reactor",
+   "campaign": {
+    "name": "Flow reactor study",
+    "research_question": "Which ligand gives the best yield?",
+    "compute_budget_seconds": 7200,
+    "autonomy": "guided"
+   }
+  },
+  "import_id": null,
+  "campaign_ids": [],
+  "confirmed": [],
+  "confirmed_revision": null,
+  "history": [
+   {
+    "revision": 1,
+    "at": "2026-10-15T08:01:35.143009+00:00",
+    "by": "researcher",
+    "rationale": "Started",
+    "hash": "25c17717e33eac0ad06559e779ca8ca49695124cd691fd403817798060806e39"
+   },
+   {
+    "revision": 2,
+    "at": "2026-10-15T08:01:35.286832+00:00",
+    "by": "researcher",
+    "rationale": "Edited by the researcher",
+    "hash": "adf240492b514156763ec1ebbb9646c7d2b8a8f7058f6eca0968cf2b876d058b"
+   },
+   {
+    "revision": 3,
+    "at": "2026-10-15T08:01:35.288869+00:00",
+    "by": "researcher",
+    "rationale": "Answered: Is yield measured as isolated yield or by HPLC area?",
+    "hash": "c83a68d1570440248f57fff1d3efcd6f2700c675e766ccb6d810954fdaba2916"
+   },
+   {
+    "revision": 4,
+    "at": "2026-10-15T08:01:35.290888+00:00",
+    "by": "researcher",
+    "rationale": "Accepted assumptions",
+    "hash": "75dca96a9bd6950adf2b0c60ad266a8751c6424c97db864669060f08a70ad9a7"
+   }
+  ],
+  "revision": 4,
+  "created_at": "2026-10-15T08:01:35.142517+00:00",
+  "charter": {
+   "schema_version": 1,
+   "title": "Flow reactor yield",
+   "summary": "Maximize the yield of a flow reaction at {pressure_bar}.",
+   "text": "A tubular reactor of {reactor_volume_ml} runs at {pressure_bar} and {temperature_c}. The residence time follows from the flow rate: {residence_time_s:.3g}.",
+   "quantities": {
+    "reactor_volume_ml": {
+     "description": "Reactor volume",
+     "kind": "number",
+     "role": "input",
+     "value": 10.0,
+     "expression": null,
+     "units": "mL",
+     "range": [
+      0.0,
+      null
+     ],
+     "origin": "source",
+     "citation": 1,
+     "accepted": false,
+     "note": ""
+    },
+    "flow_rate_ml_min": {
+     "description": "Flow rate",
+     "kind": "number",
+     "role": "input",
+     "value": 4,
+     "expression": null,
+     "units": "mL/min",
+     "range": [
+      0.1,
+      20.0
+     ],
+     "origin": "researcher",
+     "citation": 1,
+     "accepted": false,
+     "note": ""
+    },
+    "residence_time_s": {
+     "description": "Residence time",
+     "kind": "number",
+     "role": "derived",
+     "value": null,
+     "expression": "reactor_volume_ml / flow_rate_ml_min * 60",
+     "units": "s",
+     "range": null,
+     "origin": "computed",
+     "citation": null,
+     "accepted": false,
+     "note": ""
+    },
+    "pressure_bar": {
+     "description": "Back pressure",
+     "kind": "number",
+     "role": "input",
+     "value": 5.0,
+     "expression": null,
+     "units": "bar",
+     "range": null,
+     "origin": "assumed",
+     "citation": null,
+     "accepted": true,
+     "note": "The statement gives no back pressure; 5 bar is usual for this solvent"
+    },
+    "temperature_c": {
+     "description": "Reaction temperature",
+     "kind": "number",
+     "role": "input",
+     "value": 80.0,
+     "expression": null,
+     "units": "C",
+     "range": [
+      20.0,
+      200.0
+     ],
+     "origin": "source",
+     "citation": 1,
+     "accepted": false,
+     "note": ""
+    },
+    "max_temperature_c": {
+     "description": "Decomposition temperature of the product",
+     "kind": "number",
+     "role": "input",
+     "value": 150.0,
+     "expression": null,
+     "units": "C",
+     "range": null,
+     "origin": "source",
+     "citation": 1,
+     "accepted": false,
+     "note": ""
+    },
+    "solvent_viscosity_cp": {
+     "description": "Solvent viscosity at the temperature",
+     "kind": "number",
+     "role": "derived",
+     "value": null,
+     "expression": "table(viscosity, temperature_c)",
+     "units": "cP",
+     "range": null,
+     "origin": "computed",
+     "citation": null,
+     "accepted": false,
+     "note": ""
+    },
+    "repeats": {
+     "description": "Repeat measurements per condition",
+     "kind": "integer",
+     "role": "input",
+     "value": 3,
+     "expression": null,
+     "units": "1",
+     "range": null,
+     "origin": "source",
+     "citation": 1,
+     "accepted": false,
+     "note": ""
+    }
+   },
+   "tables": {
+    "viscosity": {
+     "description": "Solvent viscosity",
+     "x_units": "C",
+     "y_units": "cP",
+     "points": [
+      [
+       20.0,
+       1.0
+      ],
+      [
+       100.0,
+       0.3
+      ],
+      [
+       200.0,
+       0.15
+      ]
+     ],
+     "citation": 1
+    }
+   },
+   "variables": [
+    {
+     "name": "loadings",
+     "description": "Catalyst, ligand and additive loading, scaled",
+     "representation": "continuous",
+     "shape": [
+      3
+     ],
+     "lower": 0.0,
+     "upper": 1.0,
+     "values": [],
+     "units": "1",
+     "meaning": "",
+     "layout": ""
+    }
+   ],
+   "constraints": [
+    {
+     "id": "below_decomposition",
+     "statement": "Run below {max_temperature_c}.",
+     "kind": "hard",
+     "form": "quantities",
+     "test": "temperature_c <= max_temperature_c",
+     "terms": [],
+     "relation": null,
+     "bound": null,
+     "citation": null
+    },
+    {
+     "id": "loading_budget",
+     "statement": "The scaled loadings add up to at most 2.",
+     "kind": "hard",
+     "form": "linear",
+     "test": null,
+     "terms": [
+      {
+       "variable": "loadings",
+       "weight": "sum",
+       "weights": null
+      }
+     ],
+     "relation": "le",
+     "bound": 2.0,
+     "citation": null
+    }
+   ],
+   "objective": {
+    "name": "isolated_yield",
+    "direction": "maximize",
+    "units": "fraction",
+    "definition": "Isolated yield, mean of {repeats} repeats",
+    "citation": null
+   },
+   "metrics": [
+    {
+     "name": "selectivity",
+     "units": "fraction",
+     "direction": "maximize",
+     "definition": ""
+    }
+   ],
+   "evaluator": {
+    "kind": "declared",
+    "problem_id": "flow_reactor_yield",
+    "configuration": {
+     "residence_time_s": "residence_time_s",
+     "temperature_c": "temperature_c",
+     "pressure_bar": "pressure_bar"
+    },
+    "fidelity": {
+     "repeats": "repeats"
+    },
+    "deterministic": false,
+    "notes": "Run the reaction and measure yield by HPLC."
+   },
+   "instances": [
+    {
+     "name": "Base conditions",
+     "split": "development",
+     "values": {},
+     "note": ""
+    }
+   ],
+   "references": [],
+   "citations": [
+    {
+     "id": 1,
+     "source": "documents/statement.md.txt",
+     "location": "para 2",
+     "quote": ""
+    }
+   ],
+   "assumptions": [],
+   "questions": [
+    {
+     "id": "objective_basis",
+     "question": "Is yield measured as isolated yield or by HPLC area?",
+     "options": [
+      "Isolated yield",
+      "HPLC area percent"
+     ],
+     "about": [
+      "isolated_yield"
+     ],
+     "blocking": true,
+     "answer": "Isolated yield",
+     "answered_at": "2026-10-15T08:01:35.288689+00:00",
+     "sent": false
+    }
+   ],
+   "waivers": [],
+   "forked_from": null
+  },
+  "title": "Flow reactor yield",
+  "status": "draft",
+  "updated_at": "2026-10-15T08:01:35.290885+00:00",
+  "values": {
+   "reactor_volume_ml": 10.0,
+   "flow_rate_ml_min": 4,
+   "pressure_bar": 5.0,
+   "temperature_c": 80.0,
+   "max_temperature_c": 150.0,
+   "repeats": 3,
+   "residence_time_s": 150.0,
+   "solvent_viscosity_cp": 0.4750000000000001
+  },
+  "errors": {},
+  "rendered": {
+   "text": "A tubular reactor of 10 mL runs at 5 bar and 80 C. The residence time follows from the flow rate: 150 s.",
+   "summary": "Maximize the yield of a flow reaction at 5 bar.",
+   "objective": "Isolated yield, mean of 3 repeats",
+   "constraint below_decomposition": "Run below 150 C.",
+   "constraint loading_budget": "The scaled loadings add up to at most 2."
+  },
+  "references": [],
+  "findings": [
+   {
+    "key": "quantity.unused:solvent_viscosity_cp",
+    "code": "quantity.unused",
+    "severity": "warning",
+    "message": "solvent_viscosity_cp reaches nothing: no evaluator field takes it, and no relation, bound, shape or test uses it. Give it to the evaluator, or remove it.",
+    "about": [
+     "solvent_viscosity_cp"
+    ],
+    "waivable": false
+   }
+  ],
+  "blocking": 0,
+  "instances": [
+   {
+    "name": "Base conditions",
+    "values": {
+     "reactor_volume_ml": 10.0,
+     "flow_rate_ml_min": 4,
+     "pressure_bar": 5.0,
+     "temperature_c": 80.0,
+     "max_temperature_c": 150.0,
+     "repeats": 3,
+     "residence_time_s": 150.0,
+     "solvent_viscosity_cp": 0.4750000000000001
+    }
+   }
+  ],
+  "lineage": null,
+  "proposals": [
+   {
+    "id": "charter_proposal_17c18ddde49f4d44",
+    "charter_id": "problem_charter_0c35a64392cd451b",
+    "base_revision": 4,
+    "base_hash": "e2ce42d03bde9cf21a211515da81b8d7a55150c295c69d07f836ef5b99efd27b",
+    "request": "Make the residence time 200 s",
+    "run_id": "r1",
+    "options": [
+     {
+      "label": "Slower flow",
+      "reason": "Keeps the reactor; the pump allows it",
+      "changes": [
+       {
+        "op": "solve",
+        "input": "flow_rate_ml_min",
+        "target": "residence_time_s",
+        "value": 200
+       }
+      ],
+      "blocking_reason": null,
+      "charter": {
+       "schema_version": 1,
+       "title": "Flow reactor yield",
+       "summary": "Maximize the yield of a flow reaction at {pressure_bar}.",
+       "text": "A tubular reactor of {reactor_volume_ml} runs at {pressure_bar} and {temperature_c}. The residence time follows from the flow rate: {residence_time_s:.3g}.",
+       "quantities": {
+        "reactor_volume_ml": {
+         "description": "Reactor volume",
+         "kind": "number",
+         "role": "input",
+         "value": 10.0,
+         "expression": null,
+         "units": "mL",
+         "range": [
+          0.0,
+          null
+         ],
+         "origin": "source",
+         "citation": 1,
+         "accepted": false,
+         "note": ""
+        },
+        "flow_rate_ml_min": {
+         "description": "Flow rate",
+         "kind": "number",
+         "role": "input",
+         "value": 3.0,
+         "expression": null,
+         "units": "mL/min",
+         "range": [
+          0.1,
+          20.0
+         ],
+         "origin": "researcher",
+         "citation": 1,
+         "accepted": false,
+         "note": ""
+        },
+        "residence_time_s": {
+         "description": "Residence time",
+         "kind": "number",
+         "role": "derived",
+         "value": null,
+         "expression": "reactor_volume_ml / flow_rate_ml_min * 60",
+         "units": "s",
+         "range": null,
+         "origin": "computed",
+         "citation": null,
+         "accepted": false,
+         "note": ""
+        },
+        "pressure_bar": {
+         "description": "Back pressure",
+         "kind": "number",
+         "role": "input",
+         "value": 5.0,
+         "expression": null,
+         "units": "bar",
+         "range": null,
+         "origin": "assumed",
+         "citation": null,
+         "accepted": true,
+         "note": "The statement gives no back pressure; 5 bar is usual for this solvent"
+        },
+        "temperature_c": {
+         "description": "Reaction temperature",
+         "kind": "number",
+         "role": "input",
+         "value": 80.0,
+         "expression": null,
+         "units": "C",
+         "range": [
+          20.0,
+          200.0
+         ],
+         "origin": "source",
+         "citation": 1,
+         "accepted": false,
+         "note": ""
+        },
+        "max_temperature_c": {
+         "description": "Decomposition temperature of the product",
+         "kind": "number",
+         "role": "input",
+         "value": 150.0,
+         "expression": null,
+         "units": "C",
+         "range": null,
+         "origin": "source",
+         "citation": 1,
+         "accepted": false,
+         "note": ""
+        },
+        "solvent_viscosity_cp": {
+         "description": "Solvent viscosity at the temperature",
+         "kind": "number",
+         "role": "derived",
+         "value": null,
+         "expression": "table(viscosity, temperature_c)",
+         "units": "cP",
+         "range": null,
+         "origin": "computed",
+         "citation": null,
+         "accepted": false,
+         "note": ""
+        },
+        "repeats": {
+         "description": "Repeat measurements per condition",
+         "kind": "integer",
+         "role": "input",
+         "value": 3,
+         "expression": null,
+         "units": "1",
+         "range": null,
+         "origin": "source",
+         "citation": 1,
+         "accepted": false,
+         "note": ""
+        }
+       },
+       "tables": {
+        "viscosity": {
+         "description": "Solvent viscosity",
+         "x_units": "C",
+         "y_units": "cP",
+         "points": [
+          [
+           20.0,
+           1.0
+          ],
+          [
+           100.0,
+           0.3
+          ],
+          [
+           200.0,
+           0.15
+          ]
+         ],
+         "citation": 1
+        }
+       },
+       "variables": [
+        {
+         "name": "loadings",
+         "description": "Catalyst, ligand and additive loading, scaled",
+         "representation": "continuous",
+         "shape": [
+          3
+         ],
+         "lower": 0.0,
+         "upper": 1.0,
+         "values": [],
+         "units": "1",
+         "meaning": "",
+         "layout": ""
+        }
+       ],
+       "constraints": [
+        {
+         "id": "below_decomposition",
+         "statement": "Run below {max_temperature_c}.",
+         "kind": "hard",
+         "form": "quantities",
+         "test": "temperature_c <= max_temperature_c",
+         "terms": [],
+         "relation": null,
+         "bound": null,
+         "citation": null
+        },
+        {
+         "id": "loading_budget",
+         "statement": "The scaled loadings add up to at most 2.",
+         "kind": "hard",
+         "form": "linear",
+         "test": null,
+         "terms": [
+          {
+           "variable": "loadings",
+           "weight": "sum",
+           "weights": null
+          }
+         ],
+         "relation": "le",
+         "bound": 2.0,
+         "citation": null
+        }
+       ],
+       "objective": {
+        "name": "isolated_yield",
+        "direction": "maximize",
+        "units": "fraction",
+        "definition": "Isolated yield, mean of {repeats} repeats",
+        "citation": null
+       },
+       "metrics": [
+        {
+         "name": "selectivity",
+         "units": "fraction",
+         "direction": "maximize",
+         "definition": ""
+        }
+       ],
+       "evaluator": {
+        "kind": "declared",
+        "problem_id": "flow_reactor_yield",
+        "configuration": {
+         "residence_time_s": "residence_time_s",
+         "temperature_c": "temperature_c",
+         "pressure_bar": "pressure_bar"
+        },
+        "fidelity": {
+         "repeats": "repeats"
+        },
+        "deterministic": false,
+        "notes": "Run the reaction and measure yield by HPLC."
+       },
+       "instances": [
+        {
+         "name": "Base conditions",
+         "split": "development",
+         "values": {},
+         "note": ""
+        }
+       ],
+       "references": [],
+       "citations": [
+        {
+         "id": 1,
+         "source": "documents/statement.md.txt",
+         "location": "para 2",
+         "quote": ""
+        }
+       ],
+       "assumptions": [],
+       "questions": [
+        {
+         "id": "objective_basis",
+         "question": "Is yield measured as isolated yield or by HPLC area?",
+         "options": [
+          "Isolated yield",
+          "HPLC area percent"
+         ],
+         "about": [
+          "isolated_yield"
+         ],
+         "blocking": true,
+         "answer": "Isolated yield",
+         "answered_at": "2026-10-15T08:01:35.288689+00:00",
+         "sent": false
+        }
+       ],
+       "waivers": [],
+       "forked_from": null
+      },
+      "diff": [
+       {
+        "part": "value",
+        "name": "flow_rate_ml_min",
+        "change": "changed",
+        "before": "4 mL/min",
+        "after": "3 mL/min",
+        "role": "input"
+       },
+       {
+        "part": "value",
+        "name": "residence_time_s",
+        "change": "changed",
+        "before": "150 s",
+        "after": "200 s",
+        "role": "derived"
+       }
+      ],
+      "findings": []
+     },
+     {
+      "label": "Larger reactor",
+      "reason": "Keeps the flow rate",
+      "changes": [
+       {
+        "op": "set",
+        "path": "quantities.reactor_volume_ml.value",
+        "expression": "200 * flow_rate_ml_min / 60"
+       }
+      ],
+      "blocking_reason": null,
+      "charter": {
+       "schema_version": 1,
+       "title": "Flow reactor yield",
+       "summary": "Maximize the yield of a flow reaction at {pressure_bar}.",
+       "text": "A tubular reactor of {reactor_volume_ml} runs at {pressure_bar} and {temperature_c}. The residence time follows from the flow rate: {residence_time_s:.3g}.",
+       "quantities": {
+        "reactor_volume_ml": {
+         "description": "Reactor volume",
+         "kind": "number",
+         "role": "input",
+         "value": 13.333333333333334,
+         "expression": null,
+         "units": "mL",
+         "range": [
+          0.0,
+          null
+         ],
+         "origin": "researcher",
+         "citation": 1,
+         "accepted": false,
+         "note": ""
+        },
+        "flow_rate_ml_min": {
+         "description": "Flow rate",
+         "kind": "number",
+         "role": "input",
+         "value": 4,
+         "expression": null,
+         "units": "mL/min",
+         "range": [
+          0.1,
+          20.0
+         ],
+         "origin": "researcher",
+         "citation": 1,
+         "accepted": false,
+         "note": ""
+        },
+        "residence_time_s": {
+         "description": "Residence time",
+         "kind": "number",
+         "role": "derived",
+         "value": null,
+         "expression": "reactor_volume_ml / flow_rate_ml_min * 60",
+         "units": "s",
+         "range": null,
+         "origin": "computed",
+         "citation": null,
+         "accepted": false,
+         "note": ""
+        },
+        "pressure_bar": {
+         "description": "Back pressure",
+         "kind": "number",
+         "role": "input",
+         "value": 5.0,
+         "expression": null,
+         "units": "bar",
+         "range": null,
+         "origin": "assumed",
+         "citation": null,
+         "accepted": true,
+         "note": "The statement gives no back pressure; 5 bar is usual for this solvent"
+        },
+        "temperature_c": {
+         "description": "Reaction temperature",
+         "kind": "number",
+         "role": "input",
+         "value": 80.0,
+         "expression": null,
+         "units": "C",
+         "range": [
+          20.0,
+          200.0
+         ],
+         "origin": "source",
+         "citation": 1,
+         "accepted": false,
+         "note": ""
+        },
+        "max_temperature_c": {
+         "description": "Decomposition temperature of the product",
+         "kind": "number",
+         "role": "input",
+         "value": 150.0,
+         "expression": null,
+         "units": "C",
+         "range": null,
+         "origin": "source",
+         "citation": 1,
+         "accepted": false,
+         "note": ""
+        },
+        "solvent_viscosity_cp": {
+         "description": "Solvent viscosity at the temperature",
+         "kind": "number",
+         "role": "derived",
+         "value": null,
+         "expression": "table(viscosity, temperature_c)",
+         "units": "cP",
+         "range": null,
+         "origin": "computed",
+         "citation": null,
+         "accepted": false,
+         "note": ""
+        },
+        "repeats": {
+         "description": "Repeat measurements per condition",
+         "kind": "integer",
+         "role": "input",
+         "value": 3,
+         "expression": null,
+         "units": "1",
+         "range": null,
+         "origin": "source",
+         "citation": 1,
+         "accepted": false,
+         "note": ""
+        }
+       },
+       "tables": {
+        "viscosity": {
+         "description": "Solvent viscosity",
+         "x_units": "C",
+         "y_units": "cP",
+         "points": [
+          [
+           20.0,
+           1.0
+          ],
+          [
+           100.0,
+           0.3
+          ],
+          [
+           200.0,
+           0.15
+          ]
+         ],
+         "citation": 1
+        }
+       },
+       "variables": [
+        {
+         "name": "loadings",
+         "description": "Catalyst, ligand and additive loading, scaled",
+         "representation": "continuous",
+         "shape": [
+          3
+         ],
+         "lower": 0.0,
+         "upper": 1.0,
+         "values": [],
+         "units": "1",
+         "meaning": "",
+         "layout": ""
+        }
+       ],
+       "constraints": [
+        {
+         "id": "below_decomposition",
+         "statement": "Run below {max_temperature_c}.",
+         "kind": "hard",
+         "form": "quantities",
+         "test": "temperature_c <= max_temperature_c",
+         "terms": [],
+         "relation": null,
+         "bound": null,
+         "citation": null
+        },
+        {
+         "id": "loading_budget",
+         "statement": "The scaled loadings add up to at most 2.",
+         "kind": "hard",
+         "form": "linear",
+         "test": null,
+         "terms": [
+          {
+           "variable": "loadings",
+           "weight": "sum",
+           "weights": null
+          }
+         ],
+         "relation": "le",
+         "bound": 2.0,
+         "citation": null
+        }
+       ],
+       "objective": {
+        "name": "isolated_yield",
+        "direction": "maximize",
+        "units": "fraction",
+        "definition": "Isolated yield, mean of {repeats} repeats",
+        "citation": null
+       },
+       "metrics": [
+        {
+         "name": "selectivity",
+         "units": "fraction",
+         "direction": "maximize",
+         "definition": ""
+        }
+       ],
+       "evaluator": {
+        "kind": "declared",
+        "problem_id": "flow_reactor_yield",
+        "configuration": {
+         "residence_time_s": "residence_time_s",
+         "temperature_c": "temperature_c",
+         "pressure_bar": "pressure_bar"
+        },
+        "fidelity": {
+         "repeats": "repeats"
+        },
+        "deterministic": false,
+        "notes": "Run the reaction and measure yield by HPLC."
+       },
+       "instances": [
+        {
+         "name": "Base conditions",
+         "split": "development",
+         "values": {},
+         "note": ""
+        }
+       ],
+       "references": [],
+       "citations": [
+        {
+         "id": 1,
+         "source": "documents/statement.md.txt",
+         "location": "para 2",
+         "quote": ""
+        }
+       ],
+       "assumptions": [],
+       "questions": [
+        {
+         "id": "objective_basis",
+         "question": "Is yield measured as isolated yield or by HPLC area?",
+         "options": [
+          "Isolated yield",
+          "HPLC area percent"
+         ],
+         "about": [
+          "isolated_yield"
+         ],
+         "blocking": true,
+         "answer": "Isolated yield",
+         "answered_at": "2026-10-15T08:01:35.288689+00:00",
+         "sent": false
+        }
+       ],
+       "waivers": [],
+       "forked_from": null
+      },
+      "diff": [
+       {
+        "part": "value",
+        "name": "reactor_volume_ml",
+        "change": "changed",
+        "before": "10 mL",
+        "after": "13.3333 mL",
+        "role": "input"
+       },
+       {
+        "part": "value",
+        "name": "residence_time_s",
+        "change": "changed",
+        "before": "150 s",
+        "after": "200 s",
+        "role": "derived"
+       }
+      ],
+      "findings": []
+     }
+    ],
+    "status": "open",
+    "accepted_option": null,
+    "created_at": "2026-10-15T08:01:35.337402+00:00",
+    "decided_at": null
+   }
+  ]
+ },
+ "proposal_id": "charter_proposal_17c18ddde49f4d44",
+ "accepted": {
+  "id": "problem_charter_0c35a64392cd451b",
+  "source": {
+   "kind": "example",
+   "id": "reactor_example",
+   "name": "Flow reactor",
+   "campaign": {
+    "name": "Flow reactor study",
+    "research_question": "Which ligand gives the best yield?",
+    "compute_budget_seconds": 7200,
+    "autonomy": "guided"
+   }
+  },
+  "import_id": null,
+  "campaign_ids": [],
+  "confirmed": [],
+  "confirmed_revision": null,
+  "history": [
+   {
+    "revision": 1,
+    "at": "2026-10-15T08:01:35.143009+00:00",
+    "by": "researcher",
+    "rationale": "Started",
+    "hash": "25c17717e33eac0ad06559e779ca8ca49695124cd691fd403817798060806e39"
+   },
+   {
+    "revision": 2,
+    "at": "2026-10-15T08:01:35.286832+00:00",
+    "by": "researcher",
+    "rationale": "Edited by the researcher",
+    "hash": "adf240492b514156763ec1ebbb9646c7d2b8a8f7058f6eca0968cf2b876d058b"
+   },
+   {
+    "revision": 3,
+    "at": "2026-10-15T08:01:35.288869+00:00",
+    "by": "researcher",
+    "rationale": "Answered: Is yield measured as isolated yield or by HPLC area?",
+    "hash": "c83a68d1570440248f57fff1d3efcd6f2700c675e766ccb6d810954fdaba2916"
+   },
+   {
+    "revision": 4,
+    "at": "2026-10-15T08:01:35.290888+00:00",
+    "by": "researcher",
+    "rationale": "Accepted assumptions",
+    "hash": "75dca96a9bd6950adf2b0c60ad266a8751c6424c97db864669060f08a70ad9a7"
+   },
+   {
+    "revision": 5,
+    "at": "2026-10-15T08:01:35.416209+00:00",
+    "by": "researcher",
+    "rationale": "Accepted \u201cSlower flow\u201d for: Make the residence time 200 s",
+    "hash": "50e5f03e0c9c686e63076b43d2e317d4692c685e6b8796211d646587a8fc4874"
+   }
+  ],
+  "revision": 5,
+  "created_at": "2026-10-15T08:01:35.142517+00:00",
+  "charter": {
+   "schema_version": 1,
+   "title": "Flow reactor yield",
+   "summary": "Maximize the yield of a flow reaction at {pressure_bar}.",
+   "text": "A tubular reactor of {reactor_volume_ml} runs at {pressure_bar} and {temperature_c}. The residence time follows from the flow rate: {residence_time_s:.3g}.",
+   "quantities": {
+    "reactor_volume_ml": {
+     "description": "Reactor volume",
+     "kind": "number",
+     "role": "input",
+     "value": 10.0,
+     "expression": null,
+     "units": "mL",
+     "range": [
+      0.0,
+      null
+     ],
+     "origin": "source",
+     "citation": 1,
+     "accepted": false,
+     "note": ""
+    },
+    "flow_rate_ml_min": {
+     "description": "Flow rate",
+     "kind": "number",
+     "role": "input",
+     "value": 3.0,
+     "expression": null,
+     "units": "mL/min",
+     "range": [
+      0.1,
+      20.0
+     ],
+     "origin": "researcher",
+     "citation": 1,
+     "accepted": false,
+     "note": ""
+    },
+    "residence_time_s": {
+     "description": "Residence time",
+     "kind": "number",
+     "role": "derived",
+     "value": null,
+     "expression": "reactor_volume_ml / flow_rate_ml_min * 60",
+     "units": "s",
+     "range": null,
+     "origin": "computed",
+     "citation": null,
+     "accepted": false,
+     "note": ""
+    },
+    "pressure_bar": {
+     "description": "Back pressure",
+     "kind": "number",
+     "role": "input",
+     "value": 5.0,
+     "expression": null,
+     "units": "bar",
+     "range": null,
+     "origin": "assumed",
+     "citation": null,
+     "accepted": true,
+     "note": "The statement gives no back pressure; 5 bar is usual for this solvent"
+    },
+    "temperature_c": {
+     "description": "Reaction temperature",
+     "kind": "number",
+     "role": "input",
+     "value": 80.0,
+     "expression": null,
+     "units": "C",
+     "range": [
+      20.0,
+      200.0
+     ],
+     "origin": "source",
+     "citation": 1,
+     "accepted": false,
+     "note": ""
+    },
+    "max_temperature_c": {
+     "description": "Decomposition temperature of the product",
+     "kind": "number",
+     "role": "input",
+     "value": 150.0,
+     "expression": null,
+     "units": "C",
+     "range": null,
+     "origin": "source",
+     "citation": 1,
+     "accepted": false,
+     "note": ""
+    },
+    "solvent_viscosity_cp": {
+     "description": "Solvent viscosity at the temperature",
+     "kind": "number",
+     "role": "derived",
+     "value": null,
+     "expression": "table(viscosity, temperature_c)",
+     "units": "cP",
+     "range": null,
+     "origin": "computed",
+     "citation": null,
+     "accepted": false,
+     "note": ""
+    },
+    "repeats": {
+     "description": "Repeat measurements per condition",
+     "kind": "integer",
+     "role": "input",
+     "value": 3,
+     "expression": null,
+     "units": "1",
+     "range": null,
+     "origin": "source",
+     "citation": 1,
+     "accepted": false,
+     "note": ""
+    }
+   },
+   "tables": {
+    "viscosity": {
+     "description": "Solvent viscosity",
+     "x_units": "C",
+     "y_units": "cP",
+     "points": [
+      [
+       20.0,
+       1.0
+      ],
+      [
+       100.0,
+       0.3
+      ],
+      [
+       200.0,
+       0.15
+      ]
+     ],
+     "citation": 1
+    }
+   },
+   "variables": [
+    {
+     "name": "loadings",
+     "description": "Catalyst, ligand and additive loading, scaled",
+     "representation": "continuous",
+     "shape": [
+      3
+     ],
+     "lower": 0.0,
+     "upper": 1.0,
+     "values": [],
+     "units": "1",
+     "meaning": "",
+     "layout": ""
+    }
+   ],
+   "constraints": [
+    {
+     "id": "below_decomposition",
+     "statement": "Run below {max_temperature_c}.",
+     "kind": "hard",
+     "form": "quantities",
+     "test": "temperature_c <= max_temperature_c",
+     "terms": [],
+     "relation": null,
+     "bound": null,
+     "citation": null
+    },
+    {
+     "id": "loading_budget",
+     "statement": "The scaled loadings add up to at most 2.",
+     "kind": "hard",
+     "form": "linear",
+     "test": null,
+     "terms": [
+      {
+       "variable": "loadings",
+       "weight": "sum",
+       "weights": null
+      }
+     ],
+     "relation": "le",
+     "bound": 2.0,
+     "citation": null
+    }
+   ],
+   "objective": {
+    "name": "isolated_yield",
+    "direction": "maximize",
+    "units": "fraction",
+    "definition": "Isolated yield, mean of {repeats} repeats",
+    "citation": null
+   },
+   "metrics": [
+    {
+     "name": "selectivity",
+     "units": "fraction",
+     "direction": "maximize",
+     "definition": ""
+    }
+   ],
+   "evaluator": {
+    "kind": "declared",
+    "problem_id": "flow_reactor_yield",
+    "configuration": {
+     "residence_time_s": "residence_time_s",
+     "temperature_c": "temperature_c",
+     "pressure_bar": "pressure_bar"
+    },
+    "fidelity": {
+     "repeats": "repeats"
+    },
+    "deterministic": false,
+    "notes": "Run the reaction and measure yield by HPLC."
+   },
+   "instances": [
+    {
+     "name": "Base conditions",
+     "split": "development",
+     "values": {},
+     "note": ""
+    }
+   ],
+   "references": [],
+   "citations": [
+    {
+     "id": 1,
+     "source": "documents/statement.md.txt",
+     "location": "para 2",
+     "quote": ""
+    }
+   ],
+   "assumptions": [],
+   "questions": [
+    {
+     "id": "objective_basis",
+     "question": "Is yield measured as isolated yield or by HPLC area?",
+     "options": [
+      "Isolated yield",
+      "HPLC area percent"
+     ],
+     "about": [
+      "isolated_yield"
+     ],
+     "blocking": true,
+     "answer": "Isolated yield",
+     "answered_at": "2026-10-15T08:01:35.288689+00:00",
+     "sent": false
+    }
+   ],
+   "waivers": [],
+   "forked_from": null
+  },
+  "title": "Flow reactor yield",
+  "status": "draft",
+  "updated_at": "2026-10-15T08:01:35.416202+00:00",
+  "values": {
+   "reactor_volume_ml": 10.0,
+   "flow_rate_ml_min": 3.0,
+   "pressure_bar": 5.0,
+   "temperature_c": 80.0,
+   "max_temperature_c": 150.0,
+   "repeats": 3,
+   "residence_time_s": 200.0,
+   "solvent_viscosity_cp": 0.4750000000000001
+  },
+  "errors": {},
+  "rendered": {
+   "text": "A tubular reactor of 10 mL runs at 5 bar and 80 C. The residence time follows from the flow rate: 200 s.",
+   "summary": "Maximize the yield of a flow reaction at 5 bar.",
+   "objective": "Isolated yield, mean of 3 repeats",
+   "constraint below_decomposition": "Run below 150 C.",
+   "constraint loading_budget": "The scaled loadings add up to at most 2."
+  },
+  "references": [],
+  "findings": [
+   {
+    "key": "quantity.unused:solvent_viscosity_cp",
+    "code": "quantity.unused",
+    "severity": "warning",
+    "message": "solvent_viscosity_cp reaches nothing: no evaluator field takes it, and no relation, bound, shape or test uses it. Give it to the evaluator, or remove it.",
+    "about": [
+     "solvent_viscosity_cp"
+    ],
+    "waivable": false
+   }
+  ],
+  "blocking": 0,
+  "instances": [
+   {
+    "name": "Base conditions",
+    "values": {
+     "reactor_volume_ml": 10.0,
+     "flow_rate_ml_min": 3.0,
+     "pressure_bar": 5.0,
+     "temperature_c": 80.0,
+     "max_temperature_c": 150.0,
+     "repeats": 3,
+     "residence_time_s": 200.0,
+     "solvent_viscosity_cp": 0.4750000000000001
+    }
+   }
+  ],
+  "lineage": null,
+  "proposals": [
+   {
+    "id": "charter_proposal_17c18ddde49f4d44",
+    "charter_id": "problem_charter_0c35a64392cd451b",
+    "base_revision": 4,
+    "base_hash": "e2ce42d03bde9cf21a211515da81b8d7a55150c295c69d07f836ef5b99efd27b",
+    "request": "Make the residence time 200 s",
+    "run_id": "r1",
+    "options": [
+     {
+      "label": "Slower flow",
+      "reason": "Keeps the reactor; the pump allows it",
+      "changes": [
+       {
+        "op": "solve",
+        "input": "flow_rate_ml_min",
+        "target": "residence_time_s",
+        "value": 200
+       }
+      ],
+      "blocking_reason": null,
+      "charter": {
+       "schema_version": 1,
+       "title": "Flow reactor yield",
+       "summary": "Maximize the yield of a flow reaction at {pressure_bar}.",
+       "text": "A tubular reactor of {reactor_volume_ml} runs at {pressure_bar} and {temperature_c}. The residence time follows from the flow rate: {residence_time_s:.3g}.",
+       "quantities": {
+        "reactor_volume_ml": {
+         "description": "Reactor volume",
+         "kind": "number",
+         "role": "input",
+         "value": 10.0,
+         "expression": null,
+         "units": "mL",
+         "range": [
+          0.0,
+          null
+         ],
+         "origin": "source",
+         "citation": 1,
+         "accepted": false,
+         "note": ""
+        },
+        "flow_rate_ml_min": {
+         "description": "Flow rate",
+         "kind": "number",
+         "role": "input",
+         "value": 3.0,
+         "expression": null,
+         "units": "mL/min",
+         "range": [
+          0.1,
+          20.0
+         ],
+         "origin": "researcher",
+         "citation": 1,
+         "accepted": false,
+         "note": ""
+        },
+        "residence_time_s": {
+         "description": "Residence time",
+         "kind": "number",
+         "role": "derived",
+         "value": null,
+         "expression": "reactor_volume_ml / flow_rate_ml_min * 60",
+         "units": "s",
+         "range": null,
+         "origin": "computed",
+         "citation": null,
+         "accepted": false,
+         "note": ""
+        },
+        "pressure_bar": {
+         "description": "Back pressure",
+         "kind": "number",
+         "role": "input",
+         "value": 5.0,
+         "expression": null,
+         "units": "bar",
+         "range": null,
+         "origin": "assumed",
+         "citation": null,
+         "accepted": true,
+         "note": "The statement gives no back pressure; 5 bar is usual for this solvent"
+        },
+        "temperature_c": {
+         "description": "Reaction temperature",
+         "kind": "number",
+         "role": "input",
+         "value": 80.0,
+         "expression": null,
+         "units": "C",
+         "range": [
+          20.0,
+          200.0
+         ],
+         "origin": "source",
+         "citation": 1,
+         "accepted": false,
+         "note": ""
+        },
+        "max_temperature_c": {
+         "description": "Decomposition temperature of the product",
+         "kind": "number",
+         "role": "input",
+         "value": 150.0,
+         "expression": null,
+         "units": "C",
+         "range": null,
+         "origin": "source",
+         "citation": 1,
+         "accepted": false,
+         "note": ""
+        },
+        "solvent_viscosity_cp": {
+         "description": "Solvent viscosity at the temperature",
+         "kind": "number",
+         "role": "derived",
+         "value": null,
+         "expression": "table(viscosity, temperature_c)",
+         "units": "cP",
+         "range": null,
+         "origin": "computed",
+         "citation": null,
+         "accepted": false,
+         "note": ""
+        },
+        "repeats": {
+         "description": "Repeat measurements per condition",
+         "kind": "integer",
+         "role": "input",
+         "value": 3,
+         "expression": null,
+         "units": "1",
+         "range": null,
+         "origin": "source",
+         "citation": 1,
+         "accepted": false,
+         "note": ""
+        }
+       },
+       "tables": {
+        "viscosity": {
+         "description": "Solvent viscosity",
+         "x_units": "C",
+         "y_units": "cP",
+         "points": [
+          [
+           20.0,
+           1.0
+          ],
+          [
+           100.0,
+           0.3
+          ],
+          [
+           200.0,
+           0.15
+          ]
+         ],
+         "citation": 1
+        }
+       },
+       "variables": [
+        {
+         "name": "loadings",
+         "description": "Catalyst, ligand and additive loading, scaled",
+         "representation": "continuous",
+         "shape": [
+          3
+         ],
+         "lower": 0.0,
+         "upper": 1.0,
+         "values": [],
+         "units": "1",
+         "meaning": "",
+         "layout": ""
+        }
+       ],
+       "constraints": [
+        {
+         "id": "below_decomposition",
+         "statement": "Run below {max_temperature_c}.",
+         "kind": "hard",
+         "form": "quantities",
+         "test": "temperature_c <= max_temperature_c",
+         "terms": [],
+         "relation": null,
+         "bound": null,
+         "citation": null
+        },
+        {
+         "id": "loading_budget",
+         "statement": "The scaled loadings add up to at most 2.",
+         "kind": "hard",
+         "form": "linear",
+         "test": null,
+         "terms": [
+          {
+           "variable": "loadings",
+           "weight": "sum",
+           "weights": null
+          }
+         ],
+         "relation": "le",
+         "bound": 2.0,
+         "citation": null
+        }
+       ],
+       "objective": {
+        "name": "isolated_yield",
+        "direction": "maximize",
+        "units": "fraction",
+        "definition": "Isolated yield, mean of {repeats} repeats",
+        "citation": null
+       },
+       "metrics": [
+        {
+         "name": "selectivity",
+         "units": "fraction",
+         "direction": "maximize",
+         "definition": ""
+        }
+       ],
+       "evaluator": {
+        "kind": "declared",
+        "problem_id": "flow_reactor_yield",
+        "configuration": {
+         "residence_time_s": "residence_time_s",
+         "temperature_c": "temperature_c",
+         "pressure_bar": "pressure_bar"
+        },
+        "fidelity": {
+         "repeats": "repeats"
+        },
+        "deterministic": false,
+        "notes": "Run the reaction and measure yield by HPLC."
+       },
+       "instances": [
+        {
+         "name": "Base conditions",
+         "split": "development",
+         "values": {},
+         "note": ""
+        }
+       ],
+       "references": [],
+       "citations": [
+        {
+         "id": 1,
+         "source": "documents/statement.md.txt",
+         "location": "para 2",
+         "quote": ""
+        }
+       ],
+       "assumptions": [],
+       "questions": [
+        {
+         "id": "objective_basis",
+         "question": "Is yield measured as isolated yield or by HPLC area?",
+         "options": [
+          "Isolated yield",
+          "HPLC area percent"
+         ],
+         "about": [
+          "isolated_yield"
+         ],
+         "blocking": true,
+         "answer": "Isolated yield",
+         "answered_at": "2026-10-15T08:01:35.288689+00:00",
+         "sent": false
+        }
+       ],
+       "waivers": [],
+       "forked_from": null
+      },
+      "diff": [
+       {
+        "part": "value",
+        "name": "flow_rate_ml_min",
+        "change": "changed",
+        "before": "4 mL/min",
+        "after": "3 mL/min",
+        "role": "input"
+       },
+       {
+        "part": "value",
+        "name": "residence_time_s",
+        "change": "changed",
+        "before": "150 s",
+        "after": "200 s",
+        "role": "derived"
+       }
+      ],
+      "findings": []
+     },
+     {
+      "label": "Larger reactor",
+      "reason": "Keeps the flow rate",
+      "changes": [
+       {
+        "op": "set",
+        "path": "quantities.reactor_volume_ml.value",
+        "expression": "200 * flow_rate_ml_min / 60"
+       }
+      ],
+      "blocking_reason": null,
+      "charter": {
+       "schema_version": 1,
+       "title": "Flow reactor yield",
+       "summary": "Maximize the yield of a flow reaction at {pressure_bar}.",
+       "text": "A tubular reactor of {reactor_volume_ml} runs at {pressure_bar} and {temperature_c}. The residence time follows from the flow rate: {residence_time_s:.3g}.",
+       "quantities": {
+        "reactor_volume_ml": {
+         "description": "Reactor volume",
+         "kind": "number",
+         "role": "input",
+         "value": 13.333333333333334,
+         "expression": null,
+         "units": "mL",
+         "range": [
+          0.0,
+          null
+         ],
+         "origin": "researcher",
+         "citation": 1,
+         "accepted": false,
+         "note": ""
+        },
+        "flow_rate_ml_min": {
+         "description": "Flow rate",
+         "kind": "number",
+         "role": "input",
+         "value": 4,
+         "expression": null,
+         "units": "mL/min",
+         "range": [
+          0.1,
+          20.0
+         ],
+         "origin": "researcher",
+         "citation": 1,
+         "accepted": false,
+         "note": ""
+        },
+        "residence_time_s": {
+         "description": "Residence time",
+         "kind": "number",
+         "role": "derived",
+         "value": null,
+         "expression": "reactor_volume_ml / flow_rate_ml_min * 60",
+         "units": "s",
+         "range": null,
+         "origin": "computed",
+         "citation": null,
+         "accepted": false,
+         "note": ""
+        },
+        "pressure_bar": {
+         "description": "Back pressure",
+         "kind": "number",
+         "role": "input",
+         "value": 5.0,
+         "expression": null,
+         "units": "bar",
+         "range": null,
+         "origin": "assumed",
+         "citation": null,
+         "accepted": true,
+         "note": "The statement gives no back pressure; 5 bar is usual for this solvent"
+        },
+        "temperature_c": {
+         "description": "Reaction temperature",
+         "kind": "number",
+         "role": "input",
+         "value": 80.0,
+         "expression": null,
+         "units": "C",
+         "range": [
+          20.0,
+          200.0
+         ],
+         "origin": "source",
+         "citation": 1,
+         "accepted": false,
+         "note": ""
+        },
+        "max_temperature_c": {
+         "description": "Decomposition temperature of the product",
+         "kind": "number",
+         "role": "input",
+         "value": 150.0,
+         "expression": null,
+         "units": "C",
+         "range": null,
+         "origin": "source",
+         "citation": 1,
+         "accepted": false,
+         "note": ""
+        },
+        "solvent_viscosity_cp": {
+         "description": "Solvent viscosity at the temperature",
+         "kind": "number",
+         "role": "derived",
+         "value": null,
+         "expression": "table(viscosity, temperature_c)",
+         "units": "cP",
+         "range": null,
+         "origin": "computed",
+         "citation": null,
+         "accepted": false,
+         "note": ""
+        },
+        "repeats": {
+         "description": "Repeat measurements per condition",
+         "kind": "integer",
+         "role": "input",
+         "value": 3,
+         "expression": null,
+         "units": "1",
+         "range": null,
+         "origin": "source",
+         "citation": 1,
+         "accepted": false,
+         "note": ""
+        }
+       },
+       "tables": {
+        "viscosity": {
+         "description": "Solvent viscosity",
+         "x_units": "C",
+         "y_units": "cP",
+         "points": [
+          [
+           20.0,
+           1.0
+          ],
+          [
+           100.0,
+           0.3
+          ],
+          [
+           200.0,
+           0.15
+          ]
+         ],
+         "citation": 1
+        }
+       },
+       "variables": [
+        {
+         "name": "loadings",
+         "description": "Catalyst, ligand and additive loading, scaled",
+         "representation": "continuous",
+         "shape": [
+          3
+         ],
+         "lower": 0.0,
+         "upper": 1.0,
+         "values": [],
+         "units": "1",
+         "meaning": "",
+         "layout": ""
+        }
+       ],
+       "constraints": [
+        {
+         "id": "below_decomposition",
+         "statement": "Run below {max_temperature_c}.",
+         "kind": "hard",
+         "form": "quantities",
+         "test": "temperature_c <= max_temperature_c",
+         "terms": [],
+         "relation": null,
+         "bound": null,
+         "citation": null
+        },
+        {
+         "id": "loading_budget",
+         "statement": "The scaled loadings add up to at most 2.",
+         "kind": "hard",
+         "form": "linear",
+         "test": null,
+         "terms": [
+          {
+           "variable": "loadings",
+           "weight": "sum",
+           "weights": null
+          }
+         ],
+         "relation": "le",
+         "bound": 2.0,
+         "citation": null
+        }
+       ],
+       "objective": {
+        "name": "isolated_yield",
+        "direction": "maximize",
+        "units": "fraction",
+        "definition": "Isolated yield, mean of {repeats} repeats",
+        "citation": null
+       },
+       "metrics": [
+        {
+         "name": "selectivity",
+         "units": "fraction",
+         "direction": "maximize",
+         "definition": ""
+        }
+       ],
+       "evaluator": {
+        "kind": "declared",
+        "problem_id": "flow_reactor_yield",
+        "configuration": {
+         "residence_time_s": "residence_time_s",
+         "temperature_c": "temperature_c",
+         "pressure_bar": "pressure_bar"
+        },
+        "fidelity": {
+         "repeats": "repeats"
+        },
+        "deterministic": false,
+        "notes": "Run the reaction and measure yield by HPLC."
+       },
+       "instances": [
+        {
+         "name": "Base conditions",
+         "split": "development",
+         "values": {},
+         "note": ""
+        }
+       ],
+       "references": [],
+       "citations": [
+        {
+         "id": 1,
+         "source": "documents/statement.md.txt",
+         "location": "para 2",
+         "quote": ""
+        }
+       ],
+       "assumptions": [],
+       "questions": [
+        {
+         "id": "objective_basis",
+         "question": "Is yield measured as isolated yield or by HPLC area?",
+         "options": [
+          "Isolated yield",
+          "HPLC area percent"
+         ],
+         "about": [
+          "isolated_yield"
+         ],
+         "blocking": true,
+         "answer": "Isolated yield",
+         "answered_at": "2026-10-15T08:01:35.288689+00:00",
+         "sent": false
+        }
+       ],
+       "waivers": [],
+       "forked_from": null
+      },
+      "diff": [
+       {
+        "part": "value",
+        "name": "reactor_volume_ml",
+        "change": "changed",
+        "before": "10 mL",
+        "after": "13.3333 mL",
+        "role": "input"
+       },
+       {
+        "part": "value",
+        "name": "residence_time_s",
+        "change": "changed",
+        "before": "150 s",
+        "after": "200 s",
+        "role": "derived"
+       }
+      ],
+      "findings": []
+     }
+    ],
+    "status": "accepted",
+    "accepted_option": 0,
+    "created_at": "2026-10-15T08:01:35.337402+00:00",
+    "decided_at": "2026-10-15T08:01:35.415843+00:00"
+   }
+  ]
+ },
+ "confirmed": {
+  "charter": {
+   "id": "problem_charter_0c35a64392cd451b",
+   "revision": 5
+  },
+  "setups": [
+   {
+    "schema_version": 1,
+    "name": "Base conditions",
+    "split": "development",
+    "problem_id": null,
+    "configuration": {
+     "residence_time_s": 200.0,
+     "temperature_c": 80.0,
+     "pressure_bar": 5.0
+    },
+    "fidelity": {
+     "repeats": 3
+    },
+    "evaluator_manifest": {
+     "schema_version": 1,
+     "id": "flow_reactor_yield",
+     "name": "Flow reactor yield",
+     "candidate_schema": {
+      "schema_version": 1,
+      "representation": "continuous",
+      "dimensions": 3,
+      "bounds": [
+       [
+        0.0,
+        1.0
+       ],
+       [
+        0.0,
+        1.0
+       ],
+       [
+        0.0,
+        1.0
+       ]
+      ],
+      "values": [],
+      "constraints": [
+       {
+        "schema_version": 1,
+        "name": "loading_budget",
+        "coefficients": [
+         1.0,
+         1.0,
+         1.0
+        ],
+        "relation": "le",
+        "bound": 2.0,
+        "tolerance": 1e-09
+       }
+      ]
+     },
+     "primary_objective": {
+      "schema_version": 1,
+      "name": "isolated_yield",
+      "direction": "maximize",
+      "units": "fraction"
+     },
+     "extra_metrics": [
+      {
+       "schema_version": 1,
+       "name": "selectivity",
+       "direction": "maximize",
+       "units": "fraction"
+      }
+     ],
+     "configuration_schema": {
+      "type": "object",
+      "properties": {
+       "residence_time_s": {
+        "type": "number",
+        "description": "Residence time (s)"
+       },
+       "temperature_c": {
+        "type": "number",
+        "description": "Reaction temperature (C)",
+        "minimum": 20.0,
+        "maximum": 200.0
+       },
+       "pressure_bar": {
+        "type": "number",
+        "description": "Back pressure (bar)"
+       }
+      },
+      "required": [
+       "pressure_bar",
+       "residence_time_s",
+       "temperature_c"
+      ],
+      "additionalProperties": false
+     },
+     "configuration": {
+      "residence_time_s": 200.0,
+      "temperature_c": 80.0,
+      "pressure_bar": 5.0
+     },
+     "fidelity_schema": {
+      "type": "object",
+      "properties": {
+       "repeats": {
+        "type": "integer",
+        "description": "Repeat measurements per condition"
+       }
+      },
+      "required": [
+       "repeats"
+      ],
+      "additionalProperties": false
+     },
+     "fidelity": {
+      "repeats": 3
+     },
+     "public_configuration_keys": [],
+     "deterministic": false
+    },
+    "rationale": ""
+   }
+  ],
+  "text": "A tubular reactor of 10 mL runs at 5 bar and 80 C. The residence time follows from the flow rate: 200 s."
+ }
+}

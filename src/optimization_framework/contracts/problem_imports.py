@@ -36,6 +36,8 @@ class ProblemSetup(Contract):
 class CampaignDefaults(Contract):
     name: str | None = Field(default=None, max_length=200)
     objective: str | None = Field(default=None, max_length=20000)
+    research_question: str | None = Field(default=None, max_length=20000,
+        description="What the campaign asks about the problem; the problem itself is in the charter")
     compute_budget_seconds: float | None = Field(default=None, gt=0)
     validation_reserve_seconds: float | None = Field(default=None, ge=0)
     delegated_trial_seconds: float | None = Field(default=None, gt=0, le=86400)
@@ -53,6 +55,7 @@ class ProblemExample(Contract):
     instances: list[ProblemSetup] = Field(min_length=1, max_length=20)
     campaign: CampaignDefaults = Field(default_factory=CampaignDefaults)
     import_id: str | None = None
+    charter: dict[str, Any] | None = Field(default=None, description="The problem as a charter; made from the instances when absent")
 
 
 class DraftCitation(Contract):

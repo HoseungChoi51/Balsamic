@@ -4,7 +4,7 @@ import os from 'node:os';
 import path from 'node:path';
 import {timingSafeEqual} from 'node:crypto';
 import {Supervisor} from './supervisor.js';
-import {createRuntime, authStatus, applySpec} from './runtime.js';
+import {createRuntime, authStatus, applySpec, completeOnce} from './runtime.js';
 import {BrowserLogin} from './login.js';
 
 const directory = path.resolve(process.env.GRATING_PI_DIRECTORY || 'runs/pi');
@@ -35,7 +35,7 @@ const supervisor = new Supervisor(directory, createRuntime, async (operation, da
   await fetch(`${backend}/api/internal/pi/notify`, {method: 'POST',
     headers: {'Content-Type': 'application/json', Authorization: `Bearer ${token}`},
     body: JSON.stringify({agent_ids: ids}), signal: AbortSignal.timeout(10000)});
-}, applySpec);
+}, applySpec, (input, observe, signal) => completeOnce(authPath, input, observe, signal));
 function authorized(req: http.IncomingMessage) {
   const supplied = Buffer.from(req.headers.authorization || ''); const expected = Buffer.from(`Bearer ${token}`);
   return supplied.length === expected.length && timingSafeEqual(supplied, expected);
@@ -48,6 +48,14 @@ const server = http.createServer(async (req, res) => {
     if (!authorized(req)) { res.statusCode = 401; res.end('{"detail":"Authentication required"}'); return; }
     if (url.pathname === '/v1/status' && req.method === 'GET') { res.end(JSON.stringify({...await authStatus(authPath),login:login.current})); return; }
     if (url.pathname === '/v1/auth/start' && req.method === 'POST') { res.end(JSON.stringify(await login.start())); return; }
+    if (url.pathname === '/v1/live' && req.method === 'GET') { res.end(JSON.stringify(supervisor.liveView((url.searchParams.get('ids') || '').split(',').filter(Boolean).slice(0, 64)))); return; }
+    const call = url.pathname.match(/^\/v1\/complete\/([a-zA-Z0-9_-]+)$/);
+    if (call && req.method === 'POST') {
+      let raw = ''; for await (const chunk of req) { raw += chunk; if (Buffer.byteLength(raw) > 2 * 1024 * 1024) throw new Error('Request exceeds transport limit'); }
+      // A caller that goes away ends the model call: nobody is left to read its answer.
+      const abort = new AbortController(); res.on('close', () => { if (!res.writableEnded) abort.abort(); });
+      res.end(JSON.stringify(await supervisor.complete(call[1], JSON.parse(raw), abort.signal))); return;
+    }
     const match = url.pathname.match(/^\/v1\/agents\/([a-zA-Z0-9_-]+)(?:\/(runs|control))?$/);
     if (!match) { res.statusCode = 404; res.end('{}'); return; }
     if (req.method === 'GET' && !match[2]) { const value = supervisor.view(match[1], Number(url.searchParams.get('after') || 0)); res.statusCode = value ? 200 : 404; res.end(JSON.stringify(value)); return; }

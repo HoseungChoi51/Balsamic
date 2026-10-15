@@ -55,13 +55,20 @@ class TaskInput(Model):
         return self
 
 
+class CharterReference(Model):
+    id: str = Field(min_length=1, max_length=200)
+    revision: int = Field(ge=1)
+
+
 class CampaignInput(Model):
     name: str = Field(min_length=1, max_length=200)
     objective: str = Field(default="Develop an effective optimizer for the chosen problem.", max_length=20000)
     compute_budget_seconds: float = Field(default=3600, gt=0)
     llm_budget_usd: float = Field(default=5, ge=0, le=10000)
     autonomy: Literal["manual", "guided", "delegated"] = "guided"
-    tasks: list[TaskInput] = Field(min_length=1, max_length=100)
+    tasks: list[TaskInput] = Field(default_factory=list, max_length=100)
+    charter: CharterReference | None = Field(default=None, description="A confirmed problem charter revision; the tasks are compiled from it")
+    research_question: str | None = Field(default=None, max_length=20000)
     delegated_trial_seconds: float = Field(default=60, gt=0, le=86400)   # at most what one experiment may run
     validation_reserve_seconds: float = Field(default=120, ge=0)
     implementation_compute_budget_seconds: float = Field(default=0, ge=0, le=604800)
@@ -70,6 +77,8 @@ class CampaignInput(Model):
     def reserve_fits(self):
         if self.validation_reserve_seconds > self.compute_budget_seconds:
             raise ValueError("Validation reserve exceeds campaign compute budget")
+        if not self.tasks and self.charter is None:
+            raise ValueError("A campaign needs a confirmed problem charter or at least one problem instance")
         return self
 
 
@@ -80,6 +89,8 @@ class CampaignUpdate(Model):
     llm_budget_usd: float | None = Field(default=None, ge=0, le=10000)
     autonomy: Literal["manual", "guided", "delegated"] | None = None
     tasks: list[TaskInput] | None = Field(default=None, min_length=1, max_length=100)
+    charter: CharterReference | None = None
+    research_question: str | None = Field(default=None, max_length=20000)
     delegated_trial_seconds: float | None = Field(default=None, gt=0, le=86400)
     validation_reserve_seconds: float | None = Field(default=None, ge=0)
     implementation_compute_budget_seconds: float | None = Field(default=None, ge=0, le=604800)

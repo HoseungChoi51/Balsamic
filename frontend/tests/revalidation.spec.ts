@@ -97,6 +97,7 @@ test('independent revalidation preserves prior authorization and executable reus
   await page.getByRole('button', { name: 'Design an experiment', exact: true }).click();
   await dialog.getByLabel('Optimization strategy').selectOption('coordinate');
   await dialog.getByLabel('Evaluation requests', { exact: true }).fill('4');
+  await dialog.getByLabel('Unit of time cap').selectOption('s');
   await dialog.getByLabel('Time cap (seconds)', { exact: true }).fill('10');
   await dialog.getByRole('button', { name: 'Launch experiment', exact: true }).click();
   await expect(dialog).not.toBeVisible();

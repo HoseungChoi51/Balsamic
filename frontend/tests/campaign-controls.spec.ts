@@ -33,7 +33,9 @@ test('campaign and context commands survive lost replies, refreshes and stale re
   const dialog = page.getByRole('dialog');
   const name = `Campaign controls ${Date.now()}`;
   await dialog.getByLabel('Campaign name').fill(name);
+  await dialog.getByLabel('Unit of compute cap').selectOption('s');
   await dialog.getByLabel('Compute cap (seconds)', { exact: true }).fill('200');
+  await dialog.getByLabel('Unit of validation reserve').selectOption('s');
   await dialog.getByLabel('Validation reserve (seconds)').fill('0');
   await dialog.getByLabel('API spending cap (USD)').fill('0');
   await dialog.getByLabel('Problem adapter').selectOption('bounded_continuous');
@@ -54,8 +56,9 @@ test('campaign and context commands survive lost replies, refreshes and stale re
   expect(lookups).toContain(createdCommand.id);
   expect((await state()).campaigns.filter((campaign: any) => campaign.name === name)).toHaveLength(1);
 
-  await page.getByRole('button', { name: 'Problem workbench', exact: true }).click();
+  await page.getByRole('button', { name: 'Problem', exact: true }).click();
   await page.getByRole('button', { name: 'Revise charter' }).click();
+  await dialog.getByLabel('Unit of compute cap').selectOption('s');
   await dialog.getByLabel('Compute cap (seconds)', { exact: true }).fill('210');
   await dialog.getByRole('button', { name: 'Save new version' }).click();
   await expect(dialog.getByText('Failed to fetch', { exact: true })).toBeVisible();
@@ -66,7 +69,8 @@ test('campaign and context commands survive lost replies, refreshes and stale re
   expect(lookups).toContain(writes['campaign.update'][0].id);
   expect((await state()).campaign.version).toBe(2);
 
-  await page.getByRole('button', { name: 'Campaign memory', exact: true }).click();
+  await page.getByRole('button', { name: 'Agents', exact: true }).click();
+  await page.getByRole('tab', { name: 'Guidance', exact: true }).click();
   const guidance = page.getByLabel('Campaign guidance (Markdown)');
   await guidance.fill('Preserve the selected baseline and continue within the authorized cap.');
   await page.getByRole('button', { name: 'Save new memory revision' }).click();

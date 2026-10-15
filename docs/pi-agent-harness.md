@@ -92,6 +92,117 @@ scripted run, such as a reproduction used as a test, is driven the same way: by 
 The first two rules and the wake-up rule are enforced by the controller. That the lead stays within
 a request once a turn has started rests on its instructions and on the model following them.
 
+## The chat is the researcher's main interface
+
+The researcher asks the lead agent for work in the chat panel; the pages of the application show
+what that work produced. Four things follow from this.
+
+- **A reply is short and points to the page.** The lead says what it did and found in a few lines,
+  names the open choices, and links the page that shows the details instead of repeating it.
+  `campaign_inspect.pages` lists the pages with their link targets (`#experiments`,
+  `#experiments/<trial_id>`, `#hypotheses`, `#hypotheses/rounds`, `#implementations`, `#comparison`,
+  `#decisions`, `#assets`, `#reports`, `#agents`, a draft at `/reports/<report_id>`), and a command
+  receipt names the page of what the
+  command created (`page`). A `#…` link in a reply switches the page; other links open beside it.
+  `tests/test_agent_discussions.py` checks that every page the lead may link exists in the menu.
+- **While an agent works, its steps and its reasoning are shown and not kept.** The harness holds
+  one entry per running turn in memory: the tool calls of the turn with short arguments, the text
+  being written, and the last 4,000 characters of the model's reasoning. `GET /v1/live?ids=…`
+  returns it; the workspace serves it at `GET /api/v1/campaigns/{id}/agents/live` with each tool
+  call as one readable line (`step_label` in `agents/tools.py`). The entry is replaced when the
+  next turn starts. Reasoning is never written to `events.jsonl`, to the agent log or to the
+  database; a model that hides its reasoning shows steps only. (Pi's own session file, which the
+  harness already kept, holds whatever the provider returned.)
+- **Notes that need not stay are folded.** A reply records the kind of turn it came from
+  (`turn`: `request` or `notice`) and how the turn ended (`disposition`). In the chat, a reply of a
+  notice turn that ended with work still running is folded once the lead has written again right
+  after it; such notes gather into one line that opens on a click. Three kinds of reply therefore
+  always stay: the lead's first reply after a researcher's message (a message that arrives during
+  a notice turn is answered in it), the note a researcher replied to (it may have asked
+  something), and the newest message. The lead is told to write no message in a
+  notice turn when nothing new needs the researcher, and to give the status in `yield_work`; the
+  chat shows that status as a temporary line together with what the lead waits for.
+- **A saved `yield_work` ends the turn.** The harness returns its result with Pi's `terminate`
+  flag, so the model is not called again in that turn; a researcher's message that arrives
+  meanwhile is still taken. Without it a model may keep writing closing lines and yielding again
+  (DeepSeek did, three times in one turn). A refused `yield_work` does not end the turn.
+- **The assistants' exchange is shown.** The Review rounds tab of Hypotheses (`#hypotheses/rounds`;
+  `#discussions` still leads there; `agents/discussions.py`,
+  `GET /api/v1/campaigns/{id}/discussions`) is assembled from saved records, with no model call. A
+  round is the assistants that the discussion moderator or the lead created in one turn. For each it
+  shows the assignment, the assistant's own closing summary (what it passed to `yield_work`), the
+  full reply, its saved documents and its verdicts, and the response of whoever asked. A table
+  above the rounds gives, for every proposal and its revisions, the verdicts in order. A Graph view of the
+  same records (`#hypotheses/rounds/graph`) draws who asked whom, the verdicts, and how each proposal was
+  created (the round whose turn ran its `hypothesis.create`) and revised.
+- **No agent panel above the pages.** The lead is in the chat. Pausing, stopping, sign-in and the
+  list of agents are on the Agents page (`#agents`), with the models, the guidance, the usage and the
+  log as its tabs. The lead's questions are kept above the chat's message box, to answer or dismiss
+  (`agent.question_dismiss`, which wakes no agent).
+
+## Agents in charge of pages
+
+Three agents each own the work of one page and stay for the whole campaign, like the lead
+(`PAGE_AGENTS` in `agents/models.py`). Each is created, as an assistant of the lead, the first time
+the researcher or the lead writes to it, and acts on nothing else.
+
+| Agent | Page | Commands (`ROLE_OPERATIONS`) | Also |
+|---|---|---|---|
+| Discussion moderator | Hypotheses | `hypothesis.create`, `.review`, `.status`; `approval.request` | `delegate` to specialists and reviewers only; their results come back to it |
+| Experiment operator | Experiments | `draft.save`, `draft.launch`, `trial.create`, `trial.control`, `trial.extension_request`, `trial.continue`, `runtime.profile`, `fixed_mask.run`, `comparison.report`; `approval.request` | |
+| Implementation lead | Implementations | `implementation.commission`, `.attach`, `.revalidate`, `.bind_builtin`, `.resolve_runtime`; `evaluator.commission`, `.attach`, `.equivalence`; `approval.request` | the `implementation_workspace_*` tools |
+
+All three read like the other agents (campaign and resources, evidence, files, analyses) and may ask
+the researcher (`researcher_ask`). The tool schemas each one is given list only its own commands and,
+for the moderator, only the roles it may ask; anything else is refused before it runs.
+
+Who hears what:
+
+- **The researcher asks on the page** (`agent.message` with `page_agent`). The request is the page
+  agent's own: the lead's request is not opened, the reply is shown on the page, and its end wakes no
+  one. The lead sees each page agent's last summary in `campaign_inspect.page_agents` at its next
+  request.
+- **The lead asks** (`page_agent_message`). The request is kept on the page as the lead's message;
+  when the page agent ends it, the result comes back to the lead as an assistant's result does. The
+  lead cannot call its own request complete while that one is open.
+- **Outcomes go to whoever started the work.** An experiment's or an implementation job's outcome
+  wakes the agent whose command started it (read from its tool receipts, `PiController.starter`)
+  while that agent's request is open; an outcome with no such agent goes to the lead as before. The
+  lead's "still running" check counts only what page agents did not start.
+- Page agents do not count toward the limit on assistants at work (`max_subagents`).
+
+The lead keeps all its tools; its instructions ask it to hand page work to the page agents.
+
+A page agent can ask the lead (`lead_ask`): the question starts a lead turn whatever the researcher's request,
+the lead's reply goes back to the agent that asked, and that turn neither opens nor closes the researcher's
+request. The chat shows both, marked as an exchange between agents.
+
+The experiment operator keeps the campaign's experiment rules (`campaigns/experiment_rules.py`): naming, the
+threshold between short and long runs, how many of the campaign's runs may go at once (the scheduler enforces
+it), how runs are chosen and ordered, and how runs are presented on the Experiments page. It is given them in
+every turn's instructions, and has `experiment_progress` and `config_suggest` (`agents/experiments.py`).
+
+## Reports
+
+Asked for a report, the lead starts the staged report writer of the Reports page with
+`report_write` and answers in a line with a link; the job's end wakes it (`report.writer_completed`,
+`report.writer_failed`, or `report.writer_question` when the writer asks about the focus, which
+the lead answers with `report_answer` or passes on). `yield_work(complete)` is refused while a
+report the lead started is still being written. The writer freezes the campaign's own records
+(runs, hypotheses, decisions, sources, studies) by itself; what the agents wrote, such as reviewers'
+verdicts and saved analyses (`agent_artifact`) or assistants' replies (`agent_run`), reaches it
+only when the lead names those records in `reference_ids`, each under its own id and kind.
+
+In a campaign with a started team, and on a server whose earlier research provider is not set up,
+every stage of the writer runs on the lead agent's model: one call each through the harness
+(`POST /v1/complete/<job id>`, `completeOnce` in `agent-harness/src/runtime.ts`), which holds the
+sign-in and the price catalogue. Each call is capped at 64,000 output tokens, reasoning included
+(or the model's own limit if lower), and reserved at that cap and its prompt before it is made;
+it is refused when the campaign's model budget cannot cover it; afterwards the harness's measured cost
+replaces the reservation, and the call is written to the campaign's usage ledger under the role
+`report_writer`. A failed call is not repeated. The reasoning of the running call shows on the
+job's card on the Reports page, under the stage it belongs to, through the same live view.
+
 ## What the lead agent is given
 
 [Lead agent readiness](lead-agent-readiness.md) keeps apart what of this is implemented and what is only proposed.

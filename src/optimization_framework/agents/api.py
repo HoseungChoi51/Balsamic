@@ -68,6 +68,15 @@ def install(app, workspace):
         workspace.store.get(campaign_id, "campaign")
         return workspace.pi.view(campaign_id)
 
+    @app.get("/api/v1/campaigns/{campaign_id}/discussions")
+    def discussions(campaign_id: str):
+        from .discussions import view
+        return view(workspace, campaign_id)
+
+    @app.get("/api/v1/campaigns/{campaign_id}/agents/live")
+    def agents_live(campaign_id: str):
+        return workspace.pi.live(campaign_id)
+
     def harness_models():
         from .families import family_of
         try:

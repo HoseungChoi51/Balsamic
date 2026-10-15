@@ -33,8 +33,8 @@ test('agent log follows real event shapes, pauses the view, catches up and filte
     return route.fulfill({ json: state });
   });
   await page.goto('/');
-  await page.getByRole('button', { name: 'Research notebook', exact: true }).click();
-  await page.getByRole('button', { name: 'Agent log', exact: true }).click();
+  await page.getByRole('button', { name: 'Agents', exact: true }).click();
+  await page.getByRole('tab', { name: 'Log', exact: true }).click();
   const panel = page.getByRole('region', { name: 'Agent work log' });
   const content = page.getByLabel('Live JSONL content');
   await expect(content).toContainText('evidence-2');

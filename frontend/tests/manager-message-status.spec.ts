@@ -55,7 +55,7 @@ test('a blocked saved question shows its own error and retries without posting t
   await expect(status).toContainText('No model call started for this request.');
   await expect(panel.getByText(error, { exact: true })).toHaveCount(1);
   await expect(panel).not.toContainText('Historical provider failure');
-  await expect(status.getByRole('link', { name: 'View agent log' })).toHaveAttribute('href', '#notebook/agent-log');
+  await expect(status.getByRole('link', { name: 'View agent log' })).toHaveAttribute('href', '#agents/log');
   await status.getByRole('button', { name: 'Retry saved request', exact: true }).click();
   await expect(status.getByRole('button', { name: 'Queuing retry…' })).toBeDisabled();
   release();

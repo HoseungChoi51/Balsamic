@@ -196,7 +196,7 @@ def test_indirect_withheld_references_and_cross_campaign_pins_are_excluded(app):
     store.put("decision", {"id": "private_decision", "campaign_id": "campaign_test", "context": "Based on trial_secret results"})
     snapshot = freeze(app.state.workspace, "withheld", "campaign_test", {}, [])
     assert "private_study" not in snapshot["records"] and "private_decision" not in snapshot["records"]
-    with pytest.raises(ValueError, match="unavailable"):
+    with pytest.raises(ValueError, match="Not in this campaign.s report evidence.*foreign_trial"):
         freeze(app.state.workspace, "outside", "campaign_test", {}, ["foreign_trial"])
 
 
@@ -327,3 +327,15 @@ def test_job_api_enforces_workspace_and_exports_durable_artifacts(app, monkeypat
         assert "attachment" in artifact.headers["content-disposition"]
         assert artifact.json()["snapshot"]["content_hash"] and artifact.json()["stages"][0]["output"]["question"]
         assert client.post(f"/api/report-writer/jobs/{job['id']}/cancel", json={}).json()["status"] == "cancelled"
+
+
+def test_a_claims_passage_is_found_across_a_heading_and_despite_typographic_marks_but_not_when_absent():
+    from optimization_framework.reports.pipeline import located
+    plain = ("The ES adapts only 32 coefficients. Reviewer assessment: the basis carries the win "
+             "The review judges that the mechanism “almost certainly wins” — mostly from the basis.")
+    assert located("The ES adapts only 32 coefficients. The review judges that the mechanism", plain)
+    assert located('the mechanism "almost certainly wins" - mostly from the basis.', plain)
+    assert not located("The ES adapts only 64 coefficients.", plain)
+    # Sentences must appear in the draft's order, and an empty passage locates nothing.
+    assert not located("The review judges that the mechanism \u201calmost certainly wins\u201d \u2014 mostly from the basis. The ES adapts only 32 coefficients.", plain)
+    assert not located("  ", plain)

@@ -88,6 +88,10 @@ def install(app, workspace):
     def problem_import(import_id: str):
         return service.sync(import_id)
 
+    @app.delete("/api/v1/problem-imports/{import_id}")
+    def remove_import(import_id: str):
+        return service.remove(import_id)
+
     @app.put("/api/v1/problem-imports/{import_id}/documents/{name}")
     async def upload_document(import_id: str, name: str, request: Request):
         raw = await body(request, MAX_DOCUMENT_BYTES)

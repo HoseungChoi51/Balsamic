@@ -14,7 +14,7 @@ import sys
 import threading
 import time
 
-from optimization_framework.contracts.requests import CampaignInput, CampaignUpdate, TrialInput, ControlInput, ValidationInput, RecipeInput, StudyInput, ResearchInput
+from optimization_framework.contracts.requests import CampaignInput, CampaignUpdate, TaskInput, TrialInput, ControlInput, ValidationInput, RecipeInput, StudyInput, ResearchInput
 from optimization_framework.storage.sqlite import Store, atomic_json, identifier, now, read_json
 from optimization_framework.evaluation.registry import problems
 from optimization_framework.contracts.problems import ProblemInstance
@@ -87,6 +87,8 @@ class Workspace:
         self.commands = CommandService(self)
         from optimization_framework.campaigns.drafts import DraftService
         self.drafts = DraftService(self)
+        from optimization_framework.problem_charter.service import Charters
+        self.charters = Charters(self)
         from optimization_framework.campaigns.reproduction import ReproductionService
         self.reproductions = ReproductionService(self)
         from optimization_framework.execution.resources import ResourceLedger
@@ -103,12 +105,21 @@ class Workspace:
         self.journals = JournalCompaction(self)
         from optimization_framework.campaigns.removal import CampaignRemoval
         self.removal = CampaignRemoval(self)
+        self._report_writer = None
         self.maintenance_thread = None
         self.on_manager_tick = None
         from optimization_framework.research.discovery.controller import DiscoveryController
         self.discovery = DiscoveryController(self)
         from optimization_framework.agents.controller import PiController
         self.pi = PiController(self)
+
+    @property
+    def report_writer(self):
+        """The report writer, shared by the Reports page and the lead agent's report tools."""
+        if self._report_writer is None:
+            from optimization_framework.reports.writer import ReportWriter
+            self._report_writer = ReportWriter(self)
+        return self._report_writer
 
     def start(self):
         if self._lease:
@@ -356,10 +367,13 @@ class Workspace:
                     pass
                 else:
                     raise ValueError("A record already owns this campaign identity")
+            request = self._from_charter(request)
             data = request.model_dump(exclude={"tasks"})
             campaign = dict(data, id=campaign_id or identifier("campaign"), version=1, created_at=now(), updated_at=now())
             self.store.put("campaign", campaign, "campaign.created")
             self._add_tasks(campaign, request.tasks)
+            if request.charter is not None:
+                self.charters.link(request.charter.id, campaign["id"])
             # Installed algorithms are resources for research and manual
             # experiments. Creating a campaign is not scientific generation.
             campaign["research_protocol"] = "optimizer-discovery-v1"
@@ -372,6 +386,30 @@ class Workspace:
             campaign["schema_version"] = 1
             self.store.put("campaign", campaign)
             return campaign
+
+    def _from_charter(self, request, campaign=None):
+        """With a confirmed charter revision, the tasks are compiled from it and the objective names the problem.
+
+        The objective is the research question followed by the charter's text with its values, so the
+        campaign's own text never states a value the charter does not.
+        """
+        question = request.research_question if request.research_question is not None else (campaign or {}).get("research_question")
+        reference = request.charter
+        if reference is None and request.research_question is not None and (campaign or {}).get("charter"):
+            from optimization_framework.contracts.requests import CharterReference
+            reference = CharterReference.model_validate(campaign["charter"])
+        if reference is None:
+            return request
+        confirmed = self.charters.confirmed(reference.model_dump())
+        tasks = [TaskInput.model_validate({key: value for key, value in setup.items() if key not in {"rationale", "schema_version"}}
+                                          | ({"problem_id": setup["evaluator_manifest"]["id"]} if setup.get("evaluator_manifest") else {}))
+                 for setup in confirmed["setups"]]
+        if campaign is not None:
+            current = {task["name"]: task["id"] for task in self.store.list("task", campaign["id"]) if not task.get("archived")}
+            tasks = [task.model_copy(update={"id": current.get(task.name)}) for task in tasks]
+        objective = "\n\n".join(part for part in ((question or "").strip(), confirmed["text"].strip()) if part)
+        return request.model_copy(update={"tasks": tasks, "charter": reference, "research_question": question or "",
+                                          "objective": objective[:20000] or request.objective})
 
     def _add_tasks(self, campaign, tasks):
         for task in tasks:
@@ -390,6 +428,7 @@ class Workspace:
     def update_campaign(self, campaign_id, request: CampaignUpdate):
         with self.lock, self.store.transaction():
             campaign = self.store.get(campaign_id, "campaign")
+            request = self._from_charter(request, campaign)
             changes = request.model_dump(exclude_none=True, exclude={"tasks"})
             objective_changed = "objective" in changes and changes["objective"] != campaign["objective"]
             tasks_changed = request.tasks is not None
@@ -426,6 +465,8 @@ class Workspace:
                 for task in self.current_tasks(campaign_id):
                     self.evaluators.require_numerical_evidence(task, study.id)
             self.store.put("campaign", campaign, "campaign.revised")
+            if request.charter is not None:
+                self.charters.link(request.charter.id, campaign_id)
             self.store.put("charter", {**campaign, "id": identifier("charter"), "campaign_id": campaign_id,
                                         "tasks": self.current_tasks(campaign_id)})
             for trial in self.store.list("trial", campaign_id):
@@ -1415,9 +1456,12 @@ class Workspace:
                     trials = self.store.list_trials_in_status(LIVE | {"queued"})
                     free = self.max_workers - sum(t["status"] in LIVE for t in trials) - sum(j["status"] in {"starting", "running"} for j in self.store.list("fixed_mask_job"))
                     queued = sorted((t for t in trials if t["status"] == "queued" and self.dependencies_ready(t)), key=lambda t: (-t["priority"], t["created_at"]))
+                    limits = {}
                     for trial in queued:
                         if free <= 0:
                             break
+                        if self._over_campaign_limit(trial, trials, limits):
+                            continue
                         if trial.get("race_id") and not self.racing.admission(trial, [row for row in trials if row["status"] in LIVE]):
                             continue
                         if self.runtime.holds(trial):
@@ -1443,6 +1487,20 @@ class Workspace:
                     self.on_trial_finished()
             except Exception as exc:
                 self.store.event(None, "service.error", {"message": str(exc)})
+
+    def _over_campaign_limit(self, trial, trials, limits):
+        """Whether the campaign's experiment rules hold this run back: no more than max_concurrent of its runs at once.
+        Checks (validation, recipes, diagnostics, speed probes) and race runs are not counted or held."""
+        from optimization_framework.campaigns.experiment_rules import current, check_trial_ids, run_kind
+        campaign_id = trial["campaign_id"]
+        if campaign_id not in limits:
+            limits[campaign_id] = (current(self.store, campaign_id).get("max_concurrent"), check_trial_ids(self.store, campaign_id))
+        limit, probes = limits[campaign_id]
+        def counted(row):
+            return row["campaign_id"] == campaign_id and not row.get("race_id") and run_kind(row, 0, probes) != "check"
+        if not limit or not counted(trial):
+            return False
+        return sum(row["status"] in LIVE and counted(row) for row in trials) >= limit
 
     def metrics(self, trial_id, *, fields=None, limit=None):
         self.store.get(trial_id, "trial")

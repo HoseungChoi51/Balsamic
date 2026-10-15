@@ -1,10 +1,11 @@
 import { useEffect, useState } from 'react';
+import { DurationField } from './duration';
 import type { FormEvent } from 'react';
 import { api, errorText, problemCatalogPath, problemDefinition } from './api';
-import type { Hypothesis, Json, State } from './api';
+import type { Hypothesis, Json, State, Trial } from './api';
 import { useCommand } from './commands';
 import { DiagnosticEditor, completionNames, normalizedDiagnostics } from './diagnosticForm';
-import { Badge, Empty, ErrorNotice, Field, Icon, Modal, Panel } from './ui';
+import { ErrorNotice, Field, Icon, Modal, Panel } from './ui';
 import type { WorkspaceActions } from './views';
 import { ReproductionDraftForm } from './reproduction';
 
@@ -16,22 +17,31 @@ function object(text: string): Json {
 
 type TrialFormProps = {
   state: State; hypothesis?: Hypothesis; taskId?: string; draft?: Json; onClose: () => void;
+  /** A run whose settings fill the form; replaces: the queued run that the launched one takes the place of. */
+  template?: Trial; replaces?: Trial;
   onDone: (result?: Json) => void; onSaved?: () => void; onDiscuss?: (message: string) => void;
 };
+
+/** The procedure of an existing run, as the form edits it. Only what an experiment is designed with; nothing it measured. */
+function procedureOf(trial: Trial): Json {
+  const keep = ['task_id', 'algorithm', 'implementation_version_id', 'algorithm_config', 'seed', 'max_steps', 'schedule_steps', 'wall_seconds',
+    'question', 'completion', 'recovery', 'diagnostics', 'hypothesis_id', 'priority'];
+  return Object.fromEntries(keep.filter(key => (trial as Json)[key] !== undefined && (trial as Json)[key] !== null).map(key => [key, (trial as Json)[key]]));
+}
 
 export function TrialForm(props: TrialFormProps) {
   return props.draft?.reproduction ? <ReproductionDraftForm {...props} draft={props.draft} /> : <OptimizerTrialForm {...props} />;
 }
 
-function OptimizerTrialForm({ state, hypothesis, taskId, draft, onClose, onDone, onSaved, onDiscuss }: TrialFormProps) {
-  const initial = draft?.procedure || {};
+function OptimizerTrialForm({ state, hypothesis, taskId, draft, template, replaces, onClose, onDone, onSaved, onDiscuss }: TrialFormProps) {
+  const initial = draft?.procedure || (template ? procedureOf(template) : {});
   const proposal = state.hypotheses.find(h => h.id === (initial.hypothesis_id || hypothesis?.id)) || hypothesis;
   const [saved, setSaved] = useState<Json | undefined>(draft), [readiness, setReadiness] = useState<Json | null>(null);
   const [dirty, setDirty] = useState(false), [busy, setBusy] = useState(false), [error, setError] = useState('');
-  const [title, setTitle] = useState(draft?.title || (proposal ? `${proposal.title} probe` : 'Optimizer experiment'));
+  const [title, setTitle] = useState(draft?.title || (template ? (template.question || '').split('\n')[0] || `${template.algorithm} · seed ${template.seed}` : proposal ? `${proposal.title} probe` : 'Optimizer experiment'));
   const [studyId, setStudyId] = useState(draft?.study_id || state.campaign?.active_study_id || '');
   const [task, setTask] = useState(initial.task_id || taskId || state.tasks.find(t => t.split === 'development')?.id || state.tasks[0]?.id || '');
-  const [algorithm, setAlgorithm] = useState(draft?.follow_proposal_implementation || (!draft && proposal) ? 'proposal'
+  const [algorithm, setAlgorithm] = useState(draft?.follow_proposal_implementation || (!draft && !template && proposal) ? 'proposal'
     : initial.implementation_version_id || initial.algorithm || state.algorithms[0]?.id || '');
   const [config, setConfig] = useState(JSON.stringify(initial.algorithm_config || proposal?.algorithm_config || {}, null, 2));
   const [seed, setSeed] = useState(String(initial.seed ?? 0)), [steps, setSteps] = useState(String(initial.max_steps ?? 100));
@@ -75,7 +85,8 @@ function OptimizerTrialForm({ state, hypothesis, taskId, draft, onClose, onDone,
   }, [saved?.id, saved?.revision, state.event_cursor]);
   function procedure(): Json {
     const parsed = normalizedDiagnostics(diagnostics, definition, selected?.problem, inferenceAdapters);
-    return { ...initial, campaign_id: state.campaign!.id, task_id: task,
+    const { priority } = initial;
+    return { ...(template ? { priority } : initial), campaign_id: state.campaign!.id, task_id: task,
       algorithm: implementation.startsWith('impl_') ? 'package' : implementation,
       implementation_version_id: implementation.startsWith('impl_') ? implementation : undefined,
       hypothesis_id: proposal?.id, algorithm_config: object(config), seed: Number(seed), max_steps: Number(steps),
@@ -98,11 +109,15 @@ function OptimizerTrialForm({ state, hypothesis, taskId, draft, onClose, onDone,
     try {
       const result = saved ? await command('draft.launch', { draft_id: saved.id, expected_draft_revision: saved.revision,
         expected_readiness_hash: readiness?.readiness_hash }) : await command('trial.create', procedure());
+      // The edited run takes the place of the queued one, which never started.
+      if (replaces) await command('trial.control', { trial_id: replaces.id, action: 'stop', expected_control_revision: replaces.control_revision ?? 0,
+        rationale: 'Replaced by its edited version' });
       onDone(result);
     } catch (e) { setError(errorText(e)); } finally { setBusy(false); }
   }
-  return <Modal wide title={saved ? 'Review experiment draft' : 'Design an experiment'}
-    description="Save the intended procedure while requirements are unresolved. Launch pins the executable, inputs, and procedure." onClose={onClose}>
+  return <Modal wide title={saved ? 'Review experiment draft' : replaces ? 'Edit the queued run' : template ? 'Run again with changes' : 'Design an experiment'}
+    description={replaces ? 'Launching starts the edited run and stops the queued one, which has not started.' : template ? `Starts a new run from the settings of ${template.id}; that run and its results stay as they are.`
+      : 'Save the intended procedure while requirements are unresolved. Launch pins the executable, inputs, and procedure.'} onClose={onClose}>
     <form onSubmit={save} onChange={() => setDirty(true)}><div className="form-grid">
       <Field label="Experiment title" wide><input value={title} onChange={e => setTitle(e.target.value)} required maxLength={300} /></Field>
       {!!state.studies?.length && <Field label="Study" wide><select value={studyId} onChange={e => setStudyId(e.target.value)}>
@@ -118,9 +133,9 @@ function OptimizerTrialForm({ state, hypothesis, taskId, draft, onClose, onDone,
       {selected?.evaluator_readiness?.state === 'ready_with_waiver' && <p className="callout amber wide">{selected.evaluator_readiness.reason}</p>}
       <Field label="Probe configuration" wide><select value={task} onChange={e => setTask(e.target.value)} required>{state.tasks.map(t => <option key={t.id} value={t.id}>{t.name} · {t.split}</option>)}</select></Field>
       {selected?.split === 'test' && <p className="callout amber wide">Save this design as a draft. Launch protected instances from a frozen confirmation study.</p>}
-      <Field label="What should this experiment tell us?" wide><textarea value={question} onChange={e => setQuestion(e.target.value)} rows={2} /></Field>
+      <Field label="What should this experiment tell us?" wide hint={state.experiment_rules?.naming ? `First line: the run's name, as the experiment rules say: ${state.experiment_rules.naming}` : undefined}><textarea value={question} onChange={e => setQuestion(e.target.value)} rows={2} /></Field>
       <Field label="Evaluation requests" hint="Includes initialization, resets, and cached requests."><input type="number" min="1" step="1" value={steps} onChange={e => setSteps(e.target.value)} required /></Field>
-      <Field label="Time cap (seconds)"><input type="number" min="1" value={wall} onChange={e => setWall(e.target.value)} required /></Field>
+      <DurationField label="Time cap" seconds={wall} onChange={setWall} max={86400} />
       <Field label="Random seed"><input type="number" min="0" step="1" value={seed} onChange={e => setSeed(e.target.value)} required /></Field>
       <Field label="Search schedule horizon"><input type="number" min="1" step="1" value={schedule} onChange={e => setSchedule(e.target.value)} required /></Field>
       <Field label="Scientific completion"><select value={unit} onChange={e => setUnit(e.target.value)}>
@@ -149,13 +164,13 @@ function OptimizerTrialForm({ state, hypothesis, taskId, draft, onClose, onDone,
   </Modal>;
 }
 
-export function DraftList({ state, actions }: { state: State; actions: WorkspaceActions }) {
-  return <><div className="page-heading"><div><span className="eyebrow">Experiment design</span><h1>Develop the procedure.</h1><p>Drafts retain missing requirements and revisions until an experiment is ready to freeze.</p></div>
-    <button className="button primary" onClick={() => actions.launch()}>Design an experiment</button></div>
-    {!state.drafts?.length ? <Empty title="No saved drafts">Open a proposal or design an experiment to record the intended procedure, even while its implementation is missing.</Empty> :
-      <Panel title="Saved experiment drafts"><div className="table-scroll"><table className="data-table"><thead><tr><th>Design</th><th>Problem</th><th>Revision</th><th>Execution</th></tr></thead>
-        <tbody>{state.drafts.map((draft: Json) => <tr key={draft.id}><td><button className="table-link" onClick={() => actions.editDraft(draft)}>{draft.title}</button></td>
-          <td>{state.tasks.find(t => t.id === draft.procedure.task_id)?.name || 'Earlier problem version'}</td><td>{draft.revision}</td>
-          <td><Badge>{state.draft_launches?.some((binding: Json) => binding.draft_revision_id === draft.revision_id) ? 'Experiment created' : 'Draft'}</Badge></td></tr>)}</tbody>
-      </table></div></Panel>}</>;
+/** Saved experiment designs not yet started, on the Experiments page; nothing is shown when there are none. */
+export function DraftsPanel({ state, actions }: { state: State; actions: WorkspaceActions }) {
+  const drafts = (state.drafts || []).filter((draft: Json) => !state.draft_launches?.some((binding: Json) => binding.draft_revision_id === draft.revision_id));
+  if (!drafts.length) return null;
+  return <Panel title="Drafts not yet started" eyebrow="Experiment design"><p className="help-text">A draft keeps its missing requirements and revisions until the experiment is ready to start.</p>
+    <div className="table-scroll"><table className="data-table"><thead><tr><th>Design</th><th>Problem</th><th>Revision</th></tr></thead>
+      <tbody>{drafts.map((draft: Json) => <tr key={draft.id}><td><button className="table-link" onClick={() => actions.editDraft(draft)}>{draft.title}</button></td>
+        <td>{state.tasks.find(t => t.id === draft.procedure.task_id)?.name || 'Earlier problem version'}</td><td>{draft.revision}</td></tr>)}</tbody>
+    </table></div></Panel>;
 }

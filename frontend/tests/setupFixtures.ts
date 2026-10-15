@@ -36,7 +36,7 @@ export async function emptyWorkspace(page: Page, extra: (path: string, method: s
     if (path === '/api/v1/commands' && method === 'POST') {
       commands.push(body);
       const campaign = { id: body.campaign_id, version: 1, ...body.payload };
-      Object.assign(state, { campaign, campaigns: [campaign], tasks: body.payload.tasks.map((task: any, i: number) => ({ ...task, id: `task-${i}` })) });
+      Object.assign(state, { campaign, campaigns: [campaign], tasks: (body.payload.tasks || []).map((task: any, i: number) => ({ ...task, id: `task-${i}` })) });
       return route.fulfill({ json: { id: body.id, request: body, actor: 'researcher', status: 'completed', outcome: { campaign } } });
     }
     return route.fulfill({ json: {} });

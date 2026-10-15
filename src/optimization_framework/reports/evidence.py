@@ -60,9 +60,15 @@ def freeze(workspace, job_id, campaign_id, supplied, references):
         if excluded:
             gaps.append(f"{excluded} locked or unreleased non-development trials excluded; no results exposed.")
     if supplied:
-        records["supplied-evidence"], kinds["supplied-evidence"] = deepcopy(supplied), "supplied"
-    if any(key not in records for key in references):
-        raise ValueError("A referenced record is unavailable in this campaign's permitted evidence")
+        supplied = deepcopy(supplied)
+        # What the campaign's agents wrote (verdicts, replies, saved analyses), named by the lead agent: each keeps its id and kind.
+        for row in supplied.pop("agent_records", []):
+            records[row["id"]], kinds[row["id"]] = row["record"], row["kind"]
+        if supplied:
+            records["supplied-evidence"], kinds["supplied-evidence"] = supplied, "supplied"
+    missing = [key for key in references if key not in records]
+    if missing:
+        raise ValueError("Not in this campaign's report evidence (runs, hypotheses, decisions, sources, studies, agents' records): " + ", ".join(missing[:5]))
     if len(records) > 3000 or len(json.dumps(records).encode()) > 20_000_000:
         raise ValueError("Campaign evidence exceeds the report snapshot limit; use a scoped evidence file through the report CLI")
     trials = [key for key in records if kinds[key] == "trial"]

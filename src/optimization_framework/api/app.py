@@ -133,6 +133,8 @@ def create_app(directory=None, max_workers=2, start_workers=True, implementation
     install_development(app, workspace)
     from optimization_framework.problem_import.api import install as install_problem_import
     install_problem_import(app, workspace)
+    from optimization_framework.problem_charter.api import install as install_problem_charters
+    install_problem_charters(app, workspace)
     from optimization_framework.api.reports import install as install_reports
     install_reports(app, workspace)
 
@@ -460,6 +462,12 @@ def create_app(directory=None, max_workers=2, start_workers=True, implementation
                 from optimization_framework.campaigns.decisions import public_decision
                 rows = [public_decision(workspace, row) for row in rows]
             response[name] = rows
+        if current:
+            # The Experiments page lists short runs, long runs and checks apart, by the campaign's experiment rules.
+            from optimization_framework.campaigns.experiment_rules import current as experiment_rules, classify, check_trial_ids
+            response["experiment_rules"] = experiment_rules(workspace.store, current)
+            kinds = classify(response["trials"], response["experiment_rules"]["short_run_seconds"], check_trial_ids(workspace.store, current))
+            response["trials"] = [{**trial, "run_kind": kinds[trial["id"]]} for trial in response["trials"]]
         response["research_runs"] = [coordinator.public_run(r) for r in workspace.store.list("research_run", current)] if current else []
         from optimization_framework.research.progress import view as progress_view
         response["research_progress"] = progress_view(workspace, current) if current else None
@@ -499,6 +507,7 @@ def create_app(directory=None, max_workers=2, start_workers=True, implementation
             from optimization_framework.implementations.bridge import public_grant
             response["implementation_jobs"] = [public_grant(g) for g in workspace.store.list("implementation_grant", current)]
             from optimization_framework.api.reports import public_job
+            from optimization_framework.agents.usage import charged as llm_usage_charged
             response["report_writer_jobs"] = [public_job(job) for job in workspace.store.list("report_writer_job", current)]
             response["implementation_library"] = workspace.implementations.catalog()
             from optimization_framework.implementations.references import catalog as reference_catalog
@@ -507,7 +516,9 @@ def create_app(directory=None, max_workers=2, start_workers=True, implementation
             response["budget"] = {"allocated_seconds": assessment["allocated_seconds"],
                 "spent_seconds": assessment["actual_seconds"],
                 "cap_seconds": campaign["compute_budget_seconds"],
-                "llm_spent_usd": sum(api_spend(r.get("usage")) for r in response["research_runs"]) + sum(api_spend(g.get("usage")) for g in response["implementation_jobs"]),
+                # The campaign manager's runs and implementation jobs carry their own cost; agents' and the report writer's calls are in llm_usage.
+                "llm_spent_usd": sum(api_spend(r.get("usage")) for r in response["research_runs"]) + sum(api_spend(g.get("usage")) for g in response["implementation_jobs"])
+                    + llm_usage_charged(workspace.store, current),
                 "implementation_api_committed_usd": workspace.implementations.api_committed(current),
                 "implementation_compute_committed_seconds": workspace.implementations.compute_committed(current),
                 "implementation_compute_cap_seconds": campaign.get("implementation_compute_budget_seconds", 0),
@@ -597,8 +608,15 @@ def create_app(directory=None, max_workers=2, start_workers=True, implementation
             campaign_id=trial["campaign_id"])["outcome"]["trial"]
 
     @app.get("/api/trials/{trial_id}/metrics")
-    def metrics(trial_id: str, limit: int | None = Query(default=None, ge=1, le=1000)):
-        return workspace.metrics(trial_id, limit=limit)
+    def metrics(trial_id: str, limit: int | None = Query(default=None, ge=1, le=1000), fields: str | None = None,
+                points: int | None = Query(default=None, ge=2, le=5000)):
+        """A run's metrics. fields: the scalar columns to return (comma separated); points: at most this many rows, evenly
+        spread and ending with the last, for drawing a curve of a long run."""
+        rows = workspace.metrics(trial_id, limit=limit, fields=[name for name in fields.split(",") if name] if fields else None)
+        if points and len(rows) > points:
+            step = (len(rows) - 1) / (points - 1)
+            rows = [rows[round(index * step)] for index in range(points)]
+        return rows
 
     @app.get("/api/trials/{trial_id}/logs")
     def logs(trial_id: str):
@@ -807,10 +825,13 @@ def create_app(directory=None, max_workers=2, start_workers=True, implementation
         if path.startswith("api/"):
             return JSONResponse({"detail": "API route not found"}, status_code=404)
         if (dist / "index.html").is_file():
+            # The page names the hashed bundle of the current build, so a browser must revalidate it on every load;
+            # otherwise it keeps showing the previous build after an update until a forced reload.
+            fresh = {"Cache-Control": "no-cache"}
             candidate = (dist / path).resolve()
             if candidate.is_relative_to(dist) and candidate.is_file():
-                return FileResponse(candidate)
-            return FileResponse(dist / "index.html")
+                return FileResponse(candidate, headers=fresh if candidate.suffix == ".html" else None)
+            return FileResponse(dist / "index.html", headers=fresh)
         return Response("Grating Lab API is running. Build the dashboard with npm ci && npm run build in frontend/.", media_type="text/plain")
 
     return app

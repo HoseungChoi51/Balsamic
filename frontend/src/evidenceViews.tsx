@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import { DurationField } from './duration';
 import { api, errorText, objectiveValue, problemCatalogPath, problemDefinition, seconds } from './api';
 import type { Json, State } from './api';
 import { useCommand } from './commands';
@@ -140,7 +141,7 @@ export function ValidationView({ state, actions }: Props) {
     {!!trials.length && <Panel title="Request a check or diagnostic"><form onSubmit={submit}><div className="form-grid">
       <Field label="Source experiment"><select value={trial?.id || ''} onChange={e => { setSource(e.target.value); setRecipeId(''); setValues({}); }}>{trials.map(item => <option key={item.id} value={item.id}>{item.algorithm} · seed {item.seed} · {item.id.slice(-8)}</option>)}</select></Field>
       <Field label="Validation recipe"><select value={recipe || ''} onChange={e => { setRecipeId(e.target.value); setValues({}); }}>{!recipe && <option value="">No available recipe</option>}{definition?.validation_recipes.map((id: string) => <option key={id} value={id} disabled={definition.recipe_schemas?.[id]?.available === false}>{definition.recipe_schemas?.[id]?.title || id}{definition.recipe_schemas?.[id]?.available === false ? ' · unavailable' : ''}</option>)}</select></Field>
-      <RecipeParameters schema={schema} values={values} setValues={setValues} /><Field label="Validation time cap (seconds)"><input type="number" min="1" max="86400" value={wall} onChange={e => setWall(Number(e.target.value))} required /></Field>
+      <RecipeParameters schema={schema} values={values} setValues={setValues} /><DurationField label="Validation time cap" seconds={String(wall)} onChange={value => setWall(Number(value))} max={86400} />
       <Field label="Next action"><select value={!schema.assertion_kind ? 'validation.run' : mode} onChange={e => setMode(e.target.value)}><option value="validation.run">{schema.assertion_kind ? 'Record requirement and run check' : 'Run diagnostic measurements'}</option>{schema.assertion_kind && <option value="validation.require">Record requirement for later execution or waiver</option>}</select></Field>
       </div>{schema.description && <p className="help-text">{schema.description}</p>}
       {captured?.basis === 'compatible_current_definition' && <p className="help-text">This historical experiment uses a compatible current catalog for its form. Its recorded procedure still governs execution.</p>}
@@ -413,7 +414,7 @@ export function StudyView({ state, actions }: Props) {
       {scope === 'exploratory' && <label className="checkbox-label"><input type="checkbox" checked={evaluatorWaivers} onChange={e => setEvaluatorWaivers(e.target.checked)} />Allow scoped evaluator waivers for exploratory use</label>}
       {checks.map(id => <label key={id} className="checkbox-label"><input type="checkbox" checked={requiredChecks.includes(id)} onChange={e => setRequiredChecks(e.target.checked ? [...requiredChecks, id] : requiredChecks.filter(item => item !== id))} />Require {assertionSchemas[id].title || id}</label>)}
       {requiredChecks.map(id => <div key={id}><p>{assertionSchemas[id].title}</p><RecipeParameters schema={assertionSchemas[id]} values={checkParameters[id] || {}} setValues={value => setCheckParameters({ ...checkParameters, [id]: value })} /></div>)}
-      {!!requiredChecks.length && <Field label="Time cap per required check (seconds)"><input type="number" min="1" max="86400" required value={checkWall} onChange={e => setCheckWall(Number(e.target.value))} /></Field>}
+      {!!requiredChecks.length && <DurationField label="Time cap per required check" seconds={String(checkWall)} onChange={value => setCheckWall(Number(value))} max={86400} />}
       {scope === 'confirmation' && <><Field label="Confirmation protocol"><select value={kind} onChange={e => setKind(e.target.value)}><option value="seed_replication">Fresh seeds on a known instance</option><option value="unseen_instance">Unseen problem instances</option><option value="policy_transfer">Frozen policy transfer</option></select></Field>
         <Field label="Fresh seeds"><input required value={seeds} onChange={e => setSeeds(e.target.value)} /></Field>
         <Field wide label="Frozen development nomination" hint="A nomination includes its selected method automatically; choose any additional controls below."><select value={nominationId} onChange={e => setNominationId(e.target.value)}><option value="">Choose procedures directly</option>{(state.nominations || []).map((item: Json) => <option key={item.id} value={item.id}>{state.studies.find((study: Json) => study.id === item.study_id)?.goal || item.study_id} · {item.rule.rule_id}</option>)}</select></Field>

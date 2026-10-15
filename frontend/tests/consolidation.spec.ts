@@ -16,6 +16,7 @@ test('diagnostic controls freeze a registered policy adapter and execute indepen
   await dialog.getByLabel('Algorithm parameters (JSON)').fill(JSON.stringify({ horizon: 3, hidden_sizes: [4, 4],
     learning_starts: 5, buffer_size: 8, batch_size: 2 }));
   await dialog.getByLabel('Evaluation requests', { exact: true }).fill('3');
+  await dialog.getByLabel('Unit of time cap').selectOption('s');
   await dialog.getByLabel('Time cap (seconds)', { exact: true }).fill('10');
   await dialog.getByLabel('Search schedule horizon', { exact: true }).fill('2');
   await dialog.getByLabel('Scientific completion', { exact: true }).selectOption('optimizer_decisions');
@@ -28,6 +29,7 @@ test('diagnostic controls freeze a registered policy adapter and execute indepen
   await dialog.getByRole('button', { name: 'Add artifact inference', exact: true }).click();
   await expect(dialog.getByLabel('Inference adapter', { exact: true })).toHaveValue('dqn_policy:v1');
   await dialog.getByLabel('Episode decisions', { exact: true }).fill('1');
+  await dialog.getByLabel('Unit of inference time cap').selectOption('s');
   await dialog.getByLabel('Inference time cap (seconds)', { exact: true }).fill('5');
   await dialog.getByLabel('Inference seed rule', { exact: true }).selectOption('affine');
   await dialog.getByLabel('Seed offset', { exact: true }).fill('100');
@@ -36,6 +38,7 @@ test('diagnostic controls freeze a registered policy adapter and execute indepen
   await inference.getByRole('button', { name: 'Add validation', exact: true }).click();
   await inference.getByLabel('Validation recipe', { exact: true }).selectOption('reevaluate:v1');
   await inference.getByLabel('Fourier orders', { exact: true }).fill('2');
+  await inference.getByLabel('Unit of validation time cap').selectOption('s');
   await inference.getByLabel('Validation time cap (seconds)', { exact: true }).fill('5');
   await expect(dialog.getByText('Reserved diagnostic time: 20 seconds, in addition to the parent experiment.')).toBeVisible();
   await dialog.getByRole('button', { name: 'Save draft', exact: true }).click();
@@ -233,6 +236,7 @@ test('a missing implementation remains designable and its revised draft launches
   await dialog.getByRole('button', { name: 'Design experiment', exact: true }).click();
   dialog = page.getByRole('dialog');
   await dialog.getByLabel('Evaluation requests', { exact: true }).fill('4');
+  await dialog.getByLabel('Unit of time cap').selectOption('s');
   await dialog.getByLabel('Time cap (seconds)', { exact: true }).fill('10');
   await dialog.getByRole('button', { name: 'Save draft', exact: true }).click();
   await expect(dialog.getByText('Draft saved · revision 1', { exact: true })).toBeVisible();
@@ -248,6 +252,7 @@ test('a missing implementation remains designable and its revised draft launches
   await dialog.getByLabel('Milestone counts', { exact: true }).fill('2');
   await dialog.getByLabel('Capture optimizer artifacts', { exact: true }).uncheck();
   await dialog.getByRole('button', { name: 'Add validation', exact: true }).click();
+  await dialog.getByLabel('Unit of validation time cap').selectOption('s');
   await dialog.getByLabel('Validation time cap (seconds)', { exact: true }).fill('5');
   await dialog.getByRole('button', { name: 'Save draft revision', exact: true }).click();
   await expect(dialog.getByText('Draft saved · revision 2', { exact: true })).toBeVisible();
@@ -265,7 +270,7 @@ test('a missing implementation remains designable and its revised draft launches
   expect(parent.progress.scientific_complete).toBe(true);
   expect(parent.recovery.every_observations).toBe(2);
   expect(final.trials.find((trial: any) => trial.parent_trial_id).progress.recipe_result.verdict).toBe('passed');
-  await page.getByRole('button', { name: 'Experiment drafts', exact: true }).click();
+  await page.getByRole('button', { name: 'Experiments', exact: true }).click();
   await page.getByRole('button', { name: first.drafts[0].title, exact: true }).click();
   await expect(page.getByRole('dialog').getByRole('button', { name: 'Freeze and launch', exact: true })).toBeDisabled();
 });
@@ -282,7 +287,9 @@ for (const domain of ['bounded_continuous', 'meent_grating']) {
     const name = `${domain} browser qualification ${Date.now()}`;
     await dialog.getByLabel('Campaign name').fill(name);
     await dialog.getByLabel('Problem adapter').selectOption(domain);
+    await dialog.getByLabel('Unit of compute cap').selectOption('s');
     await dialog.getByLabel('Compute cap (seconds)', { exact: true }).fill('60');
+    await dialog.getByLabel('Unit of validation reserve').selectOption('s');
     await dialog.getByLabel('Validation reserve (seconds)').fill('0');
     await dialog.getByRole('button', { name: 'Edit as JSON' }).click();
     await dialog.getByLabel('Problem configuration (JSON)').fill(JSON.stringify(domain === 'meent_grating'
@@ -294,6 +301,7 @@ for (const domain of ['bounded_continuous', 'meent_grating']) {
     await dialog.getByLabel('Optimization strategy').selectOption(domain === 'meent_grating' ? 'hillclimb' : 'coordinate');
     if (domain === 'bounded_continuous') await expect(dialog.getByLabel('Optimization strategy').locator('option[value="dqn"]')).toHaveCount(0);
     await dialog.getByLabel('Evaluation requests', { exact: true }).fill('12');
+    await dialog.getByLabel('Unit of time cap').selectOption('s');
     await dialog.getByLabel('Time cap (seconds)', { exact: true }).fill('10');
     await dialog.getByRole('button', { name: 'Launch experiment' }).click();
     await expect(dialog).not.toBeVisible();
@@ -313,12 +321,13 @@ for (const domain of ['bounded_continuous', 'meent_grating']) {
     if (domain === 'bounded_continuous') await expect(dialog.getByRole('columnheader', { name: 'Coordinate', exact: true })).toBeVisible();
     else await expect(dialog.getByRole('img')).toBeVisible();
     await dialog.getByRole('button', { name: 'Close dialog' }).click();
-    await page.getByRole('button', { name: 'Compare results', exact: true }).click();
+    await page.getByRole('button', { name: 'Results', exact: true }).click();
     await expect(page.getByRole('heading', { name: 'Compare at full upstream cost.' })).toBeVisible();
     await page.getByLabel('Comparison cost').selectOption('evaluation_requests');
     await expect(page.getByRole('img', { name: /by evaluation_requests/ })).toBeVisible();
     await page.getByRole('button', { name: 'Validation', exact: true }).click();
     await expect(page.getByRole('heading', { name: 'Validation and waivers.' })).toBeVisible();
+    await page.getByLabel('Unit of validation time cap').selectOption('s');
     await page.getByLabel('Validation time cap (seconds)').fill('10');
     if (domain === 'meent_grating') {
       await page.getByLabel('Fourier orders', { exact: true }).fill('1, 2');
@@ -384,6 +393,7 @@ test('a frozen confirmation roster schedules, validates and releases through the
   await dialog.getByLabel('Fresh seeds').fill('17, 18');
   await dialog.getByLabel('Prototype experiments', { exact: true }).selectOption(prototype);
   await dialog.getByLabel('Require Known-value evaluator fixtures').check();
+  await dialog.getByLabel('Unit of time cap per required check').selectOption('s');
   await dialog.getByLabel('Time cap per required check (seconds)').fill('5');
   await dialog.getByRole('button', { name: 'Freeze and activate study' }).click();
   await expect(dialog).not.toBeVisible();

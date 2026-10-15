@@ -2,24 +2,57 @@ import { useEffect, useRef, useState } from 'react';
 import { api, errorText } from './api';
 import type { State } from './api';
 import { ErrorNotice } from './ui';
+import { LiveThought, useLive } from './agentLive';
+import type { LiveReport } from './agentLive';
+import './reports.css';
 
 type Report = { id: string; title: string; url: string; parent_id: string | null; created_at: string; latest_submission_id: string | null };
+type StageRow = { key: string; purpose: string; status: string; started_at?: string; finished_at?: string };
 type Job = { id: string; status: string; stage?: string; focus?: string; question?: string; error?: string; result_id?: string;
-  cancel_requested?: boolean; workflow?: string; artifacts_url: string; usage: { calls?: number }; limits?: { model_calls: number } };
-const stageNames: Record<string, string> = { brief: 'Interpreting your notes', investigate: 'Investigating the evidence', select: 'Choosing the argument',
+  cancel_requested?: boolean; workflow?: string; artifacts_url: string; usage: { calls?: number; api_cost_usd?: number; pending_reservation?: { cost_usd_reserved?: number | null } }; limits?: { model_calls: number };
+  stage_log?: StageRow[]; model?: string | null; reasoning_effort?: string | null; billing_mode?: string | null; requested_by?: string | null; notes?: string };
+type Writer = { model: string; reasoning_effort?: string | null; billing_mode: string; allowance_usd?: number | null };
+const stageOrder = ['brief', 'investigate', 'select', 'draft', 'science', 'reader', 'edit', 'verify'];
+export const stageNames: Record<string, string> = { brief: 'Interpreting your notes', investigate: 'Investigating the evidence', select: 'Choosing the argument',
   draft: 'Writing the article', science: 'Checking scientific support', reader: 'Reviewing usefulness and depth', edit: 'Resolving the reviews', verify: 'Checking the revised draft' };
 const statusNames: Record<string, string> = { completed: 'Draft ready', needs_attention: 'Draft needs attention', awaiting_focus: 'A question about your focus',
   interrupted: 'Writing interrupted', failed: 'Writing stopped', cancelled: 'Writing cancelled' };
 const card = { padding: 24, background: 'white', border: '1px solid #d6e0e1', borderRadius: 10 };
 
-function JobCard({ job, action }: { job: Job; action: (job: Job, operation: string, body?: unknown) => Promise<void> }) {
+function dollars(value: number): string { return `$${value.toFixed(value < 1 ? 3 : 2)}`; }
+function modelName(source: { model?: string | null; reasoning_effort?: string | null }): string { return [source.model, source.reasoning_effort].filter(Boolean).join(' · '); }
+
+/** The stages of a report job: what is done, what runs now and, while it runs, what is still to come. */
+function Stages({ job, live }: { job: Job; live?: LiveReport }) {
+  const log = job.stage_log || [];
+  if (!log.length) return null;
+  const position = Math.max(...log.map(row => stageOrder.indexOf(row.purpose)));
+  const coming = job.status === 'running' ? stageOrder.slice(position + 1) : [];
+  const repeat = (row: StageRow) => { const turn = Number(row.key.split('_')[1]); return turn > 1 ? ` (round ${turn})` : row.key.endsWith('_checked') ? ' (after more reading)' : ''; };
+  return <ol className="report-stages" aria-label="Writing stages">
+    {log.map(row => <li key={row.key} className={row.status === 'completed' ? 'done' : row.status === 'running' ? 'current' : 'failed'}>
+      {stageNames[row.purpose] || row.purpose}{repeat(row)}{!['completed', 'running'].includes(row.status) && ` (${row.status})`}
+      {row.status === 'running' && live && <LiveThought phase={live.phase} thinking={live.thinking} text={live.text} length={420} />}</li>)}
+    {coming.map(purpose => <li key={purpose} className="coming">{stageNames[purpose]}</li>)}
+  </ol>;
+}
+
+function JobCard({ job, live, action }: { job: Job; live?: LiveReport; action: (job: Job, operation: string, body?: unknown) => Promise<void> }) {
   const [answer, setAnswer] = useState(''), [busy, setBusy] = useState(false);
   async function send(operation: string, body?: unknown) { setBusy(true); try { await action(job, operation, body); } finally { setBusy(false); } }
   const stage = stageNames[(job.stage || '').split('_')[0]] || 'Preparing the draft';
+  // While a call runs, its upper bound is held against the budget; the page shows what was spent and what is held apart.
+  const held = job.usage.pending_reservation?.cost_usd_reserved || 0;
+  const cost = job.billing_mode === 'api' && typeof job.usage.api_cost_usd === 'number' ? Math.max(0, job.usage.api_cost_usd - held) : null;
   return <article style={card} aria-label="Writing progress">
     <h3>{job.status === 'running' ? stage : statusNames[job.status] || job.status}</h3>
     <p role="status">{job.status === 'running' ? (job.cancel_requested ? 'Stopping after the current call finishes.' : 'You can leave this page and return later.') : job.error}
-      {job.usage.calls !== undefined && <span> · {job.usage.calls} of at most {job.limits?.model_calls || 1} model calls</span>}</p>
+      {job.usage.calls !== undefined && <span> · {job.usage.calls} of at most {job.limits?.model_calls || 1} model calls</span>}
+      {cost !== null && <span> · {dollars(cost)} so far{held > 0 && job.status === 'running' && `, up to ${dollars(held)} held for the current call`}</span>}</p>
+    {(job.requested_by === 'lead' || job.model) && <p className="report-origin">{job.requested_by === 'lead' ? 'Started by the lead agent at your request' : 'Started from this page'}
+      {job.model && <> · written by {modelName(job)}{job.billing_mode === 'api' ? ', billed to this campaign' : ''}</>}</p>}
+    {job.notes && <p className="report-notes"><strong>About:</strong> {job.notes}</p>}
+    <Stages job={job} live={live} />
     {job.focus && <p><strong>Inferred focus:</strong> {job.focus}</p>}
     {job.status === 'awaiting_focus' && <form onSubmit={event => { event.preventDefault(); void send('answer', { answer }); }}>
       <label htmlFor={`focus-${job.id}`}>{job.question}</label>
@@ -35,7 +68,7 @@ function JobCard({ job, action }: { job: Job; action: (job: Job, operation: stri
 }
 
 export function ReportsView({ state }: { state: State }) {
-  const [reports, setReports] = useState<Report[]>([]), [jobs, setJobs] = useState<Job[]>([]);
+  const [reports, setReports] = useState<Report[]>([]), [jobs, setJobs] = useState<Job[]>([]), [writer, setWriter] = useState<Writer | null>(null);
   const [error, setError] = useState(''), [loading, setLoading] = useState(true), [busy, setBusy] = useState(false);
   const [notes, setNotes] = useState(''), [references, setReferences] = useState(''), [literature, setLiterature] = useState(true);
   const [refresh, setRefresh] = useState(0), requestId = useRef<string | null>(null);
@@ -45,8 +78,8 @@ export function ReportsView({ state }: { state: State }) {
     let active = true;
     async function load() {
       try {
-        const result = await api<{ reports: Report[]; jobs: Job[] }>(`/api/reports${campaignId ? `?campaign_id=${encodeURIComponent(campaignId)}` : ''}`);
-        if (active) { setReports(result.reports); setJobs(result.jobs || []); }
+        const result = await api<{ reports: Report[]; jobs: Job[]; writer?: Writer | null }>(`/api/reports${campaignId ? `?campaign_id=${encodeURIComponent(campaignId)}` : ''}`);
+        if (active) { setReports(result.reports); setJobs(result.jobs || []); setWriter(result.writer || null); }
       } catch (failure) { if (active) setError(errorText(failure)); }
       finally { if (active) setLoading(false); }
     }
@@ -72,11 +105,15 @@ export function ReportsView({ state }: { state: State }) {
     catch (failure) { setError(errorText(failure)); }
   }
   const running = jobs.some(job => job.status === 'running');
+  const live = useLive(campaignId, running).reports;
   return <section aria-label="Reports">
     <div className="page-heading"><div><h1>Reports</h1><p>Turn a few observations into a focused scientific draft, then refine it with highlights and short remarks.</p></div></div>
     <form onSubmit={event => void write(event)} style={{ ...card, marginBottom: 24 }} aria-label="Write a report">
       <h2>What caught your attention?</h2>
       <p>A few rough sentences are enough. The writer will investigate saved evidence, choose the argument, and check the draft through scientific and reader reviews.</p>
+      {writer && <p className="report-writer-model">Written by the lead agent's model ({modelName(writer)}){writer.billing_mode === 'api'
+        ? <>, billed to this campaign's model budget{typeof writer.allowance_usd === 'number' && <> ({dollars(Math.max(0, writer.allowance_usd))} left)</>}</> : ''}: up to 14 model calls, which can take 20 to 40 minutes.
+        You can also ask the lead agent for a report in the chat; it starts this same writer.</p>}
       <label htmlFor="report-notes">Your observations and intended focus</label>
       <textarea id="report-notes" rows={4} maxLength={12000} value={notes} onChange={event => setNotes(event.target.value)} required
         placeholder="Annealing looks strong. DQN is still climbing. Wall time probably matters more."
@@ -92,7 +129,7 @@ export function ReportsView({ state }: { state: State }) {
     </form>
     {error && <ErrorNotice text={error} />}
     {jobs.length > 0 && <div style={{ display: 'grid', gap: 16, marginBottom: 24 }}>
-      {[...jobs].reverse().filter((job, index) => index < 5 || ['running', 'awaiting_focus'].includes(job.status)).map(job => <JobCard key={job.id} job={job} action={act} />)}
+      {[...jobs].reverse().filter((job, index) => index < 5 || ['running', 'awaiting_focus'].includes(job.status)).map(job => <JobCard key={job.id} job={job} live={live.find(row => row.job_id === job.id)} action={act} />)}
     </div>}
     <h2>Review drafts</h2>
     <p>Green keeps strong phrases, yellow asks for improvements, and red requests removal. Unmarked text stays flexible. Share any review as a single HTML file.</p>

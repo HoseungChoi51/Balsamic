@@ -108,9 +108,17 @@ The `report_editor`, `report_evidence_investigator`, `technical_report_writer`,
 `report_scientific_reviewer` and `report_reader_reviewer` roles use the campaign's
 Models panel. Provider/model policy is frozen when a job is accepted. Every call
 uses the common accounted adapter. Subscription calls appear in the campaign
-total, with provider events in its agent log. Report writing supports the enabled
-subscription backend or explicitly free local models; it does not draw on a paid
-API allowance. Roles are separate model contexts, not experiment worker processes.
+total, with provider events in its agent log. On this earlier provider path, report
+writing supports the enabled subscription backend or explicitly free local models;
+it does not draw on a paid API allowance. Roles are separate model contexts, not
+experiment worker processes.
+
+A campaign with a started agent team writes its reports on the lead agent's model
+instead, through the agent service, and so does a server on which the earlier
+provider is not set up. All roles then use that one model. Calls billed per token
+are charged to the campaign's model budget: each is reserved at its upper bound
+first and refused when the budget cannot cover it. See "Reports" in
+[the Pi agent harness](pi-agent-harness.md).
 
 ```bash
 .venv/bin/python -m optimization_framework.reports.cli \

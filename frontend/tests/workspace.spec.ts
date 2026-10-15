@@ -107,26 +107,16 @@ async function mockWorkspace(page: Page, initial: Record<string, any>, failures:
   return { state, writes };
 }
 
-test('a new researcher can create a charter with editable configurations and explicit budgets', async ({ page }) => {
+test('a new researcher starts by setting up the problem, not by filling in its fields', async ({ page }) => {
   const { writes } = await mockWorkspace(page, blank);
   await page.goto('/');
   await expect(page.getByRole('heading', { name: 'A better way to find the next design.' })).toBeVisible();
   await expect(page.getByText('No campaign yet')).toBeAttached();
   await page.screenshot({ path: test.info().outputPath('empty-workspace.png'), fullPage: true });
   await page.getByRole('button', { name: 'Create campaign', exact: true }).click();
-  const dialog = page.getByRole('dialog');
-  await dialog.getByLabel('Campaign name').fill('My inverse design study');
-  await dialog.getByLabel('Compute cap (seconds)', { exact: true }).fill('240');
-  await dialog.getByLabel('Validation reserve (seconds)').fill('24');
-  await dialog.getByRole('button', { name: 'Add configuration' }).click();
-  await dialog.getByRole('button', { name: 'Create campaign', exact: true }).click();
-  await expect(dialog).not.toBeVisible();
-  await expect(page.getByText('Campaign created. Your workspace is ready.')).toBeVisible();
-  expect(writes[0].body).toMatchObject({ operation: 'campaign.create', expected_revision: 0 });
-  expect(writes[0].body.campaign_id).toBeTruthy();
-  expect(writes[0].body.payload.tasks).toHaveLength(2);
-  expect(writes[0].body.payload.compute_budget_seconds).toBe(240);
-  expect(writes[0].body.payload.validation_reserve_seconds).toBe(24);
+  await expect(page.getByRole('heading', { name: 'Set up the problem.' })).toBeVisible();
+  await expect(page.getByRole('dialog')).toHaveCount(0);
+  expect(writes).toHaveLength(0);
 });
 
 test('charter revision sends only permitted task fields and preserves explicit physics', async ({ page }) => {
@@ -173,7 +163,7 @@ test('decisions require an explicit selection and retain researcher rationale', 
     choice: 'extend', comment: 'We need to observe the proposed mechanism before evaluating it.' } });
 });
 
-test('mobile navigation and dialog escape work without a horizontal page overflow', async ({ page }) => {
+test('mobile navigation reaches the problem setup without a horizontal page overflow', async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
   await mockWorkspace(page, blank);
   await page.goto('/');
@@ -182,9 +172,7 @@ test('mobile navigation and dialog escape work without a horizontal page overflo
   await expect(page.getByRole('heading', { name: 'Competing ideas. Visible reasoning.' })).toBeVisible();
   await page.getByRole('button', { name: 'Open navigation' }).click();
   await page.getByRole('button', { name: 'New campaign', exact: true }).click();
-  await expect(page.getByRole('dialog')).toBeVisible();
-  await page.keyboard.press('Escape');
-  await expect(page.getByRole('dialog')).not.toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Set up the problem.' })).toBeVisible();
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
 });
 
@@ -398,6 +386,7 @@ test('missing implementation permits design and commissions separate bounded wor
   await dossier.getByRole('button', { name: 'Request implementation', exact: true }).click();
   const form = page.getByRole('dialog');
   await expect(form.getByRole('heading', { name: 'Commission an implementation', exact: true })).toBeVisible();
+  await form.getByLabel('Unit of implementation time allocation').selectOption('s');
   await form.getByLabel('Implementation time allocation (seconds)').fill('90');
   await form.getByLabel('Maximum model calls').fill('3');
   await form.getByRole('button', { name: 'Commission implementation', exact: true }).click();

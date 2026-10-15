@@ -8,16 +8,36 @@ function atomic(file: string, value: any) {
   const temp = file + '.tmp'; fs.writeFileSync(temp, JSON.stringify(value), {mode: 0o600}); fs.renameSync(temp, file);
 }
 function digest(value: any) { return createHash('sha256').update(JSON.stringify(value)).digest('hex'); }
+// What an agent is doing at this moment, for the researcher's screen: the steps of its turn, the text it is
+// writing and the end of its reasoning. Held in memory only; reasoning never reaches the event journal.
+const LIVE_TEXT = 4000, LIVE_STEPS = 40;
+const tail = (text: string) => text.length > LIVE_TEXT ? text.slice(-LIVE_TEXT) : text;
+const cut = (value: any, limit: number) => typeof value === 'string' && value.length > limit ? value.slice(0, limit) + '…' : value;
+const plain = (value: any) => value === null || ['string', 'number', 'boolean'].includes(typeof value);
+/** A tool call's arguments, short enough to show: long texts are cut and deep values left out. */
+export function brief(args: any) {
+  if (!args || typeof args !== 'object' || Array.isArray(args)) return {};
+  const result: Record<string, any> = {};
+  for (const [key, value] of Object.entries(args).slice(0, 12)) {
+    if (plain(value)) result[key] = cut(value, 200);
+    else if (Array.isArray(value)) result[key] = value.filter(plain).slice(0, 6).map(item => cut(item, 80));
+    else if (value && typeof value === 'object') result[key] = Object.fromEntries(Object.entries(value).filter(([, item]) => plain(item)).slice(0, 8).map(([name, item]) => [name, cut(item, 120)]));
+  }
+  return result;
+}
 export class Supervisor {
   agents = new Map<string, any>();
   closing = false;
   changed = new Set<string>();
+  live = new Map<string, any>();
+  calls = new Set<string>();
   flushTimer: ReturnType<typeof setTimeout> | null = null;
   // notify(agentIds) tells the workspace which agents to pull; it is a hint, so
   // a lost notice only delays reconciliation until the workspace's next sweep.
   constructor(public directory: string, public factory: any, public gateway: any, public authPath: string,
               public notify: ((ids: string[]) => Promise<unknown> | void) | null = null,
-              public reconfigure: ((runtime: any, spec: any) => Promise<void>) | null = null) {
+              public reconfigure: ((runtime: any, spec: any) => Promise<void>) | null = null,
+              public completer: ((input: any, observe: (event: any) => void, signal?: AbortSignal) => Promise<any>) | null = null) {
     fs.mkdirSync(directory, {recursive: true, mode: 0o700});
     for (const id of fs.readdirSync(directory)) {
       const file = path.join(directory, id, 'state.json');
@@ -60,6 +80,51 @@ export class Supervisor {
     this.save(agent);
     return item;
   }
+  begin(id: string, runId: string) {
+    const at = new Date().toISOString();
+    const entry = {id, run_id: runId, started_at: at, updated_at: at, finished_at: null as string | null, phase: 'starting', steps: [] as any[], thinking: '', text: ''};
+    this.live.set(id, entry);
+    return entry;
+  }
+  /** Fold one event of the model's stream into the live entry. */
+  observe(entry: any, event: any) {
+    if (!entry || entry.finished_at) return;
+    const at = new Date().toISOString();
+    if (event.type === 'message_update') {
+      const part = event.assistantMessageEvent || {};
+      if (part.type === 'thinking_start') { entry.thinking = ''; entry.phase = 'thinking'; }
+      else if (part.type === 'thinking_delta') { entry.thinking = tail(entry.thinking + (part.delta || '')); entry.phase = 'thinking'; }
+      else if (part.type === 'text_start') { entry.text = ''; entry.phase = 'writing'; }
+      else if (part.type === 'text_delta') { entry.text = tail(entry.text + (part.delta || '')); entry.phase = 'writing'; }
+      else return;
+    } else if (event.type === 'tool_execution_start') {
+      entry.steps.push({call_id: event.toolCallId, tool: event.toolName, args: brief(event.args), started_at: at});
+      if (entry.steps.length > LIVE_STEPS) entry.steps.shift();
+      entry.phase = 'tool';
+    } else if (event.type === 'tool_execution_end') {
+      const step = [...entry.steps].reverse().find((item: any) => item.call_id === event.toolCallId);
+      if (step) { step.finished_at = at; if (event.isError) step.failed = true; }
+      entry.phase = 'thinking';   // the model reads the result next
+    } else return;
+    entry.updated_at = at;
+  }
+  liveView(ids: string[]) {
+    return Object.fromEntries(ids.map(safeID).filter(id => this.live.has(id)).map(id => [id, this.live.get(id)]));
+  }
+  /** One model call outside any agent's session, such as a stage of the report writer. Its reasoning shows in the live view under the caller's id. */
+  async complete(id: string, input: any, signal?: AbortSignal) {
+    safeID(id);
+    if (!this.completer) throw new Error('Single model calls are not available on this harness');
+    if (this.calls.has(id)) throw new Error('A model call under this identity is still running');
+    const entry = this.begin(id, String(input.label || 'call').slice(0, 200));
+    this.calls.add(id);
+    try {
+      const result = await this.completer(input, (event: any) => this.observe(entry, event), signal);
+      entry.phase = 'completed';
+      return result;
+    } catch (error) { entry.phase = 'failed'; throw error; }
+    finally { entry.finished_at = new Date().toISOString(); this.calls.delete(id); }
+  }
   view(id: string, after = 0) {
     const agent = this.agents.get(safeID(id)); if (!agent) return null;
     const file = path.join(this.directory, id, 'events.jsonl');
@@ -100,6 +165,7 @@ export class Supervisor {
     if (this.closing || agent.busy || agent.control) return;
     const run: any = Object.values(agent.runs).find((r: any) => r.status === 'queued'); if (!run) return;
     agent.busy = true; run.status = 'running'; this.event(agent, 'run.started', {run_id: run.id});
+    const live = this.begin(agent.id, run.id);
     let deadlineTimer: ReturnType<typeof setTimeout> | undefined;
     let expired = false;
     try {
@@ -111,12 +177,15 @@ export class Supervisor {
             const active: any = Object.values(agent.runs).find((r: any) => r.status === 'running');
             if (!active) throw new Error('No active assignment');
             const result = await this.gateway('tool', {agent_id: agent.id, run_id: active.id, call_id: callId, name: tool.name, arguments: args}, signal);
-            return {content: [{type: 'text', text: JSON.stringify(result)}], details: {}};
+            // A saved yield_work ends the turn: without this a model may keep writing closing lines and yielding again.
+            const ends = tool.name === 'yield_work' && result?.saved === true;
+            return {content: [{type: 'text', text: JSON.stringify(result)}], details: {}, ...(ends ? {terminate: true} : {})};
           }}));
         agent.runtime = await this.factory({directory: path.join(this.directory, agent.id), sessionFile: agent.sessionFile,
           authPath: this.authPath, ...agent.spec, instructions: manifest.instructions, tools});
         agent.sessionFile = agent.runtime.sessionFile; agent.sessionId = agent.runtime.sessionId; this.save(agent);
         agent.runtime.subscribe((event: any) => {
+          this.observe(this.live.get(agent.id), event);
           if (event.type === 'message_end' && event.message?.role === 'assistant') {
             const message = event.message;
             const content = message.content.filter((c: any) => c.type === 'text').map((c: any) => c.text).join('\n');
@@ -151,12 +220,15 @@ export class Supervisor {
       run.status = agent.control || (run.status === 'interrupted' || last?.stopReason === 'aborted' ? 'interrupted' : 'completed');
       // Everything the agent wrote in the turn, in order. An answer written before the turn's last tool
       // call (the checkpoint, usually) is otherwise lost behind the closing line that follows it.
-      run.result = {text: agent.turnTexts?.length ? agent.turnTexts.join('\n\n') : agent.runtime.getLastAssistantText() || ''};
+      run.result = {text: agent.turnTexts?.length ? agent.turnTexts.join('\n\n') : agent.runtime.getLastAssistantText() || '',
+        // The separate texts let the chat show the closing message and fold lines written beside earlier tool calls.
+        ...(agent.turnTexts?.length > 1 ? {parts: [...agent.turnTexts]} : {})};
     } catch (e: any) {
       run.status = agent.control || (run.status === 'interrupted' ? 'interrupted' : 'failed'); run.error = String(e.message || e).slice(0, 1500);
     } finally {
       if (deadlineTimer) clearTimeout(deadlineTimer);
       run.finished_at = new Date().toISOString(); agent.busy = false;
+      live.finished_at = run.finished_at; live.phase = run.status;
       this.event(agent, 'run.' + run.status, {run_id: run.id, error: run.error});
       if (!this.closing && !agent.control) void this.pump(agent);
     }
@@ -181,6 +253,7 @@ export class Supervisor {
       await agent.runtime?.abort();
       for (let waited = 0; agent.busy && waited < 10000; waited += 50) await new Promise(resolve => setTimeout(resolve, 50));
       agent.removed = true; this.agents.delete(id); this.changed.delete(id);
+      this.live.delete(id);
       agent.runtime?.dispose?.(); agent.runtime = null;
     }
     const existed = fs.existsSync(directory);

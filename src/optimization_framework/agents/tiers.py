@@ -19,7 +19,7 @@ from .models import LEAD, ROLES, ModelChoice
 RECORD_ID = "model_tiers"
 IMPORTER = "problem_importer"
 ASSIGNABLE = (*ROLES, IMPORTER)
-STRONG_ROLES = {LEAD, "proposal_reviewer", "implementation_validator", IMPORTER}
+STRONG_ROLES = {LEAD, "proposal_reviewer", "implementation_validator", "discussion_moderator", "implementation_lead", IMPORTER}
 
 
 class Tier(Contract):

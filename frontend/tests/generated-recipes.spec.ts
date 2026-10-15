@@ -20,8 +20,11 @@ test('commissioned evaluator recipes work through study, diagnostic, and validat
   await page.getByRole('button', { name: 'New campaign', exact: true }).click();
   const dialog = page.getByRole('dialog');
   await dialog.getByLabel('Campaign name').fill(`Generated recipe qualification ${Date.now()}`);
+  await dialog.getByLabel('Unit of compute cap').selectOption('s');
   await dialog.getByLabel('Compute cap (seconds)', { exact: true }).fill('120');
+  await dialog.getByLabel('Unit of implementation compute cap').selectOption('s');
   await dialog.getByLabel('Implementation compute cap (seconds)', { exact: true }).fill('60');
+  await dialog.getByLabel('Unit of validation reserve').selectOption('s');
   await dialog.getByLabel('Validation reserve (seconds)').fill('0');
   await dialog.getByLabel('API spending cap (USD)').fill('0');
   await dialog.getByLabel('Configuration 1', { exact: true }).fill('Declared quadratic');
@@ -44,6 +47,7 @@ test('commissioned evaluator recipes work through study, diagnostic, and validat
 
   await page.getByRole('button', { name: 'Build or reuse evaluator', exact: true }).click();
   await dialog.getByLabel('Evaluator specification', { exact: true }).fill('Sum squared distance to center plus offset, rounded to digits.');
+  await dialog.getByLabel('Unit of evaluator time allocation').selectOption('s');
   await dialog.getByLabel('Evaluator time allocation (seconds)').fill('30');
   await dialog.getByLabel('Evaluator maximum model calls').fill('1');
   await dialog.getByLabel('Reference 1 candidate').fill('0, 0');
@@ -68,6 +72,7 @@ test('commissioned evaluator recipes work through study, diagnostic, and validat
   await dialog.getByLabel('Require Compare declared fidelities', { exact: true }).check();
   await dialog.getByLabel('Fidelity settings sequence (JSON)', { exact: true }).fill('[{"digits":4},{"digits":8}]');
   await dialog.getByLabel('Absolute tolerance', { exact: true }).fill('0.0001');
+  await dialog.getByLabel('Unit of time cap per required check').selectOption('s');
   await dialog.getByLabel('Time cap per required check (seconds)', { exact: true }).fill('10');
   await dialog.getByRole('button', { name: 'Freeze and activate study' }).click();
   await expect(dialog).not.toBeVisible();
@@ -78,6 +83,7 @@ test('commissioned evaluator recipes work through study, diagnostic, and validat
   await page.getByRole('button', { name: 'Design an experiment', exact: true }).click();
   await dialog.getByLabel('Optimization strategy').selectOption('coordinate');
   await dialog.getByLabel('Evaluation requests', { exact: true }).fill('4');
+  await dialog.getByLabel('Unit of time cap').selectOption('s');
   await dialog.getByLabel('Time cap (seconds)', { exact: true }).fill('10');
   await dialog.getByText('Recovery and diagnostic schedules', { exact: true }).click();
   await dialog.getByRole('button', { name: 'Add diagnostic schedule', exact: true }).click();
@@ -86,6 +92,7 @@ test('commissioned evaluator recipes work through study, diagnostic, and validat
   await dialog.getByRole('button', { name: 'Add validation', exact: true }).click();
   await dialog.getByLabel('Validation recipe', { exact: true }).selectOption('candidate_reevaluation:v1');
   await dialog.getByLabel('Evaluations per candidate', { exact: true }).fill('2');
+  await dialog.getByLabel('Unit of validation time cap').selectOption('s');
   await dialog.getByLabel('Validation time cap (seconds)', { exact: true }).fill('5');
   await dialog.getByRole('button', { name: 'Launch experiment', exact: true }).click();
   await expect(dialog).not.toBeVisible();
@@ -103,6 +110,7 @@ test('commissioned evaluator recipes work through study, diagnostic, and validat
   await page.getByLabel('Validation recipe', { exact: true }).selectOption('fidelity_comparison:v1');
   await page.getByLabel('Fidelity settings sequence (JSON)', { exact: true }).fill('[{"digits":4},{"digits":8}]');
   await page.getByLabel('Absolute tolerance', { exact: true }).fill('0.0001');
+  await page.getByLabel('Unit of validation time cap').selectOption('s');
   await page.getByLabel('Validation time cap (seconds)', { exact: true }).fill('10');
   await page.getByRole('button', { name: 'Submit validation request', exact: true }).click();
   const assessments = async () => (await request.get(`${base}/api/v1/campaigns/${campaign.id}/validations`)).json();

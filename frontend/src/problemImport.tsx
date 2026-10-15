@@ -59,8 +59,10 @@ export function ProblemImportView({ onUseDraft }: { onUseDraft: (example: Json) 
   </>;
 }
 
-function NewImport({ onStarted }: { onStarted: (record: Json) => void }) {
+/** Material for the formulator: a written statement, documents, a code base, or any of them together. */
+export function NewImport({ onStarted, title: heading = 'New import', submit = 'Start import' }: { onStarted: (record: Json) => void; title?: string; submit?: string }) {
   const [catalog, setCatalog] = useState<Json | null>(null), [catalogError, setCatalogError] = useState('');
+  const [statement, setStatement] = useState('');
   const [documents, setDocuments] = useState<File[]>([]), [codeKind, setCodeKind] = useState('none');
   const [archive, setArchive] = useState<File | null>(null), [url, setUrl] = useState(''), [ref, setRef] = useState(''), [path, setPath] = useState('');
   const [notes, setNotes] = useState(''), [title, setTitle] = useState(''), [budget, setBudget] = useState('2');
@@ -69,31 +71,33 @@ function NewImport({ onStarted }: { onStarted: (record: Json) => void }) {
   useEffect(() => { api('/api/v1/model-tiers').then(result => {
     setCatalog(result); setTier(result.roles?.problem_importer || result.tiers?.[0]?.id || '');
   }).catch(e => setCatalogError(errorText(e))); }, []);
-  const chosen = catalog?.tiers.find((t: Json) => t.id === tier);
+  const chosen = catalog?.tiers?.find((t: Json) => t.id === tier);
   const billing = chosen ? catalog?.providers?.[chosen.model.provider]?.billing : undefined;
   async function start(event: FormEvent) {
     event.preventDefault(); setError(''); setBusy(true);
     let record: Json | null = null;
     try {
-      if (!documents.length) throw new Error('Add at least one document.');
+      if (!documents.length && !statement.trim()) throw new Error('Write a problem statement or add at least one document.');
       if (!chosen) throw new Error('Choose a model tier.');
       setProgress('Creating the import…');
-      record = await api(base, { title, notes, tier, budget_usd: Number(budget) });
+      record = await api(base, { title, statement, notes, tier, budget_usd: Number(budget) });
       for (const file of documents) { setProgress(`Uploading and reading ${file.name}…`); await upload(`${base}/${record!.id}/documents/${encodeURIComponent(file.name)}`, file); }
       if (codeKind === 'archive' && archive) { setProgress(`Unpacking ${archive.name}…`); await upload(`${base}/${record!.id}/code-archive/${encodeURIComponent(archive.name)}`, archive); }
       if (codeKind === 'git') { setProgress('Fetching the repository…'); await api(`${base}/${record!.id}/code`, { kind: 'git', url, ref }); }
       if (codeKind === 'folder') { setProgress('Copying the folder…'); await api(`${base}/${record!.id}/code`, { kind: 'folder', path }); }
-      setProgress('Starting the importer…');
+      setProgress('Starting the formulator…');
       const started = await api(`${base}/${record!.id}/start`, {});
-      setDocuments([]); setArchive(null); setNotes(''); setTitle(''); setProgress('');
+      setDocuments([]); setArchive(null); setNotes(''); setTitle(''); setStatement(''); setProgress('');
       onStarted(started);
     } catch (e) {
       setProgress(''); setError(errorText(e) + (record ? ' The import was saved; fix the source and start a new import.' : ''));
       if (record) onStarted(record);
     } finally { setBusy(false); }
   }
-  return <Panel title="New import"><form className="import-form" onSubmit={start}>
-    <Field label="Documents" hint="PDF, Word (.docx), Markdown, TeX or text. Text is extracted on this machine; figures and equations may be lost.">
+  return <Panel title={heading}><form className="import-form" onSubmit={start}>
+    <Field label="Problem statement" hint="In your own words: what is designed, under which conditions, and what makes a design good. Partial is fine; the formulator asks about what is missing.">
+      <textarea value={statement} onChange={e => setStatement(e.target.value)} rows={6} /></Field>
+    <Field label="Documents" hint="Optional with a statement. PDF, Word (.docx), Markdown, TeX or text. Text is extracted on this machine; figures and equations may be lost.">
       <input type="file" multiple accept={DOCUMENTS} onChange={e => setDocuments([...(e.target.files || [])])} /></Field>
     {documents.length > 0 && <ul className="import-files">{documents.map(file => <li key={file.name}>{file.name} <small>{(file.size / 1024 / 1024).toFixed(1)} MB</small></li>)}</ul>}
     <Field label="Code base"><select value={codeKind} onChange={e => setCodeKind(e.target.value)}><option value="none">None</option><option value="archive">Archive upload (.zip, .tar.gz)</option>
@@ -102,16 +106,16 @@ function NewImport({ onStarted }: { onStarted: (record: Json) => void }) {
     {codeKind === 'git' && <><Field label="Repository URL" hint="https:// or ssh. The code is fetched, never run."><input value={url} onChange={e => setUrl(e.target.value)} required placeholder="https://github.com/org/repo.git" /></Field>
       <Field label="Branch, tag or commit" hint="Leave empty for the default branch."><input value={ref} onChange={e => setRef(e.target.value)} placeholder="7838e71313d71cee8e2db3b432f41f80b9106a95" /></Field></>}
     {codeKind === 'folder' && <Field label="Folder path" hint="A project folder under your home folder. Credentials and tool folders are skipped."><input value={path} onChange={e => setPath(e.target.value)} required placeholder="~/Work/project" /></Field>}
-    <Field label="Notes for the importer" hint="Optional: which condition to formulate, what to ignore, known corrections."><textarea value={notes} onChange={e => setNotes(e.target.value)} rows={3} /></Field>
-    <Field label="Import name" hint="Defaults to the first document's name."><input value={title} onChange={e => setTitle(e.target.value)} maxLength={200} /></Field>
+    <Field label="Notes for the formulator" hint="Optional: which condition to formulate, what to ignore, known corrections."><textarea value={notes} onChange={e => setNotes(e.target.value)} rows={3} /></Field>
+    <Field label="Name" hint="Defaults to the statement's first line or the first document's name."><input value={title} onChange={e => setTitle(e.target.value)} maxLength={200} /></Field>
     {catalogError ? <ErrorNotice text={`Models are unavailable: ${catalogError}`} /> : <div className="import-model">
       <Field label="Model tier" hint={chosen ? `${chosen.model.provider}/${chosen.model.model}${chosen.model.effort ? ` · ${chosen.model.effort}` : ''}. Tiers are set on the Models page.` : undefined}>
         <select value={tier} onChange={e => setTier(e.target.value)}>{(catalog?.tiers || []).map((t: Json) => <option key={t.id} value={t.id}>{t.label}</option>)}</select></Field>
-      <Field label="API budget (USD)" hint={billing === 'api' ? 'The importer stops when its API cost reaches this.' : 'Subscription calls are not charged against it.'}><input type="number" min="0.01" max="100" step="0.01" value={budget} onChange={e => setBudget(e.target.value)} required /></Field>
+      <Field label="API budget (USD)" hint={billing === 'api' ? 'The formulator stops when its API cost reaches this.' : 'Subscription calls are not charged against it.'}><input type="number" min="0.01" max="100" step="0.01" value={budget} onChange={e => setBudget(e.target.value)} required /></Field>
     </div>}
-    <p className="help-text">The documents' text and the code are sent to the chosen model provider.</p>
+    <p className="help-text">The statement, the documents' text and the code are sent to the chosen model provider.</p>
     <ErrorNotice text={error} />{progress && <p className="help-text" role="status">{progress}</p>}
-    <button className="button primary" disabled={busy || !catalog}>{busy ? 'Working…' : 'Start import'}<Icon name="arrow" size={16} /></button>
+    <button className="button primary" disabled={busy || !catalog}>{busy ? 'Working…' : submit}<Icon name="arrow" size={16} /></button>
   </form></Panel>;
 }
 
@@ -140,7 +144,8 @@ function ImportDetail({ id, onChange, onUseDraft }: { id: string; onChange: () =
       {record.reply && <div className="import-reply"><strong>Importer</strong><p>{record.reply}</p></div>}
     </Panel>
     <ErrorNotice text={error} />{notice && <p className="help-text" role="status">{notice}</p>}
-    {draft ? <Panel title={draft.title} eyebrow="Draft for review" action={<div className="inline-actions">
+    {record.charter_id ? <Panel title="Problem charter"><p>The formulator wrote a problem charter. <a href={`#new/${record.charter_id}`}>Open it to review and confirm</a>.</p></Panel>
+    : draft ? <Panel title={draft.title} eyebrow="Draft for review" action={<div className="inline-actions">
         <button className="button small primary" onClick={() => onUseDraft(draftExample(record))}>Use in a new campaign</button>
         <button className="button small secondary" disabled={busy} onClick={() => void act('/api/v1/problem-examples', { import_id: id }, 'Saved. It appears under “Start from” when you create a campaign.')}>Save as example</button></div>}>
       <ReadableText className="import-summary" text={draft.summary} />

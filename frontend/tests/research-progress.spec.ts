@@ -48,7 +48,7 @@ function awaitingDirection() {
   return state;
 }
 
-test('the notebook shows the manager request with a direct reply form and queues the answer once', async ({ page }) => {
+test('the overview shows the manager request with a direct reply form and queues the answer once', async ({ page }) => {
   const state = awaitingDirection(), writes: any[] = [];
   await mock(page, state, body => {
     writes.push(body);
@@ -57,7 +57,7 @@ test('the notebook shows the manager request with a direct reply form and queues
       session: { ...state.research_progress.session, status: 'running' }, task_counts: { total: 1, queued: 1 } };
     return { json: { id: body.id, status: 'completed', outcome: { manager_command_id: 'reply-request' } } };
   });
-  await page.goto('/#notebook');
+  await page.goto('/#overview');
   const request = page.getByRole('region', { name: 'Manager request and reply' });
   await expect(request).toContainText('Does H12 mean Mask-aware tangent-space covariance adaptation?');
   await expect(request).toContainText('What implementation allocation do you authorize?');
@@ -84,7 +84,7 @@ test('a failed direction reply keeps the request and draft visible and retries t
     return { json: { id: body.id, status: 'completed', outcome: {} } };
   });
   await page.route('**/api/v1/commands/*', route => route.fulfill({ status: 404, json: { detail: 'No saved result yet' } }));
-  await page.goto('/#notebook');
+  await page.goto('/#overview');
   const request = page.getByRole('region', { name: 'Manager request and reply' });
   const reply = request.getByLabel('Your reply to the campaign manager');
   await reply.fill('Please clarify the implementation allocation.');
@@ -105,7 +105,7 @@ test('waiting without a saved question offers direction without inventing a requ
   state.research_progress.direction_request = { ...state.research_progress.direction_request,
     kind: 'open_direction', summary: 'Assigned work has finished. Choose the next focus.', questions: [] };
   await mock(page, state);
-  await page.goto('/#notebook');
+  await page.goto('/#overview');
   const request = page.getByRole('region', { name: 'Manager request and reply' });
   await expect(request).toContainText('The manager did not leave a specific question.');
   await expect(request.getByLabel('Your reply to the campaign manager')).toBeVisible();
@@ -122,7 +122,7 @@ test('allocation wrap-up shows saved handoffs without retrying or claiming succe
     agents: [{ task_id: 'partial', role: 'source_analyst', stage: 'study', status: 'handed_off', active: false,
       activity: 'Partial findings and remaining work saved for the campaign manager.' }] };
   await mock(page, state, body => { writes.push(body); });
-  await page.goto('/#hypotheses');
+  await page.goto('/#overview');
   const progress = page.getByRole('region', { name: 'Campaign research progress' });
   await expect(progress).toContainText('Discovery wrapped up at its allocation');
   await expect(progress).toContainText('2 completed');
@@ -147,16 +147,21 @@ test('Develop strategies shows the paused queue before and after submission; Res
       message: 'Waiting for the manager to dispatch work.', can_resume: false, session: { id: 'discovery-session', status: 'running', control_revision: 8 } };
     state.manager_commands[0].status = 'admitted';
   });
-  await page.goto('/#hypotheses');
+  await page.goto('/#overview');
   const progress = page.getByRole('region', { name: 'Campaign research progress' });
   await expect(progress).toBeVisible();
   await expect(progress).toContainText('No agents are working');
   await expect(progress.locator('.research-progress-spinner')).toHaveCount(0);
+  // The progress panel is on Overview only; strategies are asked for on Hypotheses.
+  await page.getByRole('button', { name: 'Hypotheses', exact: true }).click();
+  await expect(progress).toHaveCount(0);
   await page.getByRole('button', { name: 'Develop strategies', exact: true }).click();
   const dialog = page.getByRole('dialog');
   await expect(dialog).toContainText('Discovery is paused');
   await dialog.getByLabel('Direction or constraints').fill('Algorithms with reliable implementations');
   await dialog.getByRole('button', { name: 'Send to campaign manager' }).click();
+  await expect(page.locator('.toast')).toContainText('Resume discovery on Overview');
+  await page.getByRole('button', { name: 'Overview', exact: true }).click();
   await expect(progress).toContainText('Your latest request:');
   await expect(progress).toContainText('Algorithms with reliable implementations');
   await expect(page.locator('.toast')).toContainText('Request saved. Discovery is paused');
@@ -181,7 +186,7 @@ test('active calls show live elapsed time, model and evidence heartbeat; complet
       activity: 'Provider process is alive; waiting for new output.' }],
     task_counts: { total: 2, completed: 1, running: 1, queued: 0 } };
   await mock(page, state);
-  await page.goto('/#hypotheses');
+  await page.goto('/#overview');
   const progress = page.getByRole('region', { name: 'Campaign research progress' });
   await expect(progress).toContainText('gpt-6-astra · Extra high');
   await page.clock.pauseAt(new Date(stamp));
@@ -202,9 +207,9 @@ test('active calls show live elapsed time, model and evidence heartbeat; complet
   await expect(progress).toContainText('Model call allowance exhausted');
   await expect(progress.locator('.research-progress-spinner')).toHaveCount(0);
   await progress.getByRole('link', { name: 'View agent log' }).click();
-  await expect(page).toHaveURL(/#notebook\/agent-log$/);
+  await expect(page).toHaveURL(/#agents\/log$/);
   await expect(page.getByRole('region', { name: 'Agent work log' })).toBeVisible();
-  await expect(page.getByRole('button', { name: 'Agent log', exact: true })).toHaveClass('selected');
+  await expect(page.getByRole('tab', { name: 'Log', exact: true })).toHaveAttribute('aria-selected', 'true');
   await page.reload();
   await expect(page.getByRole('region', { name: 'Agent work log' })).toBeVisible();
 });
@@ -219,7 +224,7 @@ test('resume failure is visible and retry uses refreshed control revision', asyn
       return { status: 409, json: { detail: 'Discovery changed; review its current state and retry.' } };
     }
   });
-  await page.goto('/#hypotheses');
+  await page.goto('/#overview');
   const progress = page.getByRole('region', { name: 'Campaign research progress' });
   await progress.getByRole('button', { name: 'Resume discovery', exact: true }).click();
   await expect(progress.getByRole('alert')).toContainText('Discovery changed');
@@ -252,7 +257,7 @@ test('retry sends the failed tasks from this request and shows a waiting timeout
     state.research_progress.session.control_revision = 12;
     state.research_progress.status = 'queued';
   });
-  await page.goto('/#hypotheses');
+  await page.goto('/#overview');
   const progress = page.getByRole('region', { name: 'Campaign research progress' });
   await expect(progress).toHaveAttribute('data-status', 'waiting');
   await expect(progress.locator('.research-progress-agents').getByText('Model call timed out after 120 seconds.', { exact: true })).toHaveCount(2);
@@ -278,7 +283,7 @@ test('paused retry stays paused and disables both retry and resume while the com
     state.research_progress.retryable_task_ids = [];
     state.research_progress.session.control_revision = 12;
   });
-  await page.goto('/#hypotheses');
+  await page.goto('/#overview');
   const progress = page.getByRole('region', { name: 'Campaign research progress' });
   await expect(progress).toContainText('Discovery stays paused until you resume.');
   await progress.getByRole('button', { name: 'Retry failed tasks', exact: true }).click();
@@ -303,7 +308,7 @@ test('retry conflict refreshes the revision and waits for another explicit click
     }
     state.research_progress.retryable_task_ids = [];
   });
-  await page.goto('/#hypotheses');
+  await page.goto('/#overview');
   const progress = page.getByRole('region', { name: 'Campaign research progress' });
   await progress.getByRole('button', { name: 'Retry failed tasks', exact: true }).click();
   await expect(progress.getByRole('alert')).toContainText('Discovery changed');

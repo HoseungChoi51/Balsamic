@@ -13,7 +13,7 @@ from optimization_framework.contracts.base import content_hash
 from optimization_framework.contracts.commands import Command
 from optimization_framework.storage.sqlite import now
 from optimization_framework.research.discovery.record_view import view_record
-from .models import ROLES, LEAD
+from .models import ROLES, LEAD, PAGE_AGENTS, STANDING, DISCUSSION_ROLES
 from .capabilities import implementation_execution
 
 READ_KINDS = {"campaign", "task", "hypothesis", "source", "source_capture", "source_passage", "source_retrieval", "runtime_profile", "evaluator_equivalence",
@@ -23,13 +23,25 @@ READ_KINDS = {"campaign", "task", "hypothesis", "source", "source_capture", "sou
     "implementation_binding", "implementation_grant", "implementation_cache", "reference_correction", "agent_migration", "agent_session",
     "agent_alias", "agent_artifact", "agent_run", "agent_question", "agent_tool_receipt", "fixed_mask_job", "fixed_mask_report",
     "builtin_binding", "manager_state", "message", "methodology_family", "discovery_reference_correction", "discovery_task_resolution", "research_run", "work_command",
+    "report_writer_job", "technical_report",
     "adaptive_race", "race_protocol", "race_decision", "race_endpoint", "race_confirmation_roster",
     "race_resource_calibration", "race_fidelity_amendment", "race_execution_lease"}
+# What agents wrote, passed to the report writer when the lead names it (the writer freezes the campaign records itself).
+AGENT_RECORD_KINDS = {"agent_artifact", "agent_run"}
+# The commands of each page agent: the work of its page, and asking the researcher for approval.
+ROLE_OPERATIONS = {
+    "discussion_moderator": {"hypothesis.create", "hypothesis.review", "hypothesis.status", "approval.request"},
+    "experiment_operator": {"draft.save", "draft.launch", "trial.create", "trial.control", "trial.extension_request", "trial.continue",
+                            "runtime.profile", "fixed_mask.run", "comparison.report", "approval.request", "experiments.rules", "trial.hide"},
+    "implementation_lead": {"implementation.commission", "implementation.attach", "implementation.revalidate", "implementation.bind_builtin",
+                            "implementation.resolve_runtime", "evaluator.commission", "evaluator.attach", "evaluator.equivalence", "approval.request"},
+}
 OPERATIONS = {"hypothesis.create", "hypothesis.review", "hypothesis.status", "draft.save", "draft.launch", "trial.create",
     "trial.control", "trial.extension_request", "implementation.commission", "implementation.attach", "implementation.revalidate", "implementation.bind_builtin",
     "implementation.resolve_runtime", "evaluator.commission", "evaluator.attach", "finding.record", "comparison.report",
     "validation.run", "validation.execute", "study.create", "study.activate", "fixed_mask.run",
-    "study.race.control", "study.race.decide", "asset.snapshot", "runtime.profile", "evaluator.equivalence", "trial.continue", "journal.compaction_request", "approval.request"}
+    "study.race.control", "study.race.decide", "asset.snapshot", "runtime.profile", "evaluator.equivalence", "trial.continue", "journal.compaction_request", "approval.request",
+    "experiments.rules", "trial.hide"}
 INSTRUCTIONS = """You are a persistent Pi agent in a scientific campaign. Your role and assignment are supplied below.
 The lead agent works for the researcher, at the researcher's request. The researcher decides what the campaign does next and the
 lead carries it out: it does not work through the campaign by itself. A message from the researcher is a request. Do what it asks,
@@ -42,7 +54,8 @@ what you would do next, say it and wait. If the platform requires a step before 
 profile before a long run), do that step and say so in the report; for anything else the request did not name, propose it and wait.
 Reading and analysing what already exists is always part of a request. Before the first request there is nothing to do.
 A turn that begins with [Platform notice ...] is not a request. It reports the outcome of work that a request started, or a
-subagent's result: use it to carry that request on, and start nothing the request did not ask for.
+subagent's result: use it to carry that request on, and start nothing the request did not ask for. A notice that brings a question
+from an agent in charge of a page (lead_ask) is answered in that turn's reply, which goes back to it; start no other work for it.
 Use real tools to investigate, implement, test, and coordinate. A natural-language request is not an execution receipt.
 The campaign database is authoritative for current objectives, budgets, evaluator readiness and measured results.
 Inspect campaign_inspect first and after researcher steering. Read evidence on demand; do not load the whole archive.
@@ -65,7 +78,15 @@ The journals of every evaluated design are working data. Once an experiment's re
 its journals can be compacted: say so in your report, and file journal.compaction_request for the finished experiments when the
 researcher asks for the clean-up, with what was recorded as the rationale; only the researcher approves it. It keeps every row
 and number and a spread of designs, and removes the rest for good, so it comes last.
-The lead agent owns delegation and execution under existing campaign grants. Subagents return artifacts and findings to the lead agent.
+Three agents are each in charge of a page and stay for the whole campaign: the discussion moderator (Hypotheses: review rounds in
+which specialists and reviewers criticise proposals and the proposals are revised), the experiment operator (Experiments: designing,
+starting, watching, pausing, extending and stopping runs) and the implementation lead (Implementations: building and checking
+optimizers and evaluators). The researcher can ask them directly on their pages; what they did is in campaign_inspect.page_agents.
+The lead hands such work to them with page_agent_message instead of doing it itself, says so with a link to the page, and waits
+for the result, which comes back to it. Asked how the experiments are going, the lead asks the experiment operator. The
+experiment operator keeps the campaign's experiment rules (campaign_inspect.experiment_rules): runs the lead starts follow them too. A page agent works only on what it was asked, by the researcher or by the lead, and
+reports to whoever asked.
+The lead agent owns delegation and execution under existing campaign grants. Subagents return artifacts and findings to the agent that asked them.
 A subagent that needs more time or evaluations for a trial says so, with its reasons, in its findings for the lead.
 The lead may pause, stop or resume trials within their allocations but never enlarges one. When more budget would
 change a decision, the lead files trial.extension_request with that argument; only the researcher approves it.
@@ -97,9 +118,26 @@ experiments you name are mounted read-only at /data/<trial_id>; numpy and optimi
 recent_metrics) can be imported; there is no network and no GPU. Print a short result: whatever a tool returns stays in your context.
 End every turn with yield_work. waiting: jobs or subagents you started for the request are still running, or you asked the
 researcher something; their completion or the answer wakes you. complete: the request is fulfilled or the question answered;
-nothing wakes you until the researcher writes again. The researcher reads what you write during a turn, in order: write the
-answer or report once and in full, and do not restate it after yield_work. Work that belongs to the open request you do or delegate without being
+nothing wakes you until the researcher writes again. Your reply to whoever asked goes in yield_work's report, which is required
+when you call a request complete: it is what they read, so it carries the answer itself, with the numbers that answer it, not only a
+pointer to it. Before you write it, check each part of the request against what you did, and name any part not done and why.
+Lines written beside other tool calls are folded away in the chat, and the turn ends when yield_work returns. Its
+summary is shown to the researcher as the status line: plain words, no record ids. Work that belongs to the open request you do or delegate without being
 asked twice; finishing a request does not finish the campaign, and what comes next is the researcher's choice.
+The researcher talks to you in a chat panel beside the application's pages, and the pages show the details: every proposal,
+run, curve, review and draft. Keep a reply short: what you did, what was found in a few lines, and the choices that are now
+open. Do not repeat in the chat what a page shows (tables of runs, lists of proposals, review texts): link the page instead,
+as a Markdown link to a target listed in campaign_inspect.pages, such as [Experiments](#experiments) or
+[this run](#experiments/<trial_id>); a command receipt names the page of what it created. When you start work that takes
+time, say so and name the page where its progress shows. A direct question still gets its answer in the chat, with the
+numbers that answer it.
+The researcher sees your steps while you work, so do not narrate them. In a turn that a platform notice started, when the
+work is still running and there is nothing new the researcher needs, write no message: call yield_work(waiting) with the
+current status as its summary, which the chat shows as a temporary line.
+When the researcher asks for a report, start the report writer with report_write: its notes say what the report is about and what
+to leave out. Say that it is being written and that its progress shows on [Reports](#reports), and call yield_work(waiting): it takes
+many minutes and its end wakes you. Then give the link to the draft in a line or two. If the writer asks about the focus, answer with
+report_answer when the request settles it, and otherwise pass the question to the researcher. Do not write the report in the chat.
 Use researcher_ask only for a real scientific choice, missing credential, or a campaign resource increase; expose a concrete question.
 Never increase campaign budgets, fabricate validation, edit protected checks as a builder, or modify the running app.
 A request authorizes the work it names, within campaign allocations. Old discovery per-task quotas are historical;
@@ -116,6 +154,104 @@ TOOL_RESULT_BYTES = 256 * 1024
 
 def serialized_bytes(value):
     return len(json.dumps(value, ensure_ascii=False, default=str).encode())
+
+
+# Where the researcher sees each kind of thing. The lead links these pages instead of repeating what they show.
+PAGES = (
+    ("#hypotheses", "Hypotheses", "every proposal with its mechanism, reviews and status; the discussion moderator takes requests here"),
+    ("#hypotheses/rounds", "Review rounds", "what each assistant was asked and answered, its verdicts, and what was done with them"),
+    ("#implementations", "Implementations", "optimizer and evaluator implementations, their checks and coding workspaces; the implementation lead takes requests here"),
+    ("#experiments", "Experiments", "every run with its progress, score curve and best design, and drafts not yet started; one run: #experiments/<trial_id>; "
+        "the experiment operator takes requests here"),
+    ("#comparison", "Results", "runs side by side at matched cost, as curves and tables"),
+    ("#studies", "Studies", "the studies that fix the campaign's scientific scope, and their confirmation runs"),
+    ("#decisions", "Decision inbox", "what waits for the researcher's approval or choice"),
+    ("#assets", "Research assets", "recorded findings"),
+    ("#resources", "Resources", "machine load, measured evaluation speed and budgets"),
+    ("#reports", "Reports", "report drafts and the progress of one being written; one draft: /reports/<report_id>"),
+    ("#problem", "Problem", "the problem definition, the charter and the evaluator"),
+    ("#agents", "Agents", "the agent team and its controls"),
+    ("#agents/usage", "Model usage", "model calls and what they cost"),
+    ("#agents/log", "Agent log", "every recorded tool call and event"),
+)
+COMMAND_PAGES = {"hypothesis.create": "#hypotheses", "hypothesis.review": "#hypotheses", "hypothesis.status": "#hypotheses",
+    "draft.save": "#experiments", "draft.launch": "#experiments", "trial.create": "#experiments", "trial.control": "#experiments",
+    "trial.continue": "#experiments", "comparison.report": "#comparison", "finding.record": "#assets", "runtime.profile": "#resources",
+    "approval.request": "#decisions", "trial.extension_request": "#decisions", "journal.compaction_request": "#decisions",
+    "experiments.rules": "#experiments/rules", "trial.hide": "#experiments",
+    "implementation.commission": "#implementations", "implementation.attach": "#implementations", "implementation.revalidate": "#implementations",
+    "evaluator.commission": "#implementations", "evaluator.attach": "#implementations"}
+
+
+def command_page(record):
+    """The page that shows what a command created, for the lead to link."""
+    page = COMMAND_PAGES.get(record.get("request", {}).get("operation"))
+    outcome = record.get("outcome")
+    trial = outcome.get("trial_id") if isinstance(outcome, dict) else None
+    return f"{page}/{trial}" if page == "#experiments" and isinstance(trial, str) else page
+
+
+COMMAND_STEPS = {"hypothesis.create": "Recording a hypothesis", "hypothesis.review": "Recording a review", "hypothesis.status": "Changing a hypothesis's status",
+    "draft.save": "Saving an experiment draft", "draft.launch": "Starting an experiment", "trial.create": "Starting an experiment",
+    "trial.control": "Pausing, stopping or resuming an experiment", "trial.continue": "Continuing a finished run",
+    "trial.extension_request": "Asking you for a longer run", "finding.record": "Recording a finding", "comparison.report": "Comparing results",
+    "runtime.profile": "Measuring evaluation speed", "evaluator.equivalence": "Checking that a change reproduces recorded results",
+    "fixed_mask.run": "Evaluating a fixed design", "journal.compaction_request": "Asking you to approve a journal clean-up",
+    "approval.request": "Asking for your approval", "validation.run": "Starting a validation", "validation.execute": "Running a validation",
+    "study.create": "Setting up a study", "study.activate": "Activating a study", "asset.snapshot": "Saving a research asset",
+    "experiments.rules": "Changing the experiment rules", "trial.hide": "Hiding finished runs from the Experiments page"}
+STEPS = {"campaign_inspect": "Reading the campaign's state", "resource_inspect": "Checking the machine's load and the budgets",
+    "command_schema": "Reading how a command is written", "researcher_ask": "Writing a question for you", "yield_work": "Ending the turn",
+    "agent_message": "Writing to an assistant", "agent_cancel": "Stopping an assistant", "mask_create": "Making a test design",
+    "proposal_review": "Recording a verdict", "workspace_list": "Listing its work files", "analysis_run": "Running an analysis script",
+    "workspace_run": "Running a script", "submit_output": "Submitting its result", "source_ingest": "Fetching a paper", "source_read": "Reading a paper",
+    "implementation_workspace_create": "Opening a coding workspace", "implementation_workspace_inspect": "Checking a coding workspace",
+    "implementation_workspace_message": "Writing to the coding agent", "implementation_workspace_validate": "Asking for a validation of submitted code",
+    "report_write": "Starting the report writer", "report_answer": "Answering the report writer",
+    "experiment_progress": "Checking how the runs are going", "config_suggest": "Choosing the next settings to try", "lead_ask": "Asking the lead agent"}
+PAGE_AGENT_NAMES = {"discussion_moderator": "the discussion moderator", "experiment_operator": "the experiment operator", "implementation_lead": "the implementation lead"}
+# Record identities begin with their kind; the first matching prefix names what is being read.
+RECORD_NAMES = (("hypothesis", "hypothesis"), ("trial", "experiment"), ("artifact", "saved document"), ("campaign", "the campaign record"),
+    ("task", "the problem definition"), ("pi_command", "command receipt"), ("pi_", "an agent turn's record"), ("assignment", "an assistant's reply"),
+    ("agent", "an assistant's record"), ("lead", "the lead agent's record"), ("finding", "finding"), ("asset", "an earlier campaign's finding"),
+    ("runtime", "speed measurement"), ("decision", "decision"), ("report", "report draft"), ("message", "message"))
+
+
+def step_label(tool, args=None):
+    """One line a researcher can read for a tool call, from its name and its short arguments."""
+    args = args if isinstance(args, dict) else {}
+    def text(key, limit=70):
+        value = args.get(key)
+        return str(value)[:limit] if isinstance(value, (str, int, float)) and value != "" else ""
+    def article(word):
+        return ("an " if word[:1].lower() in "aeiou" else "a ") + word
+    if tool == "campaign_command":
+        operation, payload = text("operation"), args.get("payload")
+        label = COMMAND_STEPS.get(operation, "Running " + operation if operation else "Running a campaign command")
+        title = payload.get("title") if isinstance(payload, dict) else None
+        return label + (f": {str(title)[:70]}" if isinstance(title, str) and title else "")
+    if tool == "delegate":
+        return "Asking " + article(text("role").replace("_", " ") or "assistant")
+    if tool == "page_agent_message":
+        return "Writing to " + PAGE_AGENT_NAMES.get(text("page_agent"), "an agent in charge of a page")
+    if tool == "evidence_search":
+        return "Searching saved records" + (f" for “{text('query', 50)}”" if text("query") else "")
+    if tool == "evidence_read":
+        identity = text("record_id", 200)
+        name = next((name for prefix, name in RECORD_NAMES if identity.startswith(prefix)), "record")
+        return "Reading " + (name if name.startswith(("the ", "an ", "a ")) else f"{name} …{identity[-6:]}" if identity else article(name))
+    if tool == "source_search":
+        return "Searching the literature" + (f" for “{text('query', 50)}”" if text("query") else "")
+    if tool == "artifact_save":
+        return "Saving " + article(text("kind") or "note") + (f": {text('title')}" if text("title") else "")
+    if tool in {"file_list", "file_read", "file_search"}:
+        where = "an experiment's files" if args.get("root") == "experiment" else "the repository"
+        if tool == "file_search":
+            return f"Searching {where}" + (f" for “{text('query', 50)}”" if text("query") else "")
+        return ("Listing " if tool == "file_list" else "Reading ") + (text("path", 90) or where) + (" of an experiment" if text("path") and args.get("root") == "experiment" else "")
+    if tool in {"workspace_read", "workspace_write"}:
+        return ("Reading its file " if tool == "workspace_read" else "Writing ") + (text("path", 90) or "a work file")
+    return STEPS.get(tool) or (tool or "tool call").replace("_", " ").capitalize()
 
 
 def comparison_brief(report):
@@ -146,8 +282,8 @@ TOOLS = {
     "artifact_save": ("Save an immutable finding, implementation handoff, analysis, or fixed binary mask with evidence links.", obj({"title": S, "kind": {"enum": ["finding", "handoff", "analysis", "mask", "assessment", "review", "checkpoint"]}, "content": {}, "evidence_ids": {"type": "array", "items": S, "maxItems": 100}}, ["title", "kind", "content"])),
     "mask_create": ("Create a reproducible full-sized binary diagnostic mask without putting every cell in model context.", obj({"task_id": S, "pattern": {"enum": ["zeros", "ones", "stripes_x", "stripes_y", "seeded_random"]}, "seed": {"type": "integer", "minimum": 0}, "fill_fraction": {"type": "number", "minimum": 0, "maximum": 1}}, ["task_id", "pattern"])),
     "proposal_review": ("Record an independent conceptual review of the exact hypothesis revision. Test means plausible, not effective.", obj({"hypothesis_id": S, "hypothesis_hash": S, "verdict": {"enum": ["test", "revise", "reject"]}, "rationale": S, "required_changes": {"type": "array", "items": S}, "suggested_tests": {"type": "array", "items": S, "minItems": 1}}, ["hypothesis_id", "hypothesis_hash", "verdict", "rationale", "suggested_tests"])),
-    "delegate": ("Create a persistent specialist child with a focused objective and exact evidence IDs. The lead agent receives its result automatically.", obj({"role": {"enum": [r for r in ROLES if r != LEAD]}, "objective": S, "evidence_ids": {"type": "array", "items": S, "maxItems": 100}, "request_key": S}, ["role", "objective", "request_key"])),
-    "agent_message": ("Send a follow-up or steering message to one of this lead agent's children.", obj({"agent_id": S, "message": S}, ["agent_id", "message"])),
+    "delegate": ("Create a persistent specialist child with a focused objective and exact evidence IDs. You receive its result automatically.", obj({"role": {"enum": [r for r in ROLES if r not in STANDING]}, "objective": S, "evidence_ids": {"type": "array", "items": S, "maxItems": 100}, "request_key": S}, ["role", "objective", "request_key"])),
+    "agent_message": ("Send a follow-up or steering message to one of your own assistants.", obj({"agent_id": S, "message": S}, ["agent_id", "message"])),
     "agent_cancel": ("Cancel a child assignment while retaining its artifacts and costs.", obj({"agent_id": S}, ["agent_id"])),
     "command_schema": ("Read the exact schema of an execution command before preparing it.", obj({"operation": {"enum": sorted(OPERATIONS)}}, ["operation"])),
     "campaign_command": ("Execute a campaign command within existing delegation. Returns a durable receipt; never grants new authority.", obj({"operation": {"enum": sorted(OPERATIONS)}, "payload": {"type": "object"}, "request_key": S, "guidance_revision": {"type": "integer", "minimum": 0}}, ["operation", "payload", "request_key", "guidance_revision"])),
@@ -155,10 +291,41 @@ TOOLS = {
     "implementation_workspace_inspect": ("Read implementation workspace state, progress, questions, submissions, and event cursor.", obj({"workspace_id": S, "after": {"type": "integer", "minimum": 0}}, ["workspace_id"])),
     "implementation_workspace_message": ("Steer or follow up with the full Pi coding agent in the given workspace.", obj({"workspace_id": S, "message": S, "mode": {"enum": ["steer", "follow_up"]}, "request_key": S, "question_id": S}, ["workspace_id", "message", "request_key"])),
     "implementation_workspace_validate": ("Commission independent validation of one committed source submission within the campaign's implementation allocation. Supply either a frozen envelope_id or a spec; prefer the short envelope ID when available.", obj({"workspace_id": S, "submission_id": S, "envelope_id": S, "spec": {"type": "object"}, "compute_seconds": {"type": "number", "exclusiveMinimum": 0, "maximum": 86400}, "request_key": S}, ["workspace_id", "submission_id", "compute_seconds", "request_key"])),
+    "page_agent_message": ("Ask the agent in charge of a page for work of its page: discussion_moderator (review rounds over proposals; "
+        "Hypotheses), experiment_operator (designing, starting, watching and stopping runs; Experiments) or implementation_lead (building and "
+        "checking implementations; Implementations). Say what to do and name the records. Its result comes back to you; the researcher sees "
+        "the exchange on its page.", obj({"page_agent": {"enum": sorted(PAGE_AGENTS)}, "message": S, "evidence_ids": {"type": "array", "items": S, "maxItems": 100}},
+        ["page_agent", "message"])),
+    "experiment_progress": ("The campaign's runs at work in queue order and the latest finished ones: name, short or long, status, time and "
+        "evaluations used and allotted, best score, whether a running run still improves, the most time left; with the worker ceiling and the "
+        "campaign's limit on runs at once.", obj({"finished": {"type": "integer", "minimum": 0, "maximum": 40}})),
+    "config_suggest": ("The next settings to try for one strategy. space: each parameter with type float, int, log (positive range, "
+        "log-scaled) or choice, and low/high or choices. observations: settings already run at the same length, with their scores. With few "
+        "observations it spreads settings over the space; after that it picks the settings of highest expected improvement under a Gaussian "
+        "process fitted to the scores.",
+        obj({"space": {"type": "object", "additionalProperties": obj({"type": {"enum": ["float", "int", "log", "choice"]}, "low": {"type": "number"},
+                "high": {"type": "number"}, "choices": {"type": "array", "maxItems": 20}})},
+             "observations": {"type": "array", "maxItems": 300, "items": obj({"config": {"type": "object"}, "score": {"type": "number"}}, ["config", "score"])},
+             "count": {"type": "integer", "minimum": 1, "maximum": 12}, "direction": {"enum": ["maximize", "minimize"]},
+             "seed": {"type": "integer", "minimum": 0}}, ["space"])),
+    "lead_ask": ("Ask the lead agent something your work needs and the records do not answer, such as the reasoning behind a proposal or "
+        "what the researcher meant. Its answer comes back to you as a notice; call yield_work(waiting) until then.",
+        obj({"question": S}, ["question"])),
     "researcher_ask": ("Save a concrete researcher question and stop for its answer only when required.", obj({"question": S, "reason": S}, ["question", "reason"])),
-    "yield_work": ("Say how this turn ends. waiting: jobs or subagents started for the researcher's request are still running, or a question to the researcher is open; "
+    "report_write": ("Start the report writer on this campaign's saved evidence. It investigates, drafts, has the draft reviewed twice and edits it, "
+        "in up to 14 model calls billed to the campaign's model budget. It returns at once with the job; the draft takes many minutes, its progress "
+        "shows on the Reports page, and its end wakes you. One report is written at a time. reference_ids: the records the report starts from. "
+        "The writer sees the campaign's runs, hypotheses, decisions, sources and studies by itself; what agents wrote (reviewers' verdicts and "
+        "saved analyses, agent_artifact; assistants' replies, agent_run) it sees only when listed here.",
+        obj({"notes": S, "reference_ids": {"type": "array", "items": S, "maxItems": 40}, "literature": {"type": "boolean"}, "request_key": S}, ["notes", "request_key"])),
+    "report_answer": ("Answer the report writer's question about the focus of a report you started, so that it continues.",
+        obj({"job_id": S, "answer": S}, ["job_id", "answer"])),
+    "yield_work": ("End this turn and say how it ends; the turn stops when it returns. report: your reply to whoever asked, shown as "
+        "your message (the answer with its numbers, short, linking the pages); required with complete while the request is open. "
+        "The summary is shown to the researcher as a status line: plain words, no record ids. waiting: jobs or subagents started for the researcher's request are still running, or a question to the researcher is open; "
         "their completion or the answer wakes the lead agent. complete: the request is fulfilled or answered, and nothing wakes the lead until the researcher writes again; "
-        "completion must cite actual evidence.", obj({"disposition": {"enum": ["waiting", "complete", "handoff"]}, "summary": S, "evidence_ids": {"type": "array", "items": S, "maxItems": 100}}, ["disposition", "summary"])),
+        "completion must cite actual evidence.", obj({"disposition": {"enum": ["waiting", "complete", "handoff"]}, "summary": S, "report": S,
+        "evidence_ids": {"type": "array", "items": S, "maxItems": 100}}, ["disposition", "summary"])),
     "file_list": ("List a directory of this server's repository (committed files only) or of one of this campaign's experiments.",
         obj({"root": {"enum": ["repository", "experiment"]}, "trial_id": S, "path": S}, ["root"])),
     "file_read": ("Read lines of a text file from the repository or from one of this campaign's experiments. Long lines are cut; use analysis_run for journals.",
@@ -186,10 +353,20 @@ class PiTools:
     def names(self, agent):
         names = {"campaign_inspect", "resource_inspect", "evidence_search", "evidence_read", "source_search", "source_ingest", "source_read", "artifact_save", "mask_create", "yield_work",
                  "file_list", "file_read", "file_search", "workspace_list", "workspace_read", "workspace_write", "analysis_run"}
+        implementation = {"implementation_workspace_create", "implementation_workspace_inspect", "implementation_workspace_message",
+                          "implementation_workspace_validate"}
         if agent["role"] == LEAD:
-            names |= {"delegate", "agent_message", "agent_cancel", "command_schema", "campaign_command", "researcher_ask",
-                      "implementation_workspace_create", "implementation_workspace_inspect", "implementation_workspace_message",
-                      "implementation_workspace_validate"}
+            names |= {"delegate", "agent_message", "agent_cancel", "command_schema", "campaign_command", "researcher_ask", "report_write", "report_answer",
+                      "page_agent_message", *implementation}
+        if agent["role"] in PAGE_AGENTS:
+            # Each page agent runs the commands of its page (ROLE_OPERATIONS), and can ask the researcher or the lead.
+            names |= {"command_schema", "campaign_command", "researcher_ask", "lead_ask"}
+            if agent["role"] == "experiment_operator":
+                names |= {"experiment_progress", "config_suggest"}
+            if agent["role"] == "discussion_moderator":
+                names |= {"delegate", "agent_message", "agent_cancel"}
+            if agent["role"] == "implementation_lead":
+                names |= implementation
         if agent["role"] == "proposal_reviewer":
             names.add("proposal_review")
         if agent.get("grant_id"):
@@ -198,12 +375,52 @@ class PiTools:
             names = {"artifact_save", "workspace_list", "workspace_read", "workspace_write", "workspace_run", "submit_output"}
         return names
 
+    def schema(self, agent, name):
+        """A tool's input schema for this agent: a page agent sees only its own commands, and the moderator only the roles it may ask."""
+        schema = TOOLS[name][1]
+        if name in {"campaign_command", "command_schema"} and agent["role"] in ROLE_OPERATIONS:
+            schema = deepcopy(schema); schema["properties"]["operation"]["enum"] = sorted(ROLE_OPERATIONS[agent["role"]])
+        if name == "delegate" and agent["role"] == "discussion_moderator":
+            schema = deepcopy(schema); schema["properties"]["role"]["enum"] = list(DISCUSSION_ROLES)
+        return schema
+
     def manifest(self, agent_id, run_id):
         agent, run = self._context(agent_id, run_id)
         instructions = INSTRUCTIONS + f"\nRole: {agent['role']}\nAssignment: {agent['objective']}\nEvidence IDs: {json.dumps(agent['evidence_ids'])}"
+        if agent["role"] in PAGE_AGENTS:
+            page = PAGE_AGENTS[agent["role"]]
+            instructions += (f"\nYou are {PAGE_AGENT_NAMES[agent['role']]}, in charge of the {page.capitalize()} page (#{page}). The researcher writes to you "
+                "there and reads your replies there; the lead agent's requests come as its messages, and your closing reply goes back to it. "
+                "What is said above of the lead's replies holds for yours: short, with links to the pages that show the details.")
+            if agent["role"] == "experiment_operator":
+                from optimization_framework.campaigns.experiment_rules import current as experiment_rules
+                rules = experiment_rules(self.store, agent["campaign_id"])
+                instructions += ("\nThe campaign's experiment rules (revision " + str(rules["revision"]) + ", kept with experiments.rules; the researcher "
+                    "may change them on the Experiments page):\n- Name each run in the first line of its question: " + rules["naming"] +
+                    "\n- Short runs are allotted less than " + f"{rules['short_run_seconds']:g}" + " seconds; long runs at least that."
+                    "\n- Runs of this campaign at once: " + (f"at most {rules['max_concurrent']} (the scheduler holds the rest in the queue)" if rules["max_concurrent"]
+                        else "no limit of the campaign's own") + f"; the workspace runs at most {self.workspace.max_workers} in all."
+                    "\n- How runs are chosen and ordered:\n" + rules["strategy"] +
+                    "\n- How runs are presented on the Experiments page (" + ("chosen: " + (rules["presentation"].get("rationale") or "no reason given")
+                        if rules.get("presentation_chosen") else "not chosen yet; a default drawn from the problem's description is shown") + "): list columns "
+                        + ", ".join(rules["presentation"]["list_columns"]) + "; entry sections " + ", ".join(rules["presentation"]["entry_sections"])
+                        + "; design drawn as " + rules["presentation"]["design"]["render"] + "."
+                    "\nYou decide how runs are presented, for this problem: what the list of runs shows and what a run's entry shows, chosen "
+                    "from what the page can draw (experiments.rules, presentation; command_schema lists the choices). Before the campaign's "
+                    "first runs if it is not chosen, or when asked: ask the lead agent (lead_ask) what the researcher needs to see in a run of "
+                    "this problem, decide, and record the choice with its reason. A design of many values is drawn (a mask image for a grid, "
+                    "a strip for a short binary vector) and never listed value by value. The page draws exactly the sections and columns "
+                    "the presentation schema describes: when you report your choice, describe what you recorded, and say plainly what "
+                    "was asked for that the page cannot draw."
+                    "\nWhen asked how the experiments are going, read experiment_progress and answer in a few lines: what runs, what has "
+                    "finished, which runs still improve, and what you would do next. Hide a run (trial.hide) only when you superseded it "
+                    "yourself, such as a failed run you ran again, and give the reason.")
+            if agent["role"] == "discussion_moderator":
+                instructions += ("\nA reviewer's proposal_review is the record of its verdict: report each verdict in the reviewer's own word (test, "
+                    "revise or reject), and do not record it again with hypothesis.review.")
         if agent.get("output_schema"):
             instructions += "\nSubmit your result with submit_output using this JSON schema:\n" + json.dumps(agent["output_schema"])
-        return {"instructions": instructions, "tools": [{"name": name, "description": TOOLS[name][0], "input_schema": TOOLS[name][1]} for name in sorted(self.names(agent))]}
+        return {"instructions": instructions, "tools": [{"name": name, "description": TOOLS[name][0], "input_schema": self.schema(agent, name)} for name in sorted(self.names(agent))]}
 
     def _context(self, agent_id, run_id):
         agent = self.store.get(agent_id, "agent_session")
@@ -243,7 +460,7 @@ class PiTools:
             if name not in self.names(agent):
                 raise ValueError("Tool is not available to this assignment")
             try:
-                jsonschema.validate(arguments, TOOLS[name][1])
+                jsonschema.validate(arguments, self.schema(agent, name))
             except jsonschema.ValidationError as exc:
                 return {"error": exc.message[:2000], "executed": False}
             try:
@@ -272,7 +489,7 @@ class PiTools:
             self.store.put_immutable("agent_tool_receipt", {"id": identity, "campaign_id": agent["campaign_id"],
                 "agent_id": agent_id, "run_id": run_id, "tool": name, "request_hash": request_hash, "result": result,
                 "created_at": now()}, "agent.tool_completed")
-        if name in {"artifact_save", "mask_create", "proposal_review", "delegate", "agent_message", "agent_cancel", "researcher_ask", "yield_work", "submit_output"}:
+        if name in {"artifact_save", "mask_create", "proposal_review", "delegate", "agent_message", "agent_cancel", "page_agent_message", "lead_ask", "researcher_ask", "yield_work", "submit_output"}:
             # Local changes and their acknowledgment commit together. External
             # I/O and idempotent command delivery never hold a SQL transaction.
             with self.workspace.lock, self.store.transaction():
@@ -285,6 +502,47 @@ class PiTools:
                 receipt(result)
         return result
 
+    def ask_page_agent(self, agent, target, message, evidence_ids, identity):
+        """The lead's request to a page agent, kept as a message on that agent's page; the result comes back to the lead."""
+        if agent["role"] != LEAD:
+            raise ValueError("Only the lead agent writes to the agents in charge of pages")
+        for ref in evidence_ids:
+            self.record(agent, ref)
+        self.store.put("message", {"id": "message_" + identity, "campaign_id": agent["campaign_id"], "role": "lead", "content": message,
+            "created_at": now(), "agent_id": target["id"], "from_agent_id": agent["id"]}, "message.created")
+        text = message + (f"\nEvidence IDs: {json.dumps(evidence_ids)}" if evidence_ids else "")
+        run = self.controller.ask_page_agent(target, text, "page_request_" + identity[-32:], agent["id"])
+        return {"agent_id": target["id"], "run_id": run["id"], "status": run["status"], "page": "#" + PAGE_AGENTS[target["role"]],
+                "next": "It works by itself and its result comes back to you. Say where the researcher can follow it, and call yield_work(waiting)."}
+
+    def outstanding(self, agent):
+        """Why a standing agent cannot yet call its request complete; empty when nothing holds it.
+
+        A page agent waits for what it started and the questions it asked. The lead waits for everything else in the campaign:
+        what a page agent does for the researcher directly does not hold the lead's request open."""
+        cid = agent["campaign_id"]
+        sessions = {a["id"]: a for a in self.store.list("agent_session", cid)}
+        def started_here(record_id):
+            starter = self.controller.starter(cid, record_id)
+            return not (starter and starter["role"] in PAGE_AGENTS) if agent["role"] == LEAD else bool(starter) and starter["id"] == agent["id"]
+        assistants = [a for a in sessions.values() if a["parent_agent_id"] == agent["id"] and (
+            a["role"] in PAGE_AGENTS and a.get("request_open") and a.get("requested_by") == agent["id"]
+            or a["role"] not in PAGE_AGENTS and a["status"] in {"queued", "running", "paused"})]
+        if assistants or any(t["status"] in {"queued", "running", "pausing"} and started_here(t["id"]) for t in self.store.list("trial", cid)):
+            return "Outstanding assignments or experiments remain; wait or reconcile them before completing"
+        def asked_here(question):
+            owner = sessions.get(question.get("agent_id"))
+            return question.get("agent_id") == agent["id"] or agent["role"] == LEAD and not (owner and owner["role"] in PAGE_AGENTS)
+        if any(g["status"] in {"reserved", "queued", "submitted", "running", "building", "validating", "reviewing", "repairing", "stopping"} and started_here(g["id"])
+               for g in self.store.list("implementation_grant", cid)) \
+                or any(q["status"] == "pending" and asked_here(q) for q in self.store.list("agent_question", cid)) \
+                or any(j["status"] in {"queued", "running"} and started_here(j["id"]) for j in self.store.list("fixed_mask_job", cid)):
+            return "Unresolved questions or numerical/implementation jobs remain"
+        if agent["role"] == LEAD and any(j["status"] in {"running", "awaiting_focus"} and j.get("requested_by") == LEAD
+                                         for j in self.store.list("report_writer_job", cid)):
+            return "A report you started is still being written, or its writer waits for an answer; wait for it before completing"
+        return ""
+
     def references(self, campaign_id):
         """Findings and other assets of earlier campaigns that the researcher let this campaign's study read."""
         campaign = self.store.get(campaign_id, "campaign")
@@ -292,10 +550,12 @@ class PiTools:
 
     def receipt(self, record):
         """A command receipt the model can hold: a large outcome becomes an index to page with evidence_read."""
+        page = command_page(record)
         if serialized_bytes(record) <= COMMAND_RESULT_BYTES:
-            return record
+            return {**record, "page": page} if page else record
         operation = record["request"]["operation"]
         brief = {**{key: value for key, value in record.items() if key not in {"outcome", "request"}}, "operation": operation,
+            **({"page": page} if page else {}),
             "outcome_bytes": serialized_bytes(record.get("outcome")),
             "retrieval": "The outcome is too large to return whole. Read the parts you need with evidence_read, "
                          "using this record_id and the pointers listed in outcome_index."}
@@ -336,6 +596,8 @@ class PiTools:
         hypotheses = self.store.list("hypothesis", campaign_id)
         from optimization_framework.research.discovery.proposals import readiness, hypothesis_revision
         team_view = self.controller.view(campaign_id)
+        from optimization_framework.campaigns.experiment_rules import current as experiment_rules
+        rules = experiment_rules(self.store, campaign_id)
         team_view["agents"] = [{k: a.get(k) for k in ("id", "role", "parent_agent_id", "status", "model", "usage", "event_cursor")}
             for a in team_view["agents"][-30:]]
         team_view["aliases"] = team_view["aliases"][:100]
@@ -357,6 +619,9 @@ class PiTools:
             "reference_evidence": [{**{key: item.get(key) for key in ("asset_id", "title", "applicability", "exposure_status")},
                 "content": str(item["payload"].get("content", ""))[:600], "classification": item["payload"].get("classification"),
                 "read": "evidence_read with record_id=asset_id returns the whole finding"} for item in self.references(campaign_id)],
+            "pages": [{"link": link, "name": name, "shows": shows} for link, name, shows in PAGES],
+            # How runs are named, where short runs end, how many may go at once, and how runs are chosen: the experiment operator's rules.
+            "experiment_rules": {key: rules.get(key) for key in ("revision", "naming", "short_run_seconds", "max_concurrent", "strategy")},
             "hypothesis_count": len(hypotheses), "retrieval": "Use evidence_search to page through further tasks, hypotheses or sessions.",
             "hypotheses": [{"id": h["id"], "candidate_id": h.get("candidate_id"), "title": h["title"],
                 "hypothesis_hash": hypothesis_revision(h), "concept_review": readiness(self.store, h),
@@ -366,6 +631,12 @@ class PiTools:
                 "implementation_committed_seconds": self.workspace.implementations.compute_committed(campaign_id)},
             "adaptive_testing": races,
             "agent_team": team_view,
+            # What the agents in charge of pages were last asked and how they ended it: by the researcher on their page, or by the lead.
+            "page_agents": [{"role": a["role"], "agent_id": a["id"], "page": "#" + PAGE_AGENTS[a["role"]], "status": a["status"],
+                "request_open": bool(a.get("request_open")), "asked_by": {"researcher": "researcher", None: None}.get(a.get("requested_by"), "lead"),
+                "last_summary": (a.get("disposition") or {}).get("summary"),
+                "last_run_id": (self.store.list_agent_runs(a["id"]) or [{}])[-1].get("id")}
+                for a in self.store.list("agent_session", campaign_id) if a["role"] in PAGE_AGENTS],
             "latest_researcher_requests": [{"id": r["id"], "status": r["status"], "message": r["request"]["message"]}
                 for r in self.store.list("manager_command", campaign_id)[-5:]],
             "latest_researcher_messages": [{"id": r["id"], "content": r.get("content", "")[:12000]}
@@ -500,10 +771,23 @@ class PiTools:
         if name in {"agent_message", "agent_cancel"}:
             child = self.store.get(args["agent_id"], "agent_session")
             if child["parent_agent_id"] != agent["id"]:
-                raise ValueError("Only this lead agent's own subagents can be controlled")
+                raise ValueError("Only your own assistants can be written to or stopped")
+            if name == "agent_message" and child["role"] in PAGE_AGENTS:
+                return self.ask_page_agent(agent, child, args["message"], [], identity)
             if name == "agent_message":
                 return self.controller.enqueue(child, "message_" + identity, args["message"], mode="steer")
             return self.controller.control(cid, {"agent_id": child["id"], "action": "stop", "expected_control_revision": child["control_revision"]}, identity)
+        if name == "page_agent_message":
+            return self.ask_page_agent(agent, self.controller.page_agent(cid, args["page_agent"]), args["message"], args.get("evidence_ids", []), identity)
+        if name == "experiment_progress":
+            from .experiments import progress
+            return progress(self.workspace, cid, args.get("finished", 8))
+        if name == "config_suggest":
+            from .experiments import suggest
+            return suggest(args["space"], args.get("observations", []), count=args.get("count", 4),
+                           maximize=args.get("direction", "maximize") == "maximize", seed=args.get("seed", 0))
+        if name == "lead_ask":
+            return self.controller.ask_lead(agent, args["question"], identity)
         if name == "command_schema":
             return self.workspace.commands.describe()[args["operation"]]
         if name == "campaign_command":
@@ -524,18 +808,43 @@ class PiTools:
                 operation=args["operation"], expected_revision=campaign["version"], expected_guidance_revision=args["guidance_revision"],
                 expected_authority_hash=self.workspace.commands.authority_hash(campaign), payload=args["payload"])
             return self.receipt(self.workspace.commands.execute(command, actor="manager"))
+        if name in {"report_write", "report_answer"}:
+            writer = self.workspace.report_writer
+            if name == "report_write":
+                # The writer freezes the campaign's own records; what the agents wrote (verdicts, replies, saved analyses)
+                # reaches it only as supplied evidence, read with the same permission as evidence_read.
+                references, agent_records = list(dict.fromkeys(args.get("reference_ids") or [])), []
+                for ref in references:
+                    try:
+                        kind = self.store.get_entry(ref)["kind"]
+                    except KeyError:
+                        raise ValueError(f"No saved record {ref}") from None
+                    if kind in AGENT_RECORD_KINDS:
+                        agent_records.append({"id": ref, "kind": kind, "record": self.record(agent, ref)})
+                job = writer.start(campaign_id=cid, brief=args["notes"], request_id="lead_" + content_hash([cid, args["request_key"]])[:32],
+                    references=references, **({"evidence": {"agent_records": agent_records}} if agent_records else {}),
+                    literature=args.get("literature", True), requested_by=LEAD)
+            else:
+                if self.store.get(args["job_id"], "report_writer_job")["campaign_id"] != cid:
+                    raise ValueError("That report belongs to another campaign")
+                job = writer.answer(args["job_id"], args["answer"])
+            return {"job_id": job["id"], "status": job["status"], "stage": job.get("stage"), "question": job.get("question"), "error": job.get("error"),
+                "report_id": job.get("result_id"), "draft": "/reports/" + job["result_id"] if job.get("result_id") else None, "page": "#reports",
+                "next": "The writer runs by itself. Tell the researcher where to follow it and call yield_work(waiting); its end wakes you."}
         if name == "researcher_ask":
             return self.store.put("agent_question", {"id": "question_" + identity, "campaign_id": cid, "agent_id": agent["id"],
                 "status": "pending", "created_at": now(), **args}, "agent.question_created")
         if name == "yield_work":
             for ref in args.get("evidence_ids", []):
                 self.record(agent, ref)
-            if agent["role"] == LEAD and args["disposition"] == "complete":
-                active = [a for a in self.store.list("agent_session", cid) if a["parent_agent_id"] == agent["id"] and a["status"] in {"queued", "running", "paused"}]
-                if active or any(t["status"] in {"queued", "running", "pausing"} for t in self.store.list("trial", cid)):
-                    raise ValueError("Outstanding assignments or experiments remain; wait or reconcile them before completing")
-                if any(g["status"] in {"reserved", "queued", "submitted", "running", "building", "validating", "reviewing", "repairing", "stopping"} for g in self.store.list("implementation_grant", cid)) or any(q["status"] == "pending" for q in self.store.list("agent_question", cid)) or any(j["status"] in {"queued", "running"} for j in self.store.list("fixed_mask_job", cid)):
-                    raise ValueError("Unresolved questions or numerical/implementation jobs remain")
+            if agent["role"] in STANDING and args["disposition"] == "complete":
+                reason = self.outstanding(agent)
+                if reason:
+                    raise ValueError(reason)
+                # A reply announced and never written is the failure this prevents: the request ends with its answer.
+                open_request = self.controller.configuration(agent["campaign_id"]).get("request_open") if agent["role"] == LEAD else agent.get("request_open")
+                if (open_request or run.get("asked_by")) and not (args.get("report") or "").strip():
+                    raise ValueError("Write your reply in report: the answer, with the numbers that answer it. Then call yield_work again.")
             current = self.store.get(agent["id"], "agent_session")
             current["disposition"] = args; self.store.put("agent_session", current, "agent.checkpointed")
             current_run = self.store.get(run["id"], "agent_run")

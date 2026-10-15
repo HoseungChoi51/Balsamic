@@ -29,6 +29,7 @@ test('contract-only evaluator use requires a study waiver and cannot become conf
   await dialog.getByLabel('Evaluator validation mode').selectOption('contract_only');
   await expect(dialog.getByLabel('Reference 1 expected energy')).toHaveCount(0);
   await dialog.getByLabel('Probe 1 candidate').fill('0, 0');
+  await dialog.getByLabel('Unit of evaluator time allocation').selectOption('s');
   await dialog.getByLabel('Evaluator time allocation (seconds)').fill('30');
   await dialog.getByLabel('Evaluator maximum model calls').fill('1');
   await dialog.getByText('Supply an existing evaluator package', { exact: true }).click();
@@ -62,6 +63,7 @@ test('contract-only evaluator use requires a study waiver and cannot become conf
   await dialog.getByLabel('Experiment title').fill('Exploratory evaluator experiment');
   await dialog.getByLabel('Optimization strategy').selectOption('coordinate');
   await dialog.getByLabel('Evaluation requests', { exact: true }).fill('4');
+  await dialog.getByLabel('Unit of time cap').selectOption('s');
   await dialog.getByLabel('Time cap (seconds)', { exact: true }).fill('10');
   await expect(dialog.getByRole('button', { name: 'Launch experiment', exact: true })).toBeDisabled();
   await dialog.getByRole('button', { name: 'Save draft', exact: true }).click();
@@ -141,8 +143,11 @@ test('commissioned optimizer and evaluator preserve the draft, binding, and upst
   await page.getByRole('button', { name: 'New campaign', exact: true }).click();
   const dialog = page.getByRole('dialog');
   await dialog.getByLabel('Campaign name').fill(`Executable commissioning ${Date.now()}`);
+  await dialog.getByLabel('Unit of compute cap').selectOption('s');
   await dialog.getByLabel('Compute cap (seconds)', { exact: true }).fill('120');
+  await dialog.getByLabel('Unit of implementation compute cap').selectOption('s');
   await dialog.getByLabel('Implementation compute cap (seconds)', { exact: true }).fill('120');
+  await dialog.getByLabel('Unit of validation reserve').selectOption('s');
   await dialog.getByLabel('Validation reserve (seconds)').fill('0');
   await dialog.getByLabel('API spending cap (USD)').fill('0');
   await dialog.getByLabel('Configuration 1', { exact: true }).fill('Independent quadratic');
@@ -173,6 +178,7 @@ test('commissioned optimizer and evaluator preserve the draft, binding, and upst
   await dialog.getByRole('button', { name: 'Design experiment', exact: true }).click();
   await dialog.getByLabel('Experiment title').fill('Both executables required');
   await dialog.getByLabel('Evaluation requests', { exact: true }).fill('4');
+  await dialog.getByLabel('Unit of time cap').selectOption('s');
   await dialog.getByLabel('Time cap (seconds)', { exact: true }).fill('10');
   await expect(dialog.getByRole('button', { name: 'Launch experiment', exact: true })).toBeDisabled();
   await dialog.getByRole('button', { name: 'Save draft', exact: true }).click();
@@ -183,6 +189,7 @@ test('commissioned optimizer and evaluator preserve the draft, binding, and upst
   await page.goto(`${base}/#problem`);
   await page.getByRole('button', { name: 'Build or reuse evaluator', exact: true }).click();
   await dialog.getByLabel('Evaluator specification', { exact: true }).fill('Sum squared distance to center plus offset, rounded to digits.');
+  await dialog.getByLabel('Unit of evaluator time allocation').selectOption('s');
   await dialog.getByLabel('Evaluator time allocation (seconds)').fill('40');
   await dialog.getByLabel('Evaluator maximum model calls').fill('1');
   await dialog.getByLabel('Reference 1 candidate').fill('0, 0');
@@ -205,6 +212,7 @@ test('commissioned optimizer and evaluator preserve the draft, binding, and upst
   await dialog.getByRole('button', { name: 'Request implementation', exact: true }).click();
   await expect(dialog.getByLabel('Required evaluator capabilities')).toHaveValue('continuous, scalar_objective');
   await expect(dialog.getByText(`Correctness checks will use evaluator ${evaluatorId}.`)).toBeVisible();
+  await dialog.getByLabel('Unit of implementation time allocation').selectOption('s');
   await dialog.getByLabel('Implementation time allocation (seconds)').fill('40');
   await dialog.getByLabel('Maximum model calls', { exact: true }).fill('1');
   await dialog.getByText('Independent behavioral checks', { exact: true }).click();
@@ -225,6 +233,7 @@ test('commissioned optimizer and evaluator preserve the draft, binding, and upst
 
   await page.goto(`${base}/#problem`);
   await page.getByRole('button', { name: 'Revise charter' }).click();
+  await dialog.getByLabel('Unit of compute cap').selectOption('s');
   await dialog.getByLabel('Compute cap (seconds)', { exact: true }).fill('180');
   await dialog.getByRole('button', { name: 'Save new version', exact: true }).click();
   await expect(dialog).not.toBeVisible();

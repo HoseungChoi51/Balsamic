@@ -333,6 +333,22 @@ class Store:
             rows = db.execute(query).fetchall()
         return [json.loads(row["data"]) for row in rows]
 
+    # Workspace drafts that belong to no campaign; anything a campaign holds is removed with delete_campaign.
+    DRAFT_KINDS = frozenset({"problem_import", "problem_charter", "problem_charter_revision", "problem_charter_proposal"})
+
+    def delete_drafts(self, kind: str, ids) -> int:
+        """Delete workspace drafts of one kind by identity; the caller checks that no campaign uses them."""
+        if kind not in self.DRAFT_KINDS:
+            raise ValueError(f"{kind} records are not drafts and cannot be deleted this way")
+        removed = 0
+        with self.connection() as db:
+            for record_id in ids:
+                removed += db.execute("DELETE FROM records WHERE id=? AND kind=? AND campaign_id IS NULL", (record_id, kind)).rowcount
+            if removed:
+                self._local.written.add(kind)
+                self._revisions[kind] += 1
+        return removed
+
     def delete_campaign(self, campaign_id: str) -> dict:
         """Delete every row of a campaign: its records, events, agent log, search index and model-call accounting.
 

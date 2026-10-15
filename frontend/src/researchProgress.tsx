@@ -4,7 +4,6 @@ import type { FormEvent } from 'react';
 import type { Json, State } from './api';
 import { useCommand } from './commands';
 import { Badge, ErrorNotice, Field, Icon } from './ui';
-import { PiAgentPanel } from './piAgents';
 
 type DirectionRequest = {
   id: string; session_id: string; task_id?: string; created_at?: string;
@@ -42,20 +41,14 @@ export function researchRequestNotice(state: State, outcome?: Json): string {
   const progress = state.research_progress;
   const request = (state.manager_commands || []).find((item: Json) => item.id === outcome?.manager_command_id);
   if (request?.status === 'waiting_discovery' || progress?.session?.status === 'paused')
-    return 'Request saved. Discovery is paused; select Resume discovery in the progress panel to begin.';
-  if (request?.status === 'waiting_provider') return 'Request saved. Waiting for model access; see the progress panel.';
-  if (request?.status === 'blocked') return 'Request saved but blocked. See the progress panel for the reason.';
-  return 'Research request saved for the campaign manager. Follow its status in the progress panel.';
+    return 'Request saved. Discovery is paused; select Resume discovery on Overview to begin.';
+  if (request?.status === 'waiting_provider') return 'Request saved. Waiting for model access; see Overview.';
+  if (request?.status === 'blocked') return 'Request saved but blocked. See Overview for the reason.';
+  return 'Research request saved for the campaign manager. Follow its status on Overview.';
 }
 
+/** The campaign manager's progress, for a campaign without an agent team. A team's agents are shown in the chat, on their pages and under Agents. */
 export function ResearchProgress({ state, refresh, connectionError }: {
-  state: State; refresh: () => Promise<void>; connectionError?: string;
-}) {
-  if (state.agent_runtime?.configuration?.enabled) return <PiAgentPanel key={state.campaign?.id} state={state} refresh={refresh} connectionError={connectionError} />;
-  return <LegacyResearchProgress state={state} refresh={refresh} connectionError={connectionError} />;
-}
-
-function LegacyResearchProgress({ state, refresh, connectionError }: {
   state: State; refresh: () => Promise<void>; connectionError?: string;
 }) {
   const progress: ResearchProgressState | undefined = state.research_progress;
@@ -118,7 +111,7 @@ function LegacyResearchProgress({ state, refresh, connectionError }: {
       <div className="research-progress-actions">
         {showRetry && <button className="button small secondary" disabled={!!busy} onClick={() => void retry()}><Icon name="refresh" size={14} />{busy === 'retry' ? 'Queuing retry…' : 'Retry failed tasks'}</button>}
         {showResume && <button className="button small primary" disabled={!!busy} onClick={() => void resume()}><Icon name="play" size={14} />{busy === 'resume' ? 'Resuming…' : 'Resume discovery'}</button>}
-        <a className="button small secondary" href="#notebook/agent-log"><Icon name="notebook" size={14} />View agent log</a>
+        <a className="button small secondary" href="#agents/log"><Icon name="notebook" size={14} />View agent log</a>
       </div>
     </div>
     <p className="research-progress-message">{progress.message}</p>

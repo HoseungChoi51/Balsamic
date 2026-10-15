@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { DurationField } from './duration';
 import { api, errorText, seconds, when } from './api';
 import type { Hypothesis, Json, State } from './api';
 import { Badge, Empty, ErrorNotice, Field, Modal, Panel, Status } from './ui';
@@ -115,7 +116,7 @@ export function ImplementationRequest({ hypothesis, state, onClose, onDone }: { 
         <Field label="Pinned Python dependencies (JSON)" hint={'For example {"numpy":"2.5.3"}'}><textarea value={dependencies} onChange={e => setDependencies(e.target.value)} spellCheck={false} /></Field>
         <Field label="Default parameters (JSON)"><textarea value={parameters} onChange={e => setParameters(e.target.value)} spellCheck={false} /></Field>
         <Field label="Supported parameter schema (JSON)"><textarea value={schema} onChange={e => setSchema(e.target.value)} spellCheck={false} /></Field>
-        <Field label="Implementation time allocation (seconds)"><input type="number" min="1" max="86400" value={compute} onChange={e => setCompute(e.target.value)} required /></Field>
+        <DurationField label="Implementation time allocation" seconds={compute} onChange={setCompute} max={86400} />
         <Field label="Maximum model calls"><input type="number" min="1" max="20" value={calls} onChange={e => setCalls(e.target.value)} required /></Field>
         <Field label="API allocation (USD)" hint="Uses the campaign API cap. Subscription calls are counted separately."><input type="number" min="0" step="0.01" value={apiCap} onChange={e => setApiCap(e.target.value)} required /></Field>
       </div>
@@ -158,7 +159,7 @@ export function RevalidationForm({ version, state, onClose, onDone }: { version:
         hint={evaluator && mode === 'numerical' ? 'Each fixture declares name, candidate, expected objectives, and an independent basis; configuration, fidelity, and tolerances are optional.' : 'Leave [] to repeat the existing checks. New checks must stay within the executable’s frozen specification.'}>
         <textarea className="code-input" rows={9} value={checks} onChange={e => setChecks(e.target.value)} spellCheck={false} /></Field>
       <Field label="Revalidation rationale"><textarea required value={rationale} onChange={e => setRationale(e.target.value)} /></Field>
-      <Field label="Revalidation time cap (seconds)"><input type="number" min="1" max="86400" required value={compute} onChange={e => setCompute(Number(e.target.value))} /></Field>
+      <DurationField label="Revalidation time cap" seconds={String(compute)} onChange={value => setCompute(Number(value))} max={86400} />
       <details><summary>Existing independent checks</summary><pre>{JSON.stringify(evaluator ? { numerical: prior.correctness_cases, contract: prior.contract_cases } : prior.behavior_checks, null, 2)}</pre></details>
       <ErrorNotice text={error} /><div className="modal-actions"><button type="button" className="button secondary" onClick={onClose}>Cancel</button>
         <button className="button primary" disabled={busy || !rationale.trim()}>{busy ? 'Queuing checks…' : 'Queue independent revalidation'}</button></div>

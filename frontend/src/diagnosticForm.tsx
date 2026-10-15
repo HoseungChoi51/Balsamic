@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { DurationField } from './duration';
 import type { Json } from './api';
 import { Field } from './ui';
 import { SchemaFields, resolvedParameters } from './schemaFields';
@@ -51,7 +52,7 @@ function RecipeList({ values, onChange, definition, problem }: {
       <Field label="Validation recipe"><select value={recipe.recipe_id} onChange={e => update(index, { ...recipe, recipe_id: e.target.value, parameters: {} })}>
         {!choices.includes(recipe.recipe_id) && <option value={recipe.recipe_id}>{recipe.recipe_id} · unavailable</option>}
         {choices.map((id: string) => <option key={id} value={id} disabled={!available.includes(id)}>{definition?.recipe_schemas?.[id]?.title || id}{!available.includes(id) ? ' · unavailable' : ''}</option>)}</select></Field>
-      <Field label="Validation time cap (seconds)"><input type="number" min="1" max="86400" value={recipe.wall_seconds ?? 120} onChange={e => update(index, { ...recipe, wall_seconds: Number(e.target.value) })} /></Field>
+      <DurationField label="Validation time cap" seconds={String(recipe.wall_seconds ?? 120)} onChange={value => update(index, { ...recipe, wall_seconds: Number(value) })} max={86400} />
       <Field label="Maximum captured solutions"><input type="number" min="1" max="10" value={recipe.subject_limit ?? 1} onChange={e => update(index, { ...recipe, subject_limit: Number(e.target.value) })} /></Field>
       <SchemaFields schema={recipeSchema(definition, recipe.recipe_id, problem)} values={recipe.parameters || {}} setValues={parameters => update(index, { ...recipe, parameters })} />
     </div><button type="button" className="text-button" onClick={() => onChange(values.filter((_, i) => i !== index))}>Remove validation</button>
@@ -106,7 +107,7 @@ export function DiagnosticEditor({ value, onChange, capabilities, adapters, defi
               <div className="form-grid"><Field label="Inference adapter"><select value={rollout.adapter_id} onChange={e => updateRollout(i, { ...rollout, adapter_id: e.target.value, parameters: {} })}>
                 {!supported.some(item => item.id === rollout.adapter_id) && <option value={rollout.adapter_id}>{adapter?.title || rollout.adapter_id} · unavailable for this optimizer</option>}
                 {supported.map(item => <option key={item.id} value={item.id}>{item.title}</option>)}</select></Field>
-                <Field label="Inference time cap (seconds)"><input type="number" min="1" max="86400" value={rollout.wall_seconds ?? 60} onChange={e => updateRollout(i, { ...rollout, wall_seconds: Number(e.target.value) })} /></Field>
+                <DurationField label="Inference time cap" seconds={String(rollout.wall_seconds ?? 60)} onChange={value => updateRollout(i, { ...rollout, wall_seconds: Number(value) })} max={86400} />
                 <SchemaFields schema={adapter?.parameter_schema || {}} values={rollout.parameters || {}} setValues={parameters => updateRollout(i, { ...rollout, parameters })} />
                 <Field label="Inference seed rule"><select value={fixed ? 'fixed' : 'affine'} onChange={e => updateRollout(i, { ...rollout,
                   seed: e.target.value === 'fixed' ? 0 : { kind: 'affine:v1', offset: 0, parent_seed_factor: 0, milestone_factor: 0, episode_factor: 1 } })}>

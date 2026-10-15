@@ -11,7 +11,9 @@ test('real API supports browser campaign, simultaneous baseline trials, validati
   const campaignName = `Browser integration ${Date.now()}`;
   const dialog = page.getByRole('dialog');
   await dialog.getByLabel('Campaign name').fill(campaignName);
+  await dialog.getByLabel('Unit of compute cap').selectOption('s');
   await dialog.getByLabel('Compute cap (seconds)', { exact: true }).fill('180');
+  await dialog.getByLabel('Unit of validation reserve').selectOption('s');
   await dialog.getByLabel('Validation reserve (seconds)').fill('30');
   await dialog.getByLabel('Problem adapter').selectOption('meent_grating');
   await dialog.getByRole('button', { name: 'Edit as JSON' }).click();
@@ -27,6 +29,7 @@ test('real API supports browser campaign, simultaneous baseline trials, validati
     await page.getByRole('button', { name: 'Design an experiment', exact: true }).click();
     await dialog.getByLabel('Optimization strategy').selectOption(algorithm);
     await dialog.getByLabel('Evaluation requests', { exact: true }).fill('100000');
+    await dialog.getByLabel('Unit of time cap').selectOption('s');
     await dialog.getByLabel('Time cap (seconds)', { exact: true }).fill('15');
     await dialog.getByRole('button', { name: 'Launch experiment' }).click();
     await expect(dialog).not.toBeVisible();
@@ -50,6 +53,7 @@ test('real API supports browser campaign, simultaneous baseline trials, validati
   await dialog.getByRole('button', { name: 'Check physical convergence', exact: true }).click();
   await dialog.getByLabel('Fourier orders').fill('5, 7');
   await dialog.getByLabel('Number of archived designs').fill('1');
+  await dialog.getByLabel('Unit of validation time cap').selectOption('s');
   await dialog.getByLabel('Validation time cap (seconds)').fill('10');
   await dialog.getByRole('button', { name: 'Run validation' }).click();
   await expect(dialog).not.toBeVisible();
@@ -57,16 +61,16 @@ test('real API supports browser campaign, simultaneous baseline trials, validati
     const r = await request.get(`${baseURL}/api/state?campaign_id=${campaign.id}`);
     return (await r.json()).trials.find((t: { recipe?: { recipe_id: string } }) => t.recipe?.recipe_id === 'fourier_convergence:v1')?.status;
   }, { timeout: 30000 }).toBe('completed');
-  await page.getByRole('button', { name: 'Compare results', exact: true }).click();
+  await page.getByRole('button', { name: 'Results', exact: true }).click();
   await expect(page.getByRole('heading', { name: 'Compare at full upstream cost.' })).toBeVisible();
   await page.screenshot({ path: test.info().outputPath('live-comparison.png'), fullPage: true });
-  await page.getByRole('button', { name: 'Problem workbench', exact: true }).click();
+  await page.getByRole('button', { name: 'Problem', exact: true }).click();
   await page.getByRole('button', { name: 'Revision history' }).click();
   await expect(dialog.getByRole('heading', { name: 'Charter revision history' })).toBeVisible();
   await expect(dialog.getByLabel('Earlier version')).toContainText('Version 1');
   await expect(dialog.locator('section').filter({ has: page.getByRole('heading', { name: 'Problem definitions', exact: true }) })).toContainText('"n_cells": 8');
   await page.keyboard.press('Escape');
-  await page.getByRole('button', { name: 'Research notebook', exact: true }).click();
+  await page.getByRole('button', { name: 'Notebook', exact: true }).click();
   await expect(page.getByRole('link', { name: 'Export research report' })).toHaveAttribute('href', `/api/campaigns/${campaign.id}/export`);
   expect(clientErrors).toEqual([]);
 });
