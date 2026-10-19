@@ -36,6 +36,7 @@ export function SummaryCard({ thread, current, route, onPark, onUnpark, onMerge 
         {thread.status === 'parked' ? <button className="btn small" onClick={() => onUnpark(thread)}>Take up again</button> : null}
         {thread.status !== 'merged' && thread.name !== 'main' ? <button className="btn small" onClick={() => onMerge(thread)}>Merge into…</button> : null}
         {thread.status === 'merged' ? <span className="small faint">merged into {thread.merged_into}</span> : null}
+        <a className="btn quiet small" href={`/api/v1/threads/${thread.id}/export`} download data-testid="export-thread">Export</a>
       </div>
     </article>
   );

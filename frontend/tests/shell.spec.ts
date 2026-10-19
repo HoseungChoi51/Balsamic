@@ -35,6 +35,8 @@ test('a stopped run reads as stopped, never failed, and disabled controls say wh
   const row = page.getByTestId('page-experiments').locator('tr[data-record-id="trial_2"]');
   await expect(row).toContainText('stopped');
   await expect(row.locator('.pill')).toHaveAttribute('title', /not failed/);
-  await expect(page.locator('.topbar')).toContainText('Search arrives with the library milestone');
   await expect(page.getByTestId('autopilot-toggle')).toHaveText('Autopilot off');
+  // A disabled control says why: the new-campaign form without a name.
+  await page.evaluate(() => { location.hash = '#new'; });
+  await expect(page.getByTestId('new-campaign').getByRole('button', { name: 'Create campaign' })).toBeDisabled();
 });

@@ -57,7 +57,7 @@ def rows(workspace, campaign_id, *, with_curves=False):
     """Ledger rows; recomputed only when the campaign has new events."""
     with workspace.store.connection() as db:
         cursor = db.execute("SELECT COALESCE(MAX(id),0) FROM events WHERE campaign_id=?", (campaign_id,)).fetchone()[0]
-    key = (campaign_id, with_curves)
+    key = (id(workspace.store), campaign_id, with_curves)   # one cache per open store: the same campaign id in another workspace is another campaign
     cached = _cache.get(key)
     if cached and cached[0] == cursor:
         return cached[1], cursor

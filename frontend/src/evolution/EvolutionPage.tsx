@@ -52,7 +52,8 @@ export default function EvolutionPage({ campaignId, route }: PageProps) {
   return (
     <div className="col">
       <div className="stage-head"><h1>Evolution</h1><Pill title={data.stage.basis}>{data.stage.stage}</Pill>
-        {data.progress ? <span className="muted small">best so far {num(data.progress.best_so_far, 4)} · {data.progress.live_trials.length} live runs · round {data.rounds}</span> : null}</div>
+        {data.progress ? <span className="muted small">best so far {num(data.progress.best_so_far, 4)} · {data.progress.live_trials.length} live runs · round {data.rounds}</span> : null}
+        <a className="btn quiet small" href={`/api/v1/campaigns/${campaignId}/evolution/export`} download data-testid="export-graph">Export</a></div>
       <nav className="tabs">{tabs.map(([key, label]) => <a key={key} href={formatHash({ page: 'evolution', sub: key }, route.thread)} className={sub === key ? 'active' : ''}>{label}</a>)}</nav>
       {error ? <div className="pill bad">{error}</div> : null}
       {sub === 'frontier' ? <FrontierTable rows={rows} picked={picked} setPicked={setPicked} selectedId={selection.id} thread={route.thread} onTrace={setTrace}

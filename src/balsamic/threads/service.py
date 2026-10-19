@@ -132,6 +132,24 @@ def threads(workspace, campaign_id):
             "active_run": {"id": active["id"], "thread_id": (active.get("origin") or {}).get("thread_id", main)} if active else None}
 
 
+def search(workspace, campaign_id, q, *, limit=40):
+    """Threads and messages whose text contains the words, for the search palette; each hit names its thread and message."""
+    words = [w for w in q.lower().split() if w]
+    rows = conversation(workspace, campaign_id)
+    main = main_thread_id(campaign_id)
+    titles = {t["id"]: t["title"] for t in workspace.store.list("thread", campaign_id)}
+    hits = []
+    for message in rows:
+        text = (message.get("content") or "").lower()
+        if all(w in text for w in words):
+            thread_id = message.get("thread_id", main)
+            index = text.find(words[0]) if words else 0
+            hits.append({"thread_id": thread_id, "thread_title": titles.get(thread_id, thread_id), "message_id": message["id"], "role": message.get("role"),
+                         "excerpt": (message.get("content") or "")[max(0, index - 60):index + 100], "created_at": message.get("created_at")})
+    thread_hits = [{"thread_id": t_id, "thread_title": title} for t_id, title in titles.items() if all(w in title.lower() for w in words)]
+    return {"campaign_id": campaign_id, "q": q, "threads": thread_hits, "messages": hits[-limit:]}
+
+
 def messages(workspace, thread_id, *, limit=MESSAGE_LIMIT, before=None):
     thread = thread_of(workspace, thread_id)
     rows = conversation(workspace, thread["campaign_id"])

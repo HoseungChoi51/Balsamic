@@ -256,6 +256,10 @@ finalists' rungs, from the evolution read's `progress`.
 **Lineage canvas.** The hand-written SVG tree is the lineage view; the `@xyflow` canvas stays behind the M2 gate
 (`ui-events/gate?milestone=M2`, the time from a round's end to the next action) and is not built.
 
+## M4: reuse and polish
+
+See [strategy-library.md](strategy-library.md) for the library, the search palette, keyboard navigation and exports.
+
 ## Telemetry and gates
 
 `ui_event` records hold the kind, time, campaign, thread, page, a session tag and a few scalars: which controls are used,
@@ -289,6 +293,6 @@ GRATING_PI_URL=http://127.0.0.1:8768 uv run optimization-lab --directory runs/de
 | M1 Formulation and branchable chat | built | thread fork, edit-and-resend, switch, park, merge; branch map; context chip and drawer; placeholders; slash commands; problem note with annotations and Adopt; the scripted fake harness |
 | M2 Evolution graph v1 | built | ledger rows, lineage, stages, provenance, frontier interventions, allocation, stop reasons with race holds, hypothesis card, experiment log |
 | M3 Merge, monitor, autopilot | built | merge note drafted by the lead, monitor rows with forecasts and the GPU row, the pill with a digest state, the away digest, autopilot rounds within a cap, iteration progress |
-| M4 Reuse and polish | planned | strategy library, search, keyboard navigation, export |
+| M4 Reuse and polish | built | strategy library (publish, search by signature, apply as an inspired_by root, the lead's first-turn matches), Ctrl+K search over pages, threads and messages, keyboard navigation, thread and graph export |
 
 The page placeholders for later milestones say which milestone brings them; nothing pretends to exist.

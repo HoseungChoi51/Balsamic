@@ -29,6 +29,7 @@ export async function mockWorkspace(page: Page, overrides: Partial<Record<string
       const outcome = body.operation === 'campaign.create' ? { campaign: { ...f.campaign, id: body.campaign_id, name: body.payload.name } }
         : body.operation === 'thread.fork' ? { thread_id: f.BRANCH_ID, thread: f.branch } : body.operation === 'note.ask' ? { annotation_id: 'annotation_new', tier: 'lead', status: 'open', run_id: 'pi_run_x' }
         : body.operation === 'research.generate' ? { run_id: 'pi_run_g', batch_id: 'ph_1', placeholders: ['ph_1_1', 'ph_1_2'] }
+        : body.operation === 'library.apply' ? { hypothesis_id: 'hypothesis_new', entry_id: body.payload.entry_id, match: { score: 6, reasons: [] } }
         : body.operation === 'intervention.batch' ? { intervention_id: 'intervention_1', items: body.payload.items.map((i: any) => ({ operation: i.operation, command_id: 'c', outcome: {} })) } : { ok: true };
       return json(route, { id: body.id, campaign_id: body.campaign_id, status: 'completed', actor: 'researcher', origin: body.origin || null, outcome, request: { operation: body.operation, payload: body.payload }, created_at: new Date().toISOString() });
     }
@@ -51,6 +52,8 @@ export async function mockWorkspace(page: Page, overrides: Partial<Record<string
       '/api/v1/experiments/trial_1/logs': { text: 'worker started' }, '/api/v1/studies/study_1/race': { race: null }, [`/api/v1/implementations`]: { versions: [] },
       ...overrides,
     };
+    if (path === '/api/v1/library') return json(route, url.searchParams.get('q') ? { ...f.library, entries: f.library.entries.filter(e => e.entry.strategy.title.toLowerCase().includes(url.searchParams.get('q')!.toLowerCase())) } : f.library);
+    if (path === `/api/v1/campaigns/${f.CAMPAIGN_ID}/threads` && url.searchParams.get('q')) return json(route, f.threadSearch);
     if (path in table) {
       const body = table[path];
       // Scoped reads answer unchanged for a cursor at or past theirs.

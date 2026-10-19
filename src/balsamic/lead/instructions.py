@@ -17,6 +17,15 @@ def lead_instructions(workspace):
                          "noise, constraints, confounders, open questions; LaTeX allowed), revise it as the researcher answers, and answer questions "
                          "about it as proposed edits (problem_note_propose), never a silent rewrite. The researcher adopts the note (Adopt on #note); "
                          "the formulator then writes the charter and the researcher confirms it. Start no experiments before that.")
+        try:
+            from balsamic.library.service import search
+            matches = [row for row in search(workspace, campaign_id=campaign["id"], limit=5)["entries"] if row["match"]["score"] >= 3]
+        except (KeyError, ValueError):
+            matches = []
+        if matches:
+            lines.append("Library. Strategies that won earlier campaigns of this problem exist: " + "; ".join(
+                f"{row['entry']['strategy'].get('title')} ({row['entry']['id']}, best {row['entry']['evidence'].get('best_score')}, {', '.join(row['match']['reasons'])})" for row in matches)
+                + ". Mention them in your first reply and read them with library_search before proposing from scratch; apply one with library.apply when the researcher agrees.")
         if (campaign.get("autopilot") or {}).get("enabled"):
             lines.append("Autopilot is on with a compute cap: in an autopilot round you review the frontier, stop, promote, allocate or generate with a "
                          "stated rationale on every command, and end the round with yield_work(complete). Researcher messages still come first.")

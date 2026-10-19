@@ -42,6 +42,8 @@ def register(workspace):
     register_notes(workspace)
     from balsamic.evolution.interventions import register as register_interventions
     register_interventions(workspace)
+    from balsamic.library.service import register as register_library
+    register_library(workspace)
     from balsamic.autopilot.settings import register as register_autopilot
     from balsamic.autopilot.rounds import register as register_rounds
     register_autopilot(workspace)

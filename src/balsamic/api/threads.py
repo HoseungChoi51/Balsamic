@@ -27,9 +27,11 @@ def scoped(workspace, campaign_id, after, body):
 
 def install(app, workspace):
     @app.get("/api/v1/campaigns/{campaign_id}/threads")
-    def list_threads(campaign_id: str, after: int = Query(0, ge=0)):
+    def list_threads(campaign_id: str, after: int = Query(0, ge=0), q: str = ""):
         try:
             workspace.store.get(campaign_id, "campaign")
+            if q.strip():
+                return _no_store(threads.search(workspace, campaign_id, q))
             return scoped(workspace, campaign_id, after, lambda: threads.threads(workspace, campaign_id))
         except KeyError:
             raise HTTPException(404, "Unknown campaign")

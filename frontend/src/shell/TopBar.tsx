@@ -1,11 +1,11 @@
 import type { CampaignRow, Monitor, WorkspaceInfo } from '../api/types';
-import { Disabled, Pill } from '../primitives/ui';
+import { Pill } from '../primitives/ui';
 import { formatHash, navigate, type Route } from '../router/routes';
 import { track } from '../telemetry/events';
 import { AutopilotToggle } from '../monitor/AutopilotToggle';
 
-export function TopBar({ route, campaigns, campaignId, monitor, workspace, onMonitor, wide, onWide, version }:
-  { route: Route; campaigns: CampaignRow[]; campaignId: string | null; monitor?: Monitor; workspace?: WorkspaceInfo; onMonitor: () => void; wide: boolean; onWide: () => void; version?: number }) {
+export function TopBar({ route, campaigns, campaignId, monitor, workspace, onMonitor, onSearch, wide, onWide, version }:
+  { route: Route; campaigns: CampaignRow[]; campaignId: string | null; monitor?: Monitor; workspace?: WorkspaceInfo; onMonitor: () => void; onSearch: () => void; wide: boolean; onWide: () => void; version?: number }) {
   const current = campaigns.find(c => c.id === campaignId);
   const pill = monitor?.pill;
   return (
@@ -22,7 +22,7 @@ export function TopBar({ route, campaigns, campaignId, monitor, workspace, onMon
       </select>
       {current ? <Pill tone={current.stage_pinned ? 'you' : ''} title={current.stage_basis}><span className="stagebadge" data-testid="stage">{current.stage}</span>{current.stage_pinned ? ' (pinned)' : ''}</Pill> : null}
       <span className="grow" />
-      <Disabled why="Search arrives with the library milestone"><button className="btn small">Search ⌘K</button></Disabled>
+      {current ? <button className="btn small" onClick={onSearch} data-testid="search-button" title="Pages, threads and messages (Ctrl+K)">Search ⌘K</button> : null}
       {current ? <AutopilotToggle campaign={current} version={version} threadId={route.thread} /> : null}
       {workspace?.dev_mode ? <Pill title="The Pi harness runs a dev profile">dev</Pill> : null}
       {current ? <button className={'pill ' + (pill?.state || '')} data-testid="monitor-pill" onClick={() => { track('monitor.open', { state: pill?.state || 'unknown' }); onMonitor(); }} title="Open the monitor">
