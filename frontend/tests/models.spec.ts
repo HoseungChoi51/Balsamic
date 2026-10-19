@@ -18,3 +18,13 @@ test('the Models page assigns a tier per role and a model per tier, saved with t
   expect(body.tiers[1]).toEqual({ id: 'fast', label: 'Fast', model: { provider: 'deepseek', model: 'deepseek-v4-pro', effort: 'low' } });
   await expect(page.getByTestId('page-monitor')).toContainText('1 running agents switched');
 });
+
+test('ChatGPT is signed in from the Models page with a device code', async ({ page }) => {
+  const recorded = await mockWorkspace(page);
+  await page.goto(`/#t/${THREAD_ID}/monitor/models`);
+  await expect(page.getByTestId('provider-login')).toContainText('not signed in');
+  await page.getByTestId('login-openai').click();
+  await expect.poll(() => recorded.commands.some((c: any) => c.login)).toBe(true);
+  await expect(page.getByTestId('login-code')).toHaveText('ABCD-1234');
+  await expect(page.getByTestId('provider-login')).toContainText('https://auth.openai.com/device');
+});

@@ -56,6 +56,7 @@ export async function mockWorkspace(page: Page, overrides: Partial<Record<string
     }
     if (path.endsWith('/removal') && method === 'GET') return json(route, { campaign: { name: 'Demo campaign' }, blockers: [], options: [{ keep: 'nothing', kept_bytes: 0 }, { keep: 'summary', kept_bytes: null }, { keep: 'records', kept_bytes: 2500000 }] });
     if (path.endsWith('/removal') && method === 'POST') { recorded.commands.push({ removal: route.request().postDataJSON() }); return json(route, { removed: 'demo' }); }
+    if (method === 'POST' && path === '/api/v1/providers/login') { recorded.commands.push({ login: true }); return json(route, { status: 'pending', url: 'https://auth.openai.com/device', user_code: 'ABCD-1234', expires_at: Date.now() + 600000 }); }
     if (method === 'PUT' && path === '/api/v1/model-tiers') { const body = route.request().postDataJSON(); recorded.commands.push({ tiers: body }); return json(route, { mode: 'dev', revision: 1, saved: true, assignable: ['lead', 'proposal_reviewer', 'problem_importer'], providers: {}, models: [], ...body, applied: { updated: ['lead_demo'], blocked: [] } }); }
     if (method === 'POST' && path.endsWith('/seen')) { recorded.commands.push({ seen: path }); return json(route, { id: 'digest_1', seen_at: 'now' }); }
     if (method === 'POST' && path === '/api/v1/ui-events') { recorded.uiEvents.push(...route.request().postDataJSON().events); return json(route, { recorded: 1 }, 202); }

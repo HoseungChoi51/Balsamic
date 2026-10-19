@@ -95,6 +95,13 @@ def install(app, workspace):
         return {"mode": "dev" if dev_profile() else "locked", **load(workspace.store, profile_defaults()),
                 "assignable": list(ASSIGNABLE), "providers": (status or {}).get("providers", {}), "models": models}
 
+    @app.post("/api/v1/providers/login")
+    def provider_login():
+        """Start the harness's device sign-in to OpenAI (the ChatGPT subscription, provider openai-codex): a URL and a code; tokens stay on the host."""
+        started = workspace.pi.client.request("POST", "/v1/auth/start", {})
+        workspace.pi.harness_status = None   # the next status read sees the new sign-in
+        return started
+
     @app.get("/api/v1/model-tiers")
     def model_tiers():
         return tier_view()

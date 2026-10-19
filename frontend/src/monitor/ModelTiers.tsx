@@ -39,7 +39,9 @@ export function ModelTiers() {
     <>
       <Section title="Signed-in providers" right={<Pill>{data.mode} mode</Pill>}>
         {signedIn.length ? <p className="small">{signedIn.map(p => `${p} (${data.providers[p].billing || data.providers[p].auth || 'signed in'})`).join(', ')} · {models.length} models</p>
-          : <Empty>No provider is signed in on the harness, so no model can run. Put the key in <code>~/.config/balsamic/secrets.env</code> (for example <code>DEEPSEEK_API_KEY=…</code>), or sign in with <code>scripts/pi-dev</code> (<code>/login</code>), then restart the stack.</Empty>}
+          : <p className="small muted">No provider is signed in on the harness yet, so no model can run.</p>}
+        <ProviderLogin signedIn={signedIn} onDone={() => queryClient.invalidateQueries({ queryKey: ['model-tiers'] })} />
+        <p className="why">Key-based providers (DeepSeek, OpenAI API, Anthropic, …) take their key from <code>~/.config/balsamic/secrets.env</code> (one <code>NAME=value</code> per line, for example <code>DEEPSEEK_API_KEY=…</code>); restart the stack after adding one. <code>scripts/pi-dev</code> then <code>/login</code> is the interactive way.</p>
       </Section>
       {data.mode !== 'dev' ? <Empty>Models are locked by the harness profile; the dev profile (GRATING_PI_PROFILE) makes them configurable here.</Empty> : (
         <Section title="Tiers: the models agents run on" right={<div className="row">{dirty ? <Pill tone="attention">unsaved</Pill> : null}<button className="btn primary small" disabled={!dirty} onClick={save} data-testid="save-tiers">Save</button></div>}>
@@ -61,5 +63,33 @@ export function ModelTiers() {
           <p className="why">A running agent switches only within its campaign's model family; others keep their model until their campaign ends. The problem importer (the formulator behind Adopt) and the setup assistant use the lead's tier.</p>
         </Section>)}
     </>
+  );
+}
+
+
+/** The ChatGPT subscription: Pi's openai-codex provider signs in with a device code; the tokens stay on the host. */
+function ProviderLogin({ signedIn, onDone }: { signedIn: string[]; onDone: () => unknown }) {
+  const [login, setLogin] = useState<{ status: string; url?: string; user_code?: string; expires_at?: number; reason?: string } | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const connected = signedIn.includes('openai-codex');
+  useEffect(() => {
+    if (login?.status !== 'pending') return;
+    const timer = setInterval(() => { void onDone(); }, 5000);
+    return () => clearInterval(timer);
+  }, [login?.status, onDone]);
+  useEffect(() => { if (connected && login?.status === 'pending') setLogin({ status: 'connected' }); }, [connected, login?.status]);
+  const start = async () => {
+    setError(null);
+    try { setLogin(await api<{ status: string; url?: string; user_code?: string; expires_at?: number }>('/api/v1/providers/login', { method: 'POST' })); }
+    catch (e) { setError(String((e as Error).message || e)); }
+  };
+  return (
+    <div className="row wrap" data-testid="provider-login">
+      <span className="small">ChatGPT (OpenAI Codex, subscription): {connected ? <Pill tone="clear">signed in</Pill> : <Pill>not signed in</Pill>}</span>
+      {!connected ? <button className="btn small" onClick={start} data-testid="login-openai">Sign in with a device code…</button> : null}
+      {login?.status === 'pending' ? <span className="small">Open <a href={login.url} target="_blank" rel="noreferrer">{login.url}</a> and enter <strong className="mono" data-testid="login-code">{login.user_code}</strong>; this page updates when the sign-in completes.</span> : null}
+      {login?.status === 'expired' ? <span className="pill bad">{login.reason}</span> : null}
+      {error ? <span className="pill bad">{error}</span> : null}
+    </div>
   );
 }

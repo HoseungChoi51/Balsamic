@@ -33,7 +33,7 @@ def install(app, workspace):
         from optimization_framework.agents.controller import dev_profile
         from optimization_framework.llm.providers import provider_status
         status = workspace.pi.harness_status or {}
-        if not status:
+        if not status or not status.get("configured"):   # an unsigned harness is asked again: a sign-in may have completed
             try:
                 status = workspace.pi.client.status() or {}
                 workspace.pi.harness_status = status
