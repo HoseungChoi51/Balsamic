@@ -46,7 +46,9 @@ def stack(tmp_path, monkeypatch, client, workspace, campaign):
 def settle(workspace, campaign_id, run_id, timeout=10):
     deadline = time.time() + timeout
     while time.time() < deadline:
-        workspace.pi._sync(campaign_id)
+        workspace.on_manager_tick()   # what the maintenance thread does: the controller syncs with the harness
+        for thread in list(workspace.pi.threads.values()):
+            thread.join(timeout=2)
         run = workspace.store.get(run_id, "agent_run")
         if run["status"] in {"completed", "failed"}:
             return run

@@ -13,6 +13,17 @@ class StagePinInput(Contract):
 
 def register(workspace):
     commands = workspace.commands
+    # The Pi controller syncs with the harness when the harness notifies and on every maintenance tick (the legacy
+    # campaign manager used to drive it): queued turns are submitted, finished ones received.
+    previous_tick = workspace.on_manager_tick
+
+    def sync_agents():
+        if previous_tick:
+            previous_tick()
+        for campaign in workspace.store.list("campaign"):
+            if workspace.pi.owns(campaign["id"]):
+                workspace.pi.tick(campaign["id"])
+    workspace.on_manager_tick = sync_agents
 
     def thread_revision(command):
         origin = command.origin

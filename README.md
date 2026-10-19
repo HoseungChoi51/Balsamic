@@ -20,7 +20,7 @@ uv sync --extra dev --extra meent
 uv run --no-sync optimization-lab --directory runs/workspace --workers 2 --port 8765
 ```
 
-Open **http://127.0.0.1:8765**. Start a campaign (`#new`) with a name and budgets; a problem instance can be chosen now or
+Or start everything at once with `scripts/dev-stack up` (`--real` for the Pi harness; without it a scripted fake lead answers). Open **http://127.0.0.1:8765**. Start a campaign (`#new`) with a name and budgets; a problem instance can be chosen now or
 formulated with the lead first. The lead starts nothing until you ask. Data remain in the workspace directory after closing
 the browser. The Pi agent harness (below) is the only chat backend; without it the pages still show the records and the
 numerical experiments still run.

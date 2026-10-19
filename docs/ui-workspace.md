@@ -282,7 +282,7 @@ GRATING_PI_URL=http://127.0.0.1:8768 uv run optimization-lab --directory runs/de
 (cd frontend && npm run dev)                                                      # http://127.0.0.1:5173 during development
 ```
 
-`scripts/labctl` starts the same services from a launcher configuration. Tests: `GRATING_LLM_DISABLED=true uv run pytest -q`,
+`scripts/dev-stack up` starts the three services locally in one go (the scripted fake harness by default, `--real` for the Pi harness) and serves the built frontend at http://127.0.0.1:8765; `scripts/dev-stack down` stops them. `scripts/labctl` starts the same services from a launcher configuration. Tests: `GRATING_LLM_DISABLED=true uv run pytest -q`,
 `(cd agent-harness && npm test)`, `(cd frontend && npx tsc -b && npx playwright test)`.
 
 ## Milestones
