@@ -26,16 +26,22 @@ case "$cmd" in
     [ -f "$token" ] || python3 -c "import secrets,sys; open(sys.argv[1],'w').write(secrets.token_hex(24))" "$token"
     [ -f "$repo/frontend/dist/index.html" ] || (cd "$repo/frontend" && npm ci && npm run build)
     start library uv run optimization-implementations --directory "$dir/library" --port "$LIBRARY_PORT"
+    profile="${GRATING_PI_PROFILE:-$repo/agent-harness/profiles/dev}"
+    secrets="${BALSAMIC_SECRETS:-$HOME/.config/balsamic/secrets.env}"
     if [ "$real" = 1 ]; then
       [ -d "$repo/agent-harness/dist" ] || (cd "$repo/agent-harness" && npm ci && npm run build)
-      start pi env GRATING_PI_TOKEN_FILE="$token" GRATING_PI_DIRECTORY="$dir/pi" GRATING_PI_PORT="$PI_PORT" \
-        GRATING_PI_WORKSPACE_URL="http://127.0.0.1:$WORKSPACE_PORT" GRATING_PI_PROFILE="${GRATING_PI_PROFILE:-$repo/agent-harness/profiles/dev}" \
+      # Provider keys (KEY=value lines) reach the harness only; the dev profile names the default model.
+      secret_env=(); if [ -f "$secrets" ]; then while IFS= read -r line; do case "$line" in ''|'#'*) ;; *) secret_env+=("$line");; esac; done < "$secrets"; fi
+      start pi env "${secret_env[@]}" GRATING_PI_TOKEN_FILE="$token" GRATING_PI_DIRECTORY="$dir/pi" GRATING_PI_PORT="$PI_PORT" \
+        GRATING_PI_WORKSPACE_URL="http://127.0.0.1:$WORKSPACE_PORT" GRATING_PI_PROFILE="$profile" \
         node "$repo/agent-harness/dist/server.js"
+      mode_env=(GRATING_PI_PROFILE="$profile")
     else
+      mode_env=(GRATING_PI_PROVIDER=openai-codex)
       start pi env GRATING_PI_TOKEN_FILE="$token" GRATING_PI_WORKSPACE_URL="http://127.0.0.1:$WORKSPACE_PORT" \
         uv run python "$repo/tests/fake_harness.py" --port "$PI_PORT"
     fi
-    start workspace env GRATING_PI_TOKEN_FILE="$token" GRATING_PI_URL="http://127.0.0.1:$PI_PORT" GRATING_PI_PROVIDER=openai-codex \
+    start workspace env "${mode_env[@]}" GRATING_PI_TOKEN_FILE="$token" GRATING_PI_URL="http://127.0.0.1:$PI_PORT" \
       GRATING_LLM_ENABLED=true GRATING_LLM_DISABLED=false GRATING_IMPLEMENTATION_URL="http://127.0.0.1:$LIBRARY_PORT" \
       uv run optimization-lab --directory "$dir/workspace" --port "$WORKSPACE_PORT" --workers 2
     for i in $(seq 1 30); do curl -sf "http://127.0.0.1:$WORKSPACE_PORT/api/health" > /dev/null && break; sleep 1; done
