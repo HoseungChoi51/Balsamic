@@ -6,6 +6,8 @@ parks the source, and gives the lead a turn on the target's leaf. Lab events (a 
 reach every other active thread as one line. Messages carry ``thread_id`` (absent means main) and a ``desk`` when written
 to a page agent.
 """
+import re
+
 from pydantic import Field
 
 from optimization_framework.agents.models import LEAD, PAGE_AGENTS
@@ -149,6 +151,23 @@ def search(workspace, campaign_id, q, *, limit=40):
     thread_hits = [{"thread_id": t_id, "thread_title": title} for t_id, title in titles.items() if all(w in title.lower() for w in words)]
     return {"campaign_id": campaign_id, "q": q, "threads": thread_hits, "messages": hits[-limit:]}
 
+TITLE_LIMIT = 48
+
+
+def branch_title(text, *, fallback="Branch"):
+    """A branch title that fits the thread switcher: the first sentence or line, at most TITLE_LIMIT characters, cut at a word."""
+    line = next((l.strip() for l in (text or "").splitlines() if l.strip()), "")
+    line = re.sub(r"^(?:/\w+\s+|[#>*\-\s]+)", "", line)
+    line = re.sub(r"[*_`]+", "", line)
+    line = re.sub(r"\s+", " ", line).strip()
+    sentence = re.split(r"(?<=[.?!])\s", line, maxsplit=1)[0]
+    if sentence and len(sentence) <= TITLE_LIMIT:
+        line = sentence
+    if len(line) > TITLE_LIMIT:
+        cut = line[:TITLE_LIMIT].rsplit(" ", 1)[0] if " " in line[:TITLE_LIMIT] else line[:TITLE_LIMIT]
+        line = cut.rstrip(" ,;:-") + "…"
+    return line or fallback
+
 
 def messages(workspace, thread_id, *, limit=MESSAGE_LIMIT, before=None):
     thread = thread_of(workspace, thread_id)
@@ -282,8 +301,8 @@ def register(workspace):
         entry = fork_entry(workspace, source, values.message_id)
         message = workspace.store.get(values.message_id, "message")
         identity = f"thread_{content_hash(command.id)[:10]}_{command.campaign_id}"
-        title = values.title or ((message.get("content") or "").strip().split("\n")[0][:80] or "Branch")
-        record = {"id": identity, "campaign_id": command.campaign_id, "name": title[:40], "title": title, "parent_thread_id": source["id"],
+        title = branch_title(values.title or message.get("content"))
+        record = {"id": identity, "campaign_id": command.campaign_id, "name": title, "title": title, "parent_thread_id": source["id"],
                   "fork_message_id": values.message_id, "fork_entry_id": entry, "agent_leaf": None, "status": "active", "merged_into": None,
                   "pinned_ids": list(source.get("pinned_ids") or []), "excluded_ids": list(source.get("excluded_ids") or []), "anchors": values.anchors,
                   "summary": None, "guidance_revision": int(source.get("guidance_revision", 0)), "last_seen_message_id": None, "created_at": now(), "updated_at": now()}
@@ -294,9 +313,10 @@ def register(workspace):
         researcher_only(actor)
         values = ThreadInput(**command.payload)
         thread = _own(workspace, command, values.thread_id)
-        if not values.title:
+        if not (values.title or "").strip():
             raise ValueError("A thread needs a title")
-        thread.update(title=values.title, name=values.title[:40] if thread["name"] != MAIN else MAIN, updated_at=now())
+        title = branch_title(values.title)
+        thread.update(title=title, name=title if thread["name"] != MAIN else MAIN, updated_at=now())
         workspace.store.put("thread", thread, "thread.renamed")
         return {"thread_id": thread["id"]}
 

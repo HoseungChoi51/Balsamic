@@ -54,6 +54,8 @@ textarea { resize: vertical; }
 .stage-head { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; }
 .stage-head h1 { flex: 1; }
 .thread-head { display: flex; align-items: center; gap: 8px; padding: 8px 12px; border-bottom: 1px solid var(--line); }
+.thread-head select { max-width: min(320px, 55%); text-overflow: ellipsis; }
+.lane strong, .thread-title { display: inline-block; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; vertical-align: bottom; }
 .turns { flex: 1; overflow: auto; padding: 12px; display: flex; flex-direction: column; gap: 10px; }
 .turn { max-width: 92%; border-radius: var(--radius); padding: 8px 12px; border: 1px solid var(--line); background: var(--panel-2); }
 .turn.user { align-self: flex-end; background: var(--you-soft); border-color: transparent; }

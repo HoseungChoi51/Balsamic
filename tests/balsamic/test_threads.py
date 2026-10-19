@@ -186,3 +186,24 @@ def test_merge_posts_one_turn_and_parks_the_source(client, workspace, campaign, 
     run = workspace.store.get(merged["run_id"], "agent_run")
     assert run["origin"]["thread_id"] == MAIN and run["leaf_entry_id"] == "e2" and "Side quest" in run["input"]
     command(client, "agent.message", campaign["id"], {"message": "more", "thread_id": fork["id"]}, campaign["version"], expect=409)
+
+
+def test_branch_titles_fit_the_switcher(client, workspace, campaign, team):
+    from balsamic.threads.service import TITLE_LIMIT, branch_title
+    long = ("Let's think about whether the coupling efficiency can be pushed above 0.8 with a two-layer grating "
+            "while the fabrication constraint on the minimum feature size stays at 80 nm, and what that costs")
+    assert branch_title(long).endswith("…") and len(branch_title(long)) <= TITLE_LIMIT + 1
+    assert branch_title("/fork  Second coupling. Then more words that are not needed") == "Second coupling."
+    assert branch_title("**Bold** _start_ of a `line`\nsecond line") == "Bold start of a line"
+    assert branch_title("") == "Branch" and branch_title(None) == "Branch"
+    run1 = say(client, campaign, long)
+    finish_run(workspace, run1, "Two candidates.", entry_ids={"parent": "e0", "last": "e2"})
+    question = "message_" + run1.removeprefix("pi_run_")
+    fork = command(client, "thread.fork", campaign["id"], {"thread_id": MAIN, "message_id": question}, campaign["version"])
+    branch = fork["outcome"]["thread"]
+    assert len(branch["title"]) <= TITLE_LIMIT + 1 and branch["name"] == branch["title"]
+    version = lambda: workspace.store.get(campaign["id"], "campaign")["version"]
+    explicit = command(client, "thread.fork", campaign["id"], {"thread_id": MAIN, "message_id": question, "title": long}, version())
+    assert len(explicit["outcome"]["thread"]["title"]) <= TITLE_LIMIT + 1
+    command(client, "thread.rename", campaign["id"], {"thread_id": branch["id"], "title": long}, version())
+    assert len(workspace.store.get(branch["id"], "thread")["title"]) <= TITLE_LIMIT + 1

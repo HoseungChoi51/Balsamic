@@ -65,7 +65,7 @@ export default function EvolutionPage({ campaignId, route }: PageProps) {
         onDiscuss={() => act('discuss', async () => {
           const last = messages.data?.messages.filter(m => m.origin !== 'lab_event').at(-1);
           if (!route.thread || !last) throw new Error('Nothing to fork from yet: write to the lead first');
-          const receipt = await send({ operation: 'thread.fork', campaignId, expectedRevision: version!, payload: { thread_id: route.thread, message_id: last.id, title: `Discuss ${chosen.map(r => r.label || r.title).join(', ').slice(0, 60)}`, anchors: chosen.map(r => r.id) }, origin: { thread_id: route.thread } });
+          const receipt = await send({ operation: 'thread.fork', campaignId, expectedRevision: version!, payload: { thread_id: route.thread, message_id: last.id, title: `Discuss ${chosen.map(r => r.label || r.title.slice(0, 24)).join(', ')}`, anchors: chosen.map(r => r.id) }, origin: { thread_id: route.thread } });
           track('thread.fork', { from: 'frontier' });
           navigate(formatHash({ page: 'evolution', sub: 'frontier' }, (receipt.outcome.thread as { id: string }).id));
         })} /> : null}

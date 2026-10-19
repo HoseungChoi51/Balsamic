@@ -30,7 +30,7 @@ export default function HypothesesPage({ campaignId, route, threadId }: PageProp
   const discuss = async (id: string, title: string) => {
     const campaign = summary.data?.campaign; const last = messages.data?.messages.filter(m => m.origin !== 'lab_event').at(-1);
     if (!campaign || !threadId || !last) return;
-    const receipt = await send({ operation: 'thread.fork', campaignId, expectedRevision: campaign.version, payload: { thread_id: threadId, message_id: last.id, title: `Discuss ${labels[id] || title}`, anchors: [id] }, origin: { thread_id: threadId } });
+    const receipt = await send({ operation: 'thread.fork', campaignId, expectedRevision: campaign.version, payload: { thread_id: threadId, message_id: last.id, title: `Discuss ${labels[id] || title.slice(0, 40)}`, anchors: [id] }, origin: { thread_id: threadId } });
     track('thread.fork', { from: 'card' });
     await queryClient.invalidateQueries({ queryKey: ['threads', campaignId] });
     navigate(formatHash({ page: 'hypotheses', id, sel: id }, (receipt.outcome.thread as { id: string }).id));

@@ -133,7 +133,7 @@ summaries, the context drawer and placeholders arrive with M1.
 **Threads.** `thread.fork {thread_id, message_id, title?}` starts a branch at a message; its `fork_entry_id` is the entry
 of the lead's reply to that message, and the branch's first turn carries `branch_from_entry_id` so the harness branches
 the session there. Each later turn carries the thread's `agent_leaf`; the reply moves it (`agent_run.result.entry_ids`,
-`message.entry_id`). `thread.rename`, `thread.park` (writes a summary card), `thread.unpark`, `thread.pin {record_id,
+`message.entry_id`). Titles are shortened by `threads.service.branch_title` to at most 48 characters (first sentence or line, markdown and slash prefix stripped, cut at a word) whether given or derived from the forked message, so they fit the switcher. `thread.rename`, `thread.park` (writes a summary card), `thread.unpark`, `thread.pin {record_id,
 pinned, excluded}` (delegable: the lead's `thread_pin` tool) and `thread.merge {thread_id, into_thread_id, note}` (one
 message `merge_of_thread_id` in the target, the target's revision bumped, the source parked as merged, a lead turn on the
 target's leaf). A merged thread takes no more messages. Edit-and-resend is a fork before the edited message plus
