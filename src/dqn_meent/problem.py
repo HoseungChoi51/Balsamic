@@ -38,14 +38,6 @@ class MeentProblem:
         from .study_rules import registered
         return registered()
 
-    def seed_hypotheses(self):
-        from .research_seeds import seed_hypotheses
-        return seed_hypotheses()
-
-    def legacy_probe(self, tasks, hypotheses, trials):
-        from .research_seeds import select_probe
-        return select_probe(tasks, hypotheses, trials)
-
     def exposure_fields(self, store, campaign_id, instance):
         from optimization_framework.evaluation.legacy_confirmation import task_exposure_fields
         return task_exposure_fields(store, campaign_id, {**instance.configuration, **instance.fidelity})

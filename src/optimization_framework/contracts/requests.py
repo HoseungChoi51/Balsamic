@@ -60,6 +60,12 @@ class CharterReference(Model):
     revision: int = Field(ge=1)
 
 
+class AutopilotSettings(Model):
+    enabled: bool = False
+    compute_cap_seconds: float | None = Field(default=None, gt=0, le=604800)
+    report_by: str | None = Field(default=None, max_length=64)
+
+
 class CampaignInput(Model):
     name: str = Field(min_length=1, max_length=200)
     objective: str = Field(default="Develop an effective optimizer for the chosen problem.", max_length=20000)
@@ -72,14 +78,22 @@ class CampaignInput(Model):
     delegated_trial_seconds: float = Field(default=60, gt=0, le=86400)   # at most what one experiment may run
     validation_reserve_seconds: float = Field(default=120, ge=0)
     implementation_compute_budget_seconds: float = Field(default=0, ge=0, le=604800)
+    # Off unless the researcher turns it on: the lead then runs rounds within the cap (docs/ui-workspace.md, Autopilot).
+    autopilot: AutopilotSettings | None = None
 
     @model_validator(mode="after")
     def reserve_fits(self):
         if self.validation_reserve_seconds > self.compute_budget_seconds:
             raise ValueError("Validation reserve exceeds campaign compute budget")
-        if not self.tasks and self.charter is None:
-            raise ValueError("A campaign needs a confirmed problem charter or at least one problem instance")
+        # Without tasks or a charter the campaign starts in its formulation stage: the lead drafts the problem note
+        # in chat, and the confirmed charter later sets the tasks (campaign.update).
         return self
+
+    @property
+    def formulating(self):
+        return not self.tasks and self.charter is None
+
+
 
 
 class CampaignUpdate(Model):

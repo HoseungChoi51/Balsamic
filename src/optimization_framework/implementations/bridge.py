@@ -9,7 +9,7 @@ from optimization_framework.implementations.client import ImplementationClient
 from optimization_framework.implementations.models import JobRequest, RevalidationRequest, LibraryUnavailable, check_parameters, digest
 from optimization_framework.implementations.runtime import tree_hashes, verify_runtime, write_package, bundle_runtime_root, pin_runtime
 from optimization_framework.implementations.validation import evaluator_identity, profile_identity
-from optimization_framework.research.providers import api_spend
+from optimization_framework.llm.providers import api_spend
 from optimization_framework.storage.sqlite import atomic_json, identifier, now
 
 

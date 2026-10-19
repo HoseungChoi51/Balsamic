@@ -3,9 +3,9 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [project]
-name = "dqn-meent"
-version = "0.1.0"
-description = "A reusable user–LLM research harness for developing optimizers"
+name = "balsamic"
+version = "0.3.0"
+description = "Balsamic: a chat-centred research workspace for developing optimizers with a lead agent"
 requires-python = ">=3.12,<3.14"
 dependencies = [
   "numpy==2.5.3",
@@ -15,7 +15,6 @@ dependencies = [
   "httpx>=0.27,<1",
   "pydantic>=2.9,<3",
   "jsonschema>=4.19,<5",
-  "langgraph>=1,<2",
   "packaging>=24,<27",
   "pypdf>=6.19,<7",
   "tensorboard>=2.20,<3",
@@ -29,9 +28,8 @@ masks = ["mask-optimizers==0.1.0"]
 
 [project.scripts]
 dqn-meent = "dqn_meent.cli:main"
-grating-lab = "dqn_meent.workspace.api:main"
-grating-implementations = "dqn_meent.implementations.api:main"
-optimization-lab = "optimization_framework.api.app:main"
+balsamic = "balsamic.app:main"
+optimization-lab = "balsamic.app:main"
 optimization-implementations = "optimization_framework.implementations.api:main"
 optimization-research = "optimization_framework.cli:main"
 optimization-report = "optimization_framework.reports.cli:main"
@@ -48,7 +46,7 @@ mask_optimizers = "dqn_meent.mask_library_adapter:MaskLibraryPlugin"
 mask-optimizers = { git = "https://github.com/kc-ml2/mask-optimizers", tag = "v0.1.0" }
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/dqn_meent", "src/optimization_framework", "src/optimization_benchmarks"]
+packages = ["src/balsamic", "src/dqn_meent", "src/optimization_framework", "src/optimization_benchmarks"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

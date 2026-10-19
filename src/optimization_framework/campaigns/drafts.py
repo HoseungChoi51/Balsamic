@@ -86,7 +86,7 @@ class DraftService:
             if runtime["blocker"]:
                 block("runtime_profile", runtime["blocker"], "measure_runtime", "record_waiver")
         hypothesis = self.store.get(request["hypothesis_id"], "hypothesis") if request.get("hypothesis_id") else None
-        from optimization_framework.research.discovery.proposals import readiness as proposal_readiness
+        from optimization_framework.campaigns.proposals import readiness as proposal_readiness
         concept_review = proposal_readiness(self.store, hypothesis)
         if not concept_review["eligible"]:
             block("concept_review_required", concept_review["reason"], "discuss_with_manager")

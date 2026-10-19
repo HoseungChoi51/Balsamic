@@ -1,0 +1,45 @@
+{
+  "comment": "The workspace's pages, shared by the frontend router and the lead agent's page links (optimization_framework/agents/pages.py). Addresses are #<page>[/<sub>][/<record_id>]; the router puts the current thread in front (#t/<thread>/...).",
+  "rail": ["note", "hypotheses", "experiments", "evolution", "files", "inbox", "monitor", "library", "branches"],
+  "pages": {
+    "note": {"title": "Problem note", "description": "the problem note the lead drafts with you: objective, knobs, observables, noise, constraints, confounders, open questions; its revisions, and the charter it is adopted into",
+             "subs": {"charter": "Charter", "revisions": "Revisions"}},
+    "hypotheses": {"title": "Hypotheses", "description": "every proposal with its mechanism, reviews and status; the discussion moderator takes requests here; one proposal: #hypotheses/<hypothesis_id>",
+                   "subs": {"rounds": "Review rounds", "implementations": "Implementations"}, "agent": "discussion_moderator"},
+    "experiments": {"title": "Experiments", "description": "every run with its progress, score curve and best design, and drafts not yet started; one run: #experiments/<trial_id>; the experiment operator takes requests here",
+                    "subs": {"checks": "Checks", "rules": "Rules", "drafts": "Drafts"}, "agent": "experiment_operator"},
+    "evolution": {"title": "Evolution", "description": "how the strategies evolved: the frontier table, the lineage of every candidate, score curves at matched cost, and the races",
+                  "subs": {"frontier": "Frontier", "lineage": "Lineage", "curves": "Curves", "races": "Races"}},
+    "files": {"title": "Files", "description": "recorded findings and assets, report drafts (one draft: /reports/<report_id>), the notebook and the sources read",
+              "subs": {"assets": "Assets", "reports": "Reports", "notebook": "Notebook", "sources": "Sources"}},
+    "inbox": {"title": "Inbox", "description": "what waits for your approval, choice or answer"},
+    "monitor": {"title": "Monitor", "description": "machine load, measured evaluation speed, budgets and forecasts, model usage, race progress, the agent team and its log; the resource planner takes requests here",
+                "subs": {"resources": "Resources", "usage": "Model usage", "races": "Race progress", "agents": "Agents", "log": "Agent log", "models": "Models", "guidance": "Guidance", "digest": "Away digest"},
+                "agent": "resource_planner"},
+    "library": {"title": "Library", "description": "strategies that won earlier campaigns of the same problem, ready to apply"},
+    "branches": {"title": "Branches", "description": "the map of this campaign's conversation branches with their summaries"},
+    "new": {"title": "New campaign", "description": "start a campaign"}
+  },
+  "agents": {"discussion_moderator": "hypotheses", "experiment_operator": "experiments", "implementation_lead": "hypotheses/implementations", "resource_planner": "monitor/resources"},
+  "commands": {
+    "hypothesis.create": "hypotheses", "hypothesis.review": "hypotheses", "hypothesis.status": "hypotheses", "hypothesis.nominate": "evolution/frontier",
+    "hypothesis.allocate": "evolution/frontier", "intervention.batch": "evolution/frontier", "research.generate": "hypotheses",
+    "draft.save": "experiments/drafts", "draft.launch": "experiments", "trial.create": "experiments", "trial.control": "experiments",
+    "trial.continue": "experiments", "trial.hide": "experiments", "experiments.rules": "experiments/rules",
+    "comparison.report": "evolution/curves", "study.race.create": "evolution/races", "study.race.control": "evolution/races", "study.race.decide": "evolution/races",
+    "finding.record": "files/assets", "asset.snapshot": "files/assets", "report.write": "files/reports",
+    "runtime.profile": "monitor/resources", "resources.plan": "monitor/resources", "resources.estimate": "monitor/resources",
+    "approval.request": "inbox", "trial.extension_request": "inbox", "journal.compaction_request": "inbox",
+    "implementation.commission": "hypotheses/implementations", "implementation.attach": "hypotheses/implementations", "implementation.revalidate": "hypotheses/implementations",
+    "evaluator.commission": "hypotheses/implementations", "evaluator.attach": "hypotheses/implementations",
+    "problem_note.revise": "note", "problem_note.adopt": "note/charter", "library.publish": "library", "library.apply": "hypotheses"
+  },
+  "aliases": {
+    "overview": "monitor", "decisions": "inbox", "problem": "note", "problem-import": "new",
+    "implementations": "hypotheses/implementations", "discussions": "hypotheses/rounds", "hypotheses/rounds/graph": "hypotheses/rounds",
+    "comparison": "evolution/frontier", "studies": "evolution/races", "validation": "experiments/checks", "drafts": "experiments/drafts",
+    "assets": "files/assets", "notebook": "files/notebook", "reports": "files/reports",
+    "resources": "monitor/resources", "agents": "monitor/agents", "agents/usage": "monitor/usage", "agents/log": "monitor/log",
+    "agents/models": "monitor/models", "agents/guidance": "monitor/guidance", "models": "monitor/models", "llm-usage": "monitor/usage", "memory": "monitor/guidance"
+  }
+}

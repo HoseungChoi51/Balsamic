@@ -33,7 +33,7 @@ UNCONFIGURED_STATUS_SECONDS = 10
 # what a stage needs (a few thousand tokens at full thinking) rather than at the model's own limit.
 REPORT_CALL_OUTPUT_TOKENS = 64000
 # Record kinds whose changes require a scheduling pass (dispatch, controls, admission).
-SCHEDULING_KINDS = ("agent_run", "agent_session", "agent_campaign", "manager_command", "development_command")
+SCHEDULING_KINDS = ("agent_run", "agent_session", "agent_campaign", "development_command")
 # The reviewed OpenAI Codex subscription models. They migrate campaigns activated before
 # per-campaign model choices, and are the defaults once a server names openai-codex as its
 # locked provider. No provider is chosen by default.
@@ -148,27 +148,11 @@ class PiController:
         if existing and existing.get("enabled"):
             return self.view(campaign_id)
         campaign = self.store.get(campaign_id, "campaign")
-        if any(r["status"] in {"running", "stopping", "needs_reconciliation"}
-               for r in self.store.list("research_run", campaign_id)):
-            raise ValueError("Drain or reconcile active legacy model calls before migrating")
-        if any(t.get("status") in {"running", "waiting"} for t in self.store.list("discovery_task", campaign_id)):
-            raise ValueError("Drain active discovery assignments before migrating")
-        sessions = self.store.list("discovery_session", campaign_id)
-        manifest = {"id": "pi_migration_" + command_id, "campaign_id": campaign_id, "created_at": now(),
-            "legacy_sessions": [{"id": s["id"], "status": s["status"], "policy": s["policy"]} for s in sessions],
-            "legacy_autonomy": campaign["autonomy"],
-            "budget_snapshot": {k: campaign.get(k) for k in ("compute_budget_seconds", "implementation_compute_budget_seconds",
-                "validation_reserve_seconds", "delegated_trial_seconds", "llm_budget_usd")},
-            "outstanding_tasks": [t["id"] for t in self.store.list("discovery_task", campaign_id)
-                if t["status"] not in {"completed", "cancelled", "superseded"}],
-            "hypothesis_ids": [h["id"] for h in self.store.list("hypothesis", campaign_id)],
-            "objective": values.objective, "limitations": "Migration preserves unfinished work; no scientific prerequisites are asserted complete."}
-        self.store.put_immutable("agent_migration", manifest, "agent.migrated")
         with self.store.connection() as db:
             event_cursor = db.execute("SELECT COALESCE(MAX(id),0) FROM events WHERE campaign_id=?", (campaign_id,)).fetchone()[0]
         config = {"id": "pi_campaign_" + campaign_id, "campaign_id": campaign_id, "enabled": True,
             "status": "running", "control_revision": 0, "max_subagents": values.max_subagents,
-            "objective": values.objective, "migration_id": manifest["id"], "created_at": now(), "event_cursor": event_cursor,
+            "objective": values.objective, "activation_command_id": command_id, "created_at": now(), "event_cursor": event_cursor,
             # No request is open until the researcher writes; until then nothing wakes the lead.
             "request_open": False,
             "provider": {"configured": False, "reason": "Checking Pi connection"}}
@@ -185,17 +169,12 @@ class PiController:
         if values.delegated:
             campaign["autonomy"] = "delegated"
             self.store.put("campaign", campaign, "campaign.delegation_changed")
-        for session in sessions:
-            if session["status"] not in {"completed", "stopped", "exhausted"}:
-                session.update(status="stopped", runtime_successor=config["id"], updated_at=now())
-                self.store.put("discovery_session", session, "discovery.migrated")
         for index, hypothesis in enumerate(self.store.list("hypothesis", campaign_id), 1):
             self.store.put_immutable("agent_alias", {"id": "pi_alias_" + hypothesis["id"], "campaign_id": campaign_id,
                 "label": f"H{index:02d}", "record_id": hypothesis["id"], "candidate_id": hypothesis.get("candidate_id")})
         lead = self.create_agent(campaign_id, LEAD, values.objective, "lead_" + campaign_id)
         config["lead_id"] = lead["id"]; self.store.put("agent_campaign", config)
-        # Starting the team starts no turn. The lead's first turn is the researcher's first message
-        # (or a request the researcher left unanswered before the team existed, see admit_legacy).
+        # Starting the team starts no turn. The lead's first turn is the researcher's first message.
         lead.update(status="waiting", activity="Waiting for your first request. Nothing is started until you ask for it.")
         self.store.put("agent_session", lead)
         return self.view(campaign_id)
@@ -411,7 +390,7 @@ class PiController:
                                     "reason": str(exc)})
         return {"updated": updated, "blocked": blocked}
 
-    def enqueue(self, agent, identity, text, *, mode="follow_up", manager_command_id=None):
+    def enqueue(self, agent, identity, text, *, mode="follow_up", origin=None):
         try:
             saved = self.store.get(identity, "agent_run")
             if saved["agent_id"] != agent["id"] or saved["input"] != text or saved["mode"] != mode:
@@ -420,33 +399,11 @@ class PiController:
         except KeyError:
             pass
         run = {"id": identity, "campaign_id": agent["campaign_id"], "agent_id": agent["id"], "input": text,
-            "mode": mode, "status": "queued", "created_at": now(), "manager_command_id": manager_command_id,
+            "mode": mode, "status": "queued", "created_at": now(), "origin": origin,
             "guidance_revision": self.workspace.memory.state(agent["campaign_id"])["guidance_revision"]}
         self.store.put("agent_run", run, "agent.run_queued")
         if agent["status"] not in {"paused", "stopped"}:
             agent.update(status="queued", updated_at=now()); self.store.put("agent_session", agent)
-        return run
-
-    def admit_legacy(self, command):
-        config = self.configuration(command["campaign_id"])
-        agent = self.store.get(config["lead_id"], "agent_session")
-        request = command["request"]
-        self._request(command["campaign_id"], True)
-        run = self.enqueue(agent, "pi_run_" + command["id"], request["message"] + "\nResearch request details: " + json.dumps(request)
-            + ("\nReview the frozen decision refresh record " + command["decision_refresh_id"] if command.get("decision_refresh_id") else ""), mode="steer",
-                           manager_command_id=command["id"])
-        command.update(status="dispatched", agent_run_id=run["id"], agent_id=agent["id"])
-        self.store.put("manager_command", command, "manager.message_dispatched")
-        try:
-            message = self.store.get("message_" + command["id"], "message")
-            message["agent_id"] = agent["id"]
-            self.store.put("message", message)
-        except KeyError:
-            pass
-        for entry in self.store.list("manager_input", command["campaign_id"]):
-            if entry.get("manager_command_id") == command["id"] and entry["status"] == "pending":
-                entry.update(status="consumed", agent_run_id=run["id"], consumed_at=now())
-                self.store.put("manager_input", entry, "manager.input_consumed")
         return run
 
     def message(self, campaign_id, payload, command_id):
@@ -690,14 +647,11 @@ class PiController:
                 config = self.configuration(campaign_id)
                 # A completed campaign is taken up again by a queued researcher request, in either form.
                 lead_waits = any(run["status"] == "queued" for run in self.store.list_agent_runs(config["lead_id"]))
-                if config["status"] == "completed" and (lead_waits or any(c["status"] in {"queued", "waiting_provider", "waiting_discovery"} for c in self.store.list("manager_command", campaign_id))):
+                if config["status"] == "completed" and lead_waits:
                     config["status"] = "running"
                     self.store.put("agent_campaign", config)
                 if config["status"] != "running":
                     return
-                for command in self.store.list("manager_command", campaign_id):
-                    if command["status"] in {"queued", "waiting_provider", "waiting_discovery"}:
-                        self.admit_legacy(command)
                 self._campaign_events(campaign_id)
                 if not status.get("configured"):
                     return
@@ -788,10 +742,6 @@ class PiController:
                 run.update(status=result["status"], result=result.get("result"), error=result.get("error"))
                 self.store.put("agent_run", run, "agent.run_updated" if previous != run["status"] else None)
                 if run["status"] in TERMINAL and previous not in TERMINAL:
-                    if run.get("manager_command_id"):
-                        command = self.store.get(run["manager_command_id"], "manager_command")
-                        command.update(status="completed" if run["status"] == "completed" else "handed_off")
-                        self.store.put("manager_command", command)
                     text = (run.get("result") or {}).get("text")
                     parts = [part for part in (run.get("result") or {}).get("parts") or [] if isinstance(part, str) and part.strip()]
                     report = ((run.get("disposition") or {}).get("report") or "").strip()

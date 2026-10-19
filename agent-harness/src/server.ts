@@ -56,6 +56,17 @@ const server = http.createServer(async (req, res) => {
       const abort = new AbortController(); res.on('close', () => { if (!res.writableEnded) abort.abort(); });
       res.end(JSON.stringify(await supervisor.complete(call[1], JSON.parse(raw), abort.signal))); return;
     }
+    const session = url.pathname.match(/^\/v1\/agents\/([a-zA-Z0-9_-]+)\/(tree|entries|context|leaf|export)$/);
+    if (session && req.method === 'GET' && session[2] !== 'leaf') {
+      const value = supervisor.session(session[1], session[2], {after: url.searchParams.get('after'), leaf: url.searchParams.get('leaf')});
+      res.statusCode = value ? 200 : 404; res.end(JSON.stringify(value)); return;
+    }
+    if (session && session[2] === 'leaf' && req.method === 'POST') {
+      let raw = ''; for await (const chunk of req) { raw += chunk; if (Buffer.byteLength(raw) > 256 * 1024) throw new Error('Request exceeds transport limit'); }
+      const body = JSON.parse(raw);
+      const value = supervisor.setLeaf(session[1], String(body.entry_id || ''), body.summary ? String(body.summary).slice(0, 4000) : null);
+      res.statusCode = value ? 200 : 404; res.end(JSON.stringify(value)); return;
+    }
     const match = url.pathname.match(/^\/v1\/agents\/([a-zA-Z0-9_-]+)(?:\/(runs|control))?$/);
     if (!match) { res.statusCode = 404; res.end('{}'); return; }
     if (req.method === 'GET' && !match[2]) { const value = supervisor.view(match[1], Number(url.searchParams.get('after') || 0)); res.statusCode = value ? 200 : 404; res.end(JSON.stringify(value)); return; }

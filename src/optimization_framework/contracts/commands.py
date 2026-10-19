@@ -8,10 +8,24 @@ from .requests import CampaignUpdate, ControlInput, ValidationInput, ReviewInput
 from optimization_framework.implementations.models import EvaluatorSpec, EvaluatorPackage, EvaluatorCheckSpec, OptimizerCheckSpec
 
 Operation = Literal["agent.activate", "agent.message", "agent.control", "agent.rollback", "agent.configure", "agent.question_dismiss", "fixed_mask.run", "campaign.create", "campaign.update", "context.edit", "issue.resolve", "trial.create", "trial.control", "trial.extension_request", "trial.validate", "draft.save", "draft.launch", "reproduction.draft", "reproduction.compare", "study.create", "study.nominate", "finalist.set", "study.freeze_template", "study.activate", "study.race.create", "study.race.control", "study.race.decide", "validation.run", "validation.require", "validation.execute", "validation.waive",
-    "models.configure", "discovery.start", "discovery.control", "discovery.amend", "discovery.retry", "discovery.assessment.save", "discovery.assessment.launch", "discovery.assessment.decide", "asset.snapshot",
-    "validation.revoke_waiver", "context.import", "inference.run", "asset.reuse", "asset.import_reference_set", "cost.reconcile", "comparison.report", "finding.record", "implementation.commission",
-    "implementation.reference", "implementation.bind_builtin", "implementation.attach", "evaluator.commission", "evaluator.attach", "implementation.control", "implementation.revalidate", "implementation.reuse", "implementation.resolve_runtime", "bundle.export", "bundle.inspect", "bundle.publish", "research.start", "research.retry", "research.control", "decision.resolve", "decision.refresh", "source.record", "source.ingest", "hypothesis.create", "hypothesis.review", "hypothesis.status", "hypothesis.nominate", "literature.search", "confirmation.schedule", "confirmation.validate", "confirmation.release",
-    "runtime.profile", "evaluator.equivalence", "trial.continue", "journal.compact", "journal.compaction_request", "approval.request", "workers.set", "experiments.rules", "trial.hide", "resources.plan", "resources.estimate"]
+    "asset.snapshot",
+    "validation.revoke_waiver", "inference.run", "asset.reuse", "asset.import_reference_set", "cost.reconcile", "comparison.report", "finding.record", "implementation.commission",
+    "implementation.reference", "implementation.bind_builtin", "implementation.attach", "evaluator.commission", "evaluator.attach", "implementation.control", "implementation.revalidate", "implementation.reuse", "implementation.resolve_runtime", "bundle.export", "bundle.inspect", "bundle.publish", "decision.resolve", "source.record", "source.ingest", "hypothesis.create", "hypothesis.review", "hypothesis.status", "hypothesis.nominate", "literature.search", "confirmation.schedule", "confirmation.validate", "confirmation.release",
+    "runtime.profile", "evaluator.equivalence", "trial.continue", "journal.compact", "journal.compaction_request", "approval.request", "workers.set", "experiments.rules", "trial.hide", "resources.plan", "resources.estimate",
+    # The chat-centred workspace (docs/ui-workspace.md): threads, the problem note, graph interventions, autopilot, the library.
+    "thread.fork", "thread.rename", "thread.park", "thread.unpark", "thread.pin", "thread.merge_draft", "thread.merge",
+    "hypothesis.allocate", "intervention.batch", "research.generate", "problem_note.revise", "problem_note.adopt", "note.ask", "note.resolve",
+    "autopilot.set", "library.publish", "library.apply", "campaign.stage_pin"]
+
+
+class CommandOrigin(Contract):
+    """Where a command came from: the thread and message of the conversation, and who acted. Shown on every page."""
+    thread_id: str | None = None
+    message_id: str | None = None
+    actor: Literal["researcher", "lead", "page_agent", "autopilot"] = "researcher"
+    agent_id: str | None = None
+    run_id: str | None = None
+    rationale: str | None = Field(default=None, max_length=5000)
 
 
 class Command(Contract):
@@ -22,6 +36,9 @@ class Command(Contract):
     expected_guidance_revision: int | None = Field(default=None, ge=0)
     expected_authority_hash: str | None = None
     proposal_digest: str | None = None
+    # The thread whose guidance this command was prepared under (M1): a message in another thread does not stale it.
+    expected_thread_revision: int | None = Field(default=None, ge=0)
+    origin: CommandOrigin | None = None
     payload: dict[str, Any] = Field(default_factory=dict)
 
     @model_validator(mode="after")

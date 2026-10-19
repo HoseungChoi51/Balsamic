@@ -12,7 +12,7 @@ import time
 from optimization_framework.contracts.base import content_hash
 from optimization_framework.contracts.commands import Command
 from optimization_framework.storage.sqlite import now
-from optimization_framework.research.discovery.record_view import view_record
+from optimization_framework.campaigns.record_view import view_record
 from .models import ROLES, LEAD, PAGE_AGENTS, STANDING, DISCUSSION_ROLES
 from .capabilities import implementation_execution
 
@@ -163,38 +163,9 @@ def serialized_bytes(value):
 
 
 # Where the researcher sees each kind of thing. The lead links these pages instead of repeating what they show.
-PAGES = (
-    ("#hypotheses", "Hypotheses", "every proposal with its mechanism, reviews and status; the discussion moderator takes requests here"),
-    ("#hypotheses/rounds", "Review rounds", "what each assistant was asked and answered, its verdicts, and what was done with them"),
-    ("#implementations", "Implementations", "optimizer and evaluator implementations, their checks and coding workspaces; the implementation lead takes requests here"),
-    ("#experiments", "Experiments", "every run with its progress, score curve and best design, and drafts not yet started; one run: #experiments/<trial_id>; "
-        "the experiment operator takes requests here"),
-    ("#comparison", "Results", "runs side by side at matched cost, as curves and tables"),
-    ("#studies", "Studies", "the studies that fix the campaign's scientific scope, and their confirmation runs"),
-    ("#decisions", "Decision inbox", "what waits for the researcher's approval or choice"),
-    ("#assets", "Research assets", "recorded findings"),
-    ("#resources", "Resources", "machine load, measured evaluation speed and budgets"),
-    ("#reports", "Reports", "report drafts and the progress of one being written; one draft: /reports/<report_id>"),
-    ("#problem", "Problem", "the problem definition, the charter and the evaluator"),
-    ("#agents", "Agents", "the agent team and its controls"),
-    ("#agents/usage", "Model usage", "model calls and what they cost"),
-    ("#agents/log", "Agent log", "every recorded tool call and event"),
-)
-COMMAND_PAGES = {"hypothesis.create": "#hypotheses", "hypothesis.review": "#hypotheses", "hypothesis.status": "#hypotheses",
-    "draft.save": "#experiments", "draft.launch": "#experiments", "trial.create": "#experiments", "trial.control": "#experiments",
-    "trial.continue": "#experiments", "comparison.report": "#comparison", "finding.record": "#assets", "runtime.profile": "#resources",
-    "approval.request": "#decisions", "trial.extension_request": "#decisions", "journal.compaction_request": "#decisions",
-    "experiments.rules": "#experiments/rules", "trial.hide": "#experiments", "resources.plan": "#resources", "resources.estimate": "#resources",
-    "implementation.commission": "#implementations", "implementation.attach": "#implementations", "implementation.revalidate": "#implementations",
-    "evaluator.commission": "#implementations", "evaluator.attach": "#implementations"}
-
-
-def command_page(record):
-    """The page that shows what a command created, for the lead to link."""
-    page = COMMAND_PAGES.get(record.get("request", {}).get("operation"))
-    outcome = record.get("outcome")
-    trial = outcome.get("trial_id") if isinstance(outcome, dict) else None
-    return f"{page}/{trial}" if page == "#experiments" and isinstance(trial, str) else page
+from .pages import pages as _pages, command_pages as _command_pages, command_page  # noqa: E402  (shared with the frontend router)
+PAGES = _pages()
+COMMAND_PAGES = _command_pages()
 
 
 COMMAND_STEPS = {"hypothesis.create": "Recording a hypothesis", "hypothesis.review": "Recording a review", "hypothesis.status": "Changing a hypothesis's status",
@@ -613,8 +584,7 @@ class PiTools:
             return entry["data"]
         if entry["kind"] not in READ_KINDS or entry["data"].get("campaign_id", entry["data"].get("id")) != agent["campaign_id"]:
             raise ValueError("Evidence is not readable within this campaign")
-        from optimization_framework.research.discovery.references import corrected_view
-        return corrected_view(self.store, entry["data"]) if entry["kind"] == "discovery_artifact" else entry["data"]
+        return entry["data"]
 
     def methods(self, tasks):
         """Installed optimizers that can run on these tasks, with the parameters algorithm_config accepts."""
@@ -635,7 +605,7 @@ class PiTools:
         campaign = self.store.get(campaign_id, "campaign")
         tasks = self.workspace.current_tasks(campaign_id)
         hypotheses = self.store.list("hypothesis", campaign_id)
-        from optimization_framework.research.discovery.proposals import readiness, hypothesis_revision
+        from optimization_framework.campaigns.proposals import readiness, hypothesis_revision
         team_view = self.controller.view(campaign_id)
         from optimization_framework.campaigns.experiment_rules import current as experiment_rules
         rules = experiment_rules(self.store, campaign_id)
@@ -781,7 +751,7 @@ class PiTools:
                 "evidence_ids": [args["task_id"]]}, identity)
             return {**result, "dimensions": n, "ones": int(mask.sum()), "pattern": pattern}
         if name == "proposal_review":
-            from optimization_framework.research.discovery.proposals import hypothesis_revision
+            from optimization_framework.campaigns.proposals import hypothesis_revision
             hypothesis = self.record(agent, args["hypothesis_id"])
             if self.store.get_entry(hypothesis["id"])["kind"] != "hypothesis" or hypothesis_revision(hypothesis) != args["hypothesis_hash"]:
                 raise ValueError("Review must pin the exact current hypothesis revision from campaign_inspect")

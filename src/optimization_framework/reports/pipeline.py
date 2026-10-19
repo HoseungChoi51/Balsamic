@@ -4,7 +4,7 @@ from html.parser import HTMLParser
 import json
 import re
 
-from optimization_framework.research.engine import LLMAdapter
+from optimization_framework.llm.adapter import LLMAdapter
 from optimization_framework.storage.sqlite import now
 from .document import sections, writer_document
 from .editorial import Brief, Draft, Investigation, LIMITS, Review, ROLES, RULES, STAGES, Selection

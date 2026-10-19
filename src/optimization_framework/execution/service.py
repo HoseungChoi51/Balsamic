@@ -14,7 +14,7 @@ import sys
 import threading
 import time
 
-from optimization_framework.contracts.requests import CampaignInput, CampaignUpdate, TaskInput, TrialInput, ControlInput, ValidationInput, RecipeInput, StudyInput, ResearchInput
+from optimization_framework.contracts.requests import CampaignInput, CampaignUpdate, TaskInput, TrialInput, ControlInput, ValidationInput, RecipeInput, StudyInput
 from optimization_framework.storage.sqlite import Store, atomic_json, identifier, now, read_json
 from optimization_framework.evaluation.registry import problems
 from optimization_framework.contracts.problems import ProblemInstance
@@ -45,7 +45,7 @@ def alive(trial):
 
 
 class Workspace:
-    def __init__(self, directory, max_workers=2, stop_grace_seconds=5, implementation_client=None):
+    def __init__(self, directory, max_workers=2, stop_grace_seconds=5, implementation_client=None, guidance=None):
         self.store = Store(directory)
         self.directory = self.store.directory
         from optimization_framework.research.log import AgentLog
@@ -67,11 +67,12 @@ class Workspace:
         self.source_threads = {}
         self.on_trial_finished = None
         self._lease = None
-        from optimization_framework.research.model_policy import CampaignModels
+        from optimization_framework.llm.model_policy import CampaignModels
         self.models = CampaignModels(self)
-        from optimization_framework.campaigns.memory import CampaignMemory
+        from optimization_framework.campaigns.guidance import CampaignGuidance
         from optimization_framework.implementations.bridge import ImplementationBridge
-        self.memory = CampaignMemory(self)
+        # The researcher's guidance and the issue inbox; the service layer may extend it (per-thread revisions).
+        self.memory = (guidance or CampaignGuidance)(self)
         self.implementations = ImplementationBridge(self, implementation_client)
         from optimization_framework.evaluation.commissioning import EvaluatorService
         self.evaluators = EvaluatorService(self)
@@ -110,8 +111,6 @@ class Workspace:
         self._report_writer = None
         self.maintenance_thread = None
         self.on_manager_tick = None
-        from optimization_framework.research.discovery.controller import DiscoveryController
-        self.discovery = DiscoveryController(self)
         from optimization_framework.agents.controller import PiController
         self.pi = PiController(self)
 
@@ -139,9 +138,6 @@ class Workspace:
         for race in self.store.list("adaptive_race"):
             if race["status"] in {"preflight", "running", "paused"}:
                 arm(self, race["id"], race["deadline_at"])
-        from optimization_framework.research.lifecycle import recover
-        recover(self)
-        self.discovery.recover()
         self.removal.recover()
         from optimization_framework.assets.service_costs import reconcile_workspace
         reconcile_workspace(self)
@@ -155,7 +151,6 @@ class Workspace:
     def _project_agent_logs(self):
         while not self.shutdown_event.wait(.5):
             self.agent_log.project_pending()
-            self.discovery.project_pending()
 
     def _maintenance(self):
         while not self.shutdown_event.wait(2):
@@ -194,7 +189,6 @@ class Workspace:
             for thread in writers:
                 thread.join()
             self.agent_log.project_pending()
-            self.discovery.project_pending()
             if lease:
                 fcntl.flock(lease, fcntl.LOCK_UN)
                 lease.close()
@@ -381,10 +375,15 @@ class Workspace:
             campaign["research_protocol"] = "optimizer-discovery-v1"
             self.store.put("charter", {**campaign, "id": identifier("charter"), "campaign_id": campaign["id"],
                                         "tasks": [t.model_dump() for t in request.tasks]})
-            study = study_for_tasks(self.current_tasks(campaign["id"]), id=identifier("study"), campaign_id=campaign["id"], goal=campaign["objective"],
-                created_at=now(), authority="researcher")
-            self.store.put_immutable("study", study.model_dump(mode="json"), "study.created")
-            campaign["active_study_id"] = study.id
+            if request.tasks:
+                study = study_for_tasks(self.current_tasks(campaign["id"]), id=identifier("study"), campaign_id=campaign["id"], goal=campaign["objective"],
+                    created_at=now(), authority="researcher")
+                self.store.put_immutable("study", study.model_dump(mode="json"), "study.created")
+                campaign["active_study_id"] = study.id
+            else:
+                # A formulation-stage campaign: the lead drafts the problem note in chat; the confirmed charter sets the tasks.
+                campaign["active_study_id"] = None
+                campaign["formulating"] = True
             campaign["schema_version"] = 1
             self.store.put("campaign", campaign)
             return campaign
@@ -447,12 +446,14 @@ class Workspace:
                 raise ValueError(f"Existing spent/reserved compute is {used_reserved:.1f}s; stop or finish work before lowering this cap")
             if proposed.get("implementation_compute_budget_seconds", 0) < self.implementations.compute_committed(campaign_id):
                 raise ValueError("Existing implementation allocations exceed the proposed implementation compute cap")
-            from optimization_framework.research.providers import api_spend
+            from optimization_framework.llm.providers import api_spend
             api_committed = self.implementations.api_committed(campaign_id) + sum(api_spend(r.get("usage")) for r in self.store.list("research_run", campaign_id))
             if proposed["llm_budget_usd"] + 1e-9 < api_committed:
                 raise ValueError("Existing model spending and implementation grants exceed the proposed API cap")
             campaign.update(changes)
             campaign.update(version=campaign["version"] + 1, updated_at=now())
+            if tasks_changed and request.tasks:
+                campaign["formulating"] = False
             if tasks_changed:
                 for task in self.store.list("task", campaign_id):
                     if not task.get("archived"):
@@ -545,7 +546,7 @@ class Workspace:
                 if not request.race_phase:
                     raise ValueError("Declare the adaptive race execution phase")
             if request.hypothesis_id and validation is None:
-                from optimization_framework.research.discovery.proposals import readiness as proposal_readiness
+                from optimization_framework.campaigns.proposals import readiness as proposal_readiness
                 review = proposal_readiness(self.store, self.store.get(request.hypothesis_id, "hypothesis"))
                 if not review["eligible"]:
                     raise ValueError(review["reason"])
@@ -1125,11 +1126,6 @@ class Workspace:
                             # Delayed controls always project the latest intent.
                             self._write_control(trial)
                             effect["applied_revision"] = trial["control_revision"]
-                    elif effect["kind"] == "manager_context_projection":
-                        # Text is a projection of committed context, never a
-                        # second authority or an uncommitted command effect.
-                        revision = self.memory.sync(effect["campaign_id"])
-                        effect["context_id"] = revision["id"]
                     elif effect["kind"] == "implementation_submit":
                         self.implementations.deliver_submission(effect["grant_id"])
                     elif effect["kind"] == "implementation_attach":
@@ -1167,19 +1163,9 @@ class Workspace:
                                     self.memory.issue(effect["campaign_id"], "bundle_operation", str(exc), affected=operation["id"])
                                 continue
                         self.bundles.dispatch(effect)
-                    elif effect["kind"] == "manager_start":
-                        from optimization_framework.campaigns.manager import CampaignManager
-                        manager = getattr(self, "manager", None) or CampaignManager(self)
-                        manager.start(ResearchInput(**effect["request"]), automatic=effect["automatic"],
-                                      command_id=effect["manager_command_id"], guidance_recorded=effect.get("guidance_recorded", False),
-                                      feedback_snapshot=effect.get("feedback_snapshot"))
-                    elif effect["kind"] in {"research_resume", "decision_resolution"}:
-                        from optimization_framework.campaigns.research_commands import deliver_resume, deliver_resolution
-                        (deliver_resume if effect["kind"] == "research_resume" else deliver_resolution)(self, effect)
-                    elif effect["kind"] == "manager_action":
-                        from optimization_framework.research.lifecycle import deliver_action
-                        deliver_action(self, effect)
-                        continue
+                    elif effect["kind"] == "decision_resolution":
+                        from optimization_framework.campaigns.approvals import deliver_resolution
+                        deliver_resolution(self, effect)
                     elif effect["kind"] in {"literature_search", "source_ingest"}:
                         from optimization_framework.research.sources import schedule
                         schedule(self, effect)
@@ -1190,7 +1176,7 @@ class Workspace:
                     self.store.put("outbox", effect, "effect.applied")
                 except Exception as exc:
                     if effect["kind"] == "decision_resolution" and isinstance(exc, (ValueError, KeyError)):
-                        from optimization_framework.campaigns.research_commands import failed_resolution
+                        from optimization_framework.campaigns.approvals import failed_resolution
                         failed_resolution(self, effect, exc)
                     elif effect["kind"] in {"literature_search", "source_ingest"} and isinstance(exc, ValueError):
                         effect.update(status="failed", error=str(exc), finished_at=now())

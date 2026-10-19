@@ -40,11 +40,32 @@ class PiClient:
         return self.request("GET", f"/v1/agents/{agent_id}?after={after}")
 
     def submit(self, agent, run):
+        origin = run.get("origin") or {}
         return self.request("POST", f"/v1/agents/{agent['id']}/runs", {
             "run_id": run["id"], "text": run["input"], "mode": run.get("mode", "follow_up"),
             "deadline_at": agent.get("deadline_at"),
+            # A thread is a branch of the lead's session tree: the run says where in it the turn continues.
+            "thread_id": origin.get("thread_id"), "leaf_entry_id": run.get("leaf_entry_id"),
+            "branch_from_entry_id": run.get("branch_from_entry_id"), "summary": run.get("branch_summary"),
             "spec": {"provider": agent.get("provider") or "openai-codex", "model": agent["model"],
                      "effort": agent["reasoning_effort"], "role": agent["role"]}})
+
+    def tree(self, agent_id):
+        """The agent's session tree with the current leaf; None on a harness without session views."""
+        return self.request("GET", f"/v1/agents/{agent_id}/tree", timeout=10)
+
+    def entries(self, agent_id, *, after=None, leaf=None):
+        query = "&".join(f"{key}={value}" for key, value in (("after", after), ("leaf", leaf)) if value)
+        return self.request("GET", f"/v1/agents/{agent_id}/entries" + ("?" + query if query else ""), timeout=10)
+
+    def context(self, agent_id, *, leaf=None):
+        return self.request("GET", f"/v1/agents/{agent_id}/context" + (f"?leaf={leaf}" if leaf else ""), timeout=10)
+
+    def set_leaf(self, agent_id, entry_id, summary=None):
+        return self.request("POST", f"/v1/agents/{agent_id}/leaf", {"entry_id": entry_id, **({"summary": summary} if summary else {})})
+
+    def export_branch(self, agent_id, *, leaf=None):
+        return self.request("GET", f"/v1/agents/{agent_id}/export" + (f"?leaf={leaf}" if leaf else ""), timeout=30)
 
     def control(self, agent_id, action):
         return self.request("POST", f"/v1/agents/{agent_id}/control", {"action": action})

@@ -1,6 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { createHash } from 'node:crypto';
+import * as sessions from './sessions.js';
 
 const terminal = new Set(['completed', 'failed', 'paused', 'stopped', 'interrupted']);
 const safeID = (id: string) => { if (!/^[a-zA-Z0-9_-]{1,200}$/.test(id)) throw new Error('Invalid identity'); return id; };
@@ -125,6 +126,29 @@ export class Supervisor {
     } catch (error) { entry.phase = 'failed'; throw error; }
     finally { entry.finished_at = new Date().toISOString(); this.calls.delete(id); }
   }
+  /** The session tree of an agent: its live runtime's manager, or the saved file when no turn has run since start. */
+  sessionsOf(id: string) {
+    const agent = this.agents.get(safeID(id)); if (!agent) return null;
+    return agent.runtime?.sessionManager ?? sessions.open(agent.sessionFile);
+  }
+  session(id: string, view: string, params: any = {}) {
+    const sm = this.sessionsOf(id);
+    if (!sm) return null;
+    if (view === 'tree') return sessions.tree(sm);
+    if (view === 'entries') return sessions.entries(sm, {after: params.after, leaf: params.leaf});
+    if (view === 'context') return sessions.context(sm, params.leaf);
+    if (view === 'export') return sessions.exportBranch(sm, params.leaf);
+    throw new Error('Unknown session view');
+  }
+  /** Move an idle agent's leaf (a researcher switching threads); during a turn the run itself positions it. */
+  setLeaf(id: string, entryId: string, summary?: string | null) {
+    const agent = this.agents.get(safeID(id)); if (!agent) return null;
+    if (agent.busy) throw new Error('The agent is in a turn; its leaf moves with the next run');
+    const sm = this.sessionsOf(id); if (!sm) throw new Error('The agent has no session yet');
+    const result = sessions.setLeaf(sm, entryId, summary);
+    this.event(agent, 'session.leaf_moved', {leaf_id: result.leaf_id, previous_leaf_id: result.previous_leaf_id, summary_entry_id: result.summary_entry_id});
+    return result;
+  }
   view(id: string, after = 0) {
     const agent = this.agents.get(safeID(id)); if (!agent) return null;
     const file = path.join(this.directory, id, 'events.jsonl');
@@ -150,10 +174,16 @@ export class Supervisor {
     const requestHash = digest({text: input.text, mode: input.mode || 'follow_up'});
     const old = agent.runs[input.run_id];
     if (old) { if (old.requestHash !== requestHash) throw new Error('Run identity already belongs to another request'); return old; }
+    // A thread is a branch of the session tree: the run names the leaf it continues from, or the entry a new branch starts at.
     const run = {id: input.run_id, text: input.text, mode: input.mode || 'follow_up', requestHash,
-      status: 'queued', created_at: new Date().toISOString(), result: null, deadline_at: input.deadline_at};
+      status: 'queued', created_at: new Date().toISOString(), result: null, deadline_at: input.deadline_at,
+      thread_id: input.thread_id ?? null, leaf_entry_id: input.leaf_entry_id ?? null, branch_from_entry_id: input.branch_from_entry_id ?? null,
+      summary: input.summary ?? null};
     agent.runs[run.id] = run; this.event(agent, 'run.queued', {run_id: run.id});
-    if (agent.busy && run.mode === 'steer' && agent.runtime) {
+    const active: any = Object.values(agent.runs).find((r: any) => r.status === 'running');
+    // Steering reaches the turn in progress only from its own thread; another thread's message waits its turn.
+    const sameThread = !active || (active.thread_id ?? null) === (run.thread_id ?? null);
+    if (agent.busy && run.mode === 'steer' && agent.runtime && sameThread) {
       // Queue once, persist the acknowledgment; the active turn still owns tool
       // receipts. Ordinary follow-ups are scheduled after the active run settles.
       await agent.runtime.steer(`[Researcher steering ${run.id}]\n${run.text}`);
@@ -211,6 +241,14 @@ export class Supervisor {
       if (this.closing || agent.control) {run.status = agent.control || 'interrupted'; return;}
       if (run.deadline_at) deadlineTimer = setTimeout(() => { expired = true; void agent.runtime.abort(); }, Math.max(1, run.deadline_at * 1000 - Date.now()));
       agent.turnTexts = [];
+      const sm = agent.runtime.sessionManager;
+      if (sm) {
+        // Position the leaf for this thread before the prompt; the entries the turn adds hang from it.
+        if (run.branch_from_entry_id) sessions.setLeaf(sm, run.branch_from_entry_id, run.summary);
+        else if (run.leaf_entry_id && run.leaf_entry_id !== sm.getLeafId()) sessions.setLeaf(sm, run.leaf_entry_id, run.summary);
+        run.entry_ids = {parent: sm.getLeafId(), last: null};
+        this.save(agent);
+      }
       await agent.runtime.prompt(`[Assignment ${run.id}]\n${run.text}`);
       if (expired) throw new Error('Implementation time allocation exhausted; session and artifacts are saved.');
       const last = agent.runtime.messages?.filter((m: any) => m.role === 'assistant').at(-1);
@@ -222,7 +260,10 @@ export class Supervisor {
       // call (the checkpoint, usually) is otherwise lost behind the closing line that follows it.
       run.result = {text: agent.turnTexts?.length ? agent.turnTexts.join('\n\n') : agent.runtime.getLastAssistantText() || '',
         // The separate texts let the chat show the closing message and fold lines written beside earlier tool calls.
-        ...(agent.turnTexts?.length > 1 ? {parts: [...agent.turnTexts]} : {})};
+        ...(agent.turnTexts?.length > 1 ? {parts: [...agent.turnTexts]} : {}),
+        // Where the turn's entries hang in the session tree, for the thread's leaf.
+        ...(sm ? {entry_ids: {parent: run.entry_ids?.parent ?? null, last: sm.getLeafId()}} : {})};
+      if (sm && run.entry_ids) run.entry_ids.last = sm.getLeafId();
     } catch (e: any) {
       run.status = agent.control || (run.status === 'interrupted' ? 'interrupted' : 'failed'); run.error = String(e.message || e).slice(0, 1500);
     } finally {

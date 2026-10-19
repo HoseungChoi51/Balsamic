@@ -165,7 +165,9 @@ class Store:
                 if event:
                     cursor = db.execute("INSERT INTO events(campaign_id,kind,created_at,data) VALUES (?,?,?,?)",
                                (record.get("campaign_id", record["id"] if kind == "campaign" else None),
-                                event, now(), json.dumps({"record_id": record["id"]})))
+                                event, now(), json.dumps({"record_id": record["id"],
+                                    # A listener decides from the frame alone whether a page must refetch.
+                                    **{key: record[key] for key in ("status", "revision") if isinstance(record.get(key), (str, int))}})))
                     if self.event_observer:
                         self.event_observer(kind, record, event, cursor.lastrowid)
 

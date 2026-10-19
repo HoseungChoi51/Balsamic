@@ -7,8 +7,8 @@ import json
 import math
 
 from optimization_framework.contracts.base import content_hash
-from optimization_framework.research.discovery.record_view import view_record
-from optimization_framework.research.engine import _safe_context
+from optimization_framework.campaigns.record_view import view_record
+from optimization_framework.llm.adapter import _safe_context
 from optimization_framework.storage.sqlite import now
 
 

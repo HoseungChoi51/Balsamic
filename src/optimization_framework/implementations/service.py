@@ -299,8 +299,8 @@ class ImplementationService:
         if job["request"].get("operation") == "revalidation":
             from optimization_framework.implementations.revalidation import run
             return run(self, job)
-        from optimization_framework.research.engine import LLMAdapter
-        from optimization_framework.research.providers import provider_status
+        from optimization_framework.llm.adapter import LLMAdapter
+        from optimization_framework.llm.providers import provider_status
         request = JobRequest.model_validate(job["request"])
         is_evaluator = isinstance(request.spec, EvaluatorSpec)
         started, spent = time.monotonic(), job["compute_seconds"]

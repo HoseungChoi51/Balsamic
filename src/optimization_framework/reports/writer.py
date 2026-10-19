@@ -9,7 +9,7 @@ from typing import Literal
 
 from pydantic import Field
 
-from optimization_framework.research.engine import LLMAdapter
+from optimization_framework.llm.adapter import LLMAdapter
 from optimization_framework.storage.sqlite import identifier, now
 from .document import compact_figures, sections, writer_document
 from .service import Reports, StrictModel
@@ -124,8 +124,8 @@ class ReportWriter:
 
     def start(self, *, report_id=None, request=None, campaign_id=None, evidence=None, brief=None, background=True,
               request_id=None, references=None, literature=True, workflow="staged", requested_by=None):
-        from optimization_framework.research.providers import provider_status
-        from optimization_framework.research.model_policy import resolve_policy
+        from optimization_framework.llm.providers import provider_status
+        from optimization_framework.llm.model_policy import resolve_policy
         from optimization_framework.contracts.base import content_hash
         from .editorial import LIMITS, ROLES
         from .evidence import freeze

@@ -9,8 +9,8 @@ LEAD = "lead"
 # The agents in charge of a page, one of each per campaign. Like the lead they stay for the whole campaign; they take
 # requests from the researcher on their page and from the lead, and act on nothing else. The lead's other assistants are
 # created for one assignment each.
-PAGE_AGENTS = {"discussion_moderator": "hypotheses", "experiment_operator": "experiments", "implementation_lead": "implementations",
-               "resource_planner": "resources"}
+PAGE_AGENTS = {"discussion_moderator": "hypotheses", "experiment_operator": "experiments", "implementation_lead": "hypotheses/implementations",
+               "resource_planner": "monitor/resources"}
 STANDING = {LEAD, *PAGE_AGENTS}
 # The assistants the moderator asks for views and verdicts in a review round.
 DISCUSSION_ROLES = ("literature_specialist", "methodology_specialist", "cross_domain_explorer", "skeptical_domain_analyst",
@@ -83,6 +83,10 @@ class Message(Contract):
     message: str = Field(min_length=1, max_length=50000)
     mode: Literal["steer", "follow_up"] = "steer"
     question_id: str | None = None
+    # The conversation thread the message belongs to (its campaign's main thread when absent).
+    thread_id: str | None = None
+    parent_message_id: str | None = None
+    edit_of_message_id: str | None = None
 
     @model_validator(mode="after")
     def one_recipient(self):

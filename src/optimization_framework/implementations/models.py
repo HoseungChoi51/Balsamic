@@ -9,7 +9,7 @@ from typing import Any, Literal
 from pydantic import BaseModel, ConfigDict, Field, model_serializer, model_validator
 from optimization_framework.contracts.capabilities import OptimizerCapabilities
 from optimization_framework.contracts.evaluators import EvaluatorManifest
-from optimization_framework.research.model_policy import ModelPolicy
+from optimization_framework.llm.model_policy import ModelPolicy
 
 
 def digest(value) -> str:
