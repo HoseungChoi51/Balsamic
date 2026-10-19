@@ -22,7 +22,7 @@ def main():
     args = parser.parse_args()
     root = args.directory.resolve()
     root.mkdir(parents=True, exist_ok=False)
-    from optimization_framework.api.app import create_app
+    from balsamic.app import create_app
     from optimization_framework.contracts.requests import CampaignInput, ResearchInput, TaskInput
     from optimization_framework.research import coordinator, engine
     from optimization_framework.storage.sqlite import atomic_json

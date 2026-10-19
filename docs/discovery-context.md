@@ -1,5 +1,7 @@
 # Discovery working context
 
+> **Superseded.** The workspace was rebuilt around the chat-centred UI plan; see [ui-workspace.md](ui-workspace.md). This document describes the earlier service and is kept for history.
+
 Campaign history is durable. An agent's working context is a bounded selection
 from that history, compiled for one task and frozen with each dispatched model
 attempt. A long campaign must not require replaying every earlier record in

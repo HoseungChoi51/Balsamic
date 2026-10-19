@@ -262,17 +262,8 @@ def service_environment(config):
 def check_model(config):
     if config.get("pi_port") or not config["llm_enabled"] or config["provider"] != "codex":
         return
-    binary = shutil.which(os.environ.get("GRATING_CODEX_BINARY", "codex"))
-    if not binary:
-        raise LauncherError("Codex is not installed/on PATH. Set GRATING_CODEX_BINARY or use --no-llm.")
-    # Same credential environment as the application adapter; never print login
-    # output, which might contain account or API credential details.
-    from optimization_framework.research.codex_provider import _environment
-    result = subprocess.run([binary, "login", "status"], env=_environment(),
-                            capture_output=True, text=True, timeout=15)
-    if result.returncode or not any(line.strip() == "Logged in using ChatGPT"
-                                   for line in (result.stdout + "\n" + result.stderr).splitlines()):
-        raise LauncherError("Sign in as this OS user with `codex login --device-auth`, then retry. ChatGPT login is required; --no-llm runs without model calls.")
+    # The Codex CLI transport went with the legacy campaign manager: model calls go through the Pi harness.
+    raise LauncherError("The codex provider is no longer served; configure the Pi harness (pi_port) or run with --no-llm.")
 
 
 class Tailnet:
@@ -615,7 +606,7 @@ def serve(role, config):
         from optimization_framework.implementations.api import create_app
         app = create_app(directory / "library")
     else:
-        from optimization_framework.api.app import create_app
+        from balsamic.app import create_app
         app = create_app(directory / "workspace", max_workers=config["workers"],
                          frontend_directory=config["frontend_directory"])
     uvicorn.run(app, host="127.0.0.1", port=port_for(config, role), timeout_graceful_shutdown=10)

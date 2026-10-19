@@ -1,5 +1,7 @@
 # LLM-driven optimizer discovery and agent debugging: development plan
 
+> **Superseded.** The workspace was rebuilt around the chat-centred UI plan; see [ui-workspace.md](ui-workspace.md). This document describes the earlier service and is kept for history.
+
 Date: 2026-09-28
 
 Status: implementation in progress. This document specifies the target; [discovery development status](discovery-development-status.md) records completed work and its evidence. R0's debugger has local qualification; the scientific discovery loop remains under development.

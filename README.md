@@ -10,17 +10,24 @@ The original reconstruction of the DQN optimization loop in Seo et al., *Structu
 
 ## Start here
 
-The only requirements are Linux, Python 3.12 or 3.13, [uv](https://docs.astral.sh/uv/), and Node.js 22.19 or newer with npm. From a fresh clone:
+The workspace is a chat with the campaign's lead agent beside the page it talks about: the lead is the control surface, its
+replies link to pages, and every write is a command you can trace. See [the workspace guide](docs/ui-workspace.md).
 
 ```bash
-uv sync --frozen --all-extras
+uv sync --extra dev --extra meent
+(cd agent-harness && npm ci && npm run build)
 (cd frontend && npm ci && npm run build)
 uv run --no-sync optimization-lab --directory runs/workspace --workers 2 --port 8765
 ```
 
-Open **http://127.0.0.1:8765**. Create a campaign, define development configurations and budgets, then launch a small experiment or discuss a hypothesis with the research partner. Data remain in the workspace directory after closing the browser.
+Open **http://127.0.0.1:8765**. Start a campaign (`#new`) with a name and budgets; a problem instance can be chosen now or
+formulated with the lead first. The lead starts nothing until you ask. Data remain in the workspace directory after closing
+the browser. The Pi agent harness (below) is the only chat backend; without it the pages still show the records and the
+numerical experiments still run.
 
-**No model provider is selected by default.** The dashboard and numerical experiments work immediately, and research requests remain in the campaign's durable inbox until you choose a provider and enable model calls. Research roles accept `codex` (your ChatGPT subscription allowance, tracked separately from paid API spending), `openai_api` or `compatible`, and default to `gpt-6-sol` once a provider is chosen. Pi campaigns need a dev profile with a default model, or a launcher `pi_provider`. Existing `.key` credentials are ignored unless you explicitly enable an API provider, and there is no automatic paid fallback. See the [workspace guide](docs/workspace.md) when you are ready to configure a provider, and for workflows, custom algorithms, and recovery.
+**No model provider is selected by default.** Pi campaigns need a dev profile with a default model, or a launcher
+`pi_provider`. Existing `.key` credentials are ignored unless you explicitly enable an API provider, and there is no
+automatic paid fallback.
 
 ### Optional components
 
@@ -28,7 +35,6 @@ Each component below enables one feature; everything else runs without it.
 
 | Component | Enables | Setup |
 |---|---|---|
-| Codex CLI | Research roles with the `codex` provider | `codex login --device-auth`; see [server control](docs/server-control.md) |
 | Pi agent harness | Pi campaigns and `scripts/pi-dev` | `(cd agent-harness && npm ci && npm run build)`; sign in from the notebook, or put provider keys in `~/.config/balsamic/secrets.env` ([Pi runtime](docs/pi-agent-harness.md)) |
 | bubblewrap (`bwrap`) | Executing generated and custom optimizer packages | Distribution package; Ubuntu also needs `deploy/grating-bwrap.apparmor` ([Pi runtime](docs/pi-agent-harness.md#host-prerequisite-found-during-rollout)) |
 | Docker | Full development workspaces with a browser IDE | `docker build -t grating-implementation-workspace:pi-0.87.1 deploy/implementation-workspace`, then set `development_enabled` |
@@ -162,8 +168,9 @@ Do not modify the step count to extend a completed checkpoint: that changes the 
 ## Code map
 
 - `src/dqn_meent/workspace/`: API, persistent records, worker service, adaptive research, literature metadata, statistical comparisons, and isolated custom optimizers.
-- `frontend/`: React/TypeScript dashboard and browser interaction tests.
-- `docs/workspace.md`: installation, research workflows, provider setup, and custom optimizer protocol.
+- `src/balsamic/`: the workspace service (HTTP app, threads, monitor, telemetry) over the core.
+- `frontend/`: the React workspace and its Playwright specs.
+- `docs/ui-workspace.md`: the workspace: pages, reads, the command bus, threads, telemetry, milestones.
 - `docs/optimizer-plugins.md`: how optimizer libraries are packaged, pinned and registered as plug-ins.
 - `src/dqn_meent/config.py`: validated experiment configuration.
 - `physics.py`: MEENT adapter, material resolution, physical checks and bounded LRU cache.

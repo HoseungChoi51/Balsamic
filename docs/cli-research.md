@@ -1,5 +1,7 @@
 # Recorded CLI research
 
+> **Superseded.** The workspace was rebuilt around the chat-centred UI plan; see [ui-workspace.md](ui-workspace.md). This document describes the earlier service and is kept for history.
+
 The numerical CLI uses the same commands, reservations, execution attempts and
 evidence ledger as the web workspace. Install the branch with `uv sync --frozen --all-extras`
 before using the console entry points below. This includes the optional MEENT and

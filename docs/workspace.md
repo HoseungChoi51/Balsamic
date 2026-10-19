@@ -1,5 +1,7 @@
 # Grating Lab workspace guide
 
+> **Superseded.** The workspace was rebuilt around the chat-centred UI plan; see [ui-workspace.md](ui-workspace.md). This document describes the earlier service and is kept for history.
+
 For recorded training, baselines, inference, evaluation and generic commands,
 see the [CLI research guide](cli-research.md).
 

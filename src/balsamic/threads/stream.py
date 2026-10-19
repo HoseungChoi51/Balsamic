@@ -49,7 +49,8 @@ def stream_events(previous, state, entry, messages):
                           if failed else {"type": "RUN_FINISHED", "threadId": thread_id, "runId": old_run})
         if run:
             events.append({"type": "RUN_STARTED", "threadId": thread_id, "runId": run})
-        previous = {"run": run, "text": "", "thinking": "", "steps": []}
+        # A new run resets the live turn, not what the listener already holds of the messages and the state.
+        previous = {**previous, "run": run, "text": "", "thinking": "", "steps": []}
     if entry and run:
         text, thinking = entry.get("text") or "", entry.get("thinking") or ""
         if text != previous["text"]:
@@ -69,7 +70,7 @@ def stream_events(previous, state, entry, messages):
             if step["done"] and not known.get(step["id"], {}).get("done"):
                 events.append({"type": "TOOL_CALL_END", "toolCallId": step["id"], **({"failed": True} if step["failed"] else {}),
                                **({"link": step["link"]} if step.get("link") else {})})
-        previous = {"run": run, "text": text, "thinking": thinking, "steps": steps}
+        previous = {**previous, "run": run, "text": text, "thinking": thinking, "steps": steps}
     if messages != previous.get("messages"):
         events.append({"type": "MESSAGES_SNAPSHOT", "threadId": thread_id, "messages": messages})
     previous = {**previous, "messages": messages}

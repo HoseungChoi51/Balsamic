@@ -1,5 +1,7 @@
 # Campaign model settings
 
+> **Superseded.** The workspace was rebuilt around the chat-centred UI plan; see [ui-workspace.md](ui-workspace.md). This document describes the earlier service and is kept for history.
+
 Open **Models** in the workspace sidebar. Settings belong to the selected
 campaign and persist across server restarts. Editing this panel does not start
 or resume research. Other campaigns retain their own settings.

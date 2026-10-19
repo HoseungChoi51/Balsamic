@@ -429,11 +429,14 @@ class PiController:
                 raise ValueError("Question is no longer pending in this campaign")
             question.update(status="answered", answer=values.message, answered_at=now())
             self.store.put("agent_question", question, "agent.question_answered")
-        self.store.put("message", {"id": "message_" + command_id, "campaign_id": campaign_id, "role": "user",
-            "content": values.message, "created_at": now(), "agent_id": agent["id"]}, "message.created")
+        self.store.put("message", {"id": "message_" + command_id, "campaign_id": campaign_id, "role": "user", "origin": "researcher",
+            "content": values.message, "created_at": now(), "agent_id": agent["id"],
+            **({"thread_id": values.thread_id} if values.thread_id else {}),
+            **({"desk": agent["role"]} if agent["role"] in PAGE_AGENTS else {})}, "message.created")
         if agent["role"] in PAGE_AGENTS:
             return self.ask_page_agent(agent, values.message, "pi_run_" + command_id, "researcher")
-        return self.enqueue(agent, "pi_run_" + command_id, values.message, mode=values.mode)
+        return self.enqueue(agent, "pi_run_" + command_id, values.message, mode=values.mode,
+                            origin={"thread_id": values.thread_id, "message_id": "message_" + command_id, "actor": "researcher"})
 
     def dismiss_question(self, campaign_id, payload):
         """The researcher sets a question aside without answering it. It no longer waits for an answer, and no agent is woken."""

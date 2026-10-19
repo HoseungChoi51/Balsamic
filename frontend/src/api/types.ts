@@ -1,0 +1,33 @@
+/** Shapes of the reads the workspace shows. Kept narrow: pages read what they render. */
+export interface WorkspaceInfo { workspace_id: string; max_workers: number; dev_mode: boolean; provider: { configured: boolean; providers: Record<string, unknown> }; level: string | null; service: string }
+export type Stage = 'formulate' | 'generate' | 'optimize' | 'report';
+export interface CampaignRow { id: string; name: string; version: number; objective?: string; autonomy?: string; stage: Stage; stage_pinned: boolean; stage_basis: string;
+  autopilot: { enabled: boolean; compute_cap_seconds?: number | null; report_by?: string | null }; problem_note_id: string | null; active_thread_id: string; created_at?: string }
+export interface Campaign { id: string; name: string; version: number; objective: string; autonomy: string; compute_budget_seconds: number; llm_budget_usd: number;
+  delegated_trial_seconds: number; validation_reserve_seconds: number; implementation_compute_budget_seconds: number; active_study_id: string | null; formulating?: boolean; [key: string]: unknown }
+export interface Summary { campaign: Campaign; row: CampaignRow; tasks: Record<string, unknown>[]; charter: Record<string, unknown> | null; budget: Record<string, unknown> | null;
+  stage: { stage: Stage; pinned: boolean; basis: string }; counts: Record<string, number>; studies: Record<string, unknown>[]; trials: Trial[] }
+export interface Scoped { event_cursor: number; unchanged?: boolean; campaign_id?: string }
+export interface Thread { id: string; campaign_id: string; name: string; title: string; parent_thread_id: string | null; fork_message_id: string | null; status: string;
+  merged_into: string | null; pinned_ids: string[]; excluded_ids: string[]; summary: { text: string } | null; guidance_revision: number; message_count: number;
+  last_message_id: string | null; last_activity_at: string | null; busy: boolean; queued: number; created_at: string }
+export interface Threads extends Scoped { threads: Thread[]; lead: { id: string; status: string } | null; request_open: boolean; active_run: { id: string; thread_id: string } | null }
+export interface Message { id: string; campaign_id: string; role: 'user' | 'assistant' | 'system'; content: string; created_at: string; origin?: string; agent_id?: string;
+  thread_id?: string; refs?: string[]; issue_id?: string; run_id?: string; desk?: string; parts?: string[]; [key: string]: unknown }
+export interface Question { id: string; agent_id?: string; question: string; status: string; created_at: string; [key: string]: unknown }
+export interface Messages extends Scoped { thread_id: string; messages: Message[]; truncated: boolean; inherited: unknown[]; parent_path: unknown[]; fork_message_id: string | null; questions: Question[] }
+export interface Trial { id: string; campaign_id: string; task_id: string; algorithm: string; status: string; seed?: number; max_steps?: number; wall_seconds?: number; created_at?: string;
+  progress?: Record<string, unknown>; result?: Record<string, unknown>; stopped_by?: string; hidden?: boolean; hypothesis_id?: string; [key: string]: unknown }
+export interface Experiments extends Scoped { short: Trial[]; long: Trial[]; checks: Trial[]; drafts: Record<string, unknown>[]; rules: Record<string, unknown>; profiles: Record<string, unknown>[] }
+export interface Hypothesis { id: string; title: string; status: string; mechanism?: string; rationale?: string; algorithm?: string; origin?: string; parent_ids?: string[];
+  reviews?: { id: string; author: string; verdict?: string; text: string; created_at: string }[]; readiness?: { state: string; eligible: boolean; reason?: string }; created_at?: string; [key: string]: unknown }
+export interface Hypotheses extends Scoped { hypotheses: Hypothesis[]; aliases: { record_id: string; label: string }[]; rounds: Record<string, unknown> }
+export interface Decision { id: string; title: string; proposal?: string; rationale?: string; status: string; options: { id: string; label: string; description?: string }[]; recommendation?: string;
+  resolution_revision?: number; requested_by?: string; created_at: string; freshness: { state: string; reason: string; blocked_choice_ids: string[] }; presentation: Record<string, unknown>; [key: string]: unknown }
+export interface Issue { id: string; code: string; message: string; status: string; revision: number; options: string[]; created_at: string; affected?: string }
+export interface Inbox extends Scoped { decisions: Decision[]; issues: Issue[]; questions: Question[]; resolved: Decision[] }
+export interface Monitor extends Scoped { rows: { problem: Record<string, unknown>; budget: { worker: Record<string, unknown>; llm: Record<string, unknown> }; compute: Record<string, unknown>;
+  agents: Record<string, unknown>; needs_you: { decisions: number; issues: number; questions: number } }; pill: { state: 'clear' | 'attention' | 'digest'; text: string; row: string | null }; digest_id: string | null }
+export interface Files extends Scoped { assets: Record<string, unknown>[]; findings: Record<string, unknown>[]; reports: Record<string, unknown>[]; report_jobs: Record<string, unknown>[]; sources: Record<string, unknown>[]; artifacts: Record<string, unknown>[] }
+export interface CommandReceipt { id: string; campaign_id: string; status: string; outcome: Record<string, unknown>; actor: string; origin: unknown; request: { operation: string; payload: Record<string, unknown> }; created_at: string }
+export interface EventFrame { last_event_id: number; events: { id: number; kind: string; record_id: string | null; campaign_id: string | null; status?: string | null; revision?: number | null }[] }

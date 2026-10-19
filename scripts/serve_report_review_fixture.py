@@ -4,10 +4,10 @@ from tempfile import TemporaryDirectory
 
 import uvicorn
 
-from optimization_framework.api.app import create_app
+from balsamic.app import create_app
 from optimization_framework.contracts.requests import CampaignInput
 from optimization_framework.reports.editorial import Brief, Draft, EvidenceRead, Investigation, Review, Selection
-from optimization_framework.research.engine import LLMAdapter
+from optimization_framework.llm.adapter import LLMAdapter
 from optimization_framework.research import providers
 
 

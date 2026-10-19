@@ -1,5 +1,7 @@
 # Consolidation acceptance matrix — 2026-09-28
 
+> **Superseded.** The workspace was rebuilt around the chat-centred UI plan; see [ui-workspace.md](ui-workspace.md). This document describes the earlier service and is kept for history.
+
 This matrix describes the local checkpoint on `setup/latest`; it is not release
 approval. The governing requirements are in the
 [consolidation plan](architecture-consolidation-plan.md). Current work and the

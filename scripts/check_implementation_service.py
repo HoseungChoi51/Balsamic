@@ -5,7 +5,7 @@ from pathlib import Path
 
 from dqn_meent.implementations.models import ImplementationSpec, JobRequest
 from dqn_meent.implementations.service import ImplementationService
-from dqn_meent.workspace.providers import provider_status
+from optimization_framework.llm.providers import provider_status
 
 
 def main():

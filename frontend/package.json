@@ -1,0 +1,31 @@
+{
+  "name": "balsamic-workspace",
+  "private": true,
+  "version": "0.3.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite --host 127.0.0.1",
+    "build": "tsc -b && vite build",
+    "preview": "vite preview --host 127.0.0.1",
+    "typecheck": "tsc -b",
+    "test:e2e": "playwright test"
+  },
+  "dependencies": {
+    "@tanstack/react-query": "5.90.2",
+    "katex": "0.16.22",
+    "react": "19.1.1",
+    "react-dom": "19.1.1",
+    "react-markdown": "10.1.0",
+    "rehype-katex": "7.0.1",
+    "remark-gfm": "4.0.1",
+    "remark-math": "6.0.0"
+  },
+  "devDependencies": {
+    "@playwright/test": "1.63.0",
+    "@types/react": "19.1.12",
+    "@types/react-dom": "19.1.9",
+    "@vitejs/plugin-react": "4.7.0",
+    "typescript": "5.8.3",
+    "vite": "6.3.6"
+  }
+}
