@@ -34,3 +34,12 @@ def register(workspace):
     commands.register("campaign.stage_pin", stage_pin, model=StagePinInput)
     from balsamic.threads.service import register as register_threads
     register_threads(workspace)
+    from balsamic.evolution.generate import register as register_generate
+    register_generate(workspace)
+    from balsamic.notes.service import register as register_notes
+    register_notes(workspace)
+    from balsamic.lead.tools import register as register_tools
+    from balsamic.lead.instructions import lead_instructions
+    if "thread_pin" not in __import__("optimization_framework.agents.tools", fromlist=["EXTRA_TOOLS"]).EXTRA_TOOLS:
+        register_tools()   # process-wide; handlers act on the workspace of the tools that call them
+    workspace.lead_instructions = lead_instructions(workspace)

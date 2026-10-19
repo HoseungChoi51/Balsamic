@@ -115,7 +115,7 @@ class PiController:
                     self.store.put("agent_campaign", config)
             # Replies saved before they recorded the kind of turn they came from; the chat folds progress notes by it.
             for message in self.store.list("message"):
-                if message.get("origin") == "pi" and "turn" not in message and message["id"].startswith("message_"):
+                if message.get("origin") in {"pi", "lead"} and "turn" not in message and message["id"].startswith("message_"):
                     try:
                         self.store.put("message", {**message, **turn_marks(self.store.get(message["id"][len("message_"):], "agent_run"))})
                     except KeyError:
@@ -390,7 +390,7 @@ class PiController:
                                     "reason": str(exc)})
         return {"updated": updated, "blocked": blocked}
 
-    def enqueue(self, agent, identity, text, *, mode="follow_up", origin=None):
+    def enqueue(self, agent, identity, text, *, mode="follow_up", origin=None, leaf_entry_id=None, branch_from_entry_id=None, thread_revision=None, autopilot=False):
         try:
             saved = self.store.get(identity, "agent_run")
             if saved["agent_id"] != agent["id"] or saved["input"] != text or saved["mode"] != mode:
@@ -398,8 +398,20 @@ class PiController:
             return saved
         except KeyError:
             pass
+        if origin is None and agent["role"] == LEAD:
+            # A notice (a finished assistant, a resumed team) goes to the thread whose request started the work.
+            for earlier in reversed(self.store.list_agent_runs(agent["id"])):
+                if (earlier.get("origin") or {}).get("thread_id"):
+                    origin = {"thread_id": earlier["origin"]["thread_id"], "actor": "lab"}
+                    try:
+                        thread = self.store.get(origin["thread_id"], "thread")
+                        leaf_entry_id, thread_revision = thread.get("agent_leaf"), thread.get("guidance_revision")
+                    except KeyError:
+                        pass
+                    break
         run = {"id": identity, "campaign_id": agent["campaign_id"], "agent_id": agent["id"], "input": text,
-            "mode": mode, "status": "queued", "created_at": now(), "origin": origin,
+            "mode": mode, "status": "queued", "created_at": now(), "origin": origin, "autopilot": autopilot,
+            "leaf_entry_id": leaf_entry_id, "branch_from_entry_id": branch_from_entry_id, "thread_revision": thread_revision,
             "guidance_revision": self.workspace.memory.state(agent["campaign_id"])["guidance_revision"]}
         self.store.put("agent_run", run, "agent.run_queued")
         if agent["status"] not in {"paused", "stopped"}:
@@ -420,9 +432,21 @@ class PiController:
         # A request to a page agent is its own: the lead is not woken by it or by its outcome.
         if agent["role"] not in PAGE_AGENTS:
             self._request(campaign_id, True)
-        state = self.workspace.memory.state(campaign_id)
-        state["guidance_revision"] += 1
-        self.store.put("manager_state", state, "manager.guidance_changed")
+        thread = None
+        if values.thread_id:
+            # A message bumps its own thread's revision: the lead's work in another branch is not staled by it.
+            thread = self.store.get(values.thread_id, "thread")
+            if thread["campaign_id"] != campaign_id:
+                raise ValueError("The thread belongs to another campaign")
+            if thread.get("status") == "merged":
+                raise ValueError("This thread was merged; write in the thread it was merged into")
+            thread["guidance_revision"] = int(thread.get("guidance_revision", 0)) + 1
+            thread["updated_at"] = now()
+            self.store.put("thread", thread, "thread.guidance_changed")
+        else:
+            state = self.workspace.memory.state(campaign_id)
+            state["guidance_revision"] += 1
+            self.store.put("manager_state", state, "manager.guidance_changed")
         if values.question_id:
             question = self.store.get(values.question_id, "agent_question")
             if question["campaign_id"] != campaign_id or question["status"] != "pending":
@@ -432,11 +456,18 @@ class PiController:
         self.store.put("message", {"id": "message_" + command_id, "campaign_id": campaign_id, "role": "user", "origin": "researcher",
             "content": values.message, "created_at": now(), "agent_id": agent["id"],
             **({"thread_id": values.thread_id} if values.thread_id else {}),
+            **({"parent_message_id": values.parent_message_id} if values.parent_message_id else {}),
+            **({"edited_from_message_id": values.edit_of_message_id} if values.edit_of_message_id else {}),
             **({"desk": agent["role"]} if agent["role"] in PAGE_AGENTS else {})}, "message.created")
         if agent["role"] in PAGE_AGENTS:
             return self.ask_page_agent(agent, values.message, "pi_run_" + command_id, "researcher")
+        placement = {}
+        if thread is not None:
+            # The turn continues the thread's branch of the session tree; the first turn after a fork starts the branch.
+            placement = {"thread_revision": thread["guidance_revision"],
+                         **({"leaf_entry_id": thread["agent_leaf"]} if thread.get("agent_leaf") else {"branch_from_entry_id": thread.get("fork_entry_id")})}
         return self.enqueue(agent, "pi_run_" + command_id, values.message, mode=values.mode,
-                            origin={"thread_id": values.thread_id, "message_id": "message_" + command_id, "actor": "researcher"})
+                            origin={"thread_id": values.thread_id, "message_id": "message_" + command_id, "actor": "researcher"}, **placement)
 
     def dismiss_question(self, campaign_id, payload):
         """The researcher sets a question aside without answering it. It no longer waits for an answer, and no agent is woken."""
@@ -752,9 +783,25 @@ class PiController:
                         # The reply given in yield_work is the message; lines written beside tool calls fold under it.
                         earlier = parts or ([text] if text and text.strip() else [])
                         parts, text = ([*earlier, report] if earlier else []), report
+                    entry_ids = (run.get("result") or {}).get("entry_ids") or {}
+                    origin = run.get("origin") or {}
+                    if origin.get("thread_id") and entry_ids.get("last"):
+                        # The thread's branch now ends where this turn ended.
+                        try:
+                            thread = self.store.get(origin["thread_id"], "thread")
+                            thread.update(agent_leaf=entry_ids["last"], updated_at=now())
+                            if run.get("branch_from_entry_id") and not thread.get("fork_entry_id"):
+                                thread["fork_entry_id"] = run["branch_from_entry_id"]
+                            self.store.put("thread", thread, "thread.leaf_moved")
+                        except KeyError:
+                            pass
                     if text:
                         self.store.put("message", {"id": "message_" + rid, "campaign_id": agent["campaign_id"],
-                            "role": "assistant", "origin": "pi", "agent_id": agent_id, "content": text, "created_at": now(),
+                            "role": "assistant", "origin": "autopilot" if run.get("autopilot") else "lead" if agent["role"] == LEAD else "page_agent",
+                            "agent_id": agent_id, "content": text, "created_at": now(), "run_id": rid,
+                            **({"thread_id": origin["thread_id"]} if origin.get("thread_id") else {}),
+                            **({"entry_id": entry_ids["last"]} if entry_ids.get("last") else {}),
+                            **({"desk": agent["role"]} if agent["role"] in PAGE_AGENTS else {}),
                             **({"parts": parts} if len(parts) > 1 else {}), **({"to_agent_id": run["asked_by"]} if run.get("asked_by") else {}),
                             **turn_marks(run)}, "message.created")
                     delivered = (run.get("result") or {}).get("delivery") != "steering_queued"

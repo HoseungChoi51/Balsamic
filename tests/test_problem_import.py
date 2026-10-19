@@ -8,7 +8,7 @@ from copy import deepcopy
 import pytest
 from fastapi.testclient import TestClient
 
-from optimization_framework.api.app import create_app
+from balsamic.app import create_app
 from optimization_framework.contracts.problem_imports import ProblemExample
 from optimization_framework.problem_import.files import ImportError_, ImportFolder, check_git_url, docx_text
 from optimization_framework.problem_import.service import ImportCreate, ImportMessage, ProblemImports

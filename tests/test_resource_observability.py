@@ -243,7 +243,7 @@ def test_shared_observer_and_actual_task_grid(tmp_path):
 
 def test_resource_api_is_read_only_and_missing_campaign_is_404(tmp_path):
     from fastapi.testclient import TestClient
-    from optimization_framework.api.app import create_app
+    from balsamic.app import create_app
     app = create_app(tmp_path / "api", start_workers=False)
     app.state.workspace.store.put("campaign", {"id": "c", "compute_budget_seconds": 100})
     with app.state.workspace.store.connection() as database:

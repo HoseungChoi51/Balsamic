@@ -89,7 +89,7 @@ def test_the_scheduler_holds_a_campaigns_runs_above_its_limit_and_never_holds_ch
 
 def test_the_state_lists_each_runs_group_and_the_rules(tmp_path, monkeypatch):
     from fastapi.testclient import TestClient
-    from optimization_framework.api.app import create_app
+    from balsamic.app import create_app
     monkeypatch.setenv('GRATING_LLM_DISABLED', 'true')
     app = create_app(tmp_path / 'workspace', start_workers=False)
     with TestClient(app) as client:
@@ -100,9 +100,9 @@ def test_the_state_lists_each_runs_group_and_the_rules(tmp_path, monkeypatch):
         task = w.current_tasks(c['id'])[0]
         short = w.create_trial(TrialInput(campaign_id=c['id'], task_id=task['id'], algorithm='coordinate', max_steps=2, wall_seconds=60))
         long = w.create_trial(TrialInput(campaign_id=c['id'], task_id=task['id'], algorithm='coordinate', max_steps=2, wall_seconds=3600))
-        state = client.get('/api/state', params={'campaign_id': c['id']}).json()
-        kinds = {trial['id']: trial['run_kind'] for trial in state['trials']}
-        assert kinds == {short['id']: 'short', long['id']: 'long'} and state['experiment_rules']['revision'] == 0
+        page = client.get(f"/api/v1/campaigns/{c['id']}/experiments").json()
+        kinds = {trial['id']: kind for kind in ('short', 'long', 'checks') for trial in page[kind]}
+        assert kinds == {short['id']: 'short', long['id']: 'long'} and page['rules']['revision'] == 0
 
 
 def test_the_operator_reads_progress_and_asks_for_settings(tmp_path, monkeypatch):
@@ -202,7 +202,7 @@ def test_how_runs_are_presented_starts_from_the_problem_and_refuses_unreadable_c
 def test_a_runs_curve_is_read_as_a_few_columns_and_thinned(tmp_path, monkeypatch):
     import json
     from fastapi.testclient import TestClient
-    from optimization_framework.api.app import create_app
+    from balsamic.app import create_app
     from optimization_framework.contracts.requests import CampaignInput, TaskInput
     monkeypatch.setenv('GRATING_LLM_DISABLED', 'true')
     app = create_app(tmp_path / 'workspace', start_workers=False)
@@ -214,5 +214,5 @@ def test_a_runs_curve_is_read_as_a_few_columns_and_thinned(tmp_path, monkeypatch
         path = w.job_dir(trial['id']) / 'metrics.jsonl'
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(''.join(json.dumps({'step': i, 'evaluations': i, 'best_objective': i / 1000, 'best_objectives': {'a': i}}) + '\n' for i in range(1, 1001)))
-        rows = client.get(f"/api/trials/{trial['id']}/metrics", params={'fields': 'evaluations,best_objective', 'points': 50}).json()
+        rows = client.get(f"/api/v1/experiments/{trial['id']}/metrics", params={'fields': 'evaluations,best_objective', 'points': 50}).json()
         assert len(rows) == 50 and rows[0]['evaluations'] == 1 and rows[-1]['evaluations'] == 1000 and set(rows[0]) == {'evaluations', 'best_objective'}

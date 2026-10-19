@@ -56,7 +56,7 @@ def test_scientific_identity_excludes_service_changes_and_includes_adapter_code(
     changed = tmp_path / "changed"
     changed.mkdir()
     shutil.copytree(original / "code", changed / "code")
-    interface = changed / "code/optimization_framework/api/app.py"
+    interface = changed / "code/optimization_framework/api/reports.py"
     interface.write_text(interface.read_text() + "\n# A new interface release\n")
     same_science = provenance.capture(changed, problem_ids=["bounded_continuous"])
     assert same_science["scientific_digest"] == manifest["scientific_digest"]

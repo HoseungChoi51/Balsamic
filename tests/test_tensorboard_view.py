@@ -2,13 +2,10 @@ import json
 
 from fastapi.testclient import TestClient
 from tensorboard.backend.event_processing.event_accumulator import EventAccumulator
-from types import SimpleNamespace
 
 from optimization_framework.analysis.tensorboard_view import ScalarExporter
-from optimization_framework.api.app import compact_trial, create_app
-from optimization_framework.campaigns.memory import CampaignMemory
+from balsamic.app import create_app
 from optimization_framework.contracts.requests import CampaignInput, TaskInput
-from optimization_framework.storage.sqlite import Store
 
 
 class _Store:
@@ -48,46 +45,36 @@ def test_scalar_exporter_tracks_new_observations_without_repeating_old_ones(tmp_
     assert [(point.step, round(point.value, 3)) for point in accumulator.Scalars("efficiency/best_by_worker_second")] == [(2, 0.2), (4, 0.2)]
 
 
-def test_tensorboard_mount_and_compact_state_keep_design_access(tmp_path):
+def test_tensorboard_is_mounted_and_experiment_reads_keep_design_access(tmp_path):
     app = create_app(tmp_path / "workspace", start_workers=False)
     client = TestClient(app)
     assert client.get("/tensorboard/").status_code == 200
     assert client.get("/tensorboard/data/plugins_listing").status_code == 200
-    trial = {"id": "trial_one", "pid": 123, "progress": {"best_candidate": [[1]], "best_design": [[1]],
-             "archive": [{"candidate": [[1]]}], "best_objective": 0.2},
+    workspace = app.state.workspace
+    campaign = workspace.create_campaign(CampaignInput(name="Design access", compute_budget_seconds=100,
+        validation_reserve_seconds=10, tasks=[TaskInput(name="Quadratic", problem_id="bounded_continuous", configuration={})]))
+    trial = {"id": "trial_one", "campaign_id": campaign["id"], "status": "completed", "pid": 123, "wall_seconds": 5,
+             "progress": {"best_candidate": [[1]], "best_design": [[1]], "archive": [{"candidate": [[1]]}], "best_objective": 0.2},
              "result": {"best_design": [[1]], "best_objective": 0.2}}
-    compact = compact_trial(trial)
-    assert compact["progress"]["best_design"] == [[1]]
-    assert compact["result"]["best_objective"] == 0.2
-    assert "archive" not in compact["progress"]
-    assert "best_candidate" not in compact["progress"]
-    assert "best_design" not in compact["result"]
+    workspace.store.put("trial", trial)
+    shown = client.get(f"/api/v1/experiments/{trial['id']}").json()["trial"]
+    assert shown["progress"]["best_design"] == [[1]] and shown["result"]["best_objective"] == 0.2
+    assert "pid" not in shown
+    listed = client.get(f"/api/v1/campaigns/{campaign['id']}/summary").json()["trials"]
+    assert [row["id"] for row in listed] == [trial["id"]] and "pid" not in listed[0]
 
 
-def test_manager_journal_appends_only_new_events_and_repairs_partial_line(tmp_path):
-    store = Store(tmp_path)
-    memory = CampaignMemory(SimpleNamespace(directory=tmp_path, store=store))
-    path = tmp_path / "journal.jsonl"
-    store.put("campaign", {"id": "campaign_one"}, "campaign.created")
-    memory._append_journal(path, "campaign_one", 1)
-    memory._append_journal(path, "campaign_one", 1)
-    assert [json.loads(line)["id"] for line in path.read_text().splitlines()] == [1]
-    with path.open("ab") as stream:
-        stream.write(b'{"id":')
-    store.put("task", {"id": "task_one", "campaign_id": "campaign_one"}, "task.created")
-    memory._append_journal(path, "campaign_one", 2)
-    assert [json.loads(line)["id"] for line in path.read_text().splitlines()] == [1, 2]
-
-
-def test_state_cache_invalidates_on_committed_event(tmp_path):
+def test_scoped_reads_change_their_cursor_on_a_committed_event(tmp_path):
     app = create_app(tmp_path / "workspace", start_workers=False)
     workspace = app.state.workspace
     campaign = workspace.create_campaign(CampaignInput(name="Cache check", compute_budget_seconds=100,
         validation_reserve_seconds=10, tasks=[TaskInput(name="Quadratic", problem_id="bounded_continuous", configuration={})]))
     client = TestClient(app)
-    path = f"/api/state?campaign_id={campaign['id']}"
+    path = f"/api/v1/campaigns/{campaign['id']}/experiments"
     before = client.get(path).json()
+    assert not before["unchanged"]
+    assert client.get(path, params={"after": before["event_cursor"]}).json()["unchanged"]
     workspace.store.put("manager_note", {"id": "note_one", "campaign_id": campaign["id"],
         "kind": "finding", "content": "New evidence"}, "manager.note")
-    after = client.get(path).json()
-    assert after["event_cursor"] > before["event_cursor"]
+    after = client.get(path, params={"after": before["event_cursor"]}).json()
+    assert after["event_cursor"] > before["event_cursor"] and not after["unchanged"]

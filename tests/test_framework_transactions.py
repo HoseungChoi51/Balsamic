@@ -118,17 +118,3 @@ def test_derived_trial_queries_follow_commits_and_rollbacks(tmp_path):
     assert [row["id"] for row in store.trials_requiring_capture()] == ["trial_a"]
     store.put("trial", {**trial, "asset_capture_attempt": 1})
     assert store.trials_requiring_capture() == []
-
-
-def test_unchanged_context_advances_cursor_without_a_new_revision(tmp_path):
-    workspace, request = prepare(tmp_path)
-    campaign_id = request.campaign_id
-    first = workspace.memory.sync(campaign_id)
-    workspace.store.event(campaign_id, "test.noise", {})
-    again = workspace.memory.sync(campaign_id)
-    state = workspace.memory.state(campaign_id)
-    assert again["id"] == first["id"] and state["revision"] == first["revision"]
-    assert state["event_cursor"] > first["event_cursor"]
-    assert len(workspace.store.list("context_revision", campaign_id)) == 1
-    edited = workspace.memory.edit(campaign_id, "New direction", state["revision"])
-    assert edited["id"] != first["id"] and edited["revision"] == first["revision"] + 1

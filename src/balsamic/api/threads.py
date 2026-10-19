@@ -49,6 +49,14 @@ def install(app, workspace):
             raise HTTPException(404, "Unknown thread")
         return scoped(workspace, thread["campaign_id"], after, lambda: threads.messages(workspace, thread_id, limit=limit, before=before))
 
+    @app.get("/api/v1/threads/{thread_id}/context")
+    def thread_context(thread_id: str):
+        from balsamic.threads.context import context_view
+        try:
+            return _no_store(context_view(workspace, thread_id))
+        except KeyError:
+            raise HTTPException(404, "Unknown thread")
+
     @app.get("/api/v1/threads/{thread_id}/stream")
     async def thread_stream(thread_id: str, request: Request):
         try:

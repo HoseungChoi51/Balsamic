@@ -31,10 +31,19 @@ def install(app, workspace):
     @app.get("/api/v1/workspace")
     def workspace_info():
         from optimization_framework.agents.controller import dev_profile
+        from optimization_framework.llm.providers import provider_status
         status = workspace.pi.harness_status or {}
+        if not status:
+            try:
+                status = workspace.pi.client.status() or {}
+                workspace.pi.harness_status = status
+            except (ValueError, OSError):
+                status = {}
+        direct = provider_status()   # an HTTP provider for the report writer and the implementation service, when enabled
         admission = getattr(workspace, "admission", None)
         return {"workspace_id": workspace_id, "max_workers": workspace.max_workers, "dev_mode": bool(dev_profile()),
-                "provider": {"configured": bool(status.get("configured")), "providers": status.get("providers", {})},
+                "provider": {"configured": bool(status.get("configured")) or bool(direct.get("configured")), "providers": status.get("providers", {}),
+                             "harness": bool(status.get("configured")), "direct": {key: direct.get(key) for key in ("configured", "provider", "model", "billing_mode")}},
                 "level": admission.level() if admission is not None else None, "service": "balsamic"}
 
     @app.get("/api/v1/campaigns")

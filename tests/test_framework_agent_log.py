@@ -5,7 +5,7 @@ from concurrent.futures import ThreadPoolExecutor
 from fastapi.testclient import TestClient
 import pytest
 
-from optimization_framework.api.app import create_app
+from balsamic.app import create_app
 from optimization_framework.contracts.requests import CampaignInput, TaskInput
 from optimization_framework.research.log import AgentLog, INLINE_BYTES
 from optimization_framework.storage.sqlite import Store
@@ -157,7 +157,7 @@ def test_http_reads_only_project_scoped_events(tmp_path, monkeypatch):
 
 def test_provider_request_and_malformed_output_are_saved_before_validation(log, monkeypatch):
     import httpx
-    from optimization_framework.research.engine import LLMAdapter
+    from optimization_framework.llm.adapter import LLMAdapter
     calls = []
     def respond(request):
         calls.append(json.loads(request.content))
@@ -241,40 +241,3 @@ def test_sse_reconnect_uses_last_event_id(tmp_path):
         assert first.startswith("id: 4\n") and second.startswith("id: 5\n")
         await iterator.aclose()
     asyncio.run(read())
-
-
-def test_existing_role_workflow_logs_prompts_reports_and_handoffs(tmp_path, monkeypatch):
-    import httpx
-    from optimization_framework.campaigns.manager import CampaignManager
-    from optimization_framework.contracts.requests import ResearchInput
-    from optimization_framework.execution.service import Workspace
-    from optimization_framework.research import engine, coordinator
-    class Library:
-        def versions(self):
-            return []
-    workspace = Workspace(tmp_path, implementation_client=Library())
-    manager = CampaignManager(workspace)
-    campaign = workspace.create_campaign(CampaignInput(name="Agent chain", tasks=[TaskInput(name="Quadratic", problem_id="bounded_continuous")]))
-    config = {"configured": True, "provider": "compatible", "transport": "chat_completions", "billing_mode": "api",
-              "base_url": "http://provider.test/v1", "model": "fixture", "pricing_known": True,
-              "input_usd_per_million": 0, "output_usd_per_million": 0, "reasoning_effort": "low"}
-    monkeypatch.setattr(engine, "provider_status", lambda: config)
-    monkeypatch.setattr(coordinator, "provider_status", lambda: config)
-    calls = []
-    def respond(request):
-        calls.append(json.loads(request.content))
-        return httpx.Response(200, json={"choices": [{"message": {"content": json.dumps({"analysis": "Fixture review of the declared problem."})}}],
-                                        "usage": {"prompt_tokens": 20, "completion_tokens": 10}})
-    original = httpx.Client
-    monkeypatch.setattr(httpx, "Client", lambda **kw: original(transport=httpx.MockTransport(respond), **kw))
-    run = manager.start(ResearchInput(campaign_id=campaign["id"], message="Generate and review methods", mode="generate"))
-    workspace.research_threads[run["id"]].join(timeout=10)
-    assert workspace.store.get(run["id"])["status"] == "completed"
-    workspace.agent_log.project(campaign["id"])
-    events = workspace.agent_log.page(campaign["id"])["events"]
-    requests = [row for row in events if row["event_type"] == "provider.request"]
-    handoffs = [row for row in events if row["event_type"] == "message.handoff"]
-    assert len(calls) == len(requests) == len(handoffs) == 5
-    assert len({row["agent_id"] for row in requests}) == 5
-    assert all(row["to_agent"] == "campaign_manager" and row["parent_event_id"] for row in handoffs)
-    assert workspace.store.list("research_result") and not workspace.store.list("trial")

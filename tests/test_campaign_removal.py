@@ -5,7 +5,7 @@ import time
 from fastapi.testclient import TestClient
 import pytest
 
-from optimization_framework.api.app import create_app
+from balsamic.app import create_app
 from optimization_framework.contracts.commands import Command
 from optimization_framework.contracts.requests import CampaignInput, ControlInput, TaskInput, TrialInput
 from optimization_framework.execution.service import ACTIVE, Workspace, alive
@@ -170,7 +170,9 @@ def test_a_summary_or_most_records_stay_when_asked_for(workspace):
     design = json.loads((folder / "best-designs.jsonl").read_text())
     assert design["trial_id"] == trial["id"] and design["design"] == stored["result"]["best_design"] and design["best"] == stored["result"]["best_objective"]
     assert (folder / "experiments" / trial["id"] / "metrics.jsonl").read_bytes() == scores
-    assert "Keep the random baseline." in (folder / "memory" / "context.md").read_text() and "Kept beside this file" in (folder / "summary.md").read_text()
+    guidance = json.loads((folder / "records" / "manager_state.jsonl").read_text())
+    assert "Keep the random baseline." in guidance["guidance"] and "Kept beside this file" in (folder / "summary.md").read_text()
+    assert any("Keep the random baseline." in line for line in (folder / "records" / "manager_note.jsonl").read_text().splitlines())
     assert removed["kept_bytes"] >= len(scores) and not workspace.job_dir(trial["id"]).exists() and not rows_of(workspace, second)["records"]
     assert [json.loads(line)["keep"] for line in (workspace.directory / "removed" / "index.jsonl").read_text().splitlines()] == ["summary", "records"]
 
@@ -234,7 +236,7 @@ def test_the_interface_asks_what_to_keep_and_the_removed_campaign_leaves_the_lis
     kept = workspace.create_campaign(CampaignInput(name="Kept", tasks=[TaskInput(name="Grating", physics={"n_cells": 160, "fourier_order": 1})]))
     gone = workspace.create_campaign(CampaignInput(name="Gone", tasks=[TaskInput(name="Grating", physics={"n_cells": 160, "fourier_order": 1})]))
     with TestClient(app) as client:
-        assert [row["name"] for row in client.get(f"/api/state?campaign_id={kept['id']}").json()["campaigns"]] == ["Kept", "Gone"]
+        assert [row["name"] for row in client.get("/api/v1/campaigns").json()["campaigns"]] == ["Kept", "Gone"]
         plan = client.get(f"/api/v1/campaigns/{gone['id']}/removal").json()
         assert plan["campaign"]["name"] == "Gone" and plan["blockers"] == [] and plan["folder"].endswith("/removed/" + gone["id"])
         # The choice is the researcher's: there is no default.
@@ -243,8 +245,8 @@ def test_the_interface_asks_what_to_keep_and_the_removed_campaign_leaves_the_lis
         removed = client.post(f"/api/v1/campaigns/{gone['id']}/removal", json={"keep": "summary"})
         assert removed.status_code == 200 and removed.json()["status"] == "completed" and removed.json()["folder"] == plan["folder"]
         assert "# Gone" in (tmp_path / "removed" / gone["id"] / "summary.md").read_text()
-        assert [row["name"] for row in client.get(f"/api/state?campaign_id={kept['id']}").json()["campaigns"]] == ["Kept"]
-        assert client.get(f"/api/state?campaign_id={gone['id']}").status_code == 404
+        assert [row["name"] for row in client.get("/api/v1/campaigns").json()["campaigns"]] == ["Kept"]
+        assert client.get(f"/api/v1/campaigns/{gone['id']}/summary").status_code == 404
         assert client.get(f"/api/v1/campaigns/{gone['id']}/removal").status_code == 404
         assert client.post(f"/api/v1/campaigns/{gone['id']}/removal", json={"keep": "nothing"}).status_code == 404
         assert [row["name"] for row in client.get("/api/v1/removed-campaigns").json()] == ["Gone"]

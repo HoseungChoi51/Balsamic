@@ -114,6 +114,18 @@ def campaign_input(name):
             "tasks": [{"name": "Quadratic", "problem_id": "bounded_continuous", "configuration": {}}]}
 
 
+def create_campaign(config, name):
+    """Campaigns are created through the command bus; the receipt carries the campaign."""
+    identity = "launcher_" + name.lower().replace(" ", "_")
+    receipt = request(config, "/api/v1/commands", {"id": "ui_" + identity, "campaign_id": identity, "operation": "campaign.create",
+                                                   "expected_revision": 0, "payload": campaign_input(name)})
+    return receipt["outcome"]["campaign"]
+
+
+def campaign_ids(config):
+    return {row["id"] for row in request(config, "/api/v1/campaigns")["campaigns"]}
+
+
 def test_explicit_codex_timeout_survives_launcher_environment(setup, monkeypatch):
     config, path, _, _, _ = setup
     monkeypatch.setenv("GRATING_CODEX_TIMEOUT_SECONDS", "120")
@@ -243,9 +255,9 @@ def test_real_services_restart_keep_campaign_and_only_remove_their_route(setup):
     assert "healthy" in run("status").stdout
     run("start")
     assert json.loads((runtime / "state.json").read_text())["processes"] == initial["processes"]
-    state = request(config, "/api/state")
-    assert state["settings"]["provider"]["enabled"] is False
-    campaign = request(config, "/api/campaigns", campaign_input("Launcher persistence"))
+    state = request(config, "/api/v1/workspace")
+    assert state["provider"]["configured"] is False
+    campaign = create_campaign(config, "Launcher persistence")
     campaign_id = campaign["id"]
     config["workers"] = 2
     path.write_text(json.dumps(config))
@@ -257,9 +269,8 @@ def test_real_services_restart_keep_campaign_and_only_remove_their_route(setup):
     finally:
         del os.environ["FAKE_TAILSCALE_DENIED"]
     assert json.loads(ts_path.read_text())["TCP"][str(config["tailnet_port"])] == {"HTTPS": True}
-    state = request(config, "/api/state")
-    assert campaign_id in {row["id"] for row in state["campaigns"]}
-    assert state["settings"]["max_workers"] == 2
+    assert campaign_id in campaign_ids(config)
+    assert request(config, "/api/v1/workspace")["max_workers"] == 2
     assert not any(launcher.alive(record) for record in initial["processes"].values())
     run("stop")
     assert json.loads(ts_path.read_text()) == original_routes
@@ -369,13 +380,13 @@ def test_handover_replaces_only_matching_fixture_and_preserves_data(setup):
                 assert processes[-1].poll() is None
                 time.sleep(.1)
             assert launcher.healthy(config, role)
-        campaign = request(config, "/api/campaigns", campaign_input("Fixture campaign"))
+        campaign = create_campaign(config, "Fixture campaign")
         assert "old review fixture" in run("status").stdout
         assert run("start", ok=False).returncode == 1
         run("start", "--replace-fixture")
         for process in processes:
             process.wait(timeout=5)
-        assert campaign["id"] in {row["id"] for row in request(config, "/api/state")["campaigns"]}
+        assert campaign["id"] in campaign_ids(config)
         managed = json.loads((runtime / "state.json").read_text())["processes"]
         for record in managed.values():
             args = Path(f"/proc/{record['pid']}/cmdline").read_bytes()
@@ -396,14 +407,14 @@ def test_model_opt_in_reaches_both_services_and_override_disables_it(setup, monk
     config["llm_enabled"] = True
     path.write_text(json.dumps(config))
     run("start")
-    provider = request(config, "/api/state")["settings"]["provider"]
-    assert provider["enabled"] and provider["configured"] and provider["model"] == "gpt-6-sol"
+    provider = request(config, "/api/v1/workspace")["provider"]
+    assert provider["configured"]
     for record in json.loads((runtime / "state.json").read_text())["processes"].values():
         selected = [value for value in Path(f"/proc/{record['pid']}/environ").read_bytes().split(b"\0")
                     if value.startswith((b"GRATING_LLM_ENABLED=", b"GRATING_LLM_DISABLED="))]
         assert b"GRATING_LLM_ENABLED=true" in selected and b"GRATING_LLM_DISABLED=false" in selected
     run("restart", "--no-llm")
-    assert request(config, "/api/state")["settings"]["provider"]["enabled"] is False
+    assert request(config, "/api/v1/workspace")["provider"]["configured"] is False
 
 
 def test_authentication_failure_is_actionable_and_starts_nothing(setup, monkeypatch):

@@ -23,7 +23,7 @@ export function AgentDesk({ campaignId, role }: { campaignId: string; role: stri
     <details className="card" data-testid={`desk-${role}`}>
       <summary className="row"><strong className="grow">{NAMES[role] || role}</strong>{agent ? <Pill tone={statusTone(agent.status)}>{agent.status}</Pill> : <Pill>not started</Pill>}</summary>
       <p className="small muted">{agent?.activity || 'Takes requests from you and from the lead on this page, and acts on nothing else.'}</p>
-      <Composer onSend={ask} placeholder={`Ask the ${(NAMES[role] || role).toLowerCase()}…`} />
+      <Composer onSend={ask} placeholder={`Ask the ${(NAMES[role] || role).toLowerCase()}…`} testId="desk-composer" />
     </details>
   );
 }

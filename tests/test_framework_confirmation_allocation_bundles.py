@@ -1,7 +1,6 @@
 """Portable results retain why the main procedure differs from its prototype."""
 import json
 
-from optimization_framework.campaigns.memory import CampaignMemory
 from optimization_framework.contracts.requests import StudyInput, TrialInput
 from optimization_framework.storage import history
 from optimization_framework.storage.bundles import Reader
@@ -23,10 +22,8 @@ def test_final_allocation_provenance_survives_export_import_and_reexport(tmp_pat
     finish(source, source.store.get(identity, "trial"))
     source.confirmations.release(protocol_id)
     binding = source.store.list("confirmation_allocation_binding")[0]
-    compact = json.loads(CampaignMemory._text("confirmation_allocation_binding", binding))
-    assert compact["protocol_id"] == protocol_id
-    assert "source_procedure" not in next(iter(compact["methods"].values()))
-    assert next(iter(compact["methods"].values()))["allocation_overrides"]["max_steps"] == 9
+    assert binding["protocol_id"] == protocol_id
+    assert next(iter(binding["methods"].values()))["allocation_overrides"]["max_steps"] == 9
     roots = source.store.get(identity, "trial")["output_asset_ids"]
     _, path = export(source, owner, roots)
     with Reader(path) as bundle:

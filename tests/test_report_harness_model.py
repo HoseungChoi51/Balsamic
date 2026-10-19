@@ -8,12 +8,12 @@ from pydantic import BaseModel
 
 from optimization_framework.agents import usage as llm_usage
 from optimization_framework.agents.tools import PiTools
-from optimization_framework.api.app import create_app
+from balsamic.app import create_app
 from optimization_framework.contracts.commands import Command
 from optimization_framework.contracts.requests import CampaignInput, TaskInput
 from optimization_framework.reports import editorial
 from optimization_framework.reports.writer import ReportWriter
-from optimization_framework.research.engine import LLMAdapter, structured_reply
+from optimization_framework.llm.adapter import LLMAdapter, structured_reply
 from test_report_pipeline import scripted_model
 
 SCHEMAS = {schema.__name__: schema for schema in (editorial.Brief, editorial.Investigation, editorial.Selection, editorial.Draft, editorial.Review)}
@@ -230,7 +230,7 @@ def test_a_campaign_without_a_team_keeps_the_earlier_provider_when_one_is_set(te
     other = w.create_campaign(CampaignInput(name="No team", compute_budget_seconds=100, validation_reserve_seconds=10,
         tasks=[TaskInput(name="Quadratic", problem_id="bounded_continuous", configuration={})]))
     # No team and no earlier provider: the lead's model would write, but only a team can be started on this server's provider.
-    monkeypatch.setattr("optimization_framework.research.providers.provider_status", lambda: {"configured": True, "model": "fixture-writer", "provider": "codex",
+    monkeypatch.setattr("optimization_framework.llm.providers.provider_status", lambda: {"configured": True, "model": "fixture-writer", "provider": "codex",
         "billing_mode": "subscription", "pricing_known": False, "transport": "codex_exec"})
     scripted_model(monkeypatch, question="Which focus?")
     job = w.report_writer.start(campaign_id=other["id"], evidence=EVIDENCE, brief="Notes", request_id="old_path")

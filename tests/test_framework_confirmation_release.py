@@ -1,11 +1,9 @@
 """A closed roster releases its evidence without permitting later adaptation."""
 import pytest
 
-from optimization_framework.campaigns.manager import CampaignManager
 from optimization_framework.contracts.requests import CampaignInput, TaskInput, TrialInput, StudyInput, ControlInput
 from optimization_framework.execution.service import Workspace
 from optimization_framework.execution.worker import run
-from optimization_framework.research.engine import _safe_context
 
 
 def prepare(tmp_path):
@@ -30,13 +28,10 @@ def finish(workspace, trial):
     workspace.capture_evidence(trial)
 
 
-def test_completed_roster_releases_manager_evidence_and_blocks_new_cells(tmp_path):
+def test_completed_roster_releases_its_evidence_and_blocks_new_cells(tmp_path):
     workspace, campaign, target, protocol, request = prepare(tmp_path)
-    manager = CampaignManager(workspace)
     first = workspace.create_trial(request.model_copy(update={"seed": 17}))
     finish(workspace, first)
-    before = _safe_context(manager.context(campaign["id"]))
-    assert first["id"] not in {trial["id"] for trial in before["trials"]}
     assert not workspace.confirmations.assess(protocol)["complete"]
     with pytest.raises(ValueError, match="Incomplete"):
         workspace.confirmations.release(protocol, authority="manager")
@@ -44,9 +39,8 @@ def test_completed_roster_releases_manager_evidence_and_blocks_new_cells(tmp_pat
     finish(workspace, second)
     release = workspace.confirmations.release(protocol, authority="manager")
     assert release["outcome"] == "completed_roster"
-    after = _safe_context(manager.context(campaign["id"]))
-    assert {first["id"], second["id"]} <= {trial["id"] for trial in after["trials"]}
-    assert target["id"] in {task["id"] for task in after["tasks"]}
+    assert workspace.confirmations.assess(protocol)["complete"]
+    assert {first["id"], second["id"]} <= {trial["id"] for trial in workspace.store.list("trial", campaign["id"])}
     with pytest.raises(ValueError, match="closed"):
         workspace.create_trial(request.model_copy(update={"seed": 17}))
     with pytest.raises(ValueError, match="closed"):

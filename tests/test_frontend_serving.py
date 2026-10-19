@@ -1,7 +1,7 @@
 """The built dashboard is served so that a browser picks up a new build on its next load."""
 from fastapi.testclient import TestClient
 
-from optimization_framework.api.app import create_app
+from balsamic.app import create_app
 
 
 def test_the_page_is_revalidated_on_every_load_and_the_hashed_bundle_is_not(tmp_path):

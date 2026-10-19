@@ -128,6 +128,63 @@ M0 records one `thread` per campaign (`thread_main_<campaign>`); messages carry 
 `desk` when written to a page agent. The Python client (`agents/client.py`) has the matching calls. Fork, park, merge,
 summaries, the context drawer and placeholders arrive with M1.
 
+## M1: formulation and branchable chat
+
+**Threads.** `thread.fork {thread_id, message_id, title?}` starts a branch at a message; its `fork_entry_id` is the entry
+of the lead's reply to that message, and the branch's first turn carries `branch_from_entry_id` so the harness branches
+the session there. Each later turn carries the thread's `agent_leaf`; the reply moves it (`agent_run.result.entry_ids`,
+`message.entry_id`). `thread.rename`, `thread.park` (writes a summary card), `thread.unpark`, `thread.pin {record_id,
+pinned, excluded}` (delegable: the lead's `thread_pin` tool) and `thread.merge {thread_id, into_thread_id, note}` (one
+message `merge_of_thread_id` in the target, the target's revision bumped, the source parked as merged, a lead turn on the
+target's leaf). A merged thread takes no more messages. Edit-and-resend is a fork before the edited message plus
+`agent.message {edit_of_message_id}` in the branch; the original message stays.
+
+`GET /threads/{id}/messages` returns the branch's own messages, `inherited [{thread_id, title, count, from, to}]` with
+`inherited_messages` (what the branch descends from, through the reply at the fork), `parent_path`, open `questions`,
+pending `placeholders`, the thread's `status`, `merged_into` and `summary`. The threads list adds `queued`, `unread` and
+an activity `strip` (glyphs from records: message, strategy, run, decision, note, merge). `GET /threads/{id}/context`
+reports the three layers: project (campaign, tasks, charter, guidance, with byte counts), branch (measured from the
+harness's context at the thread's leaf when it answers, otherwise estimated and labelled so) and live (pinned and
+excluded records with their current status), plus the lab events since the thread's last turn.
+
+**Guidance.** A message bumps its thread's `guidance_revision`; the lead's `campaign_command` pins
+`expected_thread_revision` from its run (never from the model) and `expected_guidance_revision` from the run unless the
+lead read a newer one with `campaign_inspect`. A message in thread A does not stale a command of a turn in thread B
+(`tests/balsamic/test_threads.py`).
+
+**Lab events.** When a command with an origin thread completes (runs, strategies, allocations, races, findings, adoption,
+autopilot), every other active thread gets one `lab_event` line; the lead's `lab_events` tool lists them.
+
+**Summaries.** `balsamic/threads/summaries.py`: with model calls allowed, two sentences from the lead's default model
+through the harness's single call; otherwise an activity card (`written_by: activity_only`) that says how many turns each
+side wrote and the lead's last line. Parking writes one; merging writes an activity card.
+
+**Placeholders.** `research.generate {operation diversify|hybrid|revise, parent_ids, count, note}` (delegable) writes
+`count` `placeholder` records, posts the request as a message with `refs`, and gives the lead a turn on the thread with
+`batch_id` in its origin; each `hypothesis.create` from that run resolves the next placeholder. `/generate N …`,
+`/evolve H01`, `/review`, `/compare`, `/probe`, `/plan`, `/note`, `/discuss`, `/fork`, `/merge into`, `/park` and `/help`
+are the composer's slash commands (`frontend/src/chat/slash.ts`).
+
+**The problem note.** `problem_note` (mutable head: title, current and adopted revision, charter and import ids, status
+drafting/adopted/confirmed), `problem_note_revision` (immutable: the seven sections, each `{text, items, latex}`, the
+glossary, the author, the reason, the source message and run, the proposing annotation) and `note_annotation` (anchor,
+kind, question, tier, escalation, answer, proposed edit, visual, status). The lead writes it with `problem_note_draft`
+(each call a new revision in its name) and answers questions with `problem_note_propose` (an answer and, only when the
+note should change, a proposed edit the researcher accepts with `note.resolve`; the note never changes silently). The
+researcher revises with `problem_note.revise`. Tiers (`balsamic/notes/router.py`): lookup (the glossary) and quick (one
+cheap model call with the note as its only context) answer at `POST /problem-notes/{id}/ask` without the bus; with
+model calls off the quick tier escalates to the lead tier and says why; lead and visual go through `note.ask` as a turn
+of the lead (`render_visual` saves a self-contained HTML/SVG of at most 256 KiB as an `agent_artifact` of kind visual;
+the page shows it in a sandboxed frame that can only ask to open a page). `problem_note.adopt {note_id, revision}` turns
+the note's markdown into the statement of a problem import and starts the formulator; the charter it writes appears on
+the note's Charter tab, where the researcher confirms it (`/problem-charters/{id}/confirm`, then `campaign.update` with
+the charter reference sets the tasks and ends the formulation stage). A revision after adoption reopens the draft.
+
+**Fake harness.** `tests/fake_harness.py` speaks the harness protocol with a scripted turn (read the campaign, reply
+through `yield_work`) and a session tree; `tests/balsamic/test_e2e_fake_harness.py` runs a message, a fork and a branch
+turn through the authenticated callback routes. For a local stack without a model:
+`GRATING_PI_TOKEN_FILE=… uv run python tests/fake_harness.py --port 8768`.
+
 ## Telemetry and gates
 
 `ui_event` records hold the kind, time, campaign, thread, page, a session tag and a few scalars: which controls are used,
@@ -158,7 +215,7 @@ GRATING_PI_URL=http://127.0.0.1:8768 uv run optimization-lab --directory runs/de
 | Milestone | State | Contents |
 |---|---|---|
 | M0 Foundations | built | service layer, scoped reads, SSE with kinds, command origin and thread pin, pages.json, session-tree routes, shell with chat on `main`, Inbox, Files, Monitor, Experiments, Hypotheses, New campaign, telemetry, legacy address redirects |
-| M1 Formulation and branchable chat | next | thread fork, edit-and-resend, switch, park, merge; branch map; context chip and drawer; placeholders; slash commands; problem note with annotations and Adopt |
+| M1 Formulation and branchable chat | built | thread fork, edit-and-resend, switch, park, merge; branch map; context chip and drawer; placeholders; slash commands; problem note with annotations and Adopt; the scripted fake harness |
 | M2 Evolution graph v1 | planned | ledger rows, lineage, stages, provenance, frontier interventions, hypothesis card, experiment log |
 | M3 Merge, monitor, autopilot | planned | merge note, monitor rows and digest, autopilot rounds within a cap, iteration progress |
 | M4 Reuse and polish | planned | strategy library, search, keyboard navigation, export |

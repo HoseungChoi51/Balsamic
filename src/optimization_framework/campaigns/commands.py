@@ -53,6 +53,8 @@ class CommandService:
         # Operations the service layer adds (threads, notes, interventions, autopilot, library): handler(command, actor) -> outcome.
         self.handlers, self.models = {}, {}
         self.delegated = set(DELEGATED)
+        # Called with the receipt after a command completes (outside the transaction): lab events, placeholders.
+        self.listeners = []
         # Set by the service layer: thread_revision(command) -> the current revision of the command's origin thread.
         self.thread_revision = None
 
@@ -196,7 +198,12 @@ class CommandService:
     def _execute(self, command, *, actor, prepared=None):
         if actor not in {"researcher", "manager", "autopilot"}:
             raise ValueError("Unknown command authority")
-        request_hash = content_hash({"command": command.model_dump(mode="json"), "actor": actor})
+        # The fields the rebuild added are left out of the hash when unset, so receipts written before them still replay.
+        request = command.model_dump(mode="json")
+        for key in ("origin", "expected_thread_revision"):
+            if request.get(key) is None:
+                request.pop(key, None)
+        request_hash = content_hash({"command": request, "actor": actor})
         with self.workspace.lock:
             with self.store.transaction():
                 try:
@@ -256,6 +263,11 @@ class CommandService:
                     "origin": command.origin.model_dump(mode="json") if command.origin else None,
                     "status": "completed", "outcome": outcome, "created_at": now(), "finished_at": now()}
                 self.store.put("work_command", record, "command.completed")
+        for listener in self.listeners:
+            try:
+                listener(record)
+            except Exception as exc:   # a listener never undoes a committed command
+                self.store.event(command.campaign_id, "command.listener_failed", {"record_id": record["id"], "error_type": type(exc).__name__})
         self.workspace.dispatch_outbox()
         if command.operation == "study.race.create" and self.workspace.thread is not None:
             from optimization_framework.execution.race_guard import arm

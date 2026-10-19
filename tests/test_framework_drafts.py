@@ -99,20 +99,6 @@ def test_draft_commands_are_idempotent_and_manager_launch_uses_resolved_limits(t
     assert workspace.store.list("command_rejection")
 
 
-def test_manager_reconstructs_drafts_and_current_readiness_after_restart(tmp_path):
-    from optimization_framework.campaigns.manager import CampaignManager
-    from optimization_framework.research.engine import _safe_context
-    workspace, campaign, task = setup(tmp_path)
-    draft = save(workspace, campaign, task, algorithm="coordinate")
-    reopened = Workspace(tmp_path)
-    manager = CampaignManager(reopened)
-    context = manager.context(campaign["id"], "Continue the saved design")
-    entry = next(item for item in context["experiment_drafts"] if item["draft"]["id"] == draft["id"])
-    assert entry["readiness"]["ready"] and entry["readiness"]["readiness_hash"]
-    assert "draft.launch" in context["application_commands"]
-    assert _safe_context(context)["experiment_drafts"] == context["experiment_drafts"]
-
-
 def test_draft_does_not_substitute_an_attached_package_for_an_explicit_strategy(tmp_path, monkeypatch):
     workspace, campaign, task = setup(tmp_path)
     workspace.store.put("hypothesis", {"id": "package_proposal", "campaign_id": campaign["id"], "algorithm": "package",

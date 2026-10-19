@@ -1,9 +1,6 @@
 """The platform's own cost per evaluation stays within a few candidates, whatever the problem."""
 import json
 
-from fastapi.testclient import TestClient
-
-from optimization_framework.api.app import create_app
 from optimization_framework.execution import worker
 from optimization_framework.execution.worker import read_journal, run
 from test_framework_worker import prepare
@@ -51,30 +48,6 @@ def test_bytes_written_per_evaluation_stay_within_a_few_candidates(tmp_path, mon
     assert json.loads((tmp_path / "archive.json").read_text()) == result["archive"]
     assert len(result["archive"]) == 10
     assert json.loads((tmp_path / "progress.json").read_text())["archive"] == result["archive"]
-
-
-def test_state_is_encoded_once_per_snapshot(tmp_path, monkeypatch):
-    import fastapi.encoders
-    monkeypatch.setenv("GRATING_LLM_DISABLED", "true")
-    calls, encode = [], fastapi.encoders.jsonable_encoder
-    def counted(value, *args, **kwargs):
-        if isinstance(value, dict) and "workspace_id" in value:   # the whole snapshot, not its parts
-            calls.append(1)
-        return encode(value, *args, **kwargs)
-    monkeypatch.setattr(fastapi.encoders, "jsonable_encoder", counted)
-    with TestClient(create_app(tmp_path / "workspace", start_workers=False)) as client:
-        created = client.post("/api/campaigns", json={"name": "Polling", "llm_budget_usd": 0, "compute_budget_seconds": 500,
-            "validation_reserve_seconds": 30, "tasks": [{"name": "Development", "physics": {"n_cells": 6, "fourier_order": 1}}]})
-        assert created.status_code == 201, created.text
-        parameters = {"campaign_id": created.json()["id"]}
-        calls.clear()
-        first = client.get("/api/state", params=parameters)
-        assert first.status_code == 200 and first.headers["content-type"] == "application/json" and first.json()["campaign"]["name"] == "Polling"
-        assert client.get("/api/state", params=parameters).content == first.content and len(calls) == 1
-        # A committed event is never hidden by the cached encoding.
-        client.app.state.workspace.store.event(parameters["campaign_id"], "note.recorded", {})
-        client.get("/api/state", params=parameters)
-        assert len(calls) == 2
 
 
 def test_a_recorded_design_is_found_without_reading_the_others_whole(tmp_path, monkeypatch):

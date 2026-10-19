@@ -5,7 +5,7 @@ import json
 from fastapi.testclient import TestClient
 import pytest
 
-from optimization_framework.api.app import create_app
+from balsamic.app import create_app
 from optimization_framework.reports.editorial import Analyze, Brief, Draft, EvidenceRead, Investigation, Review, Selection, SourceRead, SourceSearch
 from optimization_framework.reports.evidence import EvidenceTools, freeze, freeze_curve
 from optimization_framework.reports.writer import WriterRequest
@@ -63,7 +63,7 @@ def scripted_model(monkeypatch, *, question=None, blocking=False, fail_stage=Non
                 return Review(assessment="Evidence check", issues=[{"id": "verify_1", "severity": "blocking", "problem": "A consequential contradiction remains", "action": "Narrow the claim"}] if blocking else [])
             return Review(assessment="Useful and appropriately narrow.")
         raise AssertionError(result_type)
-    monkeypatch.setattr("optimization_framework.research.engine.LLMAdapter.call_with_prompt", respond)
+    monkeypatch.setattr("optimization_framework.llm.adapter.LLMAdapter.call_with_prompt", respond)
     return calls
 
 

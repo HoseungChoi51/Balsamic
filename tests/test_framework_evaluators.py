@@ -312,11 +312,10 @@ def test_missing_evaluator_draft_commissions_binds_once_and_runs_with_upstream_c
     costs = workspace.assets.attributed_costs(paired["latest_output_asset_ids"])["quantities"]
     assert costs["evaluation_requests"]["total"] == 28  # evaluator fixtures + optimizer integration + this experiment
     assert costs["solver_executions"]["total"] == 28
-    from optimization_framework.research.coordinator import ResearchCoordinator
-    context = ResearchCoordinator(workspace).context(campaign["id"])
-    assert context["tasks"][0]["evaluator_readiness"]["runnable"]
-    assert context["problem_definitions"][0]["evaluator_version"] == job["version_id"]
-    assert "evaluator.commission" in context["application_commands"]
+    task_view = workspace.evaluators.task_view(workspace.current_tasks(campaign["id"])[0])
+    assert workspace.evaluators.readiness(task_view)["runnable"]
+    assert workspace.evaluators.describe_task(task_view).evaluator_version == job["version_id"]
+    assert "evaluator.commission" in workspace.commands.describe()
     # The browser submits task declarations with charter edits. A budget-only
     # update preserves the frozen requirement and binding instead of replacing it.
     before = workspace.current_tasks(campaign["id"])[0]
@@ -493,11 +492,9 @@ def test_exploratory_evaluator_waiver_is_scoped_pinned_and_rechecked_before_laun
     job = service.run_job(service.submit(request(spec=spec, package=package()))["id"])
     binding = workspace.evaluators.attach(task["id"], job["version_id"], rationale="Retain this unverified evaluator for an explicitly scoped decision")
     assert {row["study_id"] for row in workspace.store.list("validation_requirement")} == {campaign["active_study_id"], before_binding["id"]}
-    assert binding["validation_evidence_id"] in workspace.memory.sync(campaign["id"])["source_ids"]
+    assert workspace.store.get(binding["validation_evidence_id"])
     original = workspace.evaluators.readiness(task)
     assert not original["runnable"] and not original["waiver_allowed"]
-    from optimization_framework.research.engine import select_probe
-    assert select_probe([{**workspace.evaluators.task_view(task), "evaluator_readiness": original}], [], [])["status"] == "needs_validation"
     with pytest.raises(ValueError, match="independent numerical evidence"):
         workspace.create_trial(TrialInput(campaign_id=campaign["id"], task_id=task["id"], algorithm="coordinate", wall_seconds=5))
     assert not workspace.store.list("trial")
@@ -514,8 +511,6 @@ def test_exploratory_evaluator_waiver_is_scoped_pinned_and_rechecked_before_laun
     assert workspace.commands.execute(command) == receipt
     ready = workspace.evaluators.readiness(task)
     assert ready["runnable"] and ready["state"] == "ready_with_waiver"
-    proposal = select_probe([{**workspace.evaluators.task_view(task), "evaluator_readiness": ready}], [], [])
-    assert proposal["status"] == "proposed" and not proposal["metrics"]["numerically_reliable"]
     assessment = workspace.validations.assess(ready["requirement_id"])
     assert assessment["status"] == "waived" and not assessment["measured_pass"]
     assert not assessment["scientific_claim_supported"]
@@ -526,10 +521,8 @@ def test_exploratory_evaluator_waiver_is_scoped_pinned_and_rechecked_before_laun
     assert workspace.processes[trial["id"]].wait(timeout=10) == 0
     workspace.reconcile()
     assert workspace.store.get(trial["id"], "trial")["result"]["scientific_complete"]
-    workspace.memory.sync(campaign["id"])
-    remembered = json.loads(next(row["text"] for row in workspace.memory.retrieve(campaign["id"], trial["id"]) if row["id"] == trial["id"]))
-    assert remembered["claim_level"] == "exploratory_unverified_evaluator"
-    assert remembered["evaluator_eligibility"] == ready["eligibility"]
+    finished = workspace.store.get(trial["id"], "trial")
+    assert finished["evaluator_eligibility"] == ready["eligibility"]
     # A later waiver does not replace an experiment's still-valid authorization.
     workspace.commands.execute(command.model_copy(update={"id": "additional-authorization"}))
     additional = workspace.evaluators.readiness(task)["eligibility"]["waiver_id"]

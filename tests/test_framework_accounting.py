@@ -238,47 +238,6 @@ def test_conflicting_imported_receipt_is_rejected_before_publishing_accounting(t
     assert quantity(destination.assets, root["id"])["total"] == 11
 
 
-def test_startup_recovers_terminal_and_interrupted_research_costs_and_admits_late_receipts(tmp_path, monkeypatch):
-    from optimization_framework.assets.service_costs import reconcile_workspace
-    from optimization_framework.execution.service import Workspace
-    from test_framework_provenance import campaign
-    from test_framework_service_costs import usage
-    workspace, owner, _ = campaign(tmp_path)
-    monkeypatch.setattr(Workspace, "_loop", lambda self: None)
-    monkeypatch.setattr(Workspace, "_maintenance", lambda self: None)
-    for name, state, measurement in (("failed", "failed", {"calls": 1}), ("lost", "running", None),
-            ("pending", "running", {"calls": 1, "pending_reservation": {"usd": 8}})):
-        workspace.store.put("research_run", {"id": name, "campaign_id": owner, "charter_version": 1,
-            "created_at": "historical", "status": state, "usage": measurement, "cost_work_revision": 1})
-    hypothesis = researcher_idea(workspace, owner)
-    workspace.store.put("hypothesis", {**hypothesis, "research_run_id": "failed"})
-    workspace.start()
-    try:
-        assert workspace.store.get("lost", "research_run")["status"] == "interrupted"
-        assert workspace.store.get("pending", "research_run")["status"] == "needs_reconciliation"
-        assert len(workspace.store.list("cost_event")) == 3
-        original = copy.deepcopy(workspace.store.list("cost_event"))
-        cost_asset = workspace.store.get(hypothesis["id"], "hypothesis")["research_cost_asset_ids"][0]
-        assert quantity(workspace.assets, cost_asset)["total"] is None
-        run = workspace.store.get("failed", "research_run")
-        workspace.store.put("research_run", {**run, "usage": usage()})
-        reconcile_workspace(workspace)
-        assert quantity(workspace.assets, cost_asset)["total"] == 10
-        assert workspace.store.list("cost_event") == original
-        assert workspace.assets.actual_costs(owner, axes=["model_calls"])["quantities"]["model_calls"]["total"] is None
-        reconciled = copy.deepcopy(workspace.store.list("cost_reconciliation"))
-    finally:
-        workspace.close()
-    restarted = Workspace(tmp_path)
-    restarted.start()
-    try:
-        assert restarted.store.list("cost_event") == original
-        assert restarted.store.list("cost_reconciliation") == reconciled
-        assert len(restarted.store.list("decision", owner)) == 1
-    finally:
-        restarted.close()
-
-
 def test_terminal_library_receipts_reconcile_after_restart_and_reject_stale_responses(tmp_path):
     from optimization_framework.execution.service import Workspace
     from optimization_framework.implementations.service import ImplementationService

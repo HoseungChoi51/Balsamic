@@ -91,7 +91,7 @@ def test_legacy_provider_background_remains_brief_with_full_original_text_availa
     assert view["details"] == analysis and view["audience"] == "manager"
 
 
-def test_ambiguous_choice_is_blocked_before_guidance_changes_but_clarification_is_queued(tmp_path, monkeypatch):
+def test_ambiguous_choice_is_blocked_before_guidance_changes(tmp_path, monkeypatch):
     _, workspace, campaign, _, _ = expired_inbox(tmp_path, monkeypatch)
     decision = {"id": "unclear_question", "campaign_id": campaign["id"], "charter_version": campaign["version"],
         "title": "Manager: Which receipts are missing?", "context": "Original reasoning remains available.",
@@ -108,27 +108,4 @@ def test_ambiguous_choice_is_blocked_before_guidance_changes_but_clarification_i
             payload={"decision_id": decision["id"], "choice": "0", "comment": "", "expected_resolution_revision": 0}))
     assert workspace.memory.state(campaign["id"])["guidance_revision"] == revision
     assert workspace.store.get(decision["id"], "decision") == decision
-    accepted = workspace.commands.execute(Command(id="clarify_question", campaign_id=campaign["id"],
-        expected_revision=campaign["version"], operation="decision.refresh", payload={"decisions": [
-            {"decision_id": decision["id"], "comment": "Explain the missing evidence yourself.", "expected_resolution_revision": 0}]}))
-    snapshot = workspace.store.get(accepted["outcome"]["refresh_id"], "decision_refresh")
-    assert snapshot["decisions"][0]["decision"] == decision
-    assert snapshot["decisions"][0]["comment"] == "Explain the missing evidence yourself."
     assert workspace.store.get(decision["id"], "decision")["status"] == "pending"
-
-
-def test_saved_direction_cannot_close_its_provider_call(tmp_path, monkeypatch):
-    _, workspace, campaign, _, _ = expired_inbox(tmp_path, monkeypatch)
-    run = {"id": "uncertain_run", "campaign_id": campaign["id"], "status": "needs_reconciliation"}
-    workspace.store.put("research_run", run)
-    decision = {"id": "scientific_direction", "campaign_id": campaign["id"], "charter_version": campaign["version"],
-        "research_run_id": run["id"], "title": "Which scientific direction?", "status": "pending",
-        "decision_format": "structured", "options": [{"id": "close_reserved", "label": "Focus on seed replication"}]}
-    workspace.store.put("decision", decision)
-    revision = workspace.memory.state(campaign["id"])["guidance_revision"]
-    with pytest.raises(ValueError, match="Only the provider reconciliation decision"):
-        workspace.commands.execute(Command(id="wrong_reconciliation", campaign_id=campaign["id"],
-            expected_revision=campaign["version"], operation="decision.resolve",
-            payload={"decision_id": decision["id"], "choice": "close_reserved", "expected_resolution_revision": 0}))
-    assert workspace.store.get(run["id"], "research_run") == run
-    assert workspace.memory.state(campaign["id"])["guidance_revision"] == revision

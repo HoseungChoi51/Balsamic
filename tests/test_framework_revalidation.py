@@ -299,16 +299,14 @@ def test_campaign_revalidation_authorizes_new_experiments_and_preserves_a_frozen
     assert counts == {kind: len(workspace.store.list(kind)) for kind in counts}
     assessment = workspace.validations.assess(ready["requirement_id"])
     assert assessment["measured_pass"] and assessment["active_waiver_ids"] == [waiver["outcome"]["waiver_id"]]
-    assert assessment["results"][-1]["evidence_ids"][0] in workspace.memory.sync(campaign["id"])["source_ids"]
+    assert workspace.store.get(assessment["results"][-1]["evidence_ids"][0])
     assert workspace.evaluators.readiness(task, allow_waived=False)["runnable"]
     completed_old = finish(workspace, old)
     assert completed_old["experiment_spec"] == frozen_spec
     assert (workspace.job_dir(old["id"]) / "evaluator/bundle.json").read_bytes() == frozen_file
-    assert json.loads(workspace.memory._text("trial", completed_old))["claim_level"] == "exploratory_unverified_evaluator"
     new = finish(workspace, workspace.create_trial(TrialInput(campaign_id=campaign["id"], task_id=task["id"], algorithm="coordinate", max_steps=4, wall_seconds=10)))
     assert new["evaluator_eligibility"]["basis"] == "numerical_validation"
     assert new["evaluator_eligibility"]["validation_report_id"] == checked["validation_report_id"]
-    assert json.loads(workspace.memory._text("trial", new))["claim_level"] == "measured_screening"
     assert workspace.assets.attributed_costs(completed_old["latest_output_asset_ids"])["quantities"]["evaluation_requests"]["total"] == 24
     assert workspace.assets.attributed_costs(new["latest_output_asset_ids"])["quantities"]["evaluation_requests"]["total"] == 64
     workspace.validations.revoke(WaiverRevocation(id="revoke-original", campaign_id=campaign["id"],

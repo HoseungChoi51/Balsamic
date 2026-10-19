@@ -4,10 +4,10 @@ from fastapi.testclient import TestClient
 from optimization_framework.agents.discussions import view
 from optimization_framework.agents.models import NOTICE
 from optimization_framework.agents.tools import PiTools
-from optimization_framework.api.app import create_app
+from balsamic.app import create_app
 from optimization_framework.contracts.base import content_hash
 from optimization_framework.contracts.requests import CampaignInput, TaskInput
-from optimization_framework.research.discovery.proposals import hypothesis_revision
+from optimization_framework.campaigns.proposals import hypothesis_revision
 from test_pi_agents import invoke, prepared   # noqa: F401  (the fixture)
 
 
@@ -103,14 +103,18 @@ def test_a_platform_notice_to_an_assistant_is_not_shown_as_an_exchange(prepared)
 
 
 def test_every_page_the_lead_may_link_exists_in_the_application():
-    import re
+    import json
     from pathlib import Path
     from optimization_framework.agents.tools import COMMAND_PAGES, PAGES
-    source = (Path(__file__).parents[1] / 'frontend/src/App.tsx').read_text()
-    menu = set(re.findall(r"\['([a-z-]+)', '[^']+', '[a-z]+'\]", source.split('const menu', 1)[1].split('];', 1)[0]))
-    assert {'hypotheses', 'experiments', 'implementations', 'reports', 'agents'} <= menu
+    catalog = json.loads((Path(__file__).parents[1] / 'frontend/src/router/pages.json').read_text())
+    pages = catalog['pages']
+    assert {'hypotheses', 'experiments', 'inbox', 'monitor', 'files'} <= set(catalog['rail']) <= set(pages)
     for link in [link for link, *_ in PAGES] + list(COMMAND_PAGES.values()):
-        assert link.startswith('#') and link[1:].split('/')[0] in menu, link
+        assert link.startswith('#'), link
+        page, _, sub = link[1:].partition('/')
+        assert page in pages, link
+        assert not sub or sub in (pages[page].get('subs') or {}), link
+    assert '#hypotheses/implementations' in COMMAND_PAGES.values() and '#inbox' in COMMAND_PAGES.values()
 
 
 def test_a_proposal_names_the_round_whose_turn_created_it(prepared):

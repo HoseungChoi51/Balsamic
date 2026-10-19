@@ -4,7 +4,7 @@ from concurrent.futures import ThreadPoolExecutor
 import pytest
 from fastapi.testclient import TestClient
 
-from optimization_framework.api.app import create_app
+from balsamic.app import create_app
 from optimization_framework.contracts.commands import Command
 from optimization_framework.contracts.requests import CampaignInput, TaskInput
 from optimization_framework.execution.service import Workspace
@@ -97,12 +97,10 @@ def test_status_revisions_reject_aba_edits_and_nomination_remains_frozen(tmp_pat
     assert current["frozen_at"] == frozen["frozen_at"]
 
 
-def test_failed_feedback_transaction_leaves_no_comment_guidance_or_projection(tmp_path, monkeypatch):
+def test_failed_feedback_transaction_leaves_no_comment_or_guidance(tmp_path, monkeypatch):
     workspace, campaign = prepare(tmp_path)
     target = workspace.commands.execute(idea(workspace, campaign))["outcome"]["hypothesis"]
     before = workspace.memory.state(campaign["id"])
-    projection = tmp_path / "campaigns" / campaign["id"] / "manager/context.md"
-    text = projection.read_text()
     prior_outbox = workspace.store.list("outbox")
     apply = workspace.commands._apply
     def fail(command, actor):
@@ -112,9 +110,9 @@ def test_failed_feedback_transaction_leaves_no_comment_guidance_or_projection(tm
     with pytest.raises(RuntimeError):
         workspace.commands.execute(request(workspace, campaign, "hypothesis.review", {"hypothesis_id": target["id"], "text": "Keep this draft."}, "feedback"))
     assert workspace.store.get(target["id"], "hypothesis") == target
-    assert workspace.memory.state(campaign["id"])["guidance_revision"] == before["guidance_revision"]
+    assert workspace.memory.state(campaign["id"]) == before
     assert workspace.store.list("outbox") == prior_outbox
-    assert projection.read_text() == text
+    assert workspace.store.list("manager_note", campaign["id"]) == []
 
 
 def test_implementation_binding_is_prepared_before_transaction_and_not_repeated_on_retry(tmp_path, monkeypatch):
@@ -132,30 +130,34 @@ def test_implementation_binding_is_prepared_before_transaction_and_not_repeated_
     assert prepared == ["version_example"]
 
 
-def test_compatibility_feedback_and_status_retries_preserve_saved_response(tmp_path, monkeypatch):
+def test_http_feedback_and_status_retries_preserve_saved_response(tmp_path, monkeypatch):
     monkeypatch.setenv("GRATING_LLM_DISABLED", "true")
     app = create_app(tmp_path, start_workers=False)
     workspace = app.state.workspace
     campaign = workspace.create_campaign(CampaignInput(name="Feedback HTTP", tasks=[TaskInput(name="Quadratic", problem_id="bounded_continuous")]))
     with TestClient(app) as client:
-        body = {"campaign_id": campaign["id"], "title": "A useful idea", "mechanism": "A bounded search", "rationale": "Compare a restart rule", "algorithm": "coordinate"}
-        created = client.post("/api/hypotheses", json=body, headers={"Idempotency-Key": "idea"})
-        assert created.status_code == 201, created.text
-        target = created.json()
-        review = f"/api/hypotheses/{target['id']}/review"
-        first = client.post(review, json={"text": "Keep the baseline fixed."}, headers={"Idempotency-Key": "comment"})
+        def send(identity, operation, payload):
+            return client.post("/api/v1/commands", json={"id": identity, "campaign_id": campaign["id"], "operation": operation,
+                                                         "expected_revision": campaign["version"], "payload": payload})
+        body = {"title": "A useful idea", "mechanism": "A bounded search", "rationale": "Compare a restart rule", "algorithm": "coordinate"}
+        created = send("idea", "hypothesis.create", body)
+        assert created.status_code == 200, created.text
+        target = created.json()["outcome"]["hypothesis"]
+        review = lambda identity, text: send(identity, "hypothesis.review", {"hypothesis_id": target["id"], "text": text})
+        status = lambda identity, value, revision: send(identity, "hypothesis.status",
+            {"hypothesis_id": target["id"], "status": value, "expected_status_revision": revision})
+        first = review("comment", "Keep the baseline fixed.")
         assert first.status_code == 200, first.text
-        assert client.post(review, json={"text": "Use a second seed."}).status_code == 200
-        status = f"/api/hypotheses/{target['id']}/status"
-        archived = client.post(status, json={"status": "archived"}, headers={"Idempotency-Key": "archive", "X-Status-Revision": "0"})
-        assert archived.status_code == 200
-        assert client.post(status, json={"status": "proposed"}, headers={"X-Status-Revision": "0"}).status_code == 409
-        assert client.post(status, json={"status": "proposed"}).status_code == 200
-        assert client.post(status, json={"status": "archived"}, headers={"Idempotency-Key": "archive"}).json() == archived.json()
-        assert client.post(review, json={"text": "Keep the baseline fixed."}, headers={"Idempotency-Key": "comment"}).json() == first.json()
-        assert client.post("/api/hypotheses", json=body, headers={"Idempotency-Key": "idea"}).json() == target
-        assert client.post(review, json={"text": "A changed comment"}, headers={"Idempotency-Key": "comment"}).status_code == 409
-        assert client.post(review, json={"text": "Forged", "author": "agent"}).status_code == 422
+        assert review("second-comment", "Use a second seed.").status_code == 200
+        archived = status("archive", "archived", 0)
+        assert archived.status_code == 200, archived.text
+        assert status("stale", "proposed", 0).status_code == 409
+        assert status("reopen", "proposed", 1).status_code == 200
+        assert status("archive", "archived", 0).json() == archived.json()
+        assert review("comment", "Keep the baseline fixed.").json() == first.json()
+        assert send("idea", "hypothesis.create", body).json() == created.json()
+        assert review("comment", "A changed comment").status_code == 409
+        assert send("forged", "hypothesis.review", {"hypothesis_id": target["id"], "text": "Forged", "author": "agent"}).status_code in {409, 422}
     assert len(workspace.store.get(target["id"], "hypothesis")["reviews"]) == 2
     assert workspace.store.get(target["id"], "hypothesis")["status"] == "proposed"
     assert workspace.store.list("research_run") == []

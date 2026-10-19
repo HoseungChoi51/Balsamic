@@ -293,7 +293,9 @@ TOOLS = {
     "agent_message": ("Send a follow-up or steering message to one of your own assistants.", obj({"agent_id": S, "message": S}, ["agent_id", "message"])),
     "agent_cancel": ("Cancel a child assignment while retaining its artifacts and costs.", obj({"agent_id": S}, ["agent_id"])),
     "command_schema": ("Read the exact schema of an execution command before preparing it.", obj({"operation": {"enum": sorted(OPERATIONS)}}, ["operation"])),
-    "campaign_command": ("Execute a campaign command within existing delegation. Returns a durable receipt; never grants new authority.", obj({"operation": {"enum": sorted(OPERATIONS)}, "payload": {"type": "object"}, "request_key": S, "guidance_revision": {"type": "integer", "minimum": 0}}, ["operation", "payload", "request_key", "guidance_revision"])),
+    "campaign_command": ("Execute a campaign command within existing delegation. Returns a durable receipt with the page that shows the result; never grants new authority. "
+        "The guidance and the conversation your turn started from are pinned for you; a command is refused when the researcher wrote since. rationale: why, in one line (required under autopilot).",
+        obj({"operation": {"enum": sorted(OPERATIONS)}, "payload": {"type": "object"}, "request_key": S, "guidance_revision": {"type": "integer", "minimum": 0}, "rationale": S}, ["operation", "payload", "request_key"])),
     "implementation_workspace_create": ("Start or reattach a persistent full Pi coding workspace for an active hypothesis. No numerical grant is reserved by creation.", obj({"hypothesis_id": S, "objective": S, "evidence_ids": {"type": "array", "items": S, "maxItems": 100}, "request_key": S, "cpu_budget_seconds": {"type": "number", "exclusiveMinimum": 0, "maximum": 86400}}, ["hypothesis_id", "objective", "request_key"])),
     "implementation_workspace_inspect": ("Read implementation workspace state, progress, questions, submissions, and event cursor.", obj({"workspace_id": S, "after": {"type": "integer", "minimum": 0}}, ["workspace_id"])),
     "implementation_workspace_message": ("Steer or follow up with the full Pi coding agent in the given workspace.", obj({"workspace_id": S, "message": S, "mode": {"enum": ["steer", "follow_up"]}, "request_key": S, "question_id": S}, ["workspace_id", "message", "request_key"])),
@@ -353,6 +355,16 @@ TOOLS = {
 }
 
 
+# Tools the service layer adds: name -> {"description", "schema", "roles", "handler"(tools, agent, run, args, identity)}.
+EXTRA_TOOLS = {}
+
+
+def register_tool(name, description, schema, handler, *, roles=(LEAD,)):
+    if name in TOOLS or name in EXTRA_TOOLS:
+        raise ValueError(f"Tool {name} exists")
+    EXTRA_TOOLS[name] = {"description": description, "schema": schema, "roles": set(roles), "handler": handler}
+
+
 class PiTools:
     def __init__(self, controller):
         self.controller = controller
@@ -383,10 +395,14 @@ class PiTools:
             # Protected implementation roles receive only the exact context the
             # library supplies. They cannot read campaign fixtures or peer work.
             names = {"artifact_save", "workspace_list", "workspace_read", "workspace_write", "workspace_run", "submit_output"}
+        else:
+            names |= {name for name, tool in EXTRA_TOOLS.items() if agent["role"] in tool["roles"]}
         return names
 
     def schema(self, agent, name):
         """A tool's input schema for this agent: a page agent sees only its own commands, and the moderator only the roles it may ask."""
+        if name in EXTRA_TOOLS:
+            return EXTRA_TOOLS[name]["schema"]
         schema = TOOLS[name][1]
         if name in {"campaign_command", "command_schema"} and agent["role"] in ROLE_OPERATIONS:
             schema = deepcopy(schema); schema["properties"]["operation"]["enum"] = sorted(ROLE_OPERATIONS[agent["role"]])
@@ -432,7 +448,15 @@ class PiTools:
                 instructions += planner_instructions(self.workspace)
         if agent.get("output_schema"):
             instructions += "\nSubmit your result with submit_output using this JSON schema:\n" + json.dumps(agent["output_schema"])
-        return {"instructions": instructions, "tools": [{"name": name, "description": TOOLS[name][0], "input_schema": self.schema(agent, name)} for name in sorted(self.names(agent))]}
+        if agent["role"] == LEAD:
+            instructions += self.workspace_instructions(agent)
+        return {"instructions": instructions, "tools": [{"name": name, "description": EXTRA_TOOLS[name]["description"] if name in EXTRA_TOOLS else TOOLS[name][0],
+                                                          "input_schema": self.schema(agent, name)} for name in sorted(self.names(agent))]}
+
+    def workspace_instructions(self, agent):
+        """What the lead needs to know about the researcher's workspace: set by the service layer (threads, the problem note)."""
+        extra = getattr(self.workspace, "lead_instructions", None)
+        return "\n" + extra(agent) if callable(extra) else ""
 
     def _context(self, agent_id, run_id):
         agent = self.store.get(agent_id, "agent_session")
@@ -564,7 +588,7 @@ class PiTools:
         """A command receipt the model can hold: a large outcome becomes an index to page with evidence_read."""
         page = command_page(record)
         if serialized_bytes(record) <= COMMAND_RESULT_BYTES:
-            return {**record, "page": page} if page else record
+            return {**record, "page": page, "link": page} if page else record
         operation = record["request"]["operation"]
         brief = {**{key: value for key, value in record.items() if key not in {"outcome", "request"}}, "operation": operation,
             **({"page": page} if page else {}),
@@ -804,6 +828,8 @@ class PiTools:
             from .experiments import suggest
             return suggest(args["space"], args.get("observations", []), count=args.get("count", 4),
                            maximize=args.get("direction", "maximize") == "maximize", seed=args.get("seed", 0))
+        if name in EXTRA_TOOLS:
+            return EXTRA_TOOLS[name]["handler"](self, agent, run, args, identity)
         if name == "lead_ask":
             return self.controller.ask_lead(agent, args["question"], identity)
         if name == "command_schema":
@@ -822,10 +848,19 @@ class PiTools:
                 execution = implementation_execution()
                 if not execution["available"]:
                     raise ValueError("Isolated implementation execution is unavailable; no grant was reserved. " + execution["reason"])
+            # Pinned from the run, not from the model's memory: the guidance it read and the thread it answers.
+            origin = dict(run.get("origin") or {})
+            actor = "autopilot" if run.get("autopilot") else "lead" if agent["role"] == LEAD else "page_agent"
+            if actor == "autopilot" and not (args.get("rationale") or "").strip():
+                raise ValueError("Under autopilot every command states its rationale")
+            from optimization_framework.contracts.commands import CommandOrigin
             command = Command(id=command_id, campaign_id=cid,
-                operation=args["operation"], expected_revision=campaign["version"], expected_guidance_revision=args["guidance_revision"],
-                expected_authority_hash=self.workspace.commands.authority_hash(campaign), payload=args["payload"])
-            return self.receipt(self.workspace.commands.execute(command, actor="manager"))
+                # The campaign-wide guidance pin comes from the run unless the lead read a newer one (campaign_inspect); the thread pin is never overridden.
+                operation=args["operation"], expected_revision=campaign["version"], expected_guidance_revision=args.get("guidance_revision", run.get("guidance_revision", 0)),
+                expected_thread_revision=run.get("thread_revision"), expected_authority_hash=self.workspace.commands.authority_hash(campaign), payload=args["payload"],
+                origin=CommandOrigin(thread_id=origin.get("thread_id"), message_id=origin.get("message_id"), actor=actor, agent_id=agent["id"], run_id=run["id"],
+                                     rationale=(args.get("rationale") or None)))
+            return self.receipt(self.workspace.commands.execute(command, actor="autopilot" if actor == "autopilot" else "manager"))
         if name in {"report_write", "report_answer"}:
             writer = self.workspace.report_writer
             if name == "report_write":

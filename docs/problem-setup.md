@@ -1,5 +1,7 @@
 # Setting up a problem: workflow, design and status
 
+> **Formulation in the rebuilt workspace (M1).** A campaign may start without a problem instance. The lead drafts a *problem note* with the researcher in the conversation (objective, knobs, observables, noise, constraints, confounders, open questions); questions on it are answered by tier (glossary, a quick model call, a turn of the lead, a visual). *Adopt* hands the note to the formulator described below as its written statement; the charter it writes is confirmed on the note's Charter tab, which sets the campaign's tasks. See [ui-workspace.md](ui-workspace.md#m1-formulation-and-branchable-chat).
+
 Status on 15 October 2026: **implemented, tested, live, and checked once with a model on the running
 service**. The first part states the workflow the researcher asked for. The second part is the
 agreed design. The last part says what exists in the code and what does not.

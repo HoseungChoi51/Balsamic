@@ -91,7 +91,7 @@ function QuestionCard({ question, version, campaignId, threadId, onDone }: { que
     <article className="card" data-testid="question">
       <div className="row"><Pill tone="agent">the lead asks</Pill><span className="faint small">{when(question.created_at)}</span></div>
       <p>{question.question}</p>
-      <Composer onSend={answer} placeholder="Your answer goes to the lead as a message" />
+      <Composer onSend={answer} placeholder="Your answer goes to the lead as a message" testId="answer-composer" />
     </article>
   );
 }

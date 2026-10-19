@@ -5,7 +5,7 @@ from copy import deepcopy
 import pytest
 from fastapi.testclient import TestClient
 
-from optimization_framework.api.app import create_app
+from balsamic.app import create_app
 from optimization_framework.contracts.base import content_hash
 from optimization_framework.contracts.commands import Command
 from optimization_framework.contracts.requests import CampaignInput, TaskInput
@@ -59,9 +59,8 @@ def test_control_revisions_concurrent_replay_and_amendments_preserve_science(tmp
     assert restarted.commands.execute(extended["request"]) == extended
     assert restarted.store.get(original["id"], "trial")["control_revision"] == 2
     assert len(restarted.store.list("budget_amendment")) == 1
-    text = workspace.memory._text("work_command", replies[0])
-    assert '"operation": "trial.control"' in text
-    assert "experiment_spec" not in text and "execution_manifest" not in text
+    assert replies[0]["request"]["operation"] == "trial.control"
+    assert "experiment_spec" not in replies[0]["request"]["payload"] and "execution_manifest" not in replies[0]["request"]["payload"]
 
 
 def test_controls_cannot_target_another_campaign_or_escalate_manager_authority(tmp_path):
@@ -137,37 +136,41 @@ def test_http_create_control_and_study_keep_original_replies_after_newer_edits(t
     campaign = workspace.create_campaign(CampaignInput(name="HTTP controls", compute_budget_seconds=200, validation_reserve_seconds=0,
         tasks=[TaskInput(name="Quadratic", problem_id="bounded_continuous", configuration={})]))
     task = workspace.current_tasks(campaign["id"])[0]
-    payload = {"campaign_id": campaign["id"], "task_id": task["id"], "algorithm": "coordinate", "wall_seconds": 10, "max_steps": 2}
+    payload = {"task_id": task["id"], "algorithm": "coordinate", "wall_seconds": 10, "max_steps": 2}
     with TestClient(app) as client:
-        first = client.post("/api/trials", json=payload, headers={"Idempotency-Key": "create"})
-        assert first.status_code == 201, first.text
-        original = first.json()
-        path = f"/api/trials/{original['id']}/control"
-        paused = client.post(path, json={"action": "pause"}, headers={"Idempotency-Key": "pause", "X-Control-Revision": "0"})
+        def send(identity, operation, body, revision=None):
+            current = workspace.store.get(campaign["id"], "campaign")["version"] if revision is None else revision
+            return client.post("/api/v1/commands", json={"id": identity, "campaign_id": campaign["id"], "operation": operation,
+                                                         "expected_revision": current, "payload": body})
+        first = send("create", "trial.create", payload)
+        assert first.status_code == 200, first.text
+        original = first.json()["outcome"]["trial"]
+        control = lambda identity, action, revision: {"trial_id": original["id"], "action": action, "expected_control_revision": revision}
+        paused = send("pause", "trial.control", control("pause", "pause", 0))
         assert paused.status_code == 200, paused.text
-        stale = client.post(path, json={"action": "resume"}, headers={"X-Control-Revision": "0"})
+        stale = send("stale-resume", "trial.control", control("stale-resume", "resume", 0))
         assert stale.status_code == 409
-        assert client.post(path, json={"action": "stop"}).json()["status"] == "stopped"
-        study_path = f"/api/v1/campaigns/{campaign['id']}/studies"
-        study = client.post(study_path, json={"goal": "A new declared comparison"}, headers={"Idempotency-Key": "study"})
-        assert study.status_code == 201, study.text
-        assert study.json()["parent_study_id"] == campaign["active_study_id"]
+        assert send("stop", "trial.control", control("stop", "stop", 1)).json()["outcome"]["trial"]["status"] == "stopped"
+        study = send("study", "study.create", {"goal": "A new declared comparison"})
+        assert study.status_code == 200, study.text
+        created = workspace.store.get(study.json()["outcome"]["study_id"], "study")
+        assert created["parent_study_id"] == campaign["active_study_id"]
         assert workspace.store.get(campaign["id"], "campaign")["version"] == 2
-        assert client.post(study_path, json={"goal": "A new declared comparison"}, headers={"Idempotency-Key": "study"}).json() == study.json()
-        assert client.post("/api/trials", json=payload, headers={"Idempotency-Key": "create"}).json() == original
-        assert client.post(path, json={"action": "pause"}, headers={"Idempotency-Key": "pause"}).json() == paused.json()
-        assert client.post("/api/trials", json={**payload, "seed": 9}, headers={"Idempotency-Key": "create"}).status_code == 409
-        assert client.post(study_path, json={"goal": "Stale science"}, headers={"X-Campaign-Revision": "1"}).status_code == 409
+        assert send("study", "study.create", {"goal": "A new declared comparison"}, 1).json() == study.json()
+        assert send("create", "trial.create", payload, 1).json() == first.json()
+        assert send("pause", "trial.control", control("pause", "pause", 0), 1).json() == paused.json()
+        assert send("create", "trial.create", {**payload, "seed": 9}, 1).status_code == 409
+        assert send("stale-study", "study.create", {"goal": "Stale science"}, 1).status_code == 409
     assert len(workspace.store.list("trial")) == 1
     assert len(workspace.store.list("study")) == 2
     assert workspace.store.get(original["id"], "trial")["experiment_spec_hash"] == original["experiment_spec_hash"]
 
 
-@pytest.mark.parametrize("route,operation,payload", [
-    ("validate", "trial.validate", {"orders": [1, 2], "max_designs": 1, "wall_seconds": 10}),
-    ("recipes", "validation.run", {"recipe_id": "fourier_convergence:v1", "parameters": {"orders": [1, 2], "tolerance": .005}, "wall_seconds": 10}),
+@pytest.mark.parametrize("operation,payload", [
+    ("trial.validate", {"orders": [1, 2], "max_designs": 1, "wall_seconds": 10}),
+    ("validation.run", {"recipe_id": "fourier_convergence:v1", "parameters": {"orders": [1, 2], "tolerance": .005}, "wall_seconds": 10}),
 ])
-def test_validation_routes_pin_captured_compiler_and_replay_original_subjects(tmp_path, monkeypatch, route, operation, payload):
+def test_validation_commands_pin_captured_compiler_and_replay_original_subjects(tmp_path, monkeypatch, operation, payload):
     from optimization_framework.execution.worker import run
     from optimization_framework.evaluation import recipes
     workspace, campaign, trial = prepare(tmp_path, meent=True)
@@ -182,10 +185,11 @@ def test_validation_routes_pin_captured_compiler_and_replay_original_subjects(tm
         raise AssertionError("An installed compiler cannot replace this experiment's captured one")
     monkeypatch.setattr(recipes, "compile_recipe", changed_compiler)
     with TestClient(app) as client:
-        path = f"/api/trials/{trial['id']}/{route}"
-        first = client.post(path, json=payload, headers={"Idempotency-Key": "validate"})
-        assert first.status_code == 201, first.text
-        child = first.json()
+        body = {"id": "validate", "campaign_id": campaign["id"], "operation": operation, "expected_revision": campaign["version"],
+                "payload": {**payload, "trial_id": trial["id"]}}
+        first = client.post("/api/v1/commands", json=body)
+        assert first.status_code == 200, first.text
+        child = first.json()["outcome"]["trial"]
         assert child["source_trial_id"] == trial["id"]
         assert child["execution_manifest"] == trial["execution_manifest"]
         assert child["study_id"] == trial["study_id"]
@@ -195,7 +199,7 @@ def test_validation_routes_pin_captured_compiler_and_replay_original_subjects(tm
         assert child_result["evaluations"] == 2
         trial["progress"]["archive"] = [{"candidate": [1, 1, 1, 1], "objective": 0.0}]
         workspace.store.put("trial", trial)
-        assert client.post(path, json=payload, headers={"Idempotency-Key": "validate"}).json() == child
+        assert client.post("/api/v1/commands", json=body).json() == first.json()
     assert len(workspace.store.list("trial")) == 2
     assert workspace.store.get(trial["id"], "trial")["experiment_spec"] == original_spec
     receipt = next(row for row in workspace.store.list("work_command") if row["request"]["operation"] == operation)
@@ -222,13 +226,13 @@ def test_browser_requests_bind_the_workspace_across_restarts_and_port_reuse(tmp_
     monkeypatch.setenv("GRATING_LLM_DISABLED", "true")
     first = create_app(tmp_path / "first", start_workers=False)
     with TestClient(first) as client:
-        identity = client.get("/api/state").json()["workspace_id"]
+        identity = client.get("/api/v1/workspace").json()["workspace_id"]
     restarted = create_app(tmp_path / "first", start_workers=False)
     with TestClient(restarted) as client:
-        assert client.get("/api/state").json()["workspace_id"] == identity
+        assert client.get("/api/v1/workspace").json()["workspace_id"] == identity
     second = create_app(tmp_path / "second", start_workers=False)
     with TestClient(second) as client:
-        assert client.get("/api/state").json()["workspace_id"] != identity
+        assert client.get("/api/v1/workspace").json()["workspace_id"] != identity
         request = {"id": "old_workspace_create", "campaign_id": "requested_campaign", "expected_revision": 0,
             "operation": "campaign.create", "payload": {"name": "Retain original ownership", "tasks": [
                 {"name": "Quadratic", "problem_id": "bounded_continuous"}]}}

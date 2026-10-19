@@ -338,3 +338,15 @@ pause or stop the agents, wait for acknowledgment, then execute `agent.rollback`
 with a reason through `/api/v1/commands`. Evidence is retained. Legacy discovery
 sessions remain archived until explicitly resumed. To restore an entire database,
 stop the services first and preserve any work recorded after the backup.
+
+## The session tree: one session, many threads
+
+The workspace's conversation threads are branches of the lead's single Pi session (SDK `SessionManager`). The harness
+exposes the tree: `GET /v1/agents/{id}/tree`, `GET /v1/agents/{id}/entries?after&leaf` (the path to a leaf), `GET
+/v1/agents/{id}/context?leaf` (what the model would see from a leaf, with byte counts), `POST /v1/agents/{id}/leaf
+{entry_id, summary?}` (idle agents only; with a summary Pi records a branch summary under the destination) and `GET
+/v1/agents/{id}/export?leaf` (one branch as its own session file). A run submitted with `thread_id`, `leaf_entry_id` or
+`branch_from_entry_id` (and an optional `summary`) has its leaf positioned before the prompt; its result reports
+`entry_ids {parent, last}`, which the workspace records on the thread and on the reply message. Steering reaches the
+turn in progress only from its own thread; another thread's message waits as its own run. `agent-harness/test/sessions.test.mjs`
+runs this against the pinned SDK; `tests/fake_harness.py` is a scripted stand-in with the same routes.

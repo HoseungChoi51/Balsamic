@@ -5,7 +5,7 @@ from pathlib import Path
 from types import SimpleNamespace
 import pytest
 
-from optimization_framework.agents.api import active_implementation_grant
+from balsamic.api.internal_pi import active_implementation_grant
 from optimization_framework.agents.tools import PiTools
 from optimization_framework.contracts.requests import CampaignInput, TaskInput, TrialInput
 from optimization_framework.contracts.commands import Command
@@ -61,7 +61,7 @@ def test_repeated_unchanged_pi_inspection_does_not_emit_progress(prepared):
     assert first == second
 
 
-def test_migration_preserves_allocations_and_uses_subscription_models(prepared):
+def test_activation_preserves_allocations_and_uses_subscription_models(prepared):
     w, c, a, r = prepared
     current = w.store.get(c['id'], 'campaign')
     for key in ('compute_budget_seconds','implementation_compute_budget_seconds','validation_reserve_seconds','llm_budget_usd'):
@@ -69,7 +69,7 @@ def test_migration_preserves_allocations_and_uses_subscription_models(prepared):
     assert current['autonomy'] == 'delegated'
     assert a['model'] == 'gpt-6-astra'
     assert a['usage']['api_cost_usd'] == 0
-    assert len(w.store.list('agent_migration')) == 1
+    assert w.pi.configuration(c['id'])['lead_id'] == a['id'] and w.pi.owns(c['id'])
     assert invoke(prepared, 'campaign_inspect')['tasks'][0]['evaluator_readiness']['runnable']
 
 
@@ -215,7 +215,8 @@ def test_control_revision_pause_and_rollback_keep_evidence(prepared):
         w.pi.rollback(c['id'],{'reason':'Test rollback'})
     r['status']='paused';w.store.put('agent_run',r)
     w.pi.rollback(c['id'],{'reason':'Test rollback'})
-    assert not w.pi.owns(c['id']) and w.store.list('agent_migration')
+    rolled_back = w.pi.configuration(c['id'])
+    assert not w.pi.owns(c['id']) and not rolled_back['enabled'] and rolled_back['rollback_reason'] == 'Test rollback'
 
 
 def test_implementation_workers_cannot_read_protected_or_peer_evidence(prepared):
@@ -228,7 +229,7 @@ def test_implementation_workers_cannot_read_protected_or_peer_evidence(prepared)
 
 def test_private_gateway_requires_token(prepared,monkeypatch,tmp_path):
     from fastapi.testclient import TestClient
-    from optimization_framework.api.app import create_app
+    from balsamic.app import create_app
     token=tmp_path/'token';token.write_text('a'*64);monkeypatch.setenv('GRATING_PI_TOKEN_FILE',str(token))
     app=create_app(tmp_path/'api',start_workers=False)
     with TestClient(app) as client:
@@ -263,7 +264,7 @@ def test_every_execution_tool_has_an_authoritative_schema(prepared):
 
 
 def test_new_proposal_requires_a_separate_reviewer_of_its_exact_revision(prepared):
-    from optimization_framework.research.discovery.proposals import hypothesis_revision, readiness
+    from optimization_framework.campaigns.proposals import hypothesis_revision, readiness
     w,c,a,r=prepared
     hypothesis={'id':'idea','campaign_id':c['id'],'title':'Proposed update','mechanism':'One step', 'requires_concept_review':True}
     w.store.put('hypothesis',hypothesis)
@@ -716,19 +717,20 @@ def test_the_lead_is_given_the_pages_and_a_receipt_names_the_page_of_what_it_cre
     from optimization_framework.agents.tools import INSTRUCTIONS, command_page
     pages = invoke(prepared, 'campaign_inspect')['pages']
     links = [page['link'] for page in pages]
-    assert len(set(links)) == len(links) and {'#experiments', '#hypotheses', '#hypotheses/rounds', '#implementations', '#reports', '#comparison', '#agents'} <= set(links)
-    assert all(page['name'] and page['shows'] for page in pages)
+    assert len(set(links)) == len(links) and {'#experiments', '#hypotheses', '#hypotheses/rounds', '#hypotheses/implementations', '#files/reports', '#evolution/frontier', '#monitor/agents'} <= set(links)
+    assert all(page['name'] for page in pages) and all(page['shows'] for page in pages if '/' not in page['link'])
     assert 'campaign_inspect.pages' in INSTRUCTIONS and 'link the page instead' in INSTRUCTIONS
     assert command_page({'request': {'operation': 'trial.create'}, 'outcome': {'trial_id': 'trial_1'}}) == '#experiments/trial_1'
-    assert command_page({'request': {'operation': 'hypothesis.create'}, 'outcome': {'hypothesis_id': 'h'}}) == '#hypotheses'
-    assert command_page({'request': {'operation': 'draft.save'}, 'outcome': {'draft_id': 'd'}}) == '#experiments'
-    assert command_page({'request': {'operation': 'study.race.decide'}, 'outcome': None}) is None
+    assert command_page({'request': {'operation': 'hypothesis.create'}, 'outcome': {'hypothesis_id': 'h'}}) == '#hypotheses/h'
+    assert command_page({'request': {'operation': 'draft.save'}, 'outcome': {'draft_id': 'd'}}) == '#experiments/drafts'
+    assert command_page({'request': {'operation': 'study.race.decide'}, 'outcome': None}) == '#evolution/races'
+    assert command_page({'request': {'operation': 'journal.compact'}, 'outcome': None}) is None
     # A real receipt carries it, small or large.
     tools = PiTools(prepared[0].pi)
     record = {'id': 'pi_command_x', 'status': 'completed', 'request': {'operation': 'comparison.report', 'payload': {}}, 'outcome': {'groups': []}}
-    assert tools.receipt(record)['page'] == '#comparison'
-    assert tools.receipt({**record, 'outcome': {'groups': [], 'filler': 'x' * 60000}})['page'] == '#comparison'
-    assert 'page' not in tools.receipt({**record, 'request': {'operation': 'study.race.decide', 'payload': {}}})
+    assert tools.receipt(record)['page'] == '#evolution/curves'
+    assert tools.receipt({**record, 'outcome': {'groups': [], 'filler': 'x' * 60000}})['page'] == '#evolution/curves'
+    assert 'page' not in tools.receipt({**record, 'request': {'operation': 'journal.compact', 'payload': {}}})
 
 
 def test_resource_events_wake_the_resource_planner_which_plans_but_starts_nothing(tmp_path, monkeypatch):

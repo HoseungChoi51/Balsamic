@@ -84,8 +84,8 @@ def create_app(directory=None, max_workers=2, start_workers=True, implementation
     from optimization_framework.problem_charter.api import install as install_problem_charters
     install_problem_charters(app, workspace)
 
-    from balsamic.api import commands, events, campaigns, experiments, files, monitor, threads, telemetry, internal_pi, frontend
-    for module in (commands, events, campaigns, experiments, files, monitor, threads, telemetry, internal_pi):
+    from balsamic.api import commands, events, campaigns, experiments, files, monitor, threads, notes, telemetry, internal_pi, frontend
+    for module in (commands, events, campaigns, experiments, files, monitor, threads, notes, telemetry, internal_pi):
         module.install(app, workspace)
     frontend.install(app, workspace, frontend_directory)   # last: its catch-all serves the page for every address
     return app

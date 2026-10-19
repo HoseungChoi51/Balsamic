@@ -63,7 +63,7 @@ def test_manager_commands_pin_current_guidance_and_resource_authority(tmp_path):
 
 
 def test_versioned_http_command_returns_durable_outcome(tmp_path, monkeypatch):
-    from optimization_framework.api.app import create_app
+    from balsamic.app import create_app
     monkeypatch.setenv("GRATING_LLM_DISABLED", "true")
     app = create_app(tmp_path, start_workers=False)
     workspace = app.state.workspace
@@ -135,37 +135,3 @@ def test_rolled_back_build_never_contacts_the_implementation_service(tmp_path, m
         workspace.commands.execute(command)
     workspace.dispatch_outbox()
     assert workspace.store.list("implementation_grant") == workspace.store.list("outbox") == []
-
-
-def test_manager_turn_retries_do_not_repeat_guidance_or_reset_status(tmp_path, monkeypatch):
-    from optimization_framework.campaigns.manager import CampaignManager
-    from optimization_framework.contracts.requests import ResearchInput
-    monkeypatch.setenv("GRATING_LLM_DISABLED", "true")
-    monkeypatch.setattr("optimization_framework.research.coordinator.provider_status", lambda: {"configured": True})
-    workspace, campaign, _ = prepare(tmp_path)
-    manager = CampaignManager(workspace)
-    monkeypatch.setattr(manager, "_thread", lambda record: None)
-    request = ResearchInput(campaign_id=campaign["id"], message="Review the evidence")
-    first = manager.start(request, command_id="turn_once")
-    revision = workspace.memory.state(campaign["id"])["guidance_revision"]
-    assert manager.start(request, command_id="turn_once") == first
-    assert workspace.memory.state(campaign["id"])["guidance_revision"] == revision
-    assert workspace.store.get("turn_once", "manager_command")["status"] == "dispatched"
-    with pytest.raises(ValueError, match="identity"):
-        manager.start(request.model_copy(update={"message": "A different request"}), command_id="turn_once")
-
-
-def test_delegated_action_is_atomic_idempotent_and_keeps_manager_authority(tmp_path):
-    from optimization_framework.campaigns.manager import CampaignManager
-    workspace, campaign, command = prepare(tmp_path, "delegated")
-    manager = CampaignManager(workspace)
-    action = {"id": "proposal_once", "campaign_id": campaign["id"], "charter_version": campaign["version"],
-        "guidance_revision": 0, "authority_hash": workspace.commands.authority_hash(campaign), "kind": "command",
-        "command_operation": command.operation, "command_payload": command.payload}
-    first = manager.execute_action(action, actor="manager")
-    workspace.update_campaign(campaign["id"], CampaignUpdate(name="Renamed"))
-    assert manager.execute_action(action, actor="manager") == first
-    assert workspace.store.get("action_proposal_once", "work_command")["actor"] == "manager"
-    assert len(workspace.store.list("trial")) == 1
-    with pytest.raises(ValueError, match="another proposal"):
-        manager.execute_action({**action, "command_payload": {**command.payload, "seed": 5}}, actor="manager")

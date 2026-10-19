@@ -25,7 +25,7 @@ export function Shell({ route, campaignId, threadId }: { route: Route; campaignI
       <div className="body">
         <Rail route={route} summary={summary.data} monitor={monitor.data} />
         <div className={'main' + (wide || route.page === 'new' || !threadId ? ' wide' : '')}>
-          {campaignId && threadId ? <ThreadChat campaignId={campaignId} threadId={threadId} /> : <div className="chat" />}
+          {campaignId && threadId ? <ThreadChat campaignId={campaignId} threadId={threadId} route={route} /> : <div className="chat" />}
           <StagePanel route={route} campaignId={campaignId} threadId={threadId} />
         </div>
       </div>

@@ -4,8 +4,24 @@ from copy import deepcopy
 import pytest
 
 from optimization_framework.contracts.base import content_hash
-from test_framework_discovery import setup, command
+from optimization_framework.contracts.commands import Command
+from optimization_framework.contracts.requests import CampaignInput, TaskInput
+from optimization_framework.execution.service import Workspace
 from framework_fixtures import researcher_idea
+
+
+@pytest.fixture
+def setup(tmp_path):
+    class Library:
+        def versions(self):
+            return []
+    workspace = Workspace(tmp_path, implementation_client=Library())
+    campaign = workspace.create_campaign(CampaignInput(name="Binding", tasks=[TaskInput(name="Quadratic", problem_id="bounded_continuous")]))
+    return workspace, campaign
+
+
+def command(workspace, campaign, operation, payload, key):
+    return Command(id=key, campaign_id=campaign["id"], expected_revision=campaign["version"], operation=operation, payload=payload)
 
 
 def test_binding_is_idempotent_and_preserves_scientific_proposal(setup):

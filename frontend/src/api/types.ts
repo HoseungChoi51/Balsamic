@@ -9,13 +9,16 @@ export interface Summary { campaign: Campaign; row: CampaignRow; tasks: Record<s
   stage: { stage: Stage; pinned: boolean; basis: string }; counts: Record<string, number>; studies: Record<string, unknown>[]; trials: Trial[] }
 export interface Scoped { event_cursor: number; unchanged?: boolean; campaign_id?: string }
 export interface Thread { id: string; campaign_id: string; name: string; title: string; parent_thread_id: string | null; fork_message_id: string | null; status: string;
-  merged_into: string | null; pinned_ids: string[]; excluded_ids: string[]; summary: { text: string } | null; guidance_revision: number; message_count: number;
-  last_message_id: string | null; last_activity_at: string | null; busy: boolean; queued: number; created_at: string }
+  merged_into: string | null; pinned_ids: string[]; excluded_ids: string[]; anchors?: string[]; summary: ThreadSummary | null; guidance_revision: number; message_count: number;
+  last_message_id: string | null; last_activity_at: string | null; busy: boolean; queued: number; unread?: boolean; strip?: { at: string; glyph: string; id: string }[]; created_at: string }
 export interface Threads extends Scoped { threads: Thread[]; lead: { id: string; status: string } | null; request_open: boolean; active_run: { id: string; thread_id: string } | null }
 export interface Message { id: string; campaign_id: string; role: 'user' | 'assistant' | 'system'; content: string; created_at: string; origin?: string; agent_id?: string;
-  thread_id?: string; refs?: string[]; issue_id?: string; run_id?: string; desk?: string; parts?: string[]; [key: string]: unknown }
+  thread_id?: string; refs?: string[]; issue_id?: string; run_id?: string; desk?: string; parts?: string[]; merge_of_thread_id?: string; edited_from_message_id?: string; entry_id?: string; [key: string]: unknown }
 export interface Question { id: string; agent_id?: string; question: string; status: string; created_at: string; [key: string]: unknown }
-export interface Messages extends Scoped { thread_id: string; messages: Message[]; truncated: boolean; inherited: unknown[]; parent_path: unknown[]; fork_message_id: string | null; questions: Question[] }
+export interface Inherited { thread_id: string; title: string; count: number; from: string; to: string }
+export interface Placeholder { id: string; batch_id: string; status: string; hypothesis_id: string | null }
+export interface Messages extends Scoped { thread_id: string; messages: Message[]; truncated: boolean; inherited: Inherited[]; inherited_messages: Message[]; parent_path: { thread_id: string; title: string; fork_message_id: string | null }[]; fork_message_id: string | null; questions: Question[]; placeholders: Placeholder[]; status: string; merged_into: string | null; summary: ThreadSummary | null }
+export interface ThreadSummary { text: string; strip: { at: string; glyph: string; id: string; who?: string; operation?: string }[]; as_of_message_id: string | null; written_by: 'model' | 'activity_only'; stale: boolean; edited: boolean; reason?: string; written_at?: string; model?: string }
 export interface Trial { id: string; campaign_id: string; task_id: string; algorithm: string; status: string; seed?: number; max_steps?: number; wall_seconds?: number; created_at?: string;
   progress?: Record<string, unknown>; result?: Record<string, unknown>; stopped_by?: string; hidden?: boolean; hypothesis_id?: string; [key: string]: unknown }
 export interface Experiments extends Scoped { short: Trial[]; long: Trial[]; checks: Trial[]; drafts: Record<string, unknown>[]; rules: Record<string, unknown>; profiles: Record<string, unknown>[] }

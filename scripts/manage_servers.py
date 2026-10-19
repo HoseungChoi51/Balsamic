@@ -28,7 +28,7 @@ SCRIPT = Path(__file__).resolve()
 BOOT = Path("/proc/sys/kernel/random/boot_id").read_text().strip()
 ROLES = ("library", "workspace")
 HEALTH = {"pi": "/health", "library": "/health", "workspace": "/api/health"}
-SERVICES = {"pi": "grating-pi", "library": "grating-implementations", "workspace": "grating-lab"}
+SERVICES = {"pi": "grating-pi", "library": "grating-implementations", "workspace": "balsamic"}
 
 
 def roles(config):
@@ -262,8 +262,14 @@ def service_environment(config):
 def check_model(config):
     if config.get("pi_port") or not config["llm_enabled"] or config["provider"] != "codex":
         return
-    # The Codex CLI transport went with the legacy campaign manager: model calls go through the Pi harness.
-    raise LauncherError("The codex provider is no longer served; configure the Pi harness (pi_port) or run with --no-llm.")
+    binary = shutil.which(os.environ.get("GRATING_CODEX_BINARY", "codex"))
+    if not binary:
+        raise LauncherError("Codex is not installed/on PATH. Set GRATING_CODEX_BINARY or use --no-llm.")
+    # Never print login output, which might contain account or API credential details.
+    result = subprocess.run([binary, "login", "status"], env=dict(os.environ), capture_output=True, text=True, timeout=15)
+    if result.returncode or not any(line.strip() == "Logged in using ChatGPT"
+                                   for line in (result.stdout + "\n" + result.stderr).splitlines()):
+        raise LauncherError("Sign in as this OS user with `codex login --device-auth`, then retry. ChatGPT login is required; --no-llm runs without model calls.")
 
 
 class Tailnet:

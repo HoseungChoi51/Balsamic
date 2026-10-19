@@ -5,7 +5,7 @@ from copy import deepcopy
 import pytest
 from fastapi.testclient import TestClient
 
-from optimization_framework.api.app import create_app
+from balsamic.app import create_app
 from optimization_framework.contracts.base import content_hash
 from optimization_framework.contracts.commands import Command
 from optimization_framework.contracts.requests import CampaignInput, TrialInput
@@ -89,12 +89,10 @@ def test_campaign_amendments_preserve_frozen_science_and_reject_stale_updates(tm
     assert len(workspace.store.list("campaign_budget_amendment")) == 1
 
 
-def test_context_edit_and_projection_commit_with_command_and_recover_once(tmp_path, monkeypatch):
+def test_context_edit_commits_with_its_command_and_recovers_once(tmp_path, monkeypatch):
     workspace = Workspace(tmp_path)
     campaign = workspace.commands.execute(creation())["outcome"]["campaign"]
-    before = workspace.memory.sync(campaign["id"])
-    projection = tmp_path / "campaigns" / campaign["id"] / "manager" / "context.md"
-    old_text = projection.read_text()
+    before = workspace.memory.state(campaign["id"])
     edit = change(workspace, campaign["id"], "context.edit", {"content": "Keep the selected baseline fixed.", "expected_revision": before["revision"]})
     apply = workspace.commands._apply
     def fail(command, actor):
@@ -104,25 +102,22 @@ def test_context_edit_and_projection_commit_with_command_and_recover_once(tmp_pa
         patch.setattr(workspace.commands, "_apply", fail)
         with pytest.raises(RuntimeError):
             workspace.commands.execute(edit)
-    assert projection.read_text() == old_text
-    assert workspace.memory.state(campaign["id"])["guidance_revision"] == before["guidance_revision"]
+    assert workspace.memory.state(campaign["id"]) == before
     assert workspace.store.list("manager_note") == []
-    # Simulate process loss after the scientific transaction, before projection.
+    # Simulate process loss after the scientific transaction, before any outbox work.
     with monkeypatch.context() as patch:
         patch.setattr(workspace, "dispatch_outbox", lambda: None)
         accepted = workspace.commands.execute(edit)
-    assert projection.read_text() == old_text
     restarted = Workspace(tmp_path)
     restarted.dispatch_outbox()
-    assert "Keep the selected baseline fixed." in projection.read_text()
+    state = restarted.memory.state(campaign["id"])
+    assert state["guidance"] == "Keep the selected baseline fixed." and state["revision"] == before["revision"] + 1
     assert restarted.commands.execute(edit) == accepted
     notes = restarted.store.list("manager_note", campaign["id"])
-    assert len(notes) == 1 and notes[0]["author"] == "researcher"
-    assert restarted.memory.state(campaign["id"])["guidance_revision"] == before["guidance_revision"] + 1
-    projection.unlink()
-    restored = restarted.memory.sync(campaign["id"])
-    assert projection.read_text() == restored["document"]
-    with pytest.raises(ValueError, match="memory changed"):
+    assert len(notes) == 1 and notes[0]["author"] == "researcher" and notes[0]["kind"] == "researcher_guidance"
+    assert state["guidance_revision"] == before["guidance_revision"] + 1
+    assert restarted.store.get(campaign["id"], "campaign")["version"] == campaign["version"]
+    with pytest.raises(ValueError, match="guidance changed"):
         restarted.commands.execute(edit.model_copy(update={"id": "stale_edit"}))
 
 
@@ -168,39 +163,44 @@ def test_issue_resolution_checks_scope_and_occurrence_and_replay_cannot_close_ne
     assert len([note for note in workspace.store.list("manager_note") if note["kind"] == "decision"]) == 1
 
 
-def test_compatibility_routes_share_command_preconditions_and_original_retry_outcomes(tmp_path, monkeypatch):
+def test_http_commands_share_preconditions_and_original_retry_outcomes(tmp_path, monkeypatch):
     monkeypatch.setenv("GRATING_LLM_DISABLED", "true")
     app = create_app(tmp_path, start_workers=False)
     with TestClient(app) as client:
-        key = {"Idempotency-Key": "create-request"}
-        created = client.post("/api/campaigns", json=creation().payload, headers=key)
-        assert created.status_code == 201, created.text
-        campaign = created.json()
-        assert client.post("/api/campaigns", json=creation().payload, headers=key).json() == campaign
-        route = "/api/campaigns/" + campaign["id"]
-        updated = client.put(route, json={"name": "Second charter"}, headers={"Idempotency-Key": "update-request", "X-Campaign-Revision": "1"})
-        assert updated.status_code == 200 and updated.json()["version"] == 2
-        assert client.put(route, json={"name": "Third charter"}, headers={"Idempotency-Key": "third-request"}).status_code == 200
-        assert client.put(route, json={"name": "Second charter"}, headers={"Idempotency-Key": "update-request"}).json() == updated.json()
-        assert client.post("/api/campaigns", json=creation().payload, headers=key).json() == campaign
-        assert client.put(route, json={"name": "Stale"}, headers={"Idempotency-Key": "stale", "X-Campaign-Revision": "1"}).status_code == 409
-        assert client.put(route, json={"name": "Different request"}, headers={"Idempotency-Key": "update-request"}).status_code == 409
-        context = client.get(route + "/manager/context").json()
-        body = {"content": "Keep research in the current problem family.", "expected_revision": context["revision"]}
-        headers = {"Idempotency-Key": "edit-context"}
-        edited = client.put(route + "/manager/context", json=body, headers=headers)
+        def send(command):
+            return client.post("/api/v1/commands", json=command.model_dump(mode="json"))
+        created = send(creation())
+        assert created.status_code == 200, created.text
+        campaign = created.json()["outcome"]["campaign"]
+        assert send(creation()).json() == created.json()
+        workspace = app.state.workspace
+        update = lambda identity, name, revision=None: Command(id=identity, campaign_id=campaign["id"], operation="campaign.update",
+            expected_revision=workspace.store.get(campaign["id"], "campaign")["version"] if revision is None else revision, payload={"name": name})
+        updated = send(update("update-request", "Second charter", 1))
+        assert updated.status_code == 200 and updated.json()["outcome"]["campaign"]["version"] == 2
+        assert send(update("third-request", "Third charter")).status_code == 200
+        assert send(update("update-request", "Second charter", 1)).json() == updated.json()
+        assert send(creation()).json() == created.json()
+        assert send(update("stale", "Stale", 1)).status_code == 409
+        assert send(update("update-request", "Different request", 1)).status_code == 409
+        context = client.get(f"/api/v1/campaigns/{campaign['id']}/guidance").json()["state"]
+        edit = change(workspace, campaign["id"], "context.edit", {"content": "Keep research in the current problem family.",
+            "expected_revision": context["revision"]}, "edit-context")
+        edited = send(edit)
         assert edited.status_code == 200, edited.text
-        assert client.put(route + "/manager/context", json=body, headers=headers).json() == edited.json()
-        issue = app.state.workspace.memory.issue(campaign["id"], "test", "One scoped failure", affected="one")
-        issue_route = "/api/manager/issues/" + issue["id"] + "/resolve"
-        resolved = client.post(issue_route, json={"choice": "deferred"}, headers={"Idempotency-Key": "resolve"})
+        assert send(edit).json() == edited.json()
+        issue = workspace.memory.issue(campaign["id"], "test", "One scoped failure", affected="one")
+        resolve = change(workspace, campaign["id"], "issue.resolve", {"issue_id": issue["id"], "choice": "deferred",
+            "expected_revision": issue["revision"]}, "resolve")
+        resolved = send(resolve)
         assert resolved.status_code == 200, resolved.text
-        assert client.post(issue_route, json={"choice": "deferred"}, headers={"Idempotency-Key": "resolve"}).json() == resolved.json()
-        operations = {row["request"]["operation"] for row in app.state.workspace.store.list("work_command")}
+        assert send(resolve).json() == resolved.json()
+        assert client.get("/api/v1/commands/resolve").json() == resolved.json()
+        operations = {row["request"]["operation"] for row in workspace.store.list("work_command")}
         assert operations == {"campaign.create", "campaign.update", "context.edit", "issue.resolve"}
         spoofed = {**creation("spoofed", "campaign_spoofed").model_dump(), "actor": "manager"}
         assert client.post("/api/v1/commands", json=spoofed).status_code == 422
-        assert len(app.state.workspace.store.list("campaign")) == 1
+        assert len(workspace.store.list("campaign")) == 1
 
 
 def test_accepted_historical_envelope_hash_and_outcome_stay_readable(tmp_path):
@@ -212,6 +212,6 @@ def test_accepted_historical_envelope_hash_and_outcome_stay_readable(tmp_path):
         "request_hash": content_hash({"command": legacy, "actor": "researcher"}), "actor": "researcher",
         "status": "completed", "outcome": {"trial_id": "old_trial"}}
     workspace.store.put("work_command", original)
-    assert Command(**legacy).model_dump(mode="json") == legacy
+    assert Command(**legacy).model_dump(mode="json") == {**legacy, "expected_thread_revision": None, "origin": None}
     assert workspace.commands.execute(legacy) == original
     assert workspace.store.list("trial") == []
