@@ -47,3 +47,24 @@ test('status detects persisted login and logout without exposing credentials or 
   fs.writeFileSync(authPath, '{}');
   assert.equal((await authStatus(authPath)).configured, false);
 });
+
+test('custom providers come from the profile\'s models.json, else the researcher\'s own Pi configuration', async t => {
+  const {modelsFile} = await import('../dist/runtime.js');
+  const saved = {file: process.env.GRATING_PI_MODELS_FILE, home: process.env.HOME};
+  t.after(() => { if (saved.file === undefined) delete process.env.GRATING_PI_MODELS_FILE; else process.env.GRATING_PI_MODELS_FILE = saved.file; process.env.HOME = saved.home; });
+  process.env.GRATING_PI_MODELS_FILE = '/tmp/explicit-models.json';
+  assert.equal(modelsFile(), '/tmp/explicit-models.json');
+  delete process.env.GRATING_PI_MODELS_FILE;
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'pi-home-')); t.after(() => fs.rmSync(home, {recursive: true, force: true}));
+  process.env.HOME = home;
+  const own = path.join(home, '.pi', 'agent', 'models.json');
+  const {profile} = await import('../dist/runtime.js');
+  if (profile) {
+    if (fs.existsSync(path.join(profile, 'models.json'))) assert.equal(modelsFile(), path.join(profile, 'models.json'));
+    else {
+      assert.equal(modelsFile(), path.join(profile, 'models.json'), 'no file anywhere: the profile path, so Pi starts with its built-in providers');
+      fs.mkdirSync(path.dirname(own), {recursive: true}); fs.writeFileSync(own, '{"providers":{}}');
+      assert.equal(modelsFile(), own);
+    }
+  } else assert.equal(modelsFile(), undefined);
+});

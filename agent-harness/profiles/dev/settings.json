@@ -1,5 +1,5 @@
 {
-  "defaultProvider": "deepseek",
-  "defaultModel": "deepseek-v4-pro",
+  "defaultProvider": "centinels",
+  "defaultModel": "gpt-6.1-sol",
   "enableInstallTelemetry": false
 }

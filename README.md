@@ -113,9 +113,13 @@ to a page; threads export as Markdown and the graph as JSON. See [docs/strategy-
 Model calls go through the Pi agent harness; nothing is called without a signed-in provider, and there is no automatic
 paid fallback.
 
-1. **Sign in a provider.** Put the key in `~/.config/balsamic/secrets.env` (one `NAME=value` per line, mode 600, for
-   example `DEEPSEEK_API_KEY=…`); `scripts/dev-stack up --real` passes that file to the harness only. Or sign in
-   interactively with `scripts/pi-dev` (`/login`), which writes `~/.pi/agent/auth.json`. Restart the stack afterwards.
+1. **Sign in a provider.** The harness offers the providers your own Pi offers: custom endpoints such as a LiteLLM
+   proxy are read from `~/.pi/agent/models.json` (the profile's own `models.json` takes precedence;
+   `GRATING_PI_MODELS_FILE` names another), with their keys in `~/.pi/agent/auth.json` as `pi /login` leaves them.
+   Key-based providers (DeepSeek, OpenAI API, Anthropic, …) can also take their key from
+   `~/.config/balsamic/secrets.env` (one `NAME=value` per line, mode 600), which `scripts/dev-stack up --real` passes
+   to the harness only. The ChatGPT subscription (`openai-codex`) signs in with a device code from Monitor → Models.
+   Restart the stack after a change.
 2. **The default model** of the harness is in `agent-harness/profiles/dev/settings.json` (`defaultProvider`,
    `defaultModel`, optional `defaultThinkingLevel`). Every tier starts from it.
 3. **Which model each agent runs on:** **Monitor → Models**. Tiers name a model and a thinking level each; every role

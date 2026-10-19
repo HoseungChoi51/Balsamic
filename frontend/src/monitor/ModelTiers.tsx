@@ -41,7 +41,7 @@ export function ModelTiers() {
         {signedIn.length ? <p className="small">{signedIn.map(p => `${p} (${data.providers[p].billing || data.providers[p].auth || 'signed in'})`).join(', ')} · {models.length} models</p>
           : <p className="small muted">No provider is signed in on the harness yet, so no model can run.</p>}
         <ProviderLogin signedIn={signedIn} onDone={() => queryClient.invalidateQueries({ queryKey: ['model-tiers'] })} />
-        <p className="why">Key-based providers (DeepSeek, OpenAI API, Anthropic, …) take their key from <code>~/.config/balsamic/secrets.env</code> (one <code>NAME=value</code> per line, for example <code>DEEPSEEK_API_KEY=…</code>); restart the stack after adding one. <code>scripts/pi-dev</code> then <code>/login</code> is the interactive way.</p>
+        <p className="why">The harness offers the providers your own Pi offers: custom endpoints such as a LiteLLM proxy come from <code>~/.pi/agent/models.json</code> (or the profile's <code>models.json</code>) with their keys in <code>~/.pi/agent/auth.json</code>; key-based providers (DeepSeek, OpenAI API, Anthropic, …) also take their key from <code>~/.config/balsamic/secrets.env</code>. Restart the stack after a change. <code>scripts/pi-dev</code> then <code>/login</code> is the interactive way to add a sign-in.</p>
       </Section>
       {data.mode !== 'dev' ? <Empty>Models are locked by the harness profile; the dev profile (GRATING_PI_PROFILE) makes them configurable here.</Empty> : (
         <Section title="Tiers: the models agents run on" right={<div className="row">{dirty ? <Pill tone="attention">unsaved</Pill> : null}<button className="btn primary small" disabled={!dirty} onClick={save} data-testid="save-tiers">Save</button></div>}>

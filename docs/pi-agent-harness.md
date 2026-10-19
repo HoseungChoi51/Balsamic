@@ -350,3 +350,10 @@ exposes the tree: `GET /v1/agents/{id}/tree`, `GET /v1/agents/{id}/entries?after
 `entry_ids {parent, last}`, which the workspace records on the thread and on the reply message. Steering reaches the
 turn in progress only from its own thread; another thread's message waits as its own run. `agent-harness/test/sessions.test.mjs`
 runs this against the pinned SDK; `tests/fake_harness.py` is a scripted stand-in with the same routes.
+
+## Custom providers (a LiteLLM proxy, a local server)
+
+The harness's model runtime loads a Pi `models.json`: the dev profile's own when it has one, otherwise the researcher's
+`~/.pi/agent/models.json` (`GRATING_PI_MODELS_FILE` overrides both). Keys stay in `~/.pi/agent/auth.json` or the
+environment. So a provider that `pi` itself can use (for example the team's LiteLLM proxy with the ChatGPT models behind
+it) is offered to the agents too, and Monitor → Models lists its models once the harness is restarted.

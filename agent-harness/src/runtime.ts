@@ -15,9 +15,21 @@ export const profile = process.env.GRATING_PI_PROFILE ? path.resolve(process.env
 const OVERRIDES = {compaction: {enabled: true, reserveTokens: 16384, keepRecentTokens: 20000},
   retry: {enabled: true, maxRetries: 3, baseDelayMs: 2000}};
 
+/**
+ * Custom providers (a LiteLLM proxy, a local server) come from a Pi models.json: the profile's own when it has one,
+ * else the researcher's own Pi configuration (~/.pi/agent/models.json), so the harness offers the same models as `pi` does.
+ * GRATING_PI_MODELS_FILE names another file. Keys stay in auth.json and the environment, never in the profile.
+ */
+export function modelsFile(): string | undefined {
+  if (process.env.GRATING_PI_MODELS_FILE) return path.resolve(process.env.GRATING_PI_MODELS_FILE);
+  if (profile && fs.existsSync(path.join(profile, 'models.json'))) return path.join(profile, 'models.json');
+  const own = path.join(process.env.HOME || '', '.pi', 'agent', 'models.json');
+  return profile && fs.existsSync(own) ? own : profile ? path.join(profile, 'models.json') : undefined;
+}
+
 async function modelRuntime(authPath: string) {
-  return ModelRuntime.create({authPath, refreshOnCreate: false,
-    ...(profile ? {modelsPath: path.join(profile, 'models.json')} : {})} as any);
+  const models = modelsFile();
+  return ModelRuntime.create({authPath, refreshOnCreate: false, ...(models ? {modelsPath: models} : {})} as any);
 }
 
 export async function createRuntime(options: any) {
