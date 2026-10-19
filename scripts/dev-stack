@@ -48,7 +48,9 @@ case "$cmd" in
     echo "workspace: http://127.0.0.1:$WORKSPACE_PORT   (harness: $([ "$real" = 1 ] && echo real || echo fake) on $PI_PORT; library on $LIBRARY_PORT)"
     echo "frontend dev server with hot reload instead: cd frontend && npm run dev   (http://127.0.0.1:5173)";;
   down)
-    if [ -f "$pids" ]; then while read -r name pid; do kill "$pid" 2>/dev/null && echo "stopped $name" || true; done < "$pids"; rm -f "$pids"; fi;;
+    # Each service is its own session (setsid): stop the whole group, then whatever still holds the ports.
+    if [ -f "$pids" ]; then while read -r name pid; do { kill -- "-$pid" 2>/dev/null || kill "$pid" 2>/dev/null; } && echo "stopped $name" || true; done < "$pids"; rm -f "$pids"; fi
+    sleep 1; fuser -k "$WORKSPACE_PORT/tcp" "$LIBRARY_PORT/tcp" "$PI_PORT/tcp" > /dev/null 2>&1 || true;;
   status) alive || echo "nothing running from $pids";;
   *) echo "usage: scripts/dev-stack up [--real] [--dir DIR] | down | status" >&2; exit 2;;
 esac
