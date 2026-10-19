@@ -91,3 +91,13 @@ export const library = { signature: { problem_id: 'bounded_continuous', basis: "
   { entry: { id: 'library_2', origin_campaign_id: 'other', hypothesis_id: 'hypothesis_g', strategy: { title: 'Grating hill climb', algorithm: 'hillclimb' }, signature: { problem_id: 'meent_grating', objective: { name: 'efficiency', direction: 'maximize' }, representation: 'binary' },
     evidence: { best_score: 0.5, best_basis: 'measured', worker_seconds: 60 }, notes: '', created_at: '2026-09-01T00:00:00Z' }, match: { score: 0, reasons: [] } }] };
 export const threadSearch = { campaign_id: CAMPAIGN_ID, q: 'deflector', threads: [], messages: [{ thread_id: THREAD_ID, thread_title: 'Demo campaign', message_id: 'message_1', role: 'user', excerpt: 'What do we know about the deflector so far?', created_at: '2026-10-19T08:01:00Z' }] };
+
+export const setupSteps = {
+  name: { field: 'name', question: 'What shall we call the campaign?', choices: [], free_text: true, placeholder: 'Grating deflector, round 3' },
+  objective: { field: 'objective', question: 'What do you want to find out?', choices: [{ id: 'later', label: 'Let the lead draft it with me', patch: { objective: '' } }], free_text: true },
+  problem: { field: 'problem', question: 'Which problem does it run on?', choices: [{ id: 'formulate', label: 'Formulate it with the lead first', patch: {} }, { id: 'bounded_continuous', label: 'Bounded continuous', patch: { problem_id: 'bounded_continuous' } }], free_text: true },
+  budget: { field: 'budget', question: 'How much may it spend?', choices: [{ id: 'small', label: 'Small', patch: {} }], free_text: true },
+  ready: { field: 'ready', question: 'That is everything. Create the campaign, or change something.', choices: [{ id: 'create', label: 'Create the campaign', patch: {} }, { id: 'edit:name', label: 'Change the name', patch: {} }], free_text: true },
+};
+export const setupStart = { id: 'setup_1', status: 'asking', mode: 'scripted', model: null, cost_usd: 0, draft: { name: null, identity: null, objective: null, problem_id: null, decided: [] },
+  transcript: [{ role: 'assistant', text: "Let's set up a campaign. First: What shall we call the campaign?", field: 'name', choices: [] }], step: setupSteps.name, campaign_id: null };

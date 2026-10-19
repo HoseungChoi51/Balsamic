@@ -13,8 +13,8 @@ export function Failed({ error }: { error: unknown }) { return <div className="p
 export function Section({ title, right, children }: { title: string; right?: ReactNode; children: ReactNode }) {
   return <section className="card"><div className="row" style={{ marginBottom: 6 }}><h2 className="grow">{title}</h2>{right}</div>{children}</section>;
 }
-export function Kv({ rows }: { rows: [string, ReactNode][] }) {
-  return <dl className="kv">{rows.map(([k, v]) => <div key={k} style={{ display: 'contents' }}><dt>{k}</dt><dd>{v ?? <span className="faint">unknown</span>}</dd></div>)}</dl>;
+export function Kv({ rows }: { rows: [ReactNode, ReactNode][] }) {
+  return <dl className="kv">{rows.map(([k, v], i) => <div key={typeof k === 'string' ? k : i} style={{ display: 'contents' }}><dt>{k}</dt><dd>{v ?? <span className="faint">unknown</span>}</dd></div>)}</dl>;
 }
 /** Honest numbers: unknown is not zero. */
 export function num(value: unknown, digits = 1, unit = ''): ReactNode {

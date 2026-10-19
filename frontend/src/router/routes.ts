@@ -20,6 +20,7 @@ export function parseHash(hash: string): Route {
   let thread: string | null = null;
   if (parts[0] === 't' && parts[1]) { thread = parts[1]; parts.splice(0, 2); }
   const page = (parts[0] && parts[0] in PAGES ? parts[0] : 'monitor') as PageName;
+  if (page === 'new') return { thread: null, page, sub: null, id: parts[1] || null, sel: query.get('sel'), tab: query.get('tab'), raw: canonical };
   const subs = PAGES[page].subs || {};
   let sub: string | null = null; let id: string | null = null;
   if (parts[1] && parts[1] in subs) { sub = parts[1]; id = parts[2] || null; } else id = parts[1] || null;

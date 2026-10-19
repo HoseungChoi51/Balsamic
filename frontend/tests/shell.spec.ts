@@ -38,5 +38,6 @@ test('a stopped run reads as stopped, never failed, and disabled controls say wh
   await expect(page.getByTestId('autopilot-toggle')).toHaveText('Autopilot off');
   // A disabled control says why: the new-campaign form without a name.
   await page.evaluate(() => { location.hash = '#new'; });
-  await expect(page.getByTestId('new-campaign').getByRole('button', { name: 'Create campaign' })).toBeDisabled();
+  await expect(page.getByTestId('create-campaign')).toBeDisabled();
+  await expect(page.getByTestId('page-new')).toContainText('Finish the conversation first');
 });

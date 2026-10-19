@@ -3,6 +3,7 @@ import { TopBar } from './TopBar';
 import { Rail } from './Rail';
 import { StagePanel } from './StagePanel';
 import { ThreadChat } from '../chat/ThreadChat';
+import { SetupChat } from '../setup/SetupChat';
 import { MonitorDrawer } from '../monitor/MonitorDrawer';
 import { IterationProgress } from '../evolution/IterationProgress';
 import { SearchPalette } from './SearchPalette';
@@ -44,12 +45,12 @@ export function Shell({ route, campaignId, threadId }: { route: Route; campaignI
   return (
     <div className="shell" data-testid="shell">
       <TopBar route={route} campaigns={campaigns.data || []} campaignId={campaignId} monitor={monitor.data} workspace={workspace.data}
-        onSearch={() => setPalette(true)} onMonitor={() => setDrawer(open => !open)} wide={wide || route.page === 'new'} onWide={() => setWide(w => !w)} version={summary.data?.campaign.version} />
+        onSearch={() => setPalette(true)} onMonitor={() => setDrawer(open => !open)} wide={wide} onWide={() => setWide(w => !w)} version={summary.data?.campaign.version} />
       {campaignId && summary.data?.stage.stage === 'optimize' ? <IterationProgress campaignId={campaignId} /> : null}
       <div className="body">
         <Rail route={route} summary={summary.data} monitor={monitor.data} />
-        <div className={'main' + (wide || route.page === 'new' || !threadId ? ' wide' : '')}>
-          {campaignId && threadId ? <ThreadChat campaignId={campaignId} threadId={threadId} route={route} /> : <div className="chat" />}
+        <div className={'main' + ((wide && route.page !== 'new') || (route.page !== 'new' && !threadId) ? ' wide' : '')}>
+          {route.page === 'new' ? <SetupChat setupId={route.id} /> : campaignId && threadId ? <ThreadChat campaignId={campaignId} threadId={threadId} route={route} /> : <div className="chat" />}
           <StagePanel route={route} campaignId={campaignId} threadId={threadId} />
         </div>
       </div>

@@ -34,10 +34,30 @@ export async function mockWorkspace(page: Page, overrides: Partial<Record<string
       return json(route, { id: body.id, campaign_id: body.campaign_id, status: 'completed', actor: 'researcher', origin: body.origin || null, outcome, request: { operation: body.operation, payload: body.payload }, created_at: new Date().toISOString() });
     }
     if (method === 'POST' && path.endsWith('/ask')) { const body = route.request().postDataJSON(); recorded.commands.push({ ask: body }); return json(route, { id: 'annotation_q', anchor: body.anchor, kind: body.kind, question: body.question, tier: body.kind === 'define' ? 'lookup' : 'quick', status: 'answered', answer: { text: body.kind === 'define' ? 'efficiency: power in the target order over incident power' : 'About 0.6 is typical here.', answered_by: body.kind === 'define' ? 'glossary' : 'model' }, proposed_edit: null, created_at: '2026-10-19T09:00:00Z' }); }
+    if (path.startsWith('/api/v1/setup')) {
+      const stateOf = () => (recorded as any).setup || ((recorded as any).setup = JSON.parse(JSON.stringify(f.setupStart)));
+      const s = stateOf();
+      if (method === 'POST' && path === '/api/v1/setup') return json(route, s, 201);
+      if (path.endsWith('/answer')) {
+        const body = route.request().postDataJSON(); recorded.commands.push({ setup_answer: body });
+        const choice = s.step.choices.find((c: any) => c.id === body.choice);
+        s.transcript.push({ role: 'user', text: choice ? choice.label : body.text, field: s.step.field });
+        if (s.step.field === 'name') { s.draft.name = body.text; s.draft.identity = 'deflector-v2'; s.step = f.setupSteps.objective; }
+        else if (s.step.field === 'objective') { s.draft.objective = choice ? '' : body.text; s.step = f.setupSteps.problem; }
+        else if (s.step.field === 'problem') { s.draft.problem_id = choice && choice.id !== 'formulate' ? choice.id : null; s.draft.decided = ['problem_id']; s.step = f.setupSteps.ready; Object.assign(s.draft, { compute_budget_seconds: 3600, llm_budget_usd: 5, delegated_trial_seconds: 300, autonomy: 'delegated', autopilot: { enabled: false } }); }
+        else if (s.step.field === 'ready' && body.choice === 'create') { s.status = 'ready'; }
+        s.transcript.push({ role: 'assistant', text: s.step.question, field: s.step.field, choices: s.step.choices });
+        return json(route, s);
+      }
+      if (path.endsWith('/create')) { recorded.commands.push({ setup_create: true }); s.status = 'created'; s.campaign_id = 'deflector-v2'; return json(route, { campaign_id: 'deflector-v2', thread_id: 'thread_main_deflector-v2', setup: s }); }
+      if (path.endsWith('/edit')) { const body = route.request().postDataJSON(); s.step = (f.setupSteps as any)[body.field]; s.transcript.push({ role: 'assistant', text: 'Sure. ' + s.step.question, field: body.field, choices: s.step.choices }); return json(route, s); }
+      return json(route, s);
+    }
     if (method === 'POST' && path.endsWith('/seen')) { recorded.commands.push({ seen: path }); return json(route, { id: 'digest_1', seen_at: 'now' }); }
     if (method === 'POST' && path === '/api/v1/ui-events') { recorded.uiEvents.push(...route.request().postDataJSON().events); return json(route, { recorded: 1 }, 202); }
     const table: Record<string, unknown> = {
       '/api/v1/workspace': f.workspace, '/api/v1/campaigns': { campaigns: [f.campaignRow] }, [`/api/v1/campaigns/${f.CAMPAIGN_ID}/summary`]: f.summary,
+      '/api/v1/threads/thread_main_deflector-v2': { ...f.thread, id: 'thread_main_deflector-v2', campaign_id: 'deflector-v2' },
       [`/api/v1/threads/${f.THREAD_ID}`]: f.thread, [`/api/v1/campaigns/${f.CAMPAIGN_ID}/threads`]: { ...f.threads, threads: [f.thread, f.branch, f.parked] }, [`/api/v1/threads/${f.THREAD_ID}/messages`]: f.messages,
       [`/api/v1/threads/${f.BRANCH_ID}`]: f.branch, [`/api/v1/threads/${f.BRANCH_ID}/messages`]: f.branchMessages, [`/api/v1/threads/${f.THREAD_ID}/context`]: f.context, [`/api/v1/threads/${f.BRANCH_ID}/context`]: { ...f.context, thread_id: f.BRANCH_ID },
       [`/api/v1/campaigns/${f.CAMPAIGN_ID}/problem-note`]: f.noteView, [`/api/v1/campaigns/${f.CAMPAIGN_ID}/evolution`]: f.evolution, '/api/v1/hypotheses/hypothesis_b': f.hypothesisCard,

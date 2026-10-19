@@ -9,7 +9,7 @@ export function canonicalHash(hash: string): string {
   const suffix = query ? '?' + query : '';
   if (!path) return '#monitor' + suffix;
   if (path.startsWith('t/')) return '#' + path + suffix;
-  if (path === 'new' || path.startsWith('new/')) return '#new' + suffix;
+  if (path === 'new' || path.startsWith('new/')) return '#' + path + suffix;
   if (path in ALIASES) return '#' + ALIASES[path] + suffix;
   const [head, ...rest] = path.split('/');
   if (head in ALIASES) {

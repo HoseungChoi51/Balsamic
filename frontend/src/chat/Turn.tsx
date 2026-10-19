@@ -2,7 +2,7 @@ import type { Message } from '../api/types';
 import { Markdown } from './render/Markdown';
 import { Pill, when } from '../primitives/ui';
 
-const ORIGIN_LABEL: Record<string, string> = { researcher: 'You', lead: 'Lead', page_agent: 'Agent', autopilot: 'Autopilot', lab_event: 'Lab', manager_system: 'Lab', pi: 'Lead' };
+const ORIGIN_LABEL: Record<string, string> = { researcher: 'You', lead: 'Lead', page_agent: 'Agent', autopilot: 'Autopilot', lab_event: 'Lab', manager_system: 'Lab', pi: 'Lead', setup: 'Setup' };
 
 export function Turn({ message, thread, aliases, onFork, onEdit }: { message: Message; thread: string | null; aliases?: Record<string, string>; onFork?: (message: Message) => void; onEdit?: (message: Message) => void }) {
   const user = message.role === 'user' && message.origin !== 'lab_event';
