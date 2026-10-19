@@ -204,6 +204,8 @@ class CommandService:
             if request.get(key) is None:
                 request.pop(key, None)
         request_hash = content_hash({"command": request, "actor": actor})
+        # A receipt hashed with those fields present but unset (written between the two conventions) still matches.
+        full_hash = content_hash({"command": command.model_dump(mode="json"), "actor": actor})
         with self.workspace.lock:
             with self.store.transaction():
                 try:
@@ -211,7 +213,7 @@ class CommandService:
                 except KeyError:
                     previous = None
                 if previous:
-                    if previous["request_hash"] != request_hash:
+                    if previous["request_hash"] not in {request_hash, full_hash}:
                         raise ValueError("Command identity already belongs to a different request or authority")
                     return previous
                 if command.operation == "campaign.create":
@@ -275,6 +277,21 @@ class CommandService:
             arm(self.workspace, race["id"], race["deadline_at"])
         return record
 
+    def _hold_race_configurations(self, campaign_id, hypothesis_id, reason, actor):
+        from optimization_framework.contracts.racing import RaceDecisionInput
+        for race in self.store.list("adaptive_race", campaign_id):
+            if race.get("status") not in {"preflight", "running", "paused"}:
+                continue
+            protocol = self.workspace.racing._protocol(race)
+            bound = [item["id"] for item in protocol["configurations"] if item.get("hypothesis_id") == hypothesis_id
+                     and race["configurations"].get(item["id"], {}).get("status") not in {"held", "eliminated", "stopped"}]
+            if bound:
+                try:
+                    self.workspace.racing.decide(campaign_id, RaceDecisionInput(race_id=race["id"], action="hold", configuration_ids=bound,
+                                                 rationale=f"Strategy {hypothesis_id} was stopped: {reason}"[:5000]), authority=actor)
+                except ValueError as exc:
+                    self.workspace.memory.issue(campaign_id, "race_hold_failed", str(exc), affected=race["id"])
+
     def _target(self, command, key, kind):
         identity = command.payload[key]
         record = self.store.get(identity, kind)
@@ -331,8 +348,12 @@ class CommandService:
                     model = HypothesisStatusInput if command.operation == "hypothesis.status" else HypothesisNominateInput
                     values = model(**payload)
                     hypothesis = hypotheses.set_status(self.workspace, hypothesis,
-                        values.status if command.operation == "hypothesis.status" else "finalist", values.expected_status_revision)
-            if actor == "researcher":
+                        values.status if command.operation == "hypothesis.status" else "finalist", values.expected_status_revision,
+                        stop_reason=getattr(values, "stop_reason", None))
+                    if command.operation == "hypothesis.status" and values.status == "archived":
+                        # A stopped strategy's race configuration is held, so the race spends nothing more on it.
+                        self._hold_race_configurations(command.campaign_id, hypothesis["id"], hypothesis.get("stop_reason") or "stopped", actor)
+            if actor == "researcher" and not getattr(self, "_batch_depth", 0):
                 self.workspace.memory.bump(command.campaign_id)
             return {"hypothesis_id": hypothesis["id"], "hypothesis": self.store.get(hypothesis["id"], "hypothesis")}
         if command.operation in {"campaign.create", "campaign.update", "context.edit", "issue.resolve"}:

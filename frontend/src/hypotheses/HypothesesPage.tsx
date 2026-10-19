@@ -1,36 +1,59 @@
-/** Hypotheses: every proposal with its mechanism, reviews and status; the review rounds; the implementations. */
+/** Hypotheses: every proposal with its stage and reviews; the generating chips of a round in progress; the review rounds; the implementations. */
+import { useQueryClient } from '@tanstack/react-query';
 import type { PageProps } from '../shell/StagePanel';
-import { useHypotheses, useRead } from '../api/queries';
-import type { Hypothesis } from '../api/types';
-import { Empty, Failed, Kv, Loading, Pill, Section, statusTone, when } from '../primitives/ui';
+import { useHypotheses, useMessages, useRead, useSummary } from '../api/queries';
+import { send } from '../commands/bus';
+import { Empty, Failed, Loading, Pill, Section, statusTone, when } from '../primitives/ui';
 import { formatHash, navigate } from '../router/routes';
 import { useSelection } from '../stores/selection';
 import { AgentDesk } from '../desks/AgentDesk';
-import { Markdown } from '../chat/render/Markdown';
+import { HypothesisCard } from './HypothesisCard';
+import { useEvolution, STAGE_TONE } from '../evolution/EvolutionPage';
+import { track } from '../telemetry/events';
 
-export default function HypothesesPage({ campaignId, route }: PageProps) {
+export default function HypothesesPage({ campaignId, route, threadId }: PageProps) {
   const hypotheses = useHypotheses(campaignId);
+  const evolution = useEvolution(campaignId);
+  const messages = useMessages(threadId);
+  const summary = useSummary(campaignId);
+  const queryClient = useQueryClient();
   const selection = useSelection();
   if (hypotheses.isPending) return <Loading what="Loading hypotheses" />;
   if (hypotheses.error) return <Failed error={hypotheses.error} />;
   const data = hypotheses.data;
+  const stages = Object.fromEntries((evolution.data?.nodes || []).map(n => [n.id, n]));
   const labels = Object.fromEntries(data.aliases.map(a => [a.record_id, a.label]));
   const sub = route.sub || 'list';
   const tabs = [['list', 'Proposals'], ['rounds', 'Review rounds'], ['implementations', 'Implementations']] as const;
-  const selected = route.id ? data.hypotheses.find(h => h.id === route.id) : null;
+  const placeholders = messages.data?.placeholders || [];
+  const generating = placeholders.length ? { pending: placeholders.filter(p => p.status === 'pending').length, total: placeholders.length } : null;
+  const discuss = async (id: string, title: string) => {
+    const campaign = summary.data?.campaign; const last = messages.data?.messages.filter(m => m.origin !== 'lab_event').at(-1);
+    if (!campaign || !threadId || !last) return;
+    const receipt = await send({ operation: 'thread.fork', campaignId, expectedRevision: campaign.version, payload: { thread_id: threadId, message_id: last.id, title: `Discuss ${labels[id] || title}`, anchors: [id] }, origin: { thread_id: threadId } });
+    track('thread.fork', { from: 'card' });
+    await queryClient.invalidateQueries({ queryKey: ['threads', campaignId] });
+    navigate(formatHash({ page: 'hypotheses', id, sel: id }, (receipt.outcome.thread as { id: string }).id));
+  };
   return (
     <div className="col">
-      <div className="stage-head"><h1>Hypotheses</h1><span className="muted small">{data.hypotheses.length} proposals</span></div>
+      <div className="stage-head"><h1>Hypotheses</h1><span className="muted small">{data.hypotheses.length} proposals</span>
+        {generating ? <Pill tone="agent" title="A round the lead is recording">{generating.total - generating.pending} of {generating.total} ready</Pill> : null}</div>
       <nav className="tabs">{tabs.map(([key, label]) => <a key={key} href={formatHash({ page: 'hypotheses', sub: key === 'list' ? null : key }, route.thread)} className={sub === key ? 'active' : ''}>{label}</a>)}</nav>
-      {selected ? <HypothesisCard hypothesis={selected} label={labels[selected.id]} thread={route.thread} back={formatHash({ page: 'hypotheses' }, route.thread)} /> : null}
-      {sub === 'list' && !selected ? (data.hypotheses.length ? data.hypotheses.map(h => (
-        <article key={h.id} className={'card' + (selection.id === h.id ? ' selected' : '')} data-record-id={h.id} data-testid="hypothesis" style={{ cursor: 'pointer' }}
-          onClick={() => { selection.select(h.id); navigate(formatHash({ page: 'hypotheses', id: h.id, sel: h.id }, route.thread)); }}>
-          <div className="row"><Pill>{labels[h.id] || h.id.slice(0, 14)}</Pill><strong className="grow">{h.title}</strong><Pill tone={statusTone(h.status)}>{h.status}</Pill>
-            {h.readiness ? <Pill tone={h.readiness.eligible ? 'clear' : 'attention'} title={h.readiness.reason}>{h.readiness.state.replaceAll('_', ' ')}</Pill> : null}</div>
-          <p className="small muted">{(h.mechanism || '').slice(0, 240)}</p>
-          <div className="row small faint"><span>{h.algorithm || 'no executable algorithm yet'}</span><span>· {h.reviews?.length || 0} reviews</span><span>· {h.origin || 'origin unknown'}</span><span>· {when(h.created_at)}</span></div>
-        </article>)) : <Empty>No proposal yet. Ask the lead for hypotheses in the conversation; each lands here with its mechanism and review.</Empty>) : null}
+      {route.id && !route.sub ? <HypothesisCard id={route.id} thread={route.thread} back={formatHash({ page: 'hypotheses' }, route.thread)} onDiscuss={discuss} /> : null}
+      {sub === 'list' && !route.id ? (data.hypotheses.length || generating ? <>
+        {data.hypotheses.map(h => { const node = stages[h.id]; return (
+          <article key={h.id} className={'card' + (selection.id === h.id ? ' selected' : '')} data-record-id={h.id} data-testid="hypothesis" style={{ cursor: 'pointer' }}
+            onClick={() => { selection.select(h.id); navigate(formatHash({ page: 'hypotheses', id: h.id, sel: h.id }, route.thread)); }}>
+            <div className="row wrap"><Pill>{labels[h.id] || h.id.slice(0, 14)}</Pill><strong className="grow">{h.title}</strong>
+              {node ? <Pill tone={STAGE_TONE[node.stage]} title={node.stop_reason || node.stage}>{node.stage}</Pill> : <Pill tone={statusTone(h.status)}>{h.status}</Pill>}
+              {h.readiness ? <Pill tone={h.readiness.eligible ? 'clear' : 'attention'} title={h.readiness.reason}>{h.readiness.state.replaceAll('_', ' ')}</Pill> : null}
+              {node?.autonomous ? <Pill tone="agent">autopilot</Pill> : null}</div>
+            <p className="small muted">{(h.mechanism || '').slice(0, 240)}</p>
+            <div className="row small faint"><span>{h.algorithm || 'no executable algorithm yet'}</span><span>· {h.reviews?.length || 0} reviews</span><span>· round {node?.round ?? '–'}</span><span>· {when(h.created_at)}</span></div>
+          </article>); })}
+        {placeholders.filter(p => p.status === 'pending').map(p => <div key={p.id} className="card" data-testid="placeholder"><div className="row"><Pill tone="agent">generating</Pill><span className="faint">{p.id}: the lead is recording this strategy</span></div></div>)}
+      </> : <Empty>No proposal yet. Ask the lead for hypotheses in the conversation (/generate 3); each lands here with its mechanism, its stage and its review.</Empty>) : null}
       {sub === 'rounds' ? <Rounds rounds={data.rounds} /> : null}
       {sub === 'implementations' ? <Implementations campaignId={campaignId} /> : null}
       <AgentDesk campaignId={campaignId} role={sub === 'implementations' ? 'implementation_lead' : 'discussion_moderator'} />
@@ -38,27 +61,18 @@ export default function HypothesesPage({ campaignId, route }: PageProps) {
   );
 }
 
-function HypothesisCard({ hypothesis: h, label, thread, back }: { hypothesis: Hypothesis; label?: string; thread: string | null; back: string }) {
-  return (
-    <article className="card selected" data-testid="hypothesis-card">
-      <div className="row"><a href={back} className="small">← All</a><Pill>{label || h.id}</Pill><h2 className="grow">{h.title}</h2><Pill tone={statusTone(h.status)}>{h.status}</Pill></div>
-      <Kv rows={[['Algorithm', h.algorithm || 'none yet'], ['Origin', h.origin || 'unknown'], ['Parents', h.parent_ids?.length ? h.parent_ids.join(', ') : 'root'], ['Readiness', h.readiness ? `${h.readiness.state}: ${h.readiness.reason || ''}` : 'not assessed']]} />
-      <h3 style={{ marginTop: 8 }}>Mechanism</h3><Markdown text={h.mechanism || '(none)'} thread={thread} />
-      <h3>Rationale</h3><Markdown text={h.rationale || '(none)'} thread={thread} />
-      <h3>Reviews ({h.reviews?.length || 0})</h3>
-      {h.reviews?.length ? h.reviews.map(r => <div key={r.id} className="card"><div className="row"><Pill tone="agent">{r.author}</Pill>{r.verdict ? <Pill tone={r.verdict === 'test' ? 'clear' : 'attention'}>{r.verdict}</Pill> : null}<span className="faint small">{when(r.created_at)}</span></div><Markdown text={r.text} thread={thread} /></div>) : <Empty>No review yet.</Empty>}
-    </article>
-  );
-}
-
 function Rounds({ rounds }: { rounds: Record<string, unknown> }) {
-  const list = (rounds.rounds || rounds.discussions || []) as Record<string, unknown>[];
-  if (!list.length) return <Empty>No review round yet. The discussion moderator runs rounds when asked.</Empty>;
-  return <>{list.map((r, i) => <Section key={String(r.id || i)} title={String(r.title || r.question || `Round ${i + 1}`)}><pre style={{ maxHeight: 280 }}>{JSON.stringify(r, null, 1).slice(0, 4000)}</pre></Section>)}</>;
+  const list = (rounds.rounds || []) as Record<string, unknown>[];
+  if (!list.length) return <Empty>No review round yet. The discussion moderator runs rounds when asked (/review H01).</Empty>;
+  return <>{list.map((r, i) => <Section key={String(r.number || i)} title={`Round ${String(r.number || i + 1)}`}>
+    <p className="small muted">{String((r.trigger as { text?: string })?.text || (r.trigger as { kind?: string })?.kind || '')}</p>
+    {((r.people || r.assistants || []) as Record<string, unknown>[]).map((p, j) => <div key={j} className="small row"><Pill tone="agent">{String(p.role)}</Pill><span className="grow">{String(p.verdict || p.status || '')}</span></div>)}
+    <details><summary className="small">details</summary><pre>{JSON.stringify(r, null, 1).slice(0, 4000)}</pre></details>
+  </Section>)}</>;
 }
 
 function Implementations({ campaignId }: { campaignId: string }) {
-  const catalog = useRead<{ versions: Record<string, unknown>[]; candidates?: Record<string, Record<string, unknown>> }>(['implementations', campaignId], `/api/v1/implementations?campaign_id=${campaignId}`);
+  const catalog = useRead<{ versions: Record<string, unknown>[] }>(['implementations', campaignId], `/api/v1/implementations?campaign_id=${campaignId}`);
   if (catalog.isPending) return <Loading />;
   if (catalog.error) return <Failed error={catalog.error} />;
   const versions = catalog.data.versions || [];

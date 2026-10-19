@@ -209,6 +209,12 @@ class StudyInput(Model):
         return self
 
 
+class ParentLink(Model):
+    """How a strategy descends from another: a revision of it, a variant, a hybrid of several, or merely inspired by it."""
+    id: str
+    kind: Literal["revision", "variant", "hybrid", "inspired_by"] = "revision"
+
+
 class HypothesisInput(Model):
     campaign_id: str
     title: str = Field(min_length=1, max_length=300)
@@ -218,6 +224,10 @@ class HypothesisInput(Model):
     risks: list[str] = Field(default_factory=list, max_length=50)
     sources: list[Any] = Field(default_factory=list, max_length=50)
     parent_ids: list[str] = Field(default_factory=list, max_length=10)
+    # Typed lineage for the evolution graph; parent_ids stays the plain list and the two are kept consistent.
+    parent_links: list[ParentLink] = Field(default_factory=list, max_length=10)
+    round: int | None = Field(default=None, ge=0, le=10000)
+    library_entry_id: str | None = None
     algorithm: str = "hillclimb"
     algorithm_config: dict[str, Any] = Field(default_factory=dict)
     status: Literal["proposed", "investigating", "archived", "finalist"] = "proposed"

@@ -28,7 +28,8 @@ export async function mockWorkspace(page: Page, overrides: Partial<Record<string
       recorded.commands.push(body);
       const outcome = body.operation === 'campaign.create' ? { campaign: { ...f.campaign, id: body.campaign_id, name: body.payload.name } }
         : body.operation === 'thread.fork' ? { thread_id: f.BRANCH_ID, thread: f.branch } : body.operation === 'note.ask' ? { annotation_id: 'annotation_new', tier: 'lead', status: 'open', run_id: 'pi_run_x' }
-        : body.operation === 'research.generate' ? { run_id: 'pi_run_g', batch_id: 'ph_1', placeholders: ['ph_1_1', 'ph_1_2'] } : { ok: true };
+        : body.operation === 'research.generate' ? { run_id: 'pi_run_g', batch_id: 'ph_1', placeholders: ['ph_1_1', 'ph_1_2'] }
+        : body.operation === 'intervention.batch' ? { intervention_id: 'intervention_1', items: body.payload.items.map((i: any) => ({ operation: i.operation, command_id: 'c', outcome: {} })) } : { ok: true };
       return json(route, { id: body.id, campaign_id: body.campaign_id, status: 'completed', actor: 'researcher', origin: body.origin || null, outcome, request: { operation: body.operation, payload: body.payload }, created_at: new Date().toISOString() });
     }
     if (method === 'POST' && path.endsWith('/ask')) { const body = route.request().postDataJSON(); recorded.commands.push({ ask: body }); return json(route, { id: 'annotation_q', anchor: body.anchor, kind: body.kind, question: body.question, tier: body.kind === 'define' ? 'lookup' : 'quick', status: 'answered', answer: { text: body.kind === 'define' ? 'efficiency: power in the target order over incident power' : 'About 0.6 is typical here.', answered_by: body.kind === 'define' ? 'glossary' : 'model' }, proposed_edit: null, created_at: '2026-10-19T09:00:00Z' }); }
@@ -37,7 +38,8 @@ export async function mockWorkspace(page: Page, overrides: Partial<Record<string
       '/api/v1/workspace': f.workspace, '/api/v1/campaigns': { campaigns: [f.campaignRow] }, [`/api/v1/campaigns/${f.CAMPAIGN_ID}/summary`]: f.summary,
       [`/api/v1/threads/${f.THREAD_ID}`]: f.thread, [`/api/v1/campaigns/${f.CAMPAIGN_ID}/threads`]: { ...f.threads, threads: [f.thread, f.branch, f.parked] }, [`/api/v1/threads/${f.THREAD_ID}/messages`]: f.messages,
       [`/api/v1/threads/${f.BRANCH_ID}`]: f.branch, [`/api/v1/threads/${f.BRANCH_ID}/messages`]: f.branchMessages, [`/api/v1/threads/${f.THREAD_ID}/context`]: f.context, [`/api/v1/threads/${f.BRANCH_ID}/context`]: { ...f.context, thread_id: f.BRANCH_ID },
-      [`/api/v1/campaigns/${f.CAMPAIGN_ID}/problem-note`]: f.noteView, [`/api/v1/problem-notes/note_${f.CAMPAIGN_ID}`]: f.noteView,
+      [`/api/v1/campaigns/${f.CAMPAIGN_ID}/problem-note`]: f.noteView, [`/api/v1/campaigns/${f.CAMPAIGN_ID}/evolution`]: f.evolution, '/api/v1/hypotheses/hypothesis_b': f.hypothesisCard,
+      '/api/v1/records/hypothesis_b/provenance': { record_id: 'hypothesis_b', trail: f.hypothesisCard.provenance }, '/api/v1/records/trial_1/provenance': { record_id: 'trial_1', trail: f.hypothesisCard.provenance.slice(1) }, [`/api/v1/problem-notes/note_${f.CAMPAIGN_ID}`]: f.noteView,
       [`/api/v1/campaigns/${f.CAMPAIGN_ID}/monitor`]: f.monitor, [`/api/v1/campaigns/${f.CAMPAIGN_ID}/inbox`]: f.inbox, [`/api/v1/campaigns/${f.CAMPAIGN_ID}/experiments`]: f.experiments,
       [`/api/v1/campaigns/${f.CAMPAIGN_ID}/hypotheses`]: f.hypotheses, [`/api/v1/campaigns/${f.CAMPAIGN_ID}/files`]: f.files, [`/api/v1/campaigns/${f.CAMPAIGN_ID}/agents`]: f.agents,
       '/api/v1/resources': { host: { cpu_percent: 12, memory_used_bytes: 8e9, memory_total_bytes: 32e9 }, running: 1, max_workers: 2, level: 'balanced' }, '/api/v1/llm-usage': { budget: { cap_usd: 5, agent_charged_usd: .42, implementation_committed_usd: 0 }, agents: {}, family: 'gpt' },

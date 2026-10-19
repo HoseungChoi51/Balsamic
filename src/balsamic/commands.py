@@ -38,6 +38,8 @@ def register(workspace):
     register_generate(workspace)
     from balsamic.notes.service import register as register_notes
     register_notes(workspace)
+    from balsamic.evolution.interventions import register as register_interventions
+    register_interventions(workspace)
     from balsamic.lead.tools import register as register_tools
     from balsamic.lead.instructions import lead_instructions
     if "thread_pin" not in __import__("optimization_framework.agents.tools", fromlist=["EXTRA_TOOLS"]).EXTRA_TOOLS:

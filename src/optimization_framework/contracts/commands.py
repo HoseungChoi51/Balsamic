@@ -167,6 +167,8 @@ class HypothesisStatusInput(Contract):
     hypothesis_id: str
     status: Literal["proposed", "investigating", "archived", "finalist"]
     expected_status_revision: int = Field(ge=0)
+    # Why a strategy is stopped (archived): shown on the graph; stopped never reads as failed.
+    stop_reason: str | None = Field(default=None, max_length=2000)
 
 
 class HypothesisNominateInput(Contract):

@@ -185,6 +185,41 @@ through `yield_work`) and a session tree; `tests/balsamic/test_e2e_fake_harness.
 turn through the authenticated callback routes. For a local stack without a model:
 `GRATING_PI_TOKEN_FILE=… uv run python tests/fake_harness.py --port 8768`.
 
+## M2: the evolution graph
+
+**Ledger** (`balsamic/evolution/ledger.py`, cached by event cursor): one row per strategy with its alias (H01…), stage,
+round, typed `parent_links`, the measured best score and the run it came from, worker seconds (measured) against the
+allotted time, evaluations, the highest rung, the race configuration bound to it with the latest decision, the review
+verdict and readiness, implementation readiness, live runs, finalist and confirmation state, the stop reason and who
+acted (researcher, lead, page agent, autopilot; `autonomous` marks autopilot). Stages: proposed → reviewed → screening
+(short runs) → extended (long runs or race rungs) → finalist → confirmed → stopped; stopped is a decision with a
+reason, never a failure. `GET /campaigns/{id}/evolution?after&progress&curves` returns the rows, the lineage layout
+(rounds as columns, lanes under the first parent), typed edges, race views, finalist selections, confirmations, recent
+interventions and, with `progress`, the best so far, the live runs and the finalists' rungs. `GET /hypotheses/{id}`
+is the card: the record, its ledger row with the best run's curve, parents and children, reviews, the review rounds
+that mention it, runs, race cell, implementation and provenance. `GET /records/{id}/provenance` walks a record to the
+command that made it, the run, the agent and its model, the message and the thread; a strategy's parents; a run's
+strategy; an asset's producers.
+
+**Lineage.** `HypothesisInput` gains `parent_links [{id, kind revision|variant|hybrid|inspired_by}]`, `round` and
+`library_entry_id`; `parent_ids` stays and the two are kept consistent (plain parents become revision links, or hybrid
+links when there are several). `hypothesis.status archived` records `stop_reason` and `stopped_at`, and holds the
+strategy's configuration in any active race (`study.race.decide hold`), so the race spends nothing more on it.
+
+**Interventions.** `hypothesis.allocate {hypothesis_id, worker_seconds, rationale, replicate?}` (delegable within the
+delegated per-run allowance): a race decision (extend or replicate) when a configuration is bound, else a continuation
+of the latest finished run when it saved state, else a fresh run with the next unused seed (the outcome says which).
+`intervention.batch {items[{operation, payload}], rationale}` runs stops, promotions, allocations, rounds and new
+strategies as one batch, all or nothing, with one guidance bump and one immutable `intervention` record; the frontier
+table sends it. Every row shows who acted; autopilot rows carry the badge.
+
+**Pages.** Evolution: the frontier table (multi-select; Stop with a reason, Promote, Allocate, Hybrid of / Revise,
+Discuss, which forks a branch anchored on the selection), the lineage tree (hand-written SVG: rounds as columns, typed
+edges, stage colours, double-click opens the card), curves (each strategy's best run, measured) and the races. The
+hypothesis card has Open in graph, Trace origin and Discuss. The Hypotheses page shows a round in progress ("1 of 3
+ready" from the placeholders) and each proposal's stage. The experiment log reads a continued run as one chain and has
+Trace origin.
+
 ## Telemetry and gates
 
 `ui_event` records hold the kind, time, campaign, thread, page, a session tag and a few scalars: which controls are used,
@@ -216,7 +251,7 @@ GRATING_PI_URL=http://127.0.0.1:8768 uv run optimization-lab --directory runs/de
 |---|---|---|
 | M0 Foundations | built | service layer, scoped reads, SSE with kinds, command origin and thread pin, pages.json, session-tree routes, shell with chat on `main`, Inbox, Files, Monitor, Experiments, Hypotheses, New campaign, telemetry, legacy address redirects |
 | M1 Formulation and branchable chat | built | thread fork, edit-and-resend, switch, park, merge; branch map; context chip and drawer; placeholders; slash commands; problem note with annotations and Adopt; the scripted fake harness |
-| M2 Evolution graph v1 | planned | ledger rows, lineage, stages, provenance, frontier interventions, hypothesis card, experiment log |
+| M2 Evolution graph v1 | built | ledger rows, lineage, stages, provenance, frontier interventions, allocation, stop reasons with race holds, hypothesis card, experiment log |
 | M3 Merge, monitor, autopilot | planned | merge note, monitor rows and digest, autopilot rounds within a cap, iteration progress |
 | M4 Reuse and polish | planned | strategy library, search, keyboard navigation, export |
 

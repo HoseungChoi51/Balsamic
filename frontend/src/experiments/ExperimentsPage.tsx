@@ -7,6 +7,8 @@ import { Curve } from '../primitives/charts';
 import { formatHash, navigate } from '../router/routes';
 import { useSelection } from '../stores/selection';
 import { AgentDesk } from '../desks/AgentDesk';
+import { TraceOrigin } from '../evolution/TraceOrigin';
+import { useState } from 'react';
 
 const STATUS_WORDS: Record<string, string> = { stopped: 'stopped (by request, not failed)', failed: 'failed', completed: 'completed', running: 'running', queued: 'queued', paused: 'paused' };
 
@@ -50,6 +52,7 @@ export default function ExperimentsPage({ campaignId, route }: PageProps) {
 
 function ExperimentLog({ trialId, campaignId, back }: { trialId: string; campaignId: string; back: string }) {
   const record = useRead<{ trial: Trial; chain_trial_ids: string[]; validations: Record<string, unknown>[]; race: { race_id: string } | null }>(['experiment', trialId], `/api/v1/experiments/${trialId}`, { refetchInterval: 5000 });
+  const [trace, setTrace] = useState(false);
   const metrics = useRead<Record<string, unknown>[]>(['metrics', trialId], `/api/v1/experiments/${trialId}/metrics?points=200`, { refetchInterval: 5000 });
   const logs = useRead<{ text: string }>(['logs', trialId], `/api/v1/experiments/${trialId}/logs`, { refetchInterval: 10000 });
   if (record.isPending) return <Loading what="Loading the run" />;
@@ -58,8 +61,11 @@ function ExperimentLog({ trialId, campaignId, back }: { trialId: string; campaig
   const points = (metrics.data || []).map((row, i) => ({ x: Number(row.evaluations ?? row.step ?? i), y: Number(row.best_objective ?? row.best_efficiency ?? row.best ?? row.score ?? NaN) })).filter(p => Number.isFinite(p.y));
   return (
     <div className="col">
-      <div className="stage-head"><a href={back} className="small">← Experiments</a><h1 className="mono">{trialId}</h1><Pill tone={statusTone(trial.status)}>{STATUS_WORDS[trial.status] || trial.status}</Pill></div>
-      <Section title="Run"><Kv rows={[['Algorithm', trial.algorithm], ['Task', String(trial.task_id)], ['Seed', String(trial.seed ?? '')], ['Budget', <>{num(trial.max_steps, 0)} evaluations, {duration(trial.wall_seconds)}</>],
+      <div className="stage-head"><a href={back} className="small">← Experiments</a><h1 className="mono">{trialId}</h1><Pill tone={statusTone(trial.status)}>{STATUS_WORDS[trial.status] || trial.status}</Pill>
+        <button className="btn small" onClick={() => setTrace(true)} data-testid="trace-origin-button">Trace origin</button>
+        {trial.hypothesis_id ? <a className="btn small" href={`#evolution/lineage?sel=${trial.hypothesis_id}`}>Open in graph</a> : null}</div>
+      {trace ? <TraceOrigin recordId={trialId} thread={null} onClose={() => setTrace(false)} /> : null}
+      <Section title="Run"><Kv rows={[['Algorithm', trial.algorithm], ['Kind', record.data.chain_trial_ids.length > 1 ? 'one run continued over ' + record.data.chain_trial_ids.length + ' parts' : 'single run'], ['Task', String(trial.task_id)], ['Seed', String(trial.seed ?? '')], ['Budget', <>{num(trial.max_steps, 0)} evaluations, {duration(trial.wall_seconds)}</>],
         ['Best (measured)', num(score(trial), 5)], ['Chain', record.data.chain_trial_ids.length > 1 ? record.data.chain_trial_ids.join(' → ') : 'single run'], ['Race', record.data.race ? record.data.race.race_id : 'not in a race'],
         ['Hypothesis', trial.hypothesis_id ? String(trial.hypothesis_id) : <span className="faint">none</span>], ['Campaign', campaignId]]} /></Section>
       <Section title="Score curve" right={<span className="small faint">{points.length} points, measured</span>}><Curve points={points} label="best score over evaluations" /></Section>
