@@ -35,6 +35,7 @@ ROLE_OPERATIONS = {
                             "runtime.profile", "fixed_mask.run", "comparison.report", "approval.request", "experiments.rules", "trial.hide"},
     "implementation_lead": {"implementation.commission", "implementation.attach", "implementation.revalidate", "implementation.bind_builtin",
                             "implementation.resolve_runtime", "evaluator.commission", "evaluator.attach", "evaluator.equivalence", "approval.request"},
+    "resource_planner": {"resources.plan", "resources.estimate", "runtime.profile", "approval.request"},
 }
 OPERATIONS = {"hypothesis.create", "hypothesis.review", "hypothesis.status", "draft.save", "draft.launch", "trial.create",
     "trial.control", "trial.extension_request", "implementation.commission", "implementation.attach", "implementation.revalidate", "implementation.bind_builtin",
@@ -101,9 +102,14 @@ and a stable request_key describing the intended operation. If a request timed o
 Source-code availability is not effectiveness evidence.
 Speed is measured, not assumed. resource_inspect shows each task's runtime profile: evaluations per second at 1, 2, 4... workers,
 device load, the platform's share of each step, storage and solver executions per evaluation, with flags for waste. Runs at or
-above the gate length are refused until the evaluator's current source has a profile on this host with every flag fixed or waived.
+above the gate length are refused until the evaluator's current source has a profile on this host with every flag fixed or waived,
+except notes (note_flags, such as unsaturated: speed still rising at the worker ceiling), which hold nothing and need no waiver: go on
+with the work and mention the note in your reply.
 runtime.profile measures this on an idle workspace and takes a few minutes of compute: run it when the researcher asks for it or for
 runs that need it, and plan budgets from its measured evaluations per hour.
+How many runs go at once is planned by the campaign's resource planner (page_agent_message, resource_planner) within the researcher's
+resource level and worker maximum, and the scheduler starts a queued run only when its expected memory fits: queue the runs a request
+needs and ask the planner, not the researcher, why they wait or how many can go at once.
 For a flag, delegate one bounded optimization assignment in an implementation workspace; a change must reproduce recorded results
 before it is used: evaluator.equivalence replays a finished experiment's candidates under the new source, and after it passes
 trial.continue carries a finished run's saved state on as a new experiment. Stop when the last attempt gained less than it cost or the optimization allowance is spent, then file
@@ -178,7 +184,7 @@ COMMAND_PAGES = {"hypothesis.create": "#hypotheses", "hypothesis.review": "#hypo
     "draft.save": "#experiments", "draft.launch": "#experiments", "trial.create": "#experiments", "trial.control": "#experiments",
     "trial.continue": "#experiments", "comparison.report": "#comparison", "finding.record": "#assets", "runtime.profile": "#resources",
     "approval.request": "#decisions", "trial.extension_request": "#decisions", "journal.compaction_request": "#decisions",
-    "experiments.rules": "#experiments/rules", "trial.hide": "#experiments",
+    "experiments.rules": "#experiments/rules", "trial.hide": "#experiments", "resources.plan": "#resources", "resources.estimate": "#resources",
     "implementation.commission": "#implementations", "implementation.attach": "#implementations", "implementation.revalidate": "#implementations",
     "evaluator.commission": "#implementations", "evaluator.attach": "#implementations"}
 
@@ -199,7 +205,8 @@ COMMAND_STEPS = {"hypothesis.create": "Recording a hypothesis", "hypothesis.revi
     "fixed_mask.run": "Evaluating a fixed design", "journal.compaction_request": "Asking you to approve a journal clean-up",
     "approval.request": "Asking for your approval", "validation.run": "Starting a validation", "validation.execute": "Running a validation",
     "study.create": "Setting up a study", "study.activate": "Activating a study", "asset.snapshot": "Saving a research asset",
-    "experiments.rules": "Changing the experiment rules", "trial.hide": "Hiding finished runs from the Experiments page"}
+    "experiments.rules": "Changing the experiment rules", "trial.hide": "Hiding finished runs from the Experiments page",
+    "resources.plan": "Planning how many runs go at once", "resources.estimate": "Estimating what a kind of run uses"}
 STEPS = {"campaign_inspect": "Reading the campaign's state", "resource_inspect": "Checking the machine's load and the budgets",
     "command_schema": "Reading how a command is written", "researcher_ask": "Writing a question for you", "yield_work": "Ending the turn",
     "agent_message": "Writing to an assistant", "agent_cancel": "Stopping an assistant", "mask_create": "Making a test design",
@@ -209,12 +216,41 @@ STEPS = {"campaign_inspect": "Reading the campaign's state", "resource_inspect":
     "implementation_workspace_message": "Writing to the coding agent", "implementation_workspace_validate": "Asking for a validation of submitted code",
     "report_write": "Starting the report writer", "report_answer": "Answering the report writer",
     "experiment_progress": "Checking how the runs are going", "config_suggest": "Choosing the next settings to try", "lead_ask": "Asking the lead agent"}
-PAGE_AGENT_NAMES = {"discussion_moderator": "the discussion moderator", "experiment_operator": "the experiment operator", "implementation_lead": "the implementation lead"}
+PAGE_AGENT_NAMES = {"discussion_moderator": "the discussion moderator", "experiment_operator": "the experiment operator", "implementation_lead": "the implementation lead",
+                    "resource_planner": "the resource planner"}
 # Record identities begin with their kind; the first matching prefix names what is being read.
 RECORD_NAMES = (("hypothesis", "hypothesis"), ("trial", "experiment"), ("artifact", "saved document"), ("campaign", "the campaign record"),
     ("task", "the problem definition"), ("pi_command", "command receipt"), ("pi_", "an agent turn's record"), ("assignment", "an assistant's reply"),
     ("agent", "an assistant's record"), ("lead", "the lead agent's record"), ("finding", "finding"), ("asset", "an earlier campaign's finding"),
     ("runtime", "speed measurement"), ("decision", "decision"), ("report", "report draft"), ("message", "message"))
+
+
+def planner_instructions(workspace):
+    """The resource planner's standing rules, with the researcher's current level."""
+    from optimization_framework.execution.admission import LEVELS, MARGIN, SETTLING_EVALUATIONS
+    admission = getattr(workspace, "admission", None)
+    level = admission.level() if admission else {"level": "balanced", **LEVELS["balanced"]}
+    return ("\nThe researcher chose the " + level["label"].lower() + " resource level: " + level["summary"] + " The level, the launcher's "
+        f"maximum of {workspace.max_workers} runs at once, budgets and campaign limits are the researcher's; ask with approval.request "
+        "(worker_ceiling) when the maximum is what holds the campaign back. Within them the scheduler starts a queued run only when what it is "
+        "expected to use fits: a kind of run (the problem as configured, the method and its settings; not the seed) is expected to use "
+        f"the most any of its runs used, plus {MARGIN - 1:.0%}. A kind never measured starts while no other such run is still in its first "
+        f"{SETTLING_EVALUATIONS} evaluations, unless you estimated it.\n"
+        "You plan; you start and stop nothing. resources.estimate gives a kind never measured an expected use (host memory of one run's "
+        "process tree, and GPU memory if it uses a GPU), with how you reached it; a measured run replaces it. resources.plan sets how many of "
+        "this campaign's runs go at once, and of each kind, below the maximum. runtime.profile measures speed at 1, 2, 4... workers on an "
+        "idle workspace: more runs at once than its recommended workers adds memory but little speed.\n"
+        "resource_inspect shows the host, each GPU's memory and load, the largest processes, and under admission: the kinds with what "
+        "they are expected to use and why, each running run's own memory now and at its peak, the GPU's processes, and why queued runs "
+        "wait. GPU memory per run is reported only by runs whose array library counts it; otherwise infer it: under CUDA MPS this "
+        "platform's runs share one MPS server process, so take the GPU's total, subtract the other processes on the card, and divide among "
+        "the runs alive, per kind when one kind runs alone; each process also holds a few hundred MB of driver context. Read a run's "
+        "method and settings (evidence_read on the trial) to judge a new kind from a similar measured one.\n"
+        "A turn that begins with [Platform notice ...] brings resource events: resources.unmeasured_kind (estimate it if you can, and "
+        "say how), resources.out_of_memory (say what ran out and why; at the balanced and aggressive levels the platform queued the run "
+        "again once; lower that kind's runs at once if the machine cannot hold them), resources.level_changed (revise your plan), "
+        "resources.long_wait (say why the run waits and change the plan if it is the plan that holds it). Act on them within these rules, "
+        "report in a few lines on the Resources page, and end with yield_work(complete).")
 
 
 def step_label(tool, args=None):
@@ -292,8 +328,9 @@ TOOLS = {
     "implementation_workspace_message": ("Steer or follow up with the full Pi coding agent in the given workspace.", obj({"workspace_id": S, "message": S, "mode": {"enum": ["steer", "follow_up"]}, "request_key": S, "question_id": S}, ["workspace_id", "message", "request_key"])),
     "implementation_workspace_validate": ("Commission independent validation of one committed source submission within the campaign's implementation allocation. Supply either a frozen envelope_id or a spec; prefer the short envelope ID when available.", obj({"workspace_id": S, "submission_id": S, "envelope_id": S, "spec": {"type": "object"}, "compute_seconds": {"type": "number", "exclusiveMinimum": 0, "maximum": 86400}, "request_key": S}, ["workspace_id", "submission_id", "compute_seconds", "request_key"])),
     "page_agent_message": ("Ask the agent in charge of a page for work of its page: discussion_moderator (review rounds over proposals; "
-        "Hypotheses), experiment_operator (designing, starting, watching and stopping runs; Experiments) or implementation_lead (building and "
-        "checking implementations; Implementations). Say what to do and name the records. Its result comes back to you; the researcher sees "
+        "Hypotheses), experiment_operator (designing, starting, watching and stopping runs; Experiments), implementation_lead (building and "
+        "checking implementations; Implementations) or resource_planner (how many runs go at once, what kinds of runs use, why runs wait; "
+        "Resources). Say what to do and name the records. Its result comes back to you; the researcher sees "
         "the exchange on its page.", obj({"page_agent": {"enum": sorted(PAGE_AGENTS)}, "message": S, "evidence_ids": {"type": "array", "items": S, "maxItems": 100}},
         ["page_agent", "message"])),
     "experiment_progress": ("The campaign's runs at work in queue order and the latest finished ones: name, short or long, status, time and "
@@ -367,6 +404,8 @@ class PiTools:
                 names |= {"delegate", "agent_message", "agent_cancel"}
             if agent["role"] == "implementation_lead":
                 names |= implementation
+            if agent["role"] == "resource_planner":
+                names |= {"experiment_progress"}
         if agent["role"] == "proposal_reviewer":
             names.add("proposal_review")
         if agent.get("grant_id"):
@@ -418,6 +457,8 @@ class PiTools:
             if agent["role"] == "discussion_moderator":
                 instructions += ("\nA reviewer's proposal_review is the record of its verdict: report each verdict in the reviewer's own word (test, "
                     "revise or reject), and do not record it again with hypothesis.review.")
+            if agent["role"] == "resource_planner":
+                instructions += planner_instructions(self.workspace)
         if agent.get("output_schema"):
             instructions += "\nSubmit your result with submit_output using this JSON schema:\n" + json.dumps(agent["output_schema"])
         return {"instructions": instructions, "tools": [{"name": name, "description": TOOLS[name][0], "input_schema": self.schema(agent, name)} for name in sorted(self.names(agent))]}
@@ -675,6 +716,13 @@ class PiTools:
                 budget["grant_count"] = len(budget.get("grants", []))
                 budget["grants"] = budget.get("grants", [])[-20:]
             snapshot["warnings"] = [str(value)[:1000] for value in snapshot.get("warnings", [])[:16]]
+            admission = getattr(self.workspace, "admission", None)
+            if admission is not None:
+                # What the resource planner works from: each running run's own memory, and the GPU's processes.
+                detail = admission.view(cid, detail=True)
+                detail["kinds"] = detail["kinds"][:40]
+                detail["waiting"] = detail["waiting"][:40]
+                snapshot["admission"] = detail
             return snapshot
         if name == "implementation_workspace_create":
             return self.controller.development.create(cid, args, actor=LEAD)
@@ -896,7 +944,9 @@ class PiTools:
         if not shutil.which("bwrap"):
             raise ValueError("Isolated development execution requires bubblewrap")
         command = ["bwrap", "--die-with-parent", "--unshare-all", "--new-session", "--proc", "/proc", "--dev", "/dev", "--tmpfs", "/tmp"]
-        for root in dict.fromkeys(["/usr", "/lib", "/lib64", "/bin", sys.base_prefix, sys.prefix]):
+        from .files import interpreter
+        # Every link between the environment's python and its installation, or the sandbox cannot start it.
+        for root in dict.fromkeys(["/usr", "/lib", "/lib64", "/bin", *interpreter()]):
             if Path(root).exists():
                 command += ["--ro-bind", root, root]
         wrapper = "import resource,runpy,sys; resource.setrlimit(resource.RLIMIT_FSIZE,(1048576,1048576)); resource.setrlimit(resource.RLIMIT_NOFILE,(128,128)); runpy.run_path(sys.argv[1],run_name='__main__')"

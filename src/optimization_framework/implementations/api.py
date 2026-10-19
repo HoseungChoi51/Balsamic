@@ -16,6 +16,11 @@ from optimization_framework.implementations.runtime_resolution import Resolution
 from optimization_framework.implementations.exchange import ExecutableImport
 
 
+class ConcurrencyInput(Contract):
+    jobs: int = Field(ge=1, le=8)
+    reason: str = Field(max_length=1000)
+
+
 class RevokeInput(Contract):
     reason: str = Field(min_length=1, max_length=2000)
 
@@ -148,6 +153,10 @@ def create_app(directory, *, token=None, start_workers=True, adapter_factory=Non
     @app.post("/v1/jobs/{job_id}/control", dependencies=secured)
     def control(job_id: str, body: JobControl):
         return service.control_once(job_id, body.action, body.idempotency_key)
+
+    @app.put("/v1/concurrency", dependencies=secured)
+    def concurrency(body: ConcurrencyInput):
+        return service.set_concurrency(body.jobs, reason=body.reason)
 
     @app.get("/v1/jobs/{job_id}/control-receipt", dependencies=secured)
     def control_receipt(job_id: str, idempotency_key: str):

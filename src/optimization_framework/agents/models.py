@@ -9,7 +9,8 @@ LEAD = "lead"
 # The agents in charge of a page, one of each per campaign. Like the lead they stay for the whole campaign; they take
 # requests from the researcher on their page and from the lead, and act on nothing else. The lead's other assistants are
 # created for one assignment each.
-PAGE_AGENTS = {"discussion_moderator": "hypotheses", "experiment_operator": "experiments", "implementation_lead": "implementations"}
+PAGE_AGENTS = {"discussion_moderator": "hypotheses", "experiment_operator": "experiments", "implementation_lead": "implementations",
+               "resource_planner": "resources"}
 STANDING = {LEAD, *PAGE_AGENTS}
 # The assistants the moderator asks for views and verdicts in a review round.
 DISCUSSION_ROLES = ("literature_specialist", "methodology_specialist", "cross_domain_explorer", "skeptical_domain_analyst",
@@ -27,6 +28,9 @@ PAGE_OBJECTIVES = {
         "what it measured.",
     "implementation_lead": "Build, check and attach optimizer and evaluator implementations when the researcher or the lead agent asks, "
         "through implementation commissions and coding workspaces, and report what was built, how it was checked, and what remains.",
+    "resource_planner": "Plan how this campaign uses the machine within the researcher's resource level: estimate what kinds of runs never "
+        "measured will use, decide how many of the campaign's runs and of each kind go at once, explain why runs wait or ran out of "
+        "memory, and report the plan and its reasons. Start no runs and stop none.",
 }
 
 
@@ -75,7 +79,7 @@ class Configure(Contract):
 class Message(Contract):
     agent_id: str | None = None
     # The agent in charge of a page, by its role: created the first time it is written to.
-    page_agent: Literal["discussion_moderator", "experiment_operator", "implementation_lead"] | None = None
+    page_agent: Literal["discussion_moderator", "experiment_operator", "implementation_lead", "resource_planner"] | None = None
     message: str = Field(min_length=1, max_length=50000)
     mode: Literal["steer", "follow_up"] = "steer"
     question_id: str | None = None

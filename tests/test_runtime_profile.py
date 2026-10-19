@@ -11,7 +11,7 @@ from optimization_framework.contracts.validation import Waiver
 from optimization_framework.execution import runtime_profile
 from optimization_framework.execution.runtime_profile import derive, probe, rung, rungs
 from optimization_framework.execution.service import ACTIVE, Workspace, alive
-from optimization_framework.storage.sqlite import now
+from optimization_framework.storage.sqlite import identifier, now
 
 
 def level(workers, rate, gpu=None, cpu=5., **extra):
@@ -31,9 +31,10 @@ def test_flags_name_the_symptoms_measured_on_a_time_sliced_device():
     # Measured on the 2D deflector evaluator before its GPU was shared: more workers, no more designs.
     summary = derive([level(1, 2.49, gpu=45), level(2, 2.46, gpu=46), level(4, 2.59, gpu=47)], ceiling=4, candidate_bytes=65537)
     assert summary["verdict"] == "failed" and flags(summary) == ["no_scaling"] and summary["recommended_workers"] == 1
-    # The same evaluator with the device shared: still growing at the ceiling.
+    # The same evaluator with the device shared: still growing at the ceiling, a note about the ceiling that holds no run.
     shared = derive([level(1, 4.92, gpu=50), level(2, 7.71, gpu=75), level(4, 10.45, gpu=88)], ceiling=4, candidate_bytes=65537)
     assert flags(shared) == ["unsaturated"] and shared["recommended_workers"] == 4 and shared["evaluations_per_hour"] == pytest.approx(37620)
+    assert shared["verdict"] == "passed"
     # Saturated: nothing to say, and the smallest level within a tenth of the best is recommended.
     saturated = derive([level(1, 5., gpu=60), level(2, 9., gpu=93), level(4, 9.5, gpu=97)], ceiling=4, candidate_bytes=65537)
     assert saturated["verdict"] == "passed" and saturated["recommended_workers"] == 2
@@ -144,9 +145,9 @@ def test_a_profile_runs_probes_level_by_level_and_gates_long_runs(workspace, mon
     assert len(workspace.store.list("validation_requirement")) + len(workspace.store.list("runtime_subject")) == records
     view = workspace.runtime.view(task, study["id"])
     assert view["profile"]["id"] == profile["id"] and view["gate_seconds"] == 100
-    if summary["flags"]:
+    if holding := [flag for flag in summary["flags"] if runtime_profile.blocks(flag)]:
         # A flagged profile blocks until the researcher waives exactly these flags, citing the profile.
-        with pytest.raises(ValueError, match=summary["flags"][0]["id"]):
+        with pytest.raises(ValueError, match=holding[0]["id"]):
             workspace.create_trial(long_run)
         requirement = workspace.store.get(view["requirement_id"], "validation_requirement")
         workspace.validations.waive(Waiver(id="waiver_runtime", campaign_id=created["id"], study_id=study["id"], requirement_id=requirement["id"],
@@ -168,3 +169,61 @@ def test_a_profile_runs_probes_level_by_level_and_gates_long_runs(workspace, mon
     monkeypatch.setenv("GRATING_RESOURCE_SETTINGS", '{"workers": 8}')
     monkeypatch.delenv("GRATING_RUNTIME_GATE_SECONDS")
     assert workspace.create_trial(long_run)["status"] == "queued"   # no gate is set in this deployment
+
+
+def measured(workspace, task, *raised, verdict=None):
+    """A completed profile of the task's current state that raised these flags, as the store keeps one."""
+    subject = workspace.runtime.subject(task)
+    profile = {"id": identifier("runtime_profile"), "campaign_id": task["campaign_id"], "task_id": task["id"], "subject_id": subject["id"],
+               "subject_digest": subject["digest"], "status": "completed", "ceiling": 2, "parameters": {}, "levels": [], "created_at": now(),
+               "summary": {"verdict": verdict or runtime_profile.judged({"verdict": "", "flags": [{"id": name} for name in raised]}),
+                           "flags": [{"id": name, "message": f"{name} was measured.", "evidence": {}} for name in raised],
+                           "recommended_workers": 2, "evaluations_per_hour": 36000.}}
+    workspace.store.put("runtime_profile", profile, "runtime.profile_completed")
+    return profile
+
+
+def test_a_note_holds_no_run_even_on_a_profile_judged_before_it_was_one(workspace, monkeypatch):
+    monkeypatch.setenv("GRATING_RUNTIME_GATE_SECONDS", "100")
+    created, task = campaign(workspace)
+    study = workspace.create_study(created["id"], StudyInput(goal="How fast does it run?", task_ids=[task["id"]]))
+    long_run = TrialInput(campaign_id=created["id"], task_id=task["id"], algorithm="random", max_steps=5, wall_seconds=120)
+    # Measured and judged while speed rising at the ceiling still held runs.
+    notes = runtime_profile.NOTES
+    monkeypatch.setattr(runtime_profile, "NOTES", set())
+    measured(workspace, task, "unsaturated", verdict="failed")
+    view = workspace.runtime.view(task, study["id"])
+    assert "[unsaturated]" in view["blocker"] and view["note_flags"] == []
+    monkeypatch.setattr(runtime_profile, "NOTES", notes)
+    # Now it is a note: shown, holding nothing, and the requirement it failed passes on the same measurement.
+    view = workspace.runtime.view(task, study["id"])
+    assert view["blocker"] is None and view["flags"] == view["note_flags"] == ["unsaturated"]
+    assessment = workspace.validations.assess(view["requirement_id"])
+    assert [row["verdict"] for row in assessment["results"]] == ["failed", "passed"] and assessment["status"] == "passed"
+    assert assessment["results"][-1]["rationale"] == "unsaturated was measured."
+    assert workspace.create_trial(long_run)["status"] == "queued"
+    workspace.runtime.view(task, study["id"])
+    assert len(workspace.validations.assess(view["requirement_id"])["results"]) == 2   # judged again once, not on every read
+
+
+def test_a_waiver_outlasts_a_recheck_that_names_only_the_flags_it_waived(workspace, monkeypatch):
+    monkeypatch.setenv("GRATING_RUNTIME_GATE_SECONDS", "100")
+    created, task = campaign(workspace)
+    study = workspace.create_study(created["id"], StudyInput(goal="How fast does it run?", task_ids=[task["id"]]))
+    first = measured(workspace, task, "repeated_solves")
+    view = workspace.runtime.view(task, study["id"])
+    assert "[repeated_solves]" in view["blocker"]
+    requirement = workspace.store.get(view["requirement_id"], "validation_requirement")
+    workspace.validations.waive(Waiver(id="waiver_runtime", campaign_id=created["id"], study_id=study["id"], requirement_id=requirement["id"],
+        subject_digest=requirement["subject_digest"], recipe_id=requirement["recipe_id"], rationale="Two solves are part of the method.",
+        evidence_ids=[first["id"]], authority="researcher", authority_kind="researcher", created_at=now()))
+    assert workspace.runtime.view(task, study["id"])["blocker"] is None
+    # Measured again with the same flag: the waiver still answers for it.
+    measured(workspace, task, "repeated_solves")
+    assert workspace.runtime.view(task, study["id"])["blocker"] is None
+    assert workspace.validations.assess(requirement["id"])["status"] == "waived"
+    # A flag the researcher has not seen ends the waiver, and both hold runs again.
+    measured(workspace, task, "repeated_solves", "storage_heavy")
+    blocker = workspace.runtime.view(task, study["id"])["blocker"]
+    assert "[repeated_solves]" in blocker and "[storage_heavy]" in blocker
+    assert workspace.validations.assess(requirement["id"])["status"] == "failed"

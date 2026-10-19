@@ -14,6 +14,7 @@ import os
 from pathlib import Path
 import pickle
 import signal
+import sys
 import tempfile
 import threading
 import time
@@ -586,10 +587,33 @@ class ExperimentWorker:
             self.publish_outputs()
         result = self.progress(status, reason)
         result["attempt_overhead_seconds"] = max(0., self.elapsed() - self.cost_cursor_seconds)
+        result["device_peak_bytes"] = device_peak()
         append_json(self.directory / "attempts.jsonl", {**result, "finished_at": now()})
         atomic_json(self.directory / "progress.json", result)
         atomic_json(self.directory / "result.json", result)
         return result
+
+
+def device_peak():
+    """The most GPU memory this process held, where its array library counts it; nothing is imported to find out.
+
+    The driver's own context (a few hundred MB per process) is not counted, and an evaluator running in a
+    process of its own is not seen from here.
+    """
+    torch = sys.modules.get("torch")
+    try:
+        if torch is not None and torch.cuda.is_initialized():
+            return max(int(torch.cuda.max_memory_reserved(index)) for index in range(torch.cuda.device_count())) or None
+    except Exception:
+        pass
+    jax = sys.modules.get("jax")
+    try:
+        if jax is not None:
+            peaks = [(device.memory_stats() or {}).get("peak_bytes_in_use") for device in jax.local_devices() if device.platform == "gpu"]
+            return max((int(peak) for peak in peaks if peak), default=None)
+    except Exception:
+        pass
+    return None
 
 
 def run(directory, *, enforce_deadline=False, **kwargs):

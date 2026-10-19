@@ -34,6 +34,7 @@ class ImplementationBridge:
         self.workspace = workspace
         self.store = workspace.store
         self.client = client or ImplementationClient()
+        self.client_given = client is not None
         self.connection_error = None
         self.workspace_id = self.store.identity()
         # Unsettled jobs are refetched when the library's event feed names them;

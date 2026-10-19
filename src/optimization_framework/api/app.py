@@ -30,6 +30,11 @@ from optimization_framework.storage.sqlite import identifier, now
 from optimization_framework.research.providers import api_spend
 
 
+class ResourceLevelInput(Model):
+    level: Literal["cautious", "balanced", "aggressive"]
+    reason: str = Field(default="", max_length=2000)
+
+
 class StatusInput(Model):
     status: Literal["proposed", "investigating", "archived", "finalist"]
 
@@ -209,6 +214,11 @@ def create_app(directory=None, max_workers=2, start_workers=True, implementation
     def resource_observations(campaign_id: str | None = None):
         from optimization_framework.execution.observability import get_observer
         return get_observer(workspace).snapshot(campaign_id)
+
+    @app.put("/api/v1/resources/level")
+    def resource_level(body: ResourceLevelInput):
+        # HTTP is the researcher's boundary: agents never reach this route.
+        return workspace.admission.set_level(body.level, authority="researcher", reason=body.reason)
 
     @app.get("/api/v1/problems")
     def problem_catalog(campaign_id: str | None = None):

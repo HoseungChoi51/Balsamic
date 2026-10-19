@@ -105,6 +105,7 @@ class ImplementationService:
         self.lock = threading.RLock()
         self.stopping = threading.Event()
         self.thread = None
+        self.jobs = {}   # job id -> the thread running it
         self.lease = None
         from optimization_framework.implementations.revalidation import migrate
         migrate(self)
@@ -138,10 +139,12 @@ class ImplementationService:
         self.stopping.set()
         if self.thread:
             self.thread.join(timeout=5)
+        for thread in list(self.jobs.values()):
+            thread.join(timeout=5)
         if self.agent_log_thread:
             self.agent_log_thread.join(timeout=3)
         self.agent_log.project_pending()
-        if self.lease and not (self.thread and self.thread.is_alive()):
+        if self.lease and not (self.thread and self.thread.is_alive()) and not any(thread.is_alive() for thread in self.jobs.values()):
             fcntl.flock(self.lease, fcntl.LOCK_UN)
             self.lease.close()
             self.lease = None
@@ -251,18 +254,40 @@ class ImplementationService:
                 return self.update_job(job_id, status="queued", error=None, cancel_requested=False, accounting_final=False)
             raise ValueError("Unknown implementation control")
 
+    def concurrency(self):
+        """How many jobs may run at once: the workspace sets it from the researcher's resource level."""
+        try:
+            return self.store.get("implementation_concurrency", "implementation_concurrency")["jobs"]
+        except KeyError:
+            return 1
+
+    def set_concurrency(self, jobs, *, reason):
+        if type(jobs) is not int or not 1 <= jobs <= 8:
+            raise ValueError("Between 1 and 8 implementation jobs may run at once")
+        if jobs != self.concurrency():
+            self.store.put("implementation_concurrency", {"id": "implementation_concurrency", "jobs": jobs, "reason": reason,
+                "updated_at": now()}, "implementation.concurrency_changed")
+        return {"jobs": jobs, "running": sorted(job_id for job_id, thread in self.jobs.items() if thread.is_alive())}
+
     def _loop(self):
-        # Jobs are written only by this process, so an unchanged write count
-        # means no job became queued; avoid decoding MB-scale job records 5x/s.
+        # Jobs are written only by this process, so an unchanged write count and the same
+        # number of running jobs mean nothing can start; avoid decoding MB-scale job records 5x/s.
         seen = None
         while not self.stopping.wait(.2):
-            revision = self.store.revision("implementation_job")
-            if revision == seen:
+            self.jobs = {job_id: thread for job_id, thread in self.jobs.items() if thread.is_alive()}
+            state = (self.store.revision("implementation_job", "implementation_concurrency"), len(self.jobs))
+            if state == seen:
                 continue
-            seen = revision
-            queued = next((j for j in self.store.list("implementation_job") if j["status"] == "queued"), None)
-            if queued:
-                self.run_job(queued["id"])
+            seen = state
+            free = self.concurrency() - len(self.jobs)
+            for job in self.store.list("implementation_job") if free > 0 else ():
+                if job["status"] == "queued" and job["id"] not in self.jobs:
+                    thread = threading.Thread(target=self.run_job, args=(job["id"],), name="implementation-job-" + job["id"][-8:], daemon=True)
+                    self.jobs[job["id"]] = thread
+                    thread.start()
+                    free -= 1
+                    if not free:
+                        break
 
     def run_job(self, job_id):
         with self.lock:

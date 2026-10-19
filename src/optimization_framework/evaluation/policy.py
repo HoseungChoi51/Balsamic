@@ -79,6 +79,17 @@ class ValidationService:
             raise ValueError("Waiver revocation belongs to another campaign")
         return self.store.put_immutable("waiver_revocation", revocation.model_dump(mode="json"), "validation.waiver_revoked")
 
+    @staticmethod
+    def repeats(waiver, result, results):
+        """Whether a failed result names only flags that a result the waiver cites, directly or through its evidence, named."""
+        flags = (result.get("measurements") or {}).get("flags")
+        if not flags:
+            return False
+        cited = set(waiver["evidence_ids"])
+        waived = {flag for row in results if row["id"] in cited or cited & set(row["evidence_ids"])
+                  for flag in (row.get("measurements") or {}).get("flags") or ()}
+        return set(flags) <= waived
+
     def assess(self, requirement_id, *, current_recipe=None, current_study=None, cutoff_at=None):
         requirement = self.store.get(requirement_id, "validation_requirement")
         results = [row for row in self.store.list("validation_result", requirement["campaign_id"]) if row["requirement_id"] == requirement_id]
@@ -94,11 +105,13 @@ class ValidationService:
         policy = study.get("validation_policy", {})
         eligible = [row for row in results if row["producer"] != "imported" or policy.get("accept_imported_results", False)]
         # Append order is durable. Later contrary evidence invalidates the prior
-        # measurement; a previous pass cannot hide a later failed recheck.
+        # measurement; a previous pass cannot hide a later failed recheck. A recheck
+        # that names only flags the waiver was granted over repeats what was waived.
         latest = eligible[-1] if eligible else None
         if latest and latest["verdict"] in {"failed", "error"}:
             active = [row for row in active if "new_failed_result" not in row["invalidation_conditions"]
-                      or self.store.record_position(row["id"]) > self.store.record_position(latest["id"])]
+                      or self.store.record_position(row["id"]) > self.store.record_position(latest["id"])
+                      or self.repeats(row, latest, results)]
         state = "stale" if stale else "passed" if latest and latest["verdict"] == "passed" else "waived" if active else latest["verdict"] if latest else "pending"
         waiver_allowed = (not stale and requirement["kind"] in set(policy.get("waivable_kinds", DEFAULT_WAIVABLE)) | ALWAYS_WAIVABLE
             and not (latest and latest.get("measurements", {}).get("known_specification_failure"))

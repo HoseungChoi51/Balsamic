@@ -904,6 +904,23 @@ class PiController:
                 "Raise the cap to continue.", affected="llm_budget_" + campaign_id)
         return False
 
+    def _resource_events(self, campaign_id, config, rows):
+        """How the machine is used is the resource planner's to answer: its events wake it, whatever the researcher's open request."""
+        from optimization_framework.execution.admission import SIGNALS
+        signals = [row for row in rows if row["kind"] in SIGNALS]
+        if not signals or not config.get("enabled"):
+            return
+        planner = self.page_agent(campaign_id, "resource_planner")
+        if planner["status"] in {"paused", "stopped"}:
+            return
+        if not planner.get("request_open"):
+            planner.update(request_open=True, requested_by="platform", request_changed_at=now())
+            self.store.put("agent_session", planner, "agent.request_opened")
+        self.enqueue(planner, "pi_events_" + content_hash([row["id"] for row in signals])[:28], NOTICE +
+            "The machine's use in this campaign has new events, listed below. Inspect what they concern (resource_inspect, evidence_read), act "
+            "on them within your rules (resources.estimate, resources.plan), report in a few lines, and end with yield_work(complete). Start "
+            "and stop no runs.\n" + json.dumps(signals))
+
     def _campaign_events(self, campaign_id):
         config = self.configuration(campaign_id)
         rows = self.store.events(campaign_id, after=config.get("event_cursor", 0), limit=500)
@@ -935,6 +952,7 @@ class PiController:
                 if self.store.get(row["data"]["record_id"], "decision").get("requested_by") == "lead":
                     answers.append(row)
         config["event_cursor"] = rows[-1]["id"]; self.store.put("agent_campaign", config)
+        self._resource_events(campaign_id, config, rows)
         # An outcome of work a page agent started, or the answer to what it filed, goes to that agent while its request is
         # open (an answer opens it again); every other outcome goes to the lead.
         page_rows, answer_ids = {}, {row["id"] for row in answers}

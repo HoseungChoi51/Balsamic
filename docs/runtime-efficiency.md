@@ -20,17 +20,22 @@ evaluating), CPU and GPU load, the platform's share of each step, bytes stored p
 and solver executions per evaluation. From these it derives the recommended number of workers,
 evaluations per hour, and flags:
 
-| Flag | What was measured |
-| --- | --- |
-| `no_scaling` | Two workers deliver less than 1.15× one while the device is under 60% busy |
-| `unsaturated` | Throughput was still growing by 15% or more at the worker ceiling |
-| `idle_device` | Throughput stops growing while the device is under 60% busy |
-| `platform_overhead` | More than 20% of a step is spent outside the evaluator |
-| `storage_heavy` | An evaluation stores more than four candidates' worth (at least 64 kB) |
-| `repeated_solves` | An evaluation runs the solver more than once |
+| Flag | What was measured | Holds long runs |
+| --- | --- | --- |
+| `no_scaling` | Two workers deliver less than 1.15× one while the device is under 60% busy | Yes |
+| `unsaturated` | Throughput was still growing by 15% or more at the worker ceiling | No, a note |
+| `idle_device` | Throughput stops growing while the device is under 60% busy | Yes |
+| `platform_overhead` | More than 20% of a step is spent outside the evaluator | Yes |
+| `storage_heavy` | An evaluation stores more than four candidates' worth (at least 64 kB) | Yes |
+| `repeated_solves` | An evaluation runs the solver more than once | Yes |
 
-A flag is a symptom, not a diagnosis: Balsamic does not know why a tool behaves that way. A
-study can change the limits with `validation_policy.runtime_thresholds`
+A flag is a symptom, not a diagnosis: Balsamic does not know why a tool behaves that way.
+`unsaturated` is a note: it says a higher worker ceiling might be faster, and the ceiling is the
+researcher's launcher setting, not something the evaluator wastes. A profile whose only flags are
+notes passes; the note is shown on the Resources page and in the view agents read (`note_flags`),
+and the lead agent mentions it and carries on. A profile judged before a flag became a note is
+judged again on its next read, which appends a passing result to its requirement. A study can
+change the limits with `validation_policy.runtime_thresholds`
 (`scaling_gain`, `busy_percent`, `overhead_share`, `storage_candidates`, `storage_bytes`).
 
 The Resources page shows each task's profile under **Evaluator speed**, and agents read the
@@ -48,7 +53,8 @@ waivers read as stale and a new measurement is needed; returning to a measured s
 profile current again.
 
 An ordinary run of `runtime_gate_seconds` or longer (launcher setting, default 600; `null` sets
-no gate) is refused until the subject has a completed profile with every flag fixed or waived.
+no gate) is refused until the subject has a completed profile with every flag that holds runs
+fixed or waived.
 Shorter runs, the profile's own probes, recipes and frozen protocols are not gated. A workspace
 started without the launcher has no gate.
 
@@ -56,7 +62,11 @@ The requirement is a `runtime_efficiency` validation requirement and appears und
 **Validation**. Only the researcher waives it, unless the study delegates waivers to the
 manager. A waiver covers the flags of the profile it cites as evidence; citing the subject
 record itself waives the check for the subject's current state altogether, for example when the
-workspace cannot be made idle to measure.
+workspace cannot be made idle to measure. Measuring again keeps a waiver when the new profile
+raises only flags the waiver covered; a flag it did not cover ends it. This holds for any
+validation result that names its flags (`measurements.flags`): a later failure ends a waiver only
+when it names something the results the waiver cites did not. A waiver still belongs to one
+requirement, so a new campaign, study, source, host or launcher setting needs its own.
 
 ## Who fixes a flag
 

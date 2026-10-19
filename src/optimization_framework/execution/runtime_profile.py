@@ -5,7 +5,8 @@ measure how many evaluations per second the host delivers at 1, 2, 4... workers,
 device is meanwhile, and how much of the time and storage is the platform's own. A profile is a
 few short ordinary trials of the built-in random search. Its flags name symptoms, not causes:
 they tell the researcher and the agents where to look, and a long run waits until each flag
-has been fixed or waived with a reason.
+has been fixed or waived with a reason. A note is a flag about a setting that is the
+researcher's to choose, not about waste: it is shown and holds nothing.
 """
 from datetime import datetime
 import json
@@ -21,6 +22,9 @@ from optimization_framework.storage.sqlite import identifier, now
 RECIPE = "runtime_profile:v1"
 KIND = "runtime_efficiency"
 THRESHOLDS = {"scaling_gain": 1.15, "busy_percent": 60., "overhead_share": .20, "storage_candidates": 4., "storage_bytes": 65536}
+# Speed still rising at the worker ceiling says the ceiling might be raised, and the ceiling is the
+# researcher's (the launcher's workers setting); it says nothing about the evaluator wasting anything.
+NOTES = {"unsaturated"}
 ACTIVE = {"queued", "running", "pausing", "stopping"}
 JOURNALS = ("requests.jsonl", "observations.jsonl", "metrics.jsonl", "costs.jsonl")
 
@@ -29,6 +33,18 @@ def gate_seconds():
     """Runs at least this long wait for a runtime profile; None where the deployment sets no gate."""
     value = os.environ.get("GRATING_RUNTIME_GATE_SECONDS", "")
     return float(value) if value.strip() else None
+
+
+def blocks(flag):
+    """Whether a flag holds long runs until it is fixed or waived; a note does not."""
+    return flag["id"] not in NOTES
+
+
+def judged(summary):
+    """A profile's verdict under the current rules, so that one measured before a flag became a note reads like a new one."""
+    if summary["verdict"] == "inconclusive":
+        return "inconclusive"
+    return "failed" if any(blocks(flag) for flag in summary["flags"]) else "passed"
 
 
 def rungs(ceiling):
@@ -116,7 +132,7 @@ def derive(levels, ceiling, candidate_bytes=None, thresholds=None):
         flag("repeated_solves", f"Each evaluation runs the solver {solves:g} times; check that every execution is needed.", solves=solves)
     recommended = min(level["workers"] for level in measured if rate(level) >= .9 * rate(best))
     chosen = next(level for level in measured if level["workers"] == recommended)
-    return {"verdict": "failed" if flags else "passed", "flags": flags, "recommended_workers": recommended,
+    return {"verdict": "failed" if any(blocks(item) for item in flags) else "passed", "flags": flags, "recommended_workers": recommended,
             "evaluations_per_hour": 3600 * rate(chosen), "candidate_bytes": candidate_bytes}
 
 
@@ -309,14 +325,16 @@ class RuntimeProfiles:
 
     def _record(self, requirement, profile):
         from optimization_framework.contracts.validation import ValidationResult
-        identity = "runtime_result_" + content_hash([requirement["id"], profile["id"]])[:32]
+        summary = profile["summary"]
+        verdict = judged(summary)
+        # A profile judged again under rules that changed since it was measured adds a result; otherwise it has one.
+        identity = "runtime_result_" + content_hash([requirement["id"], profile["id"], *([verdict] if verdict != summary["verdict"] else [])])[:32]
         try:
             self.store.get(identity, "validation_result")
         except KeyError:
-            summary = profile["summary"]
             self.workspace.validations.record_result(ValidationResult(id=identity, campaign_id=requirement["campaign_id"],
                 requirement_id=requirement["id"], subject_digest=requirement["subject_digest"], recipe_id=RECIPE,
-                verdict=summary["verdict"], evidence_ids=[profile["id"]],
+                verdict=verdict, evidence_ids=[profile["id"]],
                 measurements={"flags": [flag["id"] for flag in summary["flags"]], "recommended_workers": summary.get("recommended_workers"),
                               "evaluations_per_hour": summary.get("evaluations_per_hour")},
                 rationale="; ".join(flag["message"] for flag in summary["flags"]) or summary.get("reason") or "No runtime flag was raised.",
@@ -331,7 +349,7 @@ class RuntimeProfiles:
             requirement = self.workspace.validations.require(ValidationRequirement(id=identity, campaign_id=subject["campaign_id"],
                 study_id=study_id, subject_id=subject["id"], subject_digest=subject["digest"], kind=KIND, recipe_id=RECIPE,
                 scope={"task_id": subject["task_id"]},
-                evidence_requirements=["A runtime profile of this evaluator's current source on this host, with every flag fixed or waived"],
+                evidence_requirements=["A runtime profile of this evaluator's current source on this host, with every flag that holds runs fixed or waived"],
                 authority="runtime_profile", created_at=now()))
         profile = self.latest(subject)
         if profile and profile["status"] == "completed":
@@ -345,7 +363,8 @@ class RuntimeProfiles:
         """
         subject = self.subject(task, record)
         profile = self.latest(subject)
-        flags = [flag["id"] for flag in ((profile or {}).get("summary") or {}).get("flags", [])]
+        raised = ((profile or {}).get("summary") or {}).get("flags", [])
+        flags = [flag["id"] for flag in raised]
         waived, requirement = set(), None
         if study_id and record:
             requirement = self.require(subject, study_id)
@@ -376,13 +395,14 @@ class RuntimeProfiles:
         elif profile["summary"]["verdict"] == "inconclusive":
             blocker = f"The runtime profile is inconclusive: {profile['summary'].get('reason')}"
         else:
-            open_flags = [flag for flag in profile["summary"]["flags"] if flag["id"] not in waived]
+            open_flags = [flag for flag in profile["summary"]["flags"] if flag["id"] not in waived and blocks(flag)]
             campaign = self.store.get(subject["campaign_id"], "campaign")
             remaining = max(0., campaign["compute_budget_seconds"] - self.workspace.allocated_seconds(campaign["id"]))
             blocker = ("The runtime profile raises: " + " ".join(f"[{flag['id']}] {flag['message']}" for flag in open_flags)
                        + f" Each 10% of speed is worth {remaining / 36000:.1f} h of the campaign's unallocated {remaining / 3600:.1f} h."
                        + " Fix and profile again, or waive the requirement with a reason.") if open_flags else None
         return {"subject_id": subject["id"], "profile": profile, "flags": flags, "waived_flags": sorted(waived),
+                "note_flags": [flag["id"] for flag in raised if not blocks(flag)],
                 "requirement_id": requirement["id"] if requirement else None, "gate_seconds": gate_seconds(), "blocker": blocker,
                 "optimization_allowance": self.allowance(subject["campaign_id"])}
 

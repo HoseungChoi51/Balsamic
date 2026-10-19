@@ -99,6 +99,8 @@ class Workspace:
         self.racing = AdaptiveRacing(self)
         from optimization_framework.execution.runtime_profile import RuntimeProfiles
         self.runtime = RuntimeProfiles(self)
+        from optimization_framework.execution.admission import Admission
+        self.admission = Admission(self)
         from optimization_framework.execution.equivalence import Equivalences
         self.equivalence = Equivalences(self)
         from optimization_framework.execution.compaction import JournalCompaction
@@ -1454,9 +1456,11 @@ class Workspace:
                 self.reconcile()
                 with self.lock:
                     trials = self.store.list_trials_in_status(LIVE | {"queued"})
+                    self.admission.observe(trials, LIVE)
                     free = self.max_workers - sum(t["status"] in LIVE for t in trials) - sum(j["status"] in {"starting", "running"} for j in self.store.list("fixed_mask_job"))
                     queued = sorted((t for t in trials if t["status"] == "queued" and self.dependencies_ready(t)), key=lambda t: (-t["priority"], t["created_at"]))
                     limits = {}
+                    waiting_campaigns = {t["campaign_id"] for t in queued if not t.get("race_id")}
                     for trial in queued:
                         if free <= 0:
                             break
@@ -1471,8 +1475,12 @@ class Workspace:
                             occupied = sum(t["status"] in LIVE and t.get("execution_grant_id") == grant["id"] for t in self.store.list_trials_in_status(LIVE))
                             if occupied >= grant["max_workers"]:
                                 continue
+                        # Within the researcher's worker maximum, memory decides; a race keeps its own memory admission.
+                        if not trial.get("race_id") and self.admission.fits(trial, [row for row in trials if row["status"] in LIVE], waiting_campaigns):
+                            continue
                         try:
                             self._start_trial(trial)
+                            self.admission.started(trial)
                             # Include this launch in resource admission for the next
                             # queued member of the same scheduler pass.
                             trial["status"] = "running"

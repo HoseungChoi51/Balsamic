@@ -557,7 +557,19 @@ class ResourceObservability:
                 warnings.append("Host memory availability could not be read; memory forecasts cannot establish admission.")
             return {"schema_version": 1, "sampled_at": datetime.fromtimestamp(wall_clock, timezone.utc).isoformat(),
                     "campaign_id": campaign_id, "host": host, "service": service, "workers": workers, "budget": budget,
-                    "plans": plans, "runtime": self._runtime(campaign_id, warnings), "warnings": warnings}
+                    "plans": plans, "runtime": self._runtime(campaign_id, warnings), "admission": self._admission(campaign_id, warnings),
+                    "warnings": warnings}
+
+    def _admission(self, campaign_id, warnings):
+        """The researcher's level, what each kind of run is expected to use, and why queued runs wait."""
+        admission = getattr(self.workspace, "admission", None)
+        if admission is None:
+            return None
+        try:
+            return admission.view(campaign_id)
+        except Exception as error:   # the dashboard must not fail with admission
+            warnings.append(f"Resource admission could not be read: {error}")
+            return None
 
     def _runtime(self, campaign_id, warnings):
         """Each current task's runtime profile and what still keeps its long runs from starting."""

@@ -90,5 +90,8 @@ class ImplementationClient:
         return self.request("POST", f"/v1/jobs/{identity}/control", {"action": action,
             **({"idempotency_key": idempotency_key} if idempotency_key else {})})
 
+    def set_concurrency(self, jobs, reason):
+        return self.request("PUT", "/v1/concurrency", {"jobs": jobs, "reason": reason})
+
     def control_receipt(self, identity, idempotency_key):
         return self.request("GET", f"/v1/jobs/{identity}/control-receipt", idempotency_key=idempotency_key)

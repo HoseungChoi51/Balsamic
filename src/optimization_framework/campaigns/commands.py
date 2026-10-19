@@ -41,6 +41,8 @@ DELEGATED.add("journal.compaction_request")
 DELEGATED.add("approval.request")
 # The experiment operator keeps the experiment rules and takes runs it superseded off the Experiments page.
 DELEGATED.update({"experiments.rules", "trial.hide"})
+# The resource planner's plan and estimates: they hold runs back or say what a kind is expected to use, inside the researcher's level.
+DELEGATED.update({"resources.plan", "resources.estimate"})
 
 
 class CommandService:
@@ -98,6 +100,7 @@ class CommandService:
         """Use the application's schemas in prompts instead of a second tool model."""
         from optimization_framework.research.discovery.models import DiscoveryStart, DiscoveryControl, DiscoveryAmend, DiscoveryRetry
         from .experiment_rules import ExperimentRulesInput, TrialHideInput
+        from optimization_framework.execution.admission import ResourcePlanInput, UsageEstimateInput
         from optimization_framework.agents.models import Activate, Configure, Message, Control, QuestionDismiss, Rollback
         from optimization_framework.agents.diagnostics import FixedMaskInput
         from optimization_framework.research.model_policy import ModelPolicyUpdate
@@ -127,6 +130,7 @@ class CommandService:
             "journal.compact": JournalCompactInput, "journal.compaction_request": JournalCompactionRequestInput,
             "approval.request": ApprovalRequestInput, "workers.set": WorkerCeilingInput,
             "experiments.rules": ExperimentRulesInput, "trial.hide": TrialHideInput,
+            "resources.plan": ResourcePlanInput, "resources.estimate": UsageEstimateInput,
             "validation.revoke_waiver": WaiverRevocationInput,
             "asset.reuse": ReuseInput, "finding.record": FindingInput, "implementation.commission": CommissionInput,
             "asset.snapshot": AssetSnapshotInput,
@@ -755,6 +759,11 @@ class CommandService:
                 "requested_by": "lead" if lead else "manager", "audience": "researcher", "status": "pending", "created_at": now()}
             self.store.put("decision", decision, "decision.created")
             return {"decision_id": decision["id"], "trial_ids": plan["trial_ids"], "bytes": plan["bytes"], "not_cited_by_a_finding": uncited}
+        if command.operation in {"resources.plan", "resources.estimate"}:
+            from optimization_framework.execution.admission import ResourcePlanInput, UsageEstimateInput
+            if command.operation == "resources.plan":
+                return self.workspace.admission.plan(command.campaign_id, ResourcePlanInput(**payload), authority=actor)
+            return self.workspace.admission.estimate(command.campaign_id, UsageEstimateInput(**payload), authority=actor)
         if command.operation == "runtime.profile":
             profile = self.workspace.runtime.start(command.campaign_id, RuntimeProfileInput(**payload))
             return {"runtime_profile_id": profile["id"], "levels": [level["workers"] for level in profile["levels"]]}

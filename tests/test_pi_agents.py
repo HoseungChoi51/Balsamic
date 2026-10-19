@@ -729,3 +729,56 @@ def test_the_lead_is_given_the_pages_and_a_receipt_names_the_page_of_what_it_cre
     assert tools.receipt(record)['page'] == '#comparison'
     assert tools.receipt({**record, 'outcome': {'groups': [], 'filler': 'x' * 60000}})['page'] == '#comparison'
     assert 'page' not in tools.receipt({**record, 'request': {'operation': 'study.race.decide', 'payload': {}}})
+
+
+def test_resource_events_wake_the_resource_planner_which_plans_but_starts_nothing(tmp_path, monkeypatch):
+    from optimization_framework.agents.models import NOTICE
+    w, c, lead = activated(tmp_path, monkeypatch)
+    kind = 'kind_' + '0' * 24
+    w.store.event(c['id'], 'resources.unmeasured_kind', {'record_id': 'trial_x', 'kind': kind, 'label': 'Quadratic · coordinate'})
+    w.pi._campaign_events(c['id'])
+    planner = w.store.get(w.pi.page_agent(c['id'], 'resource_planner')['id'], 'agent_session')
+    runs = [run for run in w.store.list('agent_run') if run['agent_id'] == planner['id']]
+    assert len(runs) == 1 and runs[0]['input'].startswith(NOTICE) and 'resources.unmeasured_kind' in runs[0]['input']
+    assert not [run for run in w.store.list('agent_run') if run['agent_id'] == lead['id']]   # the lead is not woken for it
+    run = runs[0]; run['status'] = 'submitted'; w.store.put('agent_run', run)
+    tools = PiTools(w.pi)
+    manifest = tools.manifest(planner['id'], run['id'])
+    names = {tool['name'] for tool in manifest['tools']}
+    assert {'resource_inspect', 'campaign_command', 'experiment_progress', 'lead_ask'} <= names and 'page_agent_message' not in names
+    assert 'balanced resource level' in manifest['instructions'] and 'resources.estimate' in manifest['instructions']
+    assert tools.schema(planner, 'campaign_command')['properties']['operation']['enum'] == ['approval.request', 'resources.estimate', 'resources.plan', 'runtime.profile']
+    # It reads each running run's memory and the GPU's processes, and records an estimate and a plan through its own commands.
+    inspected = tools.call(planner['id'], run['id'], 'inspect', 'resource_inspect', {})
+    assert {'running', 'gpu_processes', 'kinds', 'level'} <= set(inspected['admission'])
+    revision = w.memory.state(c['id'])['guidance_revision']
+    def command(key, operation, payload):
+        return tools.call(planner['id'], run['id'], key, 'campaign_command', {'operation': operation, 'request_key': key,
+            'guidance_revision': revision, 'payload': payload})
+    command('estimate', 'resources.estimate', {'kind': kind, 'memory_bytes': 2e9, 'device_bytes': 3e9, 'rationale': 'Like the measured coordinate runs.'})
+    assert w.admission.expected(kind)['basis'] == 'estimated' and w.admission.expected(kind)['memory_bytes'] == 3e9   # balanced: ×1.5
+    command('plan', 'resources.plan', {'workers': 1, 'kinds': {kind: 1}, 'rationale': 'One GPU run at a time while the card is shared.'})
+    assert w.admission.plan_of(c['id'])['workers'] == 1 and w.admission.plan_of(c['id'])['set_by'] == 'manager'
+    refused = command('too_many', 'resources.plan', {'workers': 9, 'rationale': 'More.'})
+    assert 'researcher' in str(refused)
+    assert 'executed' in command('start', 'trial.create', {'task_id': w.current_tasks(c['id'])[0]['id']}) and not w.store.list('trial')
+    # The researcher's level change reaches the campaigns that have a resource planner.
+    w.admission.set_level('aggressive', authority='researcher', reason='The other GPU job ended')
+    w.pi._campaign_events(c['id'])
+    assert len([run for run in w.store.list('agent_run') if run['agent_id'] == planner['id']]) == 2
+
+
+def test_an_implementation_agent_runs_its_script_with_the_servers_python_in_the_sandbox(prepared):
+    import shutil
+    if not shutil.which('bwrap'):
+        pytest.skip('bubblewrap is not installed')
+    w, c, lead, _ = prepared
+    builder = w.pi.create_agent(c['id'], 'implementation_builder', 'Build', 'builder_sandbox', parent_id=lead['id'], grant_id='grant')
+    run = w.pi.enqueue(builder, 'builder_run', 'Build it')
+    run['status'] = 'submitted'; w.store.put('agent_run', run)
+    tools = PiTools(w.pi)
+    tools.call(builder['id'], run['id'], 'write', 'workspace_write', {'path': 'check.py', 'content': 'import json, sys\nprint(json.dumps(sys.version_info[:2]))\n'})
+    # The environment's python is a link into its installation (with uv, through a link to the minor version); the sandbox holds them all.
+    result = tools.call(builder['id'], run['id'], 'run', 'workspace_run', {'path': 'check.py'})
+    assert result['exit_code'] == 0, result.get('stderr')
+    assert json.loads(result['stdout']) == list(__import__('sys').version_info[:2])
