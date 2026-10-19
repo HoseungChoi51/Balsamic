@@ -10,6 +10,7 @@ import { send } from '../commands/bus';
 import { AgentDesk } from '../desks/AgentDesk';
 import { AwayDigest } from './AwayDigest';
 import { CampaignRemoval } from '../setup/CampaignRemoval';
+import { ModelTiers } from './ModelTiers';
 
 export default function MonitorPage({ campaignId, route }: PageProps) {
   const sub = route.sub || 'resources';
@@ -129,20 +130,14 @@ function Log({ campaignId }: { campaignId: string }) {
 
 function Models({ campaignId }: { campaignId: string }) {
   const models = useRead<Record<string, unknown>>(['agent-models', campaignId], `/api/v1/campaigns/${campaignId}/agents/models`);
-  const tiers = useRead<Record<string, unknown>>(['model-tiers'], '/api/v1/model-tiers');
-  if (models.isPending || tiers.isPending) return <Loading />;
-  if (models.error) return <Failed error={models.error} />;
-  const list = (models.data.models || []) as Record<string, unknown>[];
   return (
     <>
-      <Section title="Models" right={<Pill>{String(models.data.mode)} mode</Pill>}>
-        <p className="small muted">{models.data.mode === 'dev' ? 'The Pi harness runs a dev profile: models can be chosen per agent within a family.' : 'Models are locked by the harness profile; the lead reports which it uses.'}</p>
-        <table><thead><tr><th>Provider</th><th>Model</th><th>Reasoning</th><th>Context</th></tr></thead><tbody>{list.map(m => <tr key={`${m.provider}/${m.id}`}><td>{String(m.provider)}</td><td>{String(m.id)}</td><td>{m.reasoning ? (m.thinking_levels as string[]).join(', ') : 'no'}</td><td>{String(m.context_window ?? '')}</td></tr>)}</tbody></table>
-      </Section>
-      <details className="card"><summary>Tiers</summary><pre>{JSON.stringify(tiers.data, null, 1).slice(0, 4000)}</pre></details>
+      <ModelTiers />
+      {models.data ? <details className="card"><summary>This campaign's agents ({String(models.data.mode)} mode, default {JSON.stringify(models.data.default)})</summary><pre>{JSON.stringify(models.data, null, 1).slice(0, 4000)}</pre></details> : null}
     </>
   );
 }
+
 
 function Guidance({ campaignId }: { campaignId: string }) {
   const guidance = useRead<{ state: { guidance: string; revision: number; guidance_revision: number }; notes: Record<string, unknown>[] }>(['guidance', campaignId], `/api/v1/campaigns/${campaignId}/guidance`);

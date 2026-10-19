@@ -56,6 +56,7 @@ export async function mockWorkspace(page: Page, overrides: Partial<Record<string
     }
     if (path.endsWith('/removal') && method === 'GET') return json(route, { campaign: { name: 'Demo campaign' }, blockers: [], options: [{ keep: 'nothing', kept_bytes: 0 }, { keep: 'summary', kept_bytes: null }, { keep: 'records', kept_bytes: 2500000 }] });
     if (path.endsWith('/removal') && method === 'POST') { recorded.commands.push({ removal: route.request().postDataJSON() }); return json(route, { removed: 'demo' }); }
+    if (method === 'PUT' && path === '/api/v1/model-tiers') { const body = route.request().postDataJSON(); recorded.commands.push({ tiers: body }); return json(route, { mode: 'dev', revision: 1, saved: true, assignable: ['lead', 'proposal_reviewer', 'problem_importer'], providers: {}, models: [], ...body, applied: { updated: ['lead_demo'], blocked: [] } }); }
     if (method === 'POST' && path.endsWith('/seen')) { recorded.commands.push({ seen: path }); return json(route, { id: 'digest_1', seen_at: 'now' }); }
     if (method === 'POST' && path === '/api/v1/ui-events') { recorded.uiEvents.push(...route.request().postDataJSON().events); return json(route, { recorded: 1 }, 202); }
     const table: Record<string, unknown> = {
@@ -68,7 +69,9 @@ export async function mockWorkspace(page: Page, overrides: Partial<Record<string
       [`/api/v1/campaigns/${f.CAMPAIGN_ID}/monitor`]: f.monitor, [`/api/v1/campaigns/${f.CAMPAIGN_ID}/inbox`]: f.inbox, [`/api/v1/campaigns/${f.CAMPAIGN_ID}/experiments`]: f.experiments,
       [`/api/v1/campaigns/${f.CAMPAIGN_ID}/hypotheses`]: f.hypotheses, [`/api/v1/campaigns/${f.CAMPAIGN_ID}/files`]: f.files, [`/api/v1/campaigns/${f.CAMPAIGN_ID}/agents`]: f.agents,
       '/api/v1/resources': { host: { cpu_percent: 12, memory_used_bytes: 8e9, memory_total_bytes: 32e9 }, running: 1, max_workers: 2, level: 'balanced' }, '/api/v1/llm-usage': { budget: { cap_usd: 5, agent_charged_usd: .42, implementation_committed_usd: 0 }, agents: {}, family: 'gpt' },
-      '/api/v1/model-tiers': { mode: 'dev', tiers: [] }, [`/api/v1/campaigns/${f.CAMPAIGN_ID}/agents/models`]: { mode: 'dev', models: [], providers: {} }, [`/api/campaigns/${f.CAMPAIGN_ID}/agent-log`]: { lines: ['tool call 1'], events: [] },
+      '/api/v1/model-tiers': { mode: 'dev', revision: 0, saved: false, assignable: ['lead', 'proposal_reviewer', 'problem_importer'], providers: { deepseek: { auth: 'api_key', billing: 'api' } },
+        models: [{ provider: 'deepseek', id: 'deepseek-v4-pro', reasoning: true, thinking_levels: ['off', 'low', 'medium', 'high'] }, { provider: 'deepseek', id: 'deepseek-v4-flash', reasoning: false }],
+        tiers: [{ id: 'strong', label: 'Strong', model: { provider: 'deepseek', model: 'deepseek-v4-pro', effort: 'high' } }, { id: 'fast', label: 'Fast', model: { provider: 'deepseek', model: 'deepseek-v4-flash', effort: null } }], roles: { lead: 'strong', proposal_reviewer: 'strong', problem_importer: 'strong' } }, [`/api/v1/campaigns/${f.CAMPAIGN_ID}/agents/models`]: { mode: 'dev', models: [], providers: {} }, [`/api/campaigns/${f.CAMPAIGN_ID}/agent-log`]: { lines: ['tool call 1'], events: [] },
       [`/api/v1/campaigns/${f.CAMPAIGN_ID}/guidance`]: { state: { guidance: '## Research direction\n\nFind a better deflector', revision: 0, guidance_revision: 2 }, notes: [] }, '/api/v1/problems': { problems: [{ id: 'bounded_continuous', title: 'Bounded continuous' }] },
       [`/api/v1/campaigns/${f.CAMPAIGN_ID}/away-digest`]: f.digest,
       '/api/v1/experiments/trial_1': { trial: f.experiments.short[0], chain_trial_ids: ['trial_1'], validations: [], race: null }, '/api/v1/experiments/trial_1/metrics': [{ evaluations: 10, best_objective: .2 }, { evaluations: 80, best_objective: .41 }],
