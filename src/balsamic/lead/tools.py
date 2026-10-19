@@ -70,6 +70,18 @@ def register(workspace=None):
         return {"annotation_id": annotation["id"], "status": annotation["status"], "link": f"#note?sel={annotation['id']}",
                 "note": "The researcher accepts or rejects the proposed edit; the note is not changed until then."}
 
+    def merge_note_draft(tools, agent, run, args, identity):
+        thread = thread_of_run(tools, run)
+        if thread is None or not (thread.get("merge_draft") or {}).get("run_id"):
+            raise ValueError("No merge note was asked for in this thread")
+        draft = {**thread["merge_draft"], "text": args["text"][:20000], "written_at": now(), "run_id": run["id"]}
+        thread["merge_draft"] = draft
+        thread["updated_at"] = now()
+        tools.store.put("thread", thread, "thread.merge_draft_written")
+        return {"thread_id": thread["id"], "into_thread_id": draft["into_thread_id"], "note": "The researcher edits the note and merges; nothing is merged by this call."}
+
+    register_tool("merge_note_draft", "Write the merge note the researcher asked for: what this branch concluded, as the request the target conversation reads. The researcher edits it and merges.",
+                  obj({"text": S}, ["text"]), merge_note_draft)
     register_tool("thread_pin", "Keep a record in this thread's context (pinned) or keep it out (exclude). The researcher sees pins in the context drawer.",
                   obj({"record_id": S, "exclude": {"type": "boolean"}}, ["record_id"]), thread_pin)
     register_tool("lab_events", "What other threads and the lab did since: commands that completed elsewhere, as one line each.",

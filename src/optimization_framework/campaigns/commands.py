@@ -55,6 +55,8 @@ class CommandService:
         self.delegated = set(DELEGATED)
         # Called with the receipt after a command completes (outside the transaction): lab events, placeholders.
         self.listeners = []
+        # Checked before an agent's command runs: guard(command, actor, campaign) raises to refuse (autopilot's cap).
+        self.guards = []
         # Set by the service layer: thread_revision(command) -> the current revision of the command's origin thread.
         self.thread_revision = None
 
@@ -242,6 +244,8 @@ class CommandService:
                         raise ValueError("This action needs researcher authorization at the campaign manager interface")
                     from .inbox import check_issues
                     check_issues(self.workspace, command)
+                    for guard in self.guards:
+                        guard(command, actor, campaign)
                     default_wall = 60 if command.operation == "trial.create" else 120
                     if (command.operation in {"trial.create", "validation.run", "validation.execute", "inference.run", "evaluator.equivalence", "trial.continue"}
                             and command.payload.get("wall_seconds", default_wall) > campaign["delegated_trial_seconds"]):

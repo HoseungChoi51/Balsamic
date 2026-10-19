@@ -404,8 +404,10 @@ class PiTools:
         if name in EXTRA_TOOLS:
             return EXTRA_TOOLS[name]["schema"]
         schema = TOOLS[name][1]
-        if name in {"campaign_command", "command_schema"} and agent["role"] in ROLE_OPERATIONS:
-            schema = deepcopy(schema); schema["properties"]["operation"]["enum"] = sorted(ROLE_OPERATIONS[agent["role"]])
+        if name in {"campaign_command", "command_schema"}:
+            # The service layer may give this workspace's lead more operations (workspace.lead_operations); the enum is read per manifest.
+            extra = set(getattr(self.workspace, "lead_operations", ()) or ())
+            schema = deepcopy(schema); schema["properties"]["operation"]["enum"] = sorted(ROLE_OPERATIONS[agent["role"]] if agent["role"] in ROLE_OPERATIONS else OPERATIONS | extra)
         if name == "delegate" and agent["role"] == "discussion_moderator":
             schema = deepcopy(schema); schema["properties"]["role"]["enum"] = list(DISCUSSION_ROLES)
         return schema

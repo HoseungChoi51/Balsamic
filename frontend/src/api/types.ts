@@ -2,7 +2,7 @@
 export interface WorkspaceInfo { workspace_id: string; max_workers: number; dev_mode: boolean; provider: { configured: boolean; providers: Record<string, unknown> }; level: string | null; service: string }
 export type Stage = 'formulate' | 'generate' | 'optimize' | 'report';
 export interface CampaignRow { id: string; name: string; version: number; objective?: string; autonomy?: string; stage: Stage; stage_pinned: boolean; stage_basis: string;
-  autopilot: { enabled: boolean; compute_cap_seconds?: number | null; report_by?: string | null }; problem_note_id: string | null; active_thread_id: string; created_at?: string }
+  autopilot: { enabled: boolean; compute_cap_seconds?: number | null; report_by?: string | null; enabled_at?: string | null; rounds_completed?: number }; problem_note_id: string | null; active_thread_id: string; created_at?: string }
 export interface Campaign { id: string; name: string; version: number; objective: string; autonomy: string; compute_budget_seconds: number; llm_budget_usd: number;
   delegated_trial_seconds: number; validation_reserve_seconds: number; implementation_compute_budget_seconds: number; active_study_id: string | null; formulating?: boolean; [key: string]: unknown }
 export interface Summary { campaign: Campaign; row: CampaignRow; tasks: Record<string, unknown>[]; charter: Record<string, unknown> | null; budget: Record<string, unknown> | null;
@@ -10,7 +10,7 @@ export interface Summary { campaign: Campaign; row: CampaignRow; tasks: Record<s
 export interface Scoped { event_cursor: number; unchanged?: boolean; campaign_id?: string }
 export interface Thread { id: string; campaign_id: string; name: string; title: string; parent_thread_id: string | null; fork_message_id: string | null; status: string;
   merged_into: string | null; pinned_ids: string[]; excluded_ids: string[]; anchors?: string[]; summary: ThreadSummary | null; guidance_revision: number; message_count: number;
-  last_message_id: string | null; last_activity_at: string | null; busy: boolean; queued: number; unread?: boolean; strip?: { at: string; glyph: string; id: string }[]; created_at: string }
+  last_message_id: string | null; last_activity_at: string | null; busy: boolean; queued: number; unread?: boolean; strip?: { at: string; glyph: string; id: string }[]; merge_draft?: { into_thread_id: string; text: string | null; run_id?: string; written_at?: string | null } | null; created_at: string }
 export interface Threads extends Scoped { threads: Thread[]; lead: { id: string; status: string } | null; request_open: boolean; active_run: { id: string; thread_id: string } | null }
 export interface Message { id: string; campaign_id: string; role: 'user' | 'assistant' | 'system'; content: string; created_at: string; origin?: string; agent_id?: string;
   thread_id?: string; refs?: string[]; issue_id?: string; run_id?: string; desk?: string; parts?: string[]; merge_of_thread_id?: string; edited_from_message_id?: string; entry_id?: string; [key: string]: unknown }
@@ -30,7 +30,7 @@ export interface Decision { id: string; title: string; proposal?: string; ration
 export interface Issue { id: string; code: string; message: string; status: string; revision: number; options: string[]; created_at: string; affected?: string }
 export interface Inbox extends Scoped { decisions: Decision[]; issues: Issue[]; questions: Question[]; resolved: Decision[] }
 export interface Monitor extends Scoped { rows: { problem: Record<string, unknown>; budget: { worker: Record<string, unknown>; llm: Record<string, unknown> }; compute: Record<string, unknown>;
-  agents: Record<string, unknown>; needs_you: { decisions: number; issues: number; questions: number } }; pill: { state: 'clear' | 'attention' | 'digest'; text: string; row: string | null }; digest_id: string | null }
+  agents: Record<string, unknown>; autopilot?: Record<string, unknown>; needs_you: { decisions: number; issues: number; questions: number } }; pill: { state: 'clear' | 'attention' | 'digest'; text: string; row: string | null }; attention?: { row: string; text: string }[]; digest_id: string | null }
 export interface Files extends Scoped { assets: Record<string, unknown>[]; findings: Record<string, unknown>[]; reports: Record<string, unknown>[]; report_jobs: Record<string, unknown>[]; sources: Record<string, unknown>[]; artifacts: Record<string, unknown>[] }
 export interface CommandReceipt { id: string; campaign_id: string; status: string; outcome: Record<string, unknown>; actor: string; origin: unknown; request: { operation: string; payload: Record<string, unknown> }; created_at: string }
 export interface EventFrame { last_event_id: number; events: { id: number; kind: string; record_id: string | null; campaign_id: string | null; status?: string | null; revision?: number | null }[] }

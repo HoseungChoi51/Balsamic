@@ -35,5 +35,6 @@ test('a stopped run reads as stopped, never failed, and disabled controls say wh
   const row = page.getByTestId('page-experiments').locator('tr[data-record-id="trial_2"]');
   await expect(row).toContainText('stopped');
   await expect(row.locator('.pill')).toHaveAttribute('title', /not failed/);
-  await expect(page.locator('.topbar')).toContainText('Autopilot arrives with the monitor milestone');
+  await expect(page.locator('.topbar')).toContainText('Search arrives with the library milestone');
+  await expect(page.getByTestId('autopilot-toggle')).toHaveText('Autopilot off');
 });

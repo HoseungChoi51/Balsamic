@@ -167,3 +167,11 @@ The source-based planner cannot establish the Fourier order necessary for a
 particular grating's numerical convergence, exact optimizer runtime, or exact
 peak memory. Those require measurements. Planning and live monitoring make that
 uncertainty visible before a campaign spends its elapsed allowance.
+
+## The monitor (rebuilt workspace)
+
+The workspace's monitor pill and drawer read `GET /api/v1/campaigns/{id}/monitor` (`balsamic/monitor/rows.py`): the
+budget row shows measured use and allocation and a forecast labelled as a forecast; the compute row shows runs against
+the worker ceiling, the admission queue and level, and the GPU from this snapshot's `host.gpu` (NVIDIA utilization and
+memory through `nvidia-smi` when available, otherwise "devices listed; utilization not measured", or "no GPU reported").
+The Resources page polls the snapshot every five seconds only while open. See [ui-workspace.md](ui-workspace.md#m3-merge-monitor-autopilot).

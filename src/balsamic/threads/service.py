@@ -211,6 +211,11 @@ class MergeInput(Contract):
     note: str = Field(min_length=1, max_length=20000)
 
 
+class MergeDraftInput(Contract):
+    thread_id: str
+    into_thread_id: str
+
+
 class SeenInput(Contract):
     thread_id: str
     message_id: str | None = None
@@ -354,6 +359,29 @@ def register(workspace):
                                        thread_revision=target["guidance_revision"])
         return {"thread_id": source["id"], "into_thread_id": target["id"], "message_id": merge_message["id"], "run_id": run["id"] if run else None}
 
+    def merge_draft(command, actor):
+        """The lead writes the merge note from the source branch: what it concluded, as the request the target reads."""
+        researcher_only(actor)
+        values = MergeDraftInput(**command.payload)
+        source = _own(workspace, command, values.thread_id)
+        target = _own(workspace, command, values.into_thread_id)
+        if source["status"] == "merged":
+            raise ValueError("This thread was already merged")
+        if not workspace.pi.owns(command.campaign_id):
+            raise ValueError("Start the agent team first: the lead drafts the note")
+        lead = lead_agent(workspace, command.campaign_id)
+        workspace.pi._request(command.campaign_id, True)
+        prompt = (f"The researcher is about to merge this branch (\"{source['title']}\") into \"{target['title']}\" ({target['id']}). Write the merge note with merge_note_draft: "
+                  "two to five sentences on what this branch concluded, what it ruled out, and what the target conversation should do with it; measured numbers only. "
+                  "Then yield_work(complete).")
+        run = workspace.pi.enqueue(lead, "pi_run_" + command.id, prompt, mode="steer", origin={"thread_id": source["id"], "message_id": None, "actor": "researcher", "merge_into": target["id"]},
+                                   **({"leaf_entry_id": source["agent_leaf"]} if source.get("agent_leaf") else {"branch_from_entry_id": source.get("fork_entry_id")}),
+                                   thread_revision=source.get("guidance_revision"))
+        source["merge_draft"] = {"into_thread_id": target["id"], "text": None, "run_id": run["id"], "requested_at": now(), "written_at": None}
+        workspace.store.put("thread", source, "thread.merge_draft_requested")
+        return {"thread_id": source["id"], "into_thread_id": target["id"], "run_id": run["id"]}
+
+    commands.register("thread.merge_draft", merge_draft, model=MergeDraftInput)
     commands.register("thread.fork", fork, model=ForkInput)
     commands.register("thread.rename", rename, model=ThreadInput)
     commands.register("thread.park", park, model=ThreadInput)

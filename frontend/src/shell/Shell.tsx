@@ -4,6 +4,7 @@ import { Rail } from './Rail';
 import { StagePanel } from './StagePanel';
 import { ThreadChat } from '../chat/ThreadChat';
 import { MonitorDrawer } from '../monitor/MonitorDrawer';
+import { IterationProgress } from '../evolution/IterationProgress';
 import { useCampaigns, useMonitor, useSummary, useWorkspace } from '../api/queries';
 import type { Route } from '../router/routes';
 
@@ -21,7 +22,8 @@ export function Shell({ route, campaignId, threadId }: { route: Route; campaignI
   return (
     <div className="shell" data-testid="shell">
       <TopBar route={route} campaigns={campaigns.data || []} campaignId={campaignId} monitor={monitor.data} workspace={workspace.data}
-        onMonitor={() => setDrawer(open => !open)} wide={wide || route.page === 'new'} onWide={() => setWide(w => !w)} />
+        onMonitor={() => setDrawer(open => !open)} wide={wide || route.page === 'new'} onWide={() => setWide(w => !w)} version={summary.data?.campaign.version} />
+      {campaignId && summary.data?.stage.stage === 'optimize' ? <IterationProgress campaignId={campaignId} /> : null}
       <div className="body">
         <Rail route={route} summary={summary.data} monitor={monitor.data} />
         <div className={'main' + (wide || route.page === 'new' || !threadId ? ' wide' : '')}>

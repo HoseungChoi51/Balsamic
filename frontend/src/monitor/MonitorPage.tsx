@@ -8,6 +8,7 @@ import { Empty, Failed, Kv, Loading, Pill, Section, num, statusTone, when } from
 import { formatHash } from '../router/routes';
 import { send } from '../commands/bus';
 import { AgentDesk } from '../desks/AgentDesk';
+import { AwayDigest } from './AwayDigest';
 
 export default function MonitorPage({ campaignId, route }: PageProps) {
   const sub = route.sub || 'resources';
@@ -24,7 +25,7 @@ export default function MonitorPage({ campaignId, route }: PageProps) {
       {sub === 'log' ? <Log campaignId={campaignId} /> : null}
       {sub === 'models' ? <Models campaignId={campaignId} /> : null}
       {sub === 'guidance' ? <Guidance campaignId={campaignId} /> : null}
-      {sub === 'digest' ? <Empty>The away digest arrives with the monitor milestone (M3): what finished, stopped and was promoted while you were away, and what waits for you.</Empty> : null}
+      {sub === 'digest' ? <AwayDigest campaignId={campaignId} /> : null}
       {monitor.data && sub === 'resources' ? <Rows monitor={monitor.data} /> : null}
     </div>
   );

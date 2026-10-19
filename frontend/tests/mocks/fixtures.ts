@@ -38,7 +38,8 @@ export const messages = { campaign_id: CAMPAIGN_ID, event_cursor: 10, unchanged:
     { id: 'message_2', campaign_id: CAMPAIGN_ID, role: 'assistant', origin: 'lead', content: 'Two proposals exist: hypothesis_a (H01) and hypothesis_b. The first run is trial_1; see #experiments/trial_1 and the inbox at #inbox.', created_at: '2026-10-19T08:05:00Z' },
   ] };
 export const monitor = { campaign_id: CAMPAIGN_ID, event_cursor: 10, unchanged: false, rows: { problem: { name: 'Demo campaign', objective: 'Find a better deflector', tasks: 1 },
-  budget: { worker: { allocated_seconds: 120, budget_seconds: 3600 }, llm: { cap_usd: 5, agent_charged_usd: 0.42, implementation_committed_usd: 0 } }, compute: { busy: 1, limit: 2, admission: null, level: 'balanced' },
+  budget: { worker: { allocated_seconds: 120, actual_seconds: 54, forecast_seconds: 160, forecast_basis: 'measured use plus the remaining allotment of live runs', budget_seconds: 3600, exhausted: false }, llm: { cap_usd: 5, agent_charged_usd: 0.42, implementation_committed_usd: 0, spent_usd: 0.42, exhausted: false } },
+  compute: { busy: 1, limit: 2, queued: 0, level: 'balanced', gpu: { reported: true, measured: true, devices: 1, busy: false, utilization_percent: 3, memory_used_bytes: 1073741824, memory_total_bytes: 25769803776, basis: 'measured by nvidia-smi' } }, autopilot: { enabled: false, reason: 'autopilot is off', can_start: false },
   agents: { status: 'waiting', headline: 'Lead agent is waiting for your request', active: false }, needs_you: { decisions: 1, issues: 0, questions: 0 } }, pill: { state: 'attention', text: '1 waiting for you', row: 'needs_you' }, digest_id: null };
 export const inbox = { campaign_id: CAMPAIGN_ID, event_cursor: 10, unchanged: false, issues: [], questions: [], resolved: [],
   decisions: [{ id: 'extension_1', title: 'Extend trial trial_1 by 120 s?', proposal: 'The lead agent asks for 120 s more on trial trial_1.', rationale: 'The curve is still improving.', status: 'pending', resolution_revision: 0, requested_by: 'lead',
@@ -79,3 +80,7 @@ export const hypothesisCard = { hypothesis: { id: 'hypothesis_b', title: 'CMA-ES
     { hop: 'agent_session', record: { id: 'lead_demo', kind: 'agent_session', title: 'lead on gpt-5' }, via: 'the agent and its model', page: '#monitor/agents' },
     { hop: 'message', record: { id: 'message_1', kind: 'message', title: 'What do we know about the deflector so far?', created_at: '2026-10-19T08:01:00Z' }, via: 'the message that asked', page: '#branches' },
     { hop: 'thread', record: { id: THREAD_ID, kind: 'thread', title: 'Demo campaign' }, via: 'the conversation thread', page: '#branches' }] };
+
+export const digest = { digest: { id: 'digest_1', from_event: 3, to_event: 10, rounds_completed: 2, away_minutes: 95, written_at: '2026-10-19T10:00:00Z', seen_at: null,
+  stopped: [{ hypothesis_id: 'hypothesis_c', reason: 'worse than the baseline at every rung', by: 'autopilot' }], promoted: [{ hypothesis_id: 'hypothesis_b', by: 'autopilot' }], started: [{ operation: 'hypothesis.allocate', trial_id: 'trial_4', by: 'autopilot' }],
+  finished_trial_ids: ['trial_2'], decisions_waiting: [{ id: 'extension_1', title: 'Extend trial trial_1 by 120 s?' }], questions_waiting: [], commands: [{ id: 'c1', operation: 'intervention.batch', by: 'autopilot' }] }, history: [] };

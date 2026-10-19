@@ -220,6 +220,42 @@ hypothesis card has Open in graph, Trace origin and Discuss. The Hypotheses page
 ready" from the placeholders) and each proposal's stage. The experiment log reads a continued run as one chain and has
 Trace origin.
 
+## M3: merge, monitor, autopilot
+
+**Merge.** `thread.merge_draft {thread_id, into_thread_id}` gives the lead a turn on the source branch's leaf with the
+`merge_note_draft` tool; the draft is saved on the thread (`merge_draft`), the researcher edits it in the merge dialog
+and sends `thread.merge` with the note. A draft merges nothing by itself.
+
+**Monitor** (`balsamic/monitor/rows.py`). Rows: problem; budget (worker: used, allocated and the budget, all measured,
+plus a forecast labelled as such: measured use plus the remaining allotment of live runs; model spend: charged by the
+harness's price catalogue plus implementation commitments against the cap); compute (runs now and the ceiling, the
+admission queue, the resource level, the GPU row from the host snapshot, saying when no device is reported or when
+devices are listed but not measured); agents; autopilot (state, spent of cap, rounds); needs you. The pill reads
+"All clear" unless a row needs attention (something waits for you, the team is paused, stopped or failed, a budget is
+exhausted or unaccounted), or "Away digest" while an unseen digest exists. The drawer polls resources only while open.
+
+**Away digest** (`balsamic/monitor/digest.py`). When an autopilot round completes and the researcher has shown no sign
+of life (a UI event or a message) for 30 minutes, an `away_digest` is written: rounds completed, strategies stopped
+(with reasons and who stopped them), promoted, runs started and finished, decisions and questions waiting, the
+commands. `GET /campaigns/{id}/away-digest` returns the open one (and `?since=<event>` computes one on demand);
+`POST …/away-digest/{id}/seen` closes it, which the page does when it opens.
+
+**Autopilot** (`balsamic/autopilot/`). `autopilot.set {enabled, compute_cap_seconds, report_by, rationale}` is the
+researcher's; it records the baseline allocation, sets delegation while on and restores it after. The maintenance tick
+starts a round when autopilot is on, the team runs, no request is open (researcher messages come first), the lead is
+idle, and the previous round's runs have finished: a request turn in the system thread `autopilot` with
+`agent_run.autopilot = true`. Its `campaign_command` runs as actor `autopilot`: every command needs a rationale, the
+receipt's origin says so, ledger rows carry `autonomous` and the pages a badge. The cap guard refuses a command whose
+reservation would take `allocated − baseline` past the cap. When the cap is reached or the report date is within a day,
+the last round asks for the report (`report_write`) and no further round starts. Rounds completed are counted when the
+run ends; the digest is written then. This is the one exception to "the lead acts on requests" (lead-agent-readiness.md).
+
+**Iteration progress.** During Optimize the top of the stage shows the best so far (measured), the live runs and the
+finalists' rungs, from the evolution read's `progress`.
+
+**Lineage canvas.** The hand-written SVG tree is the lineage view; the `@xyflow` canvas stays behind the M2 gate
+(`ui-events/gate?milestone=M2`, the time from a round's end to the next action) and is not built.
+
 ## Telemetry and gates
 
 `ui_event` records hold the kind, time, campaign, thread, page, a session tag and a few scalars: which controls are used,
@@ -252,7 +288,7 @@ GRATING_PI_URL=http://127.0.0.1:8768 uv run optimization-lab --directory runs/de
 | M0 Foundations | built | service layer, scoped reads, SSE with kinds, command origin and thread pin, pages.json, session-tree routes, shell with chat on `main`, Inbox, Files, Monitor, Experiments, Hypotheses, New campaign, telemetry, legacy address redirects |
 | M1 Formulation and branchable chat | built | thread fork, edit-and-resend, switch, park, merge; branch map; context chip and drawer; placeholders; slash commands; problem note with annotations and Adopt; the scripted fake harness |
 | M2 Evolution graph v1 | built | ledger rows, lineage, stages, provenance, frontier interventions, allocation, stop reasons with race holds, hypothesis card, experiment log |
-| M3 Merge, monitor, autopilot | planned | merge note, monitor rows and digest, autopilot rounds within a cap, iteration progress |
+| M3 Merge, monitor, autopilot | built | merge note drafted by the lead, monitor rows with forecasts and the GPU row, the pill with a digest state, the away digest, autopilot rounds within a cap, iteration progress |
 | M4 Reuse and polish | planned | strategy library, search, keyboard navigation, export |
 
 The page placeholders for later milestones say which milestone brings them; nothing pretends to exist.

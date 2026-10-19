@@ -25,6 +25,24 @@ def install(app, workspace):
         workspace.store.get(campaign_id, "campaign")
         return scoped(workspace, campaign_id, after, lambda: inbox_view(workspace, campaign_id))
 
+    @app.get("/api/v1/campaigns/{campaign_id}/away-digest")
+    def away_digest(campaign_id: str, since: int | None = None):
+        from balsamic.monitor.digest import compute, open_digest
+        workspace.store.get(campaign_id, "campaign")
+        if since is not None:
+            return compute(workspace, campaign_id, since)
+        digest = open_digest(workspace, campaign_id)
+        history = workspace.store.list("away_digest", campaign_id)[-10:]
+        return {"digest": digest, "history": [{key: row.get(key) for key in ("id", "from_event", "to_event", "rounds_completed", "away_minutes", "written_at", "seen_at")} for row in history]}
+
+    @app.post("/api/v1/campaigns/{campaign_id}/away-digest/{digest_id}/seen")
+    def digest_seen(campaign_id: str, digest_id: str):
+        from balsamic.monitor.digest import mark_seen
+        record = workspace.store.get(digest_id, "away_digest")
+        if record["campaign_id"] != campaign_id:
+            raise HTTPException(404, "Unknown digest")
+        return mark_seen(workspace, digest_id)
+
     @app.get("/api/v1/resources")
     def resource_observations(campaign_id: str | None = None):
         from optimization_framework.execution.observability import get_observer

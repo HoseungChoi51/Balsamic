@@ -33,6 +33,7 @@ export async function mockWorkspace(page: Page, overrides: Partial<Record<string
       return json(route, { id: body.id, campaign_id: body.campaign_id, status: 'completed', actor: 'researcher', origin: body.origin || null, outcome, request: { operation: body.operation, payload: body.payload }, created_at: new Date().toISOString() });
     }
     if (method === 'POST' && path.endsWith('/ask')) { const body = route.request().postDataJSON(); recorded.commands.push({ ask: body }); return json(route, { id: 'annotation_q', anchor: body.anchor, kind: body.kind, question: body.question, tier: body.kind === 'define' ? 'lookup' : 'quick', status: 'answered', answer: { text: body.kind === 'define' ? 'efficiency: power in the target order over incident power' : 'About 0.6 is typical here.', answered_by: body.kind === 'define' ? 'glossary' : 'model' }, proposed_edit: null, created_at: '2026-10-19T09:00:00Z' }); }
+    if (method === 'POST' && path.endsWith('/seen')) { recorded.commands.push({ seen: path }); return json(route, { id: 'digest_1', seen_at: 'now' }); }
     if (method === 'POST' && path === '/api/v1/ui-events') { recorded.uiEvents.push(...route.request().postDataJSON().events); return json(route, { recorded: 1 }, 202); }
     const table: Record<string, unknown> = {
       '/api/v1/workspace': f.workspace, '/api/v1/campaigns': { campaigns: [f.campaignRow] }, [`/api/v1/campaigns/${f.CAMPAIGN_ID}/summary`]: f.summary,
@@ -45,6 +46,7 @@ export async function mockWorkspace(page: Page, overrides: Partial<Record<string
       '/api/v1/resources': { host: { cpu_percent: 12, memory_used_bytes: 8e9, memory_total_bytes: 32e9 }, running: 1, max_workers: 2, level: 'balanced' }, '/api/v1/llm-usage': { budget: { cap_usd: 5, agent_charged_usd: .42, implementation_committed_usd: 0 }, agents: {}, family: 'gpt' },
       '/api/v1/model-tiers': { mode: 'dev', tiers: [] }, [`/api/v1/campaigns/${f.CAMPAIGN_ID}/agents/models`]: { mode: 'dev', models: [], providers: {} }, [`/api/campaigns/${f.CAMPAIGN_ID}/agent-log`]: { lines: ['tool call 1'], events: [] },
       [`/api/v1/campaigns/${f.CAMPAIGN_ID}/guidance`]: { state: { guidance: '## Research direction\n\nFind a better deflector', revision: 0, guidance_revision: 2 }, notes: [] }, '/api/v1/problems': { problems: [{ id: 'bounded_continuous', title: 'Bounded continuous' }] },
+      [`/api/v1/campaigns/${f.CAMPAIGN_ID}/away-digest`]: f.digest,
       '/api/v1/experiments/trial_1': { trial: f.experiments.short[0], chain_trial_ids: ['trial_1'], validations: [], race: null }, '/api/v1/experiments/trial_1/metrics': [{ evaluations: 10, best_objective: .2 }, { evaluations: 80, best_objective: .41 }],
       '/api/v1/experiments/trial_1/logs': { text: 'worker started' }, '/api/v1/studies/study_1/race': { race: null }, [`/api/v1/implementations`]: { versions: [] },
       ...overrides,

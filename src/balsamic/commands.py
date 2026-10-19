@@ -32,6 +32,8 @@ def register(workspace):
         return {"campaign_id": campaign["id"], "stage_pin": values.stage}
 
     commands.register("campaign.stage_pin", stage_pin, model=StagePinInput)
+    # The lead runs the workspace's operations on request; the page agents keep their own lists.
+    workspace.lead_operations = {"hypothesis.allocate", "intervention.batch", "research.generate", "hypothesis.nominate", "thread.pin", "problem_note.revise", "library.apply"}
     from balsamic.threads.service import register as register_threads
     register_threads(workspace)
     from balsamic.evolution.generate import register as register_generate
@@ -40,6 +42,10 @@ def register(workspace):
     register_notes(workspace)
     from balsamic.evolution.interventions import register as register_interventions
     register_interventions(workspace)
+    from balsamic.autopilot.settings import register as register_autopilot
+    from balsamic.autopilot.rounds import register as register_rounds
+    register_autopilot(workspace)
+    register_rounds(workspace)
     from balsamic.lead.tools import register as register_tools
     from balsamic.lead.instructions import lead_instructions
     if "thread_pin" not in __import__("optimization_framework.agents.tools", fromlist=["EXTRA_TOOLS"]).EXTRA_TOOLS:
