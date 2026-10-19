@@ -40,6 +40,13 @@ def install(app, workspace):
             record["transcript"].append({"role": "user", "text": "Change the " + body.field, "field": "ready", "at": setup.now()})
             return _no_store(setup._ask(workspace, record, body.field, "Sure. "))
 
+    @app.post("/api/v1/setup/{setup_id}/abandon")
+    def abandon(setup_id: str):
+        try:
+            return _no_store(setup.abandon(workspace, setup_id))
+        except KeyError:
+            raise HTTPException(404, "Unknown setup")
+
     @app.post("/api/v1/setup/{setup_id}/create")
     def create(setup_id: str):
         try:

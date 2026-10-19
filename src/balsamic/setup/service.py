@@ -111,8 +111,21 @@ def scripted_step(workspace, draft, field):
 
 
 def ready_step(draft):
-    return {"field": "ready", "question": "That is everything. Create the campaign, or change something.",
-            "choices": [{"id": "create", "label": "Create the campaign", "patch": {}}, *[{"id": "edit:" + f, "label": "Change the " + f, "patch": {}} for f in FIELDS]], "free_text": True, "placeholder": "or tell me what to change"}
+    return {"field": "ready", "question": "That is everything. Create the campaign, change something, or start over.",
+            "choices": [{"id": "create", "label": "Create the campaign", "patch": {}}, *[{"id": "edit:" + f, "label": "Change the " + f, "patch": {}} for f in FIELDS],
+                        {"id": "restart", "label": "Start over", "description": "Abandon this draft and begin a new setup", "patch": {}}], "free_text": True, "placeholder": "or tell me what to change"}
+
+
+def abandon(workspace, setup_id):
+    """A setup the researcher gave up on: kept as a record, never created; the page starts a new one."""
+    with workspace.lock:
+        setup = workspace.store.get(setup_id, "campaign_setup")
+        if setup["status"] == "created":
+            raise ValueError("This setup already created its campaign; remove the campaign instead")
+        setup["transcript"].append({"role": "assistant", "text": "Abandoned. Starting over.", "field": setup["step"]["field"] if setup.get("step") else "ready", "choices": [], "at": now()})
+        setup.update(status="abandoned", updated_at=now())
+        workspace.store.put("campaign_setup", setup, "setup.abandoned")
+        return setup
 
 
 def parse_free_text(field, text):
@@ -260,13 +273,15 @@ def start(workspace):
 def answer(workspace, setup_id, values):
     with workspace.lock:
         setup = workspace.store.get(setup_id, "campaign_setup")
-        if setup["status"] == "created":
-            raise ValueError("This setup already created its campaign")
+        if setup["status"] in {"created", "abandoned"}:
+            raise ValueError("This setup is closed; start a new one")
         step = setup["step"]
         text = (values.text or "").strip()
         chosen = next((c for c in step.get("choices", []) if c["id"] == values.choice), None) if values.choice else None
         if chosen is None and not text:
             raise ValueError("Pick a choice or write an answer")
+        if values.choice == "restart" or (text and re.fullmatch(r"(start over|restart|abandon|start again)[.!]?", text.lower())):
+            return abandon(workspace, setup_id)
         setup["transcript"].append({"role": "user", "text": chosen["label"] if chosen else text, "choice": chosen["id"] if chosen else None, "field": step["field"], "at": now()})
         if step["field"] == "ready" and chosen and chosen["id"].startswith("edit:"):
             field = chosen["id"].split(":", 1)[1]

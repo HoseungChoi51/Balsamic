@@ -23,7 +23,7 @@ test('every old address opens its page in the current thread', async ({ page }) 
   await expect(page.getByTestId('page-experiments')).toContainText('worker started');
   // #new opens the campaign form without a thread.
   await page.evaluate(() => { location.hash = '#problem-import'; });
-  await expect(page).toHaveURL(/#new\/setup_1$/);
+  await expect(page).toHaveURL(/#new\/setup_\d+$/);
   await expect(page.getByTestId('setup-chat')).toBeVisible();
 });
 

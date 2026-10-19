@@ -9,7 +9,7 @@ import { navigate } from '../router/routes';
 import { track } from '../telemetry/events';
 
 export interface Choice { id: string; label: string; description?: string; patch?: Record<string, unknown> }
-export interface Setup { id: string; status: 'asking' | 'ready' | 'created'; mode: 'model' | 'scripted'; model: { provider: string; model: string } | null; cost_usd?: number; model_note?: string;
+export interface Setup { id: string; status: 'asking' | 'ready' | 'created' | 'abandoned'; mode: 'model' | 'scripted'; model: { provider: string; model: string } | null; cost_usd?: number; model_note?: string;
   draft: Record<string, unknown>; transcript: { role: 'user' | 'assistant'; text: string; field?: string; choices?: Choice[]; at?: string }[]; step: { field: string; question: string; choices: Choice[]; free_text: boolean; placeholder?: string } | null; campaign_id: string | null }
 
 export function useSetup(setupId: string | null) {
@@ -24,7 +24,10 @@ export function SetupChat({ setupId }: { setupId: string | null }) {
   const [error, setError] = useState<string | null>(null);
   useEffect(() => {
     if (setupId) return;
-    void api<Setup>('/api/v1/setup', { method: 'POST' }).then(created => { track('setup.start', { mode: created.mode }); navigate('#new/' + created.id); });
+    void api<Setup>('/api/v1/setup', { method: 'POST' }).then(created => {
+      track('setup.start', { mode: created.mode });
+      if (location.hash.replace(/^#/, '').split('/')[0] === 'new') navigate('#new/' + created.id);   // unless the researcher already went elsewhere
+    });
   }, [setupId]);
   useEffect(() => { scroller.current?.scrollTo({ top: scroller.current.scrollHeight }); }, [setup.data?.transcript.length]);
   const data = setup.data;
@@ -34,9 +37,15 @@ export function SetupChat({ setupId }: { setupId: string | null }) {
     try {
       const next = await api<Setup>(`/api/v1/setup/${setupId}/answer`, { method: 'POST', body: JSON.stringify(body) });
       queryClient.setQueryData(['setup', setupId], next);
+      if (next.status === 'abandoned') { track('setup.abandon', {}); navigate('#new'); return; }
       if (next.status === 'ready') await create();
     } catch (e) { setError(String((e as Error).message || e)); }
     finally { setBusy(false); }
+  };
+  const startOver = async () => {
+    if (!setupId) return;
+    try { await api(`/api/v1/setup/${setupId}/abandon`, { method: 'POST' }); } catch { /* a closed setup is already over */ }
+    track('setup.abandon', {}); navigate('#new');
   };
   const create = async () => {
     if (!setupId) return;
@@ -51,6 +60,7 @@ export function SetupChat({ setupId }: { setupId: string | null }) {
   return (
     <div className="chat" data-testid="setup-chat">
       <div className="thread-head"><strong className="grow">New campaign</strong>
+        {data!.status !== 'created' ? <button className="btn quiet small" onClick={startOver} data-testid="start-over" title="Abandon this draft and begin again">Start over</button> : null}
         <Pill tone={data!.mode === 'model' ? 'agent' : ''} title={data!.mode === 'model' ? `Questions phrased by ${data!.model?.model}` : 'No model configured: scripted questions'}>{data!.mode === 'model' ? `assistant · ${data!.model?.model}` : 'scripted assistant'}</Pill></div>
       <div className="turns" ref={scroller}>
         {data!.transcript.map((turn, i) => (

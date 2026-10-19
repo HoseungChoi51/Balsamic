@@ -9,6 +9,7 @@ import { formatHash } from '../router/routes';
 import { send } from '../commands/bus';
 import { AgentDesk } from '../desks/AgentDesk';
 import { AwayDigest } from './AwayDigest';
+import { CampaignRemoval } from '../setup/CampaignRemoval';
 
 export default function MonitorPage({ campaignId, route }: PageProps) {
   const sub = route.sub || 'resources';
@@ -56,6 +57,7 @@ function Resources({ campaignId }: { campaignId: string }) {
         <div className="row wrap">{['cautious', 'balanced', 'aggressive'].map(value => <button key={value} className={'btn small' + (level === value ? ' primary' : '')} onClick={() => setLevel(value)}>{value}</button>)}{error ? <span className="pill bad">{error}</span> : null}</div>
       </Section>
       <AgentDesk campaignId={campaignId} role="resource_planner" />
+      <CampaignRemoval campaignId={campaignId} />
       <details className="card"><summary>Raw snapshot</summary><pre>{JSON.stringify(data, null, 1).slice(0, 6000)}</pre></details>
     </>
   );

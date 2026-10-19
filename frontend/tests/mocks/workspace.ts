@@ -37,7 +37,7 @@ export async function mockWorkspace(page: Page, overrides: Partial<Record<string
     if (path.startsWith('/api/v1/setup')) {
       const stateOf = () => (recorded as any).setup || ((recorded as any).setup = JSON.parse(JSON.stringify(f.setupStart)));
       const s = stateOf();
-      if (method === 'POST' && path === '/api/v1/setup') return json(route, s, 201);
+      if (method === 'POST' && path === '/api/v1/setup') { const n = ((recorded as any).setups = ((recorded as any).setups || 0) + 1); (recorded as any).setup = { ...JSON.parse(JSON.stringify(f.setupStart)), id: 'setup_' + n }; return json(route, (recorded as any).setup, 201); }
       if (path.endsWith('/answer')) {
         const body = route.request().postDataJSON(); recorded.commands.push({ setup_answer: body });
         const choice = s.step.choices.find((c: any) => c.id === body.choice);
@@ -49,10 +49,13 @@ export async function mockWorkspace(page: Page, overrides: Partial<Record<string
         s.transcript.push({ role: 'assistant', text: s.step.question, field: s.step.field, choices: s.step.choices });
         return json(route, s);
       }
+      if (path.endsWith('/abandon')) { recorded.commands.push({ setup_abandon: true }); s.status = 'abandoned'; return json(route, s); }
       if (path.endsWith('/create')) { recorded.commands.push({ setup_create: true }); s.status = 'created'; s.campaign_id = 'deflector-v2'; return json(route, { campaign_id: 'deflector-v2', thread_id: 'thread_main_deflector-v2', setup: s }); }
       if (path.endsWith('/edit')) { const body = route.request().postDataJSON(); s.step = (f.setupSteps as any)[body.field]; s.transcript.push({ role: 'assistant', text: 'Sure. ' + s.step.question, field: body.field, choices: s.step.choices }); return json(route, s); }
       return json(route, s);
     }
+    if (path.endsWith('/removal') && method === 'GET') return json(route, { campaign: { name: 'Demo campaign' }, blockers: [], options: [{ keep: 'nothing', kept_bytes: 0 }, { keep: 'summary', kept_bytes: null }, { keep: 'records', kept_bytes: 2500000 }] });
+    if (path.endsWith('/removal') && method === 'POST') { recorded.commands.push({ removal: route.request().postDataJSON() }); return json(route, { removed: 'demo' }); }
     if (method === 'POST' && path.endsWith('/seen')) { recorded.commands.push({ seen: path }); return json(route, { id: 'digest_1', seen_at: 'now' }); }
     if (method === 'POST' && path === '/api/v1/ui-events') { recorded.uiEvents.push(...route.request().postDataJSON().events); return json(route, { recorded: 1 }, 202); }
     const table: Record<string, unknown> = {

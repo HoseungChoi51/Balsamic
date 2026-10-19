@@ -88,3 +88,20 @@ def test_the_model_phrases_the_questions_and_fills_the_draft_from_free_text(clie
     monkeypatch.setattr(workspace.pi.client, "complete", lambda *a, **k: (_ for _ in ()).throw(ValueError("harness down")))
     s = client.post(f"/api/v1/setup/{sid}/answer", json={"text": "1 h and $3"}).json()
     assert s["draft"]["compute_budget_seconds"] == 3600 and s["draft"]["llm_budget_usd"] == 3 and "scripted questions" in s["model_note"]
+
+
+def test_a_setup_is_abandoned_by_a_word_a_choice_or_the_button_and_never_created(client, workspace):
+    sid = client.post("/api/v1/setup").json()["id"]
+    client.post(f"/api/v1/setup/{sid}/answer", json={"text": "Wrong one"})
+    s = client.post(f"/api/v1/setup/{sid}/answer", json={"text": "start over"}).json()
+    assert s["status"] == "abandoned" and s["transcript"][-1]["text"] == "Abandoned. Starting over."
+    assert client.post(f"/api/v1/setup/{sid}/answer", json={"text": "x"}).status_code == 409
+    assert client.post(f"/api/v1/setup/{sid}/create").status_code == 409
+    assert workspace.store.list("campaign") == []
+    sid2 = client.post("/api/v1/setup").json()["id"]
+    assert client.post(f"/api/v1/setup/{sid2}/abandon").json()["status"] == "abandoned"
+    sid3 = client.post("/api/v1/setup").json()["id"]
+    answer = lambda **body: client.post(f"/api/v1/setup/{sid3}/answer", json=body).json()
+    answer(text="Right one"); answer(choice="later"); answer(choice="formulate"); answer(choice="small"); answer(choice="manual"); s = answer(choice="off")
+    assert any(c["id"] == "restart" for c in s["step"]["choices"])
+    assert answer(choice="restart")["status"] == "abandoned"
