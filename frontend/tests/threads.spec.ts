@@ -42,7 +42,8 @@ test('slash commands reach the bus as the commands they name; /help lists them',
   expect(recorded.commands[1]).toMatchObject({ operation: 'thread.park', payload: { thread_id: THREAD_ID } });
   await sendText('/review H01');
   await expect.poll(() => recorded.commands.length).toBe(3);
-  expect(recorded.commands[2]).toMatchObject({ operation: 'agent.message', payload: { page_agent: 'discussion_moderator' } });
+  expect(recorded.commands[2]).toMatchObject({ operation: 'agent.message', payload: { message: 'Ask the discussion moderator to review hypothesis_a in a round and report the verdicts to me.' } });
+  expect((recorded.commands[2] as any).payload.page_agent).toBeUndefined();
   await sendText('/help');
   await expect(page.getByTestId('thread-chat')).toContainText('/merge into <thread> <note>');
 });
@@ -78,4 +79,16 @@ test('the context chip opens the drawer with the three layers and pins through t
   await expect.poll(() => recorded.commands.length).toBe(1);
   expect(recorded.commands[0]).toMatchObject({ operation: 'thread.pin', payload: { thread_id: THREAD_ID, record_id: 'hypothesis_a', excluded: true } });
   await expect.poll(async () => { await page.evaluate(() => (window as any).dispatchEvent(new Event('pagehide'))); return recorded.uiEvents.map((e: any) => e.kind); }).toContain('context.exclude');
+});
+
+test('the chat suggests the next request by stage: proposal generation once a problem is set', async ({ page }) => {
+  const recorded = await mockWorkspace(page);
+  await page.goto(`/#t/${THREAD_ID}/hypotheses`);
+  const suggestions = page.getByTestId('suggestions');
+  await expect(suggestions).toContainText('Three more strategies');
+  await suggestions.getByRole('button', { name: 'Three more strategies' }).click();
+  await expect(page.getByTestId('composer')).toHaveValue('/generate 3');
+  await page.getByTestId('send').click();
+  await expect.poll(() => recorded.commands.length).toBe(1);
+  expect(recorded.commands[0]).toMatchObject({ operation: 'research.generate', payload: { count: 3, operation: 'diversify' } });
 });

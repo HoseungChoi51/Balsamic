@@ -38,7 +38,7 @@ export function parseSlash(text: string, aliases: Record<string, string> = {}): 
       return { kind: 'generate', count, operation, parents, note: note.join(' ') };
     }
     case 'evolve': { const [first, ...note] = args.split(/\s+/); return { kind: 'generate', count: 1, operation: 'revise', parents: ids(first || ''), note: note.join(' ') }; }
-    case 'review': return { kind: 'message', text: `Review ${ids(args).join(', ') || 'the open proposals'} in a round and report the verdicts.`, page_agent: 'discussion_moderator' };
+    case 'review': return { kind: 'message', text: `Ask the discussion moderator to review ${ids(args).join(', ') || 'the open proposals'} in a round and report the verdicts to me.` };
     case 'compare': return { kind: 'compare', ids: ids(args) };
     case 'probe': return { kind: 'probe' };
     case 'plan': return { kind: 'message', text: 'Plan how this campaign uses the machine within the resource level, and report the plan.', page_agent: 'resource_planner' };

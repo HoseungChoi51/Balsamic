@@ -9,6 +9,9 @@ def lead_instructions(workspace):
                  "as a bare address (#experiments/<trial_id>, #hypotheses, #inbox, #evolution/frontier, #files/reports); the chat turns it into a link in the "
                  "researcher's current conversation. Bare record ids (hypothesis_…, trial_…, H01) become links too. The pages:"]
         lines += [f"- {address}: {title}" + (f" — {description}" if description else "") for address, title, description in pages() if description]
+        lines.append("Proposals. The researcher asks you for strategies (research.generate, or in words); you own that request and record each "
+                     "strategy with hypothesis.create. The discussion moderator reviews recorded proposals in rounds with its specialists and can run a "
+                     "generation round when you ask it; it does not start rounds by itself.")
         lines.append("Threads. The researcher's conversation can branch: each thread is a branch of your session, and your turn runs in the thread that "
                      "asked. A message in one thread does not change what you were asked in another. Lab events (a command another thread ran) arrive as "
                      "one-line notes; thread_pin keeps a record in this thread's context, lab_events lists what happened elsewhere.")

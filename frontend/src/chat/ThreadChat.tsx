@@ -93,6 +93,14 @@ export function ThreadChat({ campaignId, threadId, route }: { campaignId: string
 
   const data = messages.data;
   const merged = data?.status === 'merged';
+  // What to ask next, by stage: proposal generation is the default once a problem is set.
+  const stage = summary.data?.stage.stage;
+  const counts = summary.data?.counts || {};
+  const suggestions = stage === 'formulate' ? [{ label: 'Draft the problem note', text: '/note' }, { label: 'What do you need from me?', text: 'What do you still need to know before we can formulate the problem?' }]
+    : stage === 'generate' ? (counts.hypothesis ? [{ label: 'Three more strategies', text: '/generate 3' }, { label: 'Review the proposals', text: '/review' }, { label: 'How are the runs going?', text: 'How are the runs going, and what would you do next?' }]
+      : [{ label: 'Generate three strategies', text: '/generate 3' }, { label: 'Measure evaluation speed first', text: '/probe' }, { label: 'What do you see?', text: 'What do you see in this problem, and where would you start?' }])
+    : stage === 'optimize' ? [{ label: 'How is the race going?', text: 'How is the race going, and which strategies would you stop or extend?' }, { label: 'Compare at matched cost', text: '/compare' }]
+    : stage === 'report' ? [{ label: 'What is left?', text: 'What remains open before the report is done?' }] : [];
   return (
     <div className="chat" data-testid="thread-chat">
       <div className="thread-head">
@@ -122,7 +130,8 @@ export function ThreadChat({ campaignId, threadId, route }: { campaignId: string
       {help ? <div className="card small" style={{ margin: '0 12px' }}><div className="row"><strong className="grow">Slash commands</strong><button className="btn quiet small" onClick={() => setHelp(false)}>close</button></div>
         {SLASH.map(s => <div key={s.name}><code>{s.usage}</code> <span className="muted">{s.help}</span></div>)}</div> : null}
       {editing ? <div className="row small" style={{ padding: '4px 12px' }}><Pill tone="you">editing</Pill><span className="grow muted">Resending forks a branch before this message; the original stays.</span><button className="btn quiet small" onClick={() => setEditing(null)}>cancel</button></div> : null}
-      <Composer key={editing?.id || 'new'} initial={editing?.content} onSend={sendMessage} disabled={!campaign || merged} why={!campaign ? 'Waiting for the campaign to load' : merged ? 'A merged branch takes no more messages' : undefined} />
+      <Composer key={editing?.id || 'new'} initial={editing?.content} onSend={sendMessage} disabled={!campaign || merged} why={!campaign ? 'Waiting for the campaign to load' : merged ? 'A merged branch takes no more messages' : undefined}
+        placeholder={stage === 'generate' && !counts.hypothesis ? 'Ask the lead for strategies: /generate 3' : undefined} suggestions={busy ? [] : suggestions} />
       {drawer ? <ContextDrawer threadId={threadId} campaignId={campaignId} onClose={() => setDrawer(false)} /> : null}
     </div>
   );

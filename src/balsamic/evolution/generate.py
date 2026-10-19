@@ -44,8 +44,11 @@ def register(workspace):
         parents = ", ".join(values.parent_ids) or "the recorded proposals"
         prompt = ("Research request (research.generate, batch " + batch + "): " + PROMPTS[values.operation].format(count=values.count, parents=parents)
                   + (" Researcher's note: " + values.note if values.note else "")
-                  + " Record each with hypothesis.create (mechanism, rationale, parent_ids where they apply) and set round to the next round number; "
-                  "the chat shows a placeholder per expected strategy until each lands. Send the batch to the discussion moderator for review when all are recorded, then yield_work.")
+                  + " You own this request: propose the strategies yourself from the problem, the evidence and the library, or, for a wide search, ask the "
+                  "discussion moderator (page_agent_message) to run a generation round with its specialists and report their proposals back to you. Either way, "
+                  "record each strategy with hypothesis.create (mechanism, rationale, parent_ids where they apply, round = the next round number); the chat shows "
+                  "a placeholder per expected strategy until each lands. When all are recorded, ask the moderator to review the batch, then yield_work with a short "
+                  "summary that names each strategy.")
         from balsamic.threads.service import lead_agent, thread_of
         lead = lead_agent(workspace, campaign_id)
         workspace.pi._request(campaign_id, True)

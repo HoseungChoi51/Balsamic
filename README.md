@@ -51,7 +51,7 @@ draft. "Create the campaign" records it, and the setup turns become the first tu
 ### Talk to the lead
 
 The chat on the left is the campaign's conversation with the lead; the page on the right is what the chat is about.
-The lead starts nothing until you ask. Its replies link records and pages (`trial_…`, `H03`, `#experiments/rules`) as
+The lead starts nothing until you ask; the chat suggests the next request by stage (once a problem is set: `/generate 3`). Ask the lead for proposals, not the discussion moderator: the lead records them and the moderator reviews them in rounds. Its replies link records and pages (`trial_…`, `H03`, `#experiments/rules`) as
 chips that open the page in this thread. Slash commands: `/generate 3` (three new strategies), `/generate 2 hybrid of
 H01 H02`, `/evolve H01`, `/review H01`, `/compare`, `/probe`, `/plan`, `/note`, `/fork`, `/park`, `/merge into
 <thread> <note>`, `/help`.

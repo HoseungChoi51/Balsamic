@@ -159,6 +159,8 @@ autopilot), every other active thread gets one `lab_event` line; the lead's `lab
 through the harness's single call; otherwise an activity card (`written_by: activity_only`) that says how many turns each
 side wrote and the lead's last line. Parking writes one; merging writes an activity card.
 
+**Who generates proposals.** The researcher asks the lead (`/generate N`, or in words); the lead owns the request, proposes itself or asks the discussion moderator for a generation round with its specialists, and records each strategy. The moderator reviews recorded proposals in rounds (`/review`) and never starts rounds by itself. The chat suggests the next request by stage; once a problem is set, the default suggestion is `/generate 3`.
+
 **Placeholders.** `research.generate {operation diversify|hybrid|revise, parent_ids, count, note}` (delegable) writes
 `count` `placeholder` records, posts the request as a message with `refs`, and gives the lead a turn on the thread with
 `batch_id` in its origin; each `hypothesis.create` from that run resolves the next placeholder. `/generate N …`,
