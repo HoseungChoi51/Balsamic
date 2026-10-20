@@ -1,6 +1,7 @@
 import { test, expect } from '@playwright/test';
 import { mockWorkspace } from './mocks/workspace';
 import { THREAD_ID, BRANCH_ID } from './mocks/fixtures';
+import * as f from './mocks/fixtures';
 
 test('fork here starts a branch and switches to it; the branch shows what it inherited, collapsed', async ({ page }) => {
   const recorded = await mockWorkspace(page);
@@ -81,8 +82,8 @@ test('the context chip opens the drawer with the three layers and pins through t
   await expect.poll(async () => { await page.evaluate(() => (window as any).dispatchEvent(new Event('pagehide'))); return recorded.uiEvents.map((e: any) => e.kind); }).toContain('context.exclude');
 });
 
-test('the chat suggests the next request by stage: proposal generation once a problem is set', async ({ page }) => {
-  const recorded = await mockWorkspace(page);
+test('the chat suggests the next request by stage until the lead has spoken: proposal generation once a problem is set', async ({ page }) => {
+  const recorded = await mockWorkspace(page, { [`/api/v1/threads/${THREAD_ID}/messages`]: { ...f.messages, messages: f.messages.messages.slice(0, 1) } });
   await page.goto(`/#t/${THREAD_ID}/hypotheses`);
   const suggestions = page.getByTestId('suggestions');
   await expect(suggestions).toContainText('Three more strategies');
@@ -91,4 +92,9 @@ test('the chat suggests the next request by stage: proposal generation once a pr
   await page.getByTestId('send').click();
   await expect.poll(() => recorded.commands.length).toBe(1);
   expect(recorded.commands[0]).toMatchObject({ operation: 'research.generate', payload: { count: 3, operation: 'diversify' } });
+  // Once the lead has replied, only live suggestions (from the housekeeper) are shown; stale stage defaults are not.
+  await mockWorkspace(page);
+  await page.goto(`/#t/${THREAD_ID}/hypotheses`);
+  await expect(page.getByTestId('turn')).toHaveCount(2);
+  await expect(page.getByTestId('suggestions')).toHaveCount(0);
 });

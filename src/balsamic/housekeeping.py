@@ -6,8 +6,8 @@ remembers the outcome so a failed call is retried a bounded number of times and 
 
 Jobs: a title for a forked branch (2 to 6 words from the forked message and the turns around it), a short
 label for every hypothesis (2 or 3 words) that fits a lineage node, and a one-sentence title for each finished
-exchange with the lead (the chat folds earlier exchanges under it). Branch summaries (threads/summaries.py) use
-the same model.
+exchange with the lead (the chat folds earlier exchanges under it), and three live suggestions of what to ask next
+after each lead reply (the composer's buttons). Branch summaries (threads/summaries.py) use the same model.
 """
 from __future__ import annotations
 
@@ -89,7 +89,7 @@ def _attempt(record, job):
     attempts = int(previous.get("attempts", 0))
     if attempts >= ATTEMPTS and _stale(previous.get("at")):
         attempts = 0   # a new round of attempts, an hour later
-    state[job] = {"attempts": attempts + 1, "at": now()}
+    state[job] = {"attempts": attempts + 1, "at": now(), **({"as_of": previous["as_of"]} if previous.get("as_of") else {})}
     record["housekeeping"] = state
     return state[job]["attempts"]
 
@@ -212,8 +212,89 @@ def title_exchange(workspace, question, replies):
     return title or None
 
 
+SLASH_HELP = ("/generate N [hybrid|diversify|revise of H01 H02] asks for N strategies; /review H01 H02 asks the moderator to review; "
+              "/compare compares runs at matched cost; /evolve H01 asks for a revision; /probe measures evaluation speed; /plan asks for a "
+              "resource plan; /note drafts or revises the problem note; /discuss <topic> forks a branch")
+
+
+def suggestion_context(workspace, thread, messages):
+    """What the suggestions are made from: the stage, the counts, and the last exchange."""
+    from balsamic.evolution.stages import campaign_stage
+    campaign = workspace.store.get(thread["campaign_id"], "campaign")
+    stage = campaign_stage(workspace, campaign)
+    counts = {kind: len(workspace.store.list(kind, campaign["id"])) for kind in ("hypothesis", "trial", "adaptive_race", "decision")}
+    live = sum(1 for t in workspace.store.list("trial", campaign["id"]) if t.get("status") in {"queued", "running"})
+    waiting = sum(1 for d in workspace.store.list("decision", campaign["id"]) if d.get("status") == "pending")
+    recent = [m for m in messages if m.get("origin") not in {"lab_event", "manager_system", "setup"} and m.get("kind") != "agents_link"][-4:]
+    transcript = "\n".join(f"{'Researcher' if m.get('role') == 'user' else 'Lead'}: {(m.get('content') or '')[:1200]}" for m in recent)
+    return (f"Campaign stage: {stage['stage']} ({stage['basis']}). Proposals: {counts['hypothesis']}; runs: {counts['trial']} ({live} live); "
+            f"races: {counts['adaptive_race']}; decisions waiting for the researcher: {waiting}.\nCommands: {SLASH_HELP}.\n\n{transcript}")
+
+
+def parse_suggestions(text):
+    import json
+    value = (text or "").strip()
+    if value.startswith("```"):
+        value = value.split("\n", 1)[-1].rsplit("```", 1)[0].strip()
+    start, end = value.find("["), value.rfind("]")
+    if not (0 <= start < end):
+        return []
+    try:
+        rows = json.loads(value[start:end + 1])
+    except ValueError:
+        return []
+    out = []
+    for row in rows if isinstance(rows, list) else []:
+        if isinstance(row, dict) and str(row.get("text") or "").strip():
+            label = clean(str(row.get("label") or row["text"]), 40)
+            out.append({"label": label, "text": str(row["text"]).strip()[:500]})
+    return out[:3]
+
+
+def suggest_next(workspace, thread, messages):
+    """Three things the researcher could ask next, after the lead's latest reply; stored on the thread."""
+    attempt = _attempt(thread, "suggest")
+    last = messages[-1]["id"]
+    reply = complete(workspace, "suggest_" + content_hash([thread["id"], last, attempt])[:16],
+                     "You help a researcher drive an optimization campaign through a chat with a lead agent. Given the state and the last exchange, "
+                     "propose the three most useful next requests, different from each other and from what was just done: the natural follow-up, "
+                     "a check or question about evidence, and a step forward. Each is a message the researcher can send as is: plain words, "
+                     "or one of the commands when it fits exactly. Answer with a JSON array of three objects {\"label\": at most five words, "
+                     "\"text\": the message}. Nothing else.",
+                     suggestion_context(workspace, thread, messages), max_tokens=260, label="next suggestions")
+    items = parse_suggestions(reply["text"]) if reply else []
+    if items:
+        thread["suggestions"] = {"items": items, "as_of_message_id": last, "model": reply["model"], "written_at": now()}
+        _done(thread, "suggest", model=reply["model"], cost_usd=reply.get("cost_usd"), as_of=last)
+    else:
+        _failed(thread, "suggest")
+    workspace.store.put("thread", thread, "thread.suggested" if items else None)
+    return items
+
+
+def suggestion_pending(workspace, thread):
+    """A thread whose last message is the lead's reply, not yet suggested for."""
+    from balsamic.threads.service import thread_messages
+    if thread.get("status") != "active" or thread.get("kind") == "agents":
+        return None
+    messages = [m for m in thread_messages(workspace, thread) if m.get("origin") not in {"lab_event", "manager_system"} and m.get("kind") != "agents_link"]
+    if not messages or messages[-1].get("role") == "user" or messages[-1].get("origin") not in {"lead", "autopilot", "pi"}:
+        return None
+    last = messages[-1]["id"]
+    state = (thread.get("housekeeping") or {}).get("suggest") or {}
+    if (thread.get("suggestions") or {}).get("as_of_message_id") == last:
+        return None
+    if state.get("as_of") != last:
+        state = {}   # a new reply: a fresh round of attempts
+        thread.setdefault("housekeeping", {})["suggest"] = {"as_of": last, "attempts": 0}
+    elif not (int(state.get("attempts", 0)) < ATTEMPTS or _stale(state.get("at"))):
+        return None
+    return messages
+
+
 def jobs(workspace):
-    """Pending work, oldest first: branches awaiting a title, hypotheses awaiting a label, exchanges awaiting a fold title."""
+    """Pending work, oldest first: branches awaiting a title, hypotheses awaiting a label, exchanges awaiting a fold title,
+    threads awaiting suggestions."""
     for thread in workspace.store.list("thread"):
         if thread.get("title_pending") and pending(thread, "title") and thread.get("status") != "merged":
             yield ("thread", thread)
@@ -224,6 +305,10 @@ def jobs(workspace):
         for question, replies in exchanges(workspace, campaign["id"]):
             if not question.get("fold_title") and pending(question, "fold"):
                 yield ("exchange", (question, replies))
+    for thread in workspace.store.list("thread"):
+        messages = suggestion_pending(workspace, thread)
+        if messages:
+            yield ("suggest", (thread, messages))
 
 
 def status(workspace):
@@ -246,6 +331,8 @@ def tick(workspace, limit=JOBS_PER_TICK):
                 workspace.store.put("thread", record, None)
         elif kind == "hypothesis":
             label_hypothesis(workspace, record)
+        elif kind == "suggest":
+            suggest_next(workspace, *record)
         else:
             title_exchange(workspace, *record)
         done += 1

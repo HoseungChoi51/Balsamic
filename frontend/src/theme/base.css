@@ -117,3 +117,7 @@ textarea { resize: vertical; }
 .shell.detached .chat { flex: 1; border-right: none; }
 .turn.agents-link { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
 .btn.active { border-color: var(--accent); color: var(--accent); }
+.main.split { grid-template-columns: 44px 1fr; }
+.chat-strip { border-right: 1px solid var(--line); background: var(--panel); display: flex; flex-direction: column; align-items: center; gap: 10px; padding: 10px 4px; }
+.chat-strip .btn { writing-mode: vertical-rl; transform: rotate(180deg); }
+.chat-strip .strip-label { writing-mode: vertical-rl; transform: rotate(180deg); white-space: nowrap; }

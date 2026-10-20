@@ -147,12 +147,16 @@ first message there posts one `agents_link` line in the researcher's thread; the
 agents threads in their own group of the switcher. Messages carry `agent_role`. A page agent's desk (requests made on
 its page) stays on the page.
 
+**Live suggestions.** After each lead reply the housekeeper writes three next requests for the thread
+(`thread.suggestions {items, as_of_message_id}`, event `thread.suggested`) from the stage, the counts and the last exchange;
+the composer shows them while they match the last message, and the stage defaults only until the lead has spoken.
+
 **Folded exchanges.** The chat groups messages into exchanges (a researcher message and the replies before the next one)
 and folds all but the last two under a one-sentence title: the housekeeper's `fold_title` on the researcher message
 (written once the next exchange begins), else the question's first sentence. Expand all / fold all is one button.
 
-**Detached chat.** "Detach chat" opens `#t/<thread>/chat`, a chat-only window (`window.name = balsamic-chat`); the main
-window hides its chat column so the page fills it. Page links clicked in the detached window go over
+**Detached chat.** "Detach" in the chat header opens `#t/<thread>/chat`, a chat-only window (`window.name = balsamic-chat`);
+the main window replaces its chat column by a thin strip (Reattach) so the page fills it. Page links clicked in the detached window go over
 `BroadcastChannel('balsamic.chat')` to the main window, which navigates; the chat window stays on the chat. Reattach,
 from either window, closes the chat window and shows the column again.
 

@@ -15,7 +15,7 @@ import { formatHash, navigate, type Route } from '../router/routes';
 import { Folds } from './Folds';
 import { track } from '../telemetry/events';
 
-export function ThreadChat({ campaignId, threadId, route }: { campaignId: string; threadId: string; route: Route }) {
+export function ThreadChat({ campaignId, threadId, route, onDetach }: { campaignId: string; threadId: string; route: Route; onDetach?: () => void }) {
   const queryClient = useQueryClient();
   const summary = useSummary(campaignId);
   const threads = useThreads(campaignId);
@@ -94,10 +94,14 @@ export function ThreadChat({ campaignId, threadId, route }: { campaignId: string
 
   const data = messages.data;
   const merged = data?.status === 'merged';
-  // What to ask next, by stage: proposal generation is the default once a problem is set.
+  // What to ask next: the housekeeper's live suggestions after the lead's latest reply; stage defaults only until the lead has spoken.
   const stage = summary.data?.stage.stage;
   const counts = summary.data?.counts || {};
-  const suggestions = stage === 'formulate' ? [{ label: 'Draft the problem note', text: '/note' }, { label: 'What do you need from me?', text: 'What do you still need to know before we can formulate the problem?' }]
+  const spoken = (data?.messages || []).filter(m => m.origin !== 'lab_event' && m.kind !== 'agents_link');
+  const lastId = spoken.at(-1)?.id;
+  const live = thread?.suggestions && thread.suggestions.as_of_message_id === lastId ? thread.suggestions.items : null;
+  const leadSpoke = spoken.some(m => m.role === 'assistant' && (m.origin === 'lead' || m.origin === 'autopilot'));
+  const suggestions = live ? live : leadSpoke ? [] : stage === 'formulate' ? [{ label: 'Draft the problem note', text: '/note' }, { label: 'What do you need from me?', text: 'What do you still need to know before we can formulate the problem?' }]
     : stage === 'generate' ? (counts.hypothesis ? [{ label: 'Three more strategies', text: '/generate 3' }, { label: 'Review the proposals', text: '/review' }, { label: 'How are the runs going?', text: 'How are the runs going, and what would you do next?' }]
       : [{ label: 'Generate three strategies', text: '/generate 3' }, { label: 'Measure evaluation speed first', text: '/probe' }, { label: 'What do you see?', text: 'What do you see in this problem, and where would you start?' }])
     : stage === 'optimize' ? [{ label: 'How is the race going?', text: 'How is the race going, and which strategies would you stop or extend?' }, { label: 'Compare at matched cost', text: '/compare' }]
@@ -113,6 +117,7 @@ export function ThreadChat({ campaignId, threadId, route }: { campaignId: string
         {thread?.kind === 'agents' ? <Pill tone="agent" title="What the agents said to each other while working on one of your requests">agents</Pill> : thread?.name && thread.name !== 'main' ? <Pill>{thread.status === 'parked' ? 'parked branch' : 'branch'}</Pill> : null}
         <span className="grow" />
         <ContextChip threadId={threadId} onOpen={() => setDrawer(d => !d)} />
+        {onDetach ? <button className="btn quiet small" onClick={onDetach} title="Open this chat in its own window; the page fills this one" data-testid="toggle-detach">Detach</button> : null}
         {lead ? <Pill tone={busy ? 'agent' : 'clear'} title="The lead agent's state">{busy ? 'Lead working' : lead.status === 'waiting' ? 'Lead waiting' : `Lead ${lead.status}`}</Pill> : <Pill title="No agent team yet; your first message starts it">No lead yet</Pill>}
       </div>
       <div className="turns" ref={scroller}>
@@ -134,7 +139,7 @@ export function ThreadChat({ campaignId, threadId, route }: { campaignId: string
         {SLASH.map(s => <div key={s.name}><code>{s.usage}</code> <span className="muted">{s.help}</span></div>)}</div> : null}
       {editing ? <div className="row small" style={{ padding: '4px 12px' }}><Pill tone="you">editing</Pill><span className="grow muted">Resending forks a branch before this message; the original stays.</span><button className="btn quiet small" onClick={() => setEditing(null)}>cancel</button></div> : null}
       <Composer key={editing?.id || 'new'} initial={editing?.content} onSend={sendMessage} disabled={!campaign || merged} why={!campaign ? 'Waiting for the campaign to load' : merged ? 'A merged branch takes no more messages' : undefined}
-        placeholder={stage === 'generate' && !counts.hypothesis ? 'Ask the lead for strategies: /generate 3' : undefined} suggestions={busy ? [] : suggestions} />
+        placeholder={stage === 'generate' && !counts.hypothesis ? 'Ask the lead for strategies: /generate 3' : undefined} suggestions={busy ? [] : suggestions} suggestionsNote={live ? 'suggested from the last reply' : undefined} />
       {drawer ? <ContextDrawer threadId={threadId} campaignId={campaignId} onClose={() => setDrawer(false)} /> : null}
     </div>
   );

@@ -1,6 +1,6 @@
 import { useState } from 'react';
 
-export function Composer({ onSend, disabled, why, placeholder, initial, testId = 'composer', suggestions = [] }: { onSend: (text: string) => Promise<void>; disabled?: boolean; why?: string; placeholder?: string; initial?: string; testId?: string; suggestions?: { label: string; text: string }[] }) {
+export function Composer({ onSend, disabled, why, placeholder, initial, testId = 'composer', suggestions = [], suggestionsNote }: { onSend: (text: string) => Promise<void>; disabled?: boolean; why?: string; placeholder?: string; initial?: string; testId?: string; suggestions?: { label: string; text: string }[]; suggestionsNote?: string }) {
   const [text, setText] = useState(initial || '');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -14,7 +14,7 @@ export function Composer({ onSend, disabled, why, placeholder, initial, testId =
   };
   return (
     <form className="composer" onSubmit={e => { e.preventDefault(); void submit(); }}>
-      {suggestions.length && !text ? <div className="row wrap" data-testid="suggestions">{suggestions.map(s => <button key={s.text} type="button" className="btn small" disabled={disabled || busy} onClick={() => setText(s.text)} title={s.text}>{s.label}</button>)}</div> : null}
+      {suggestions.length && !text ? <div className="row wrap" data-testid="suggestions" data-live={suggestionsNote ? '1' : undefined}>{suggestions.map(s => <button key={s.text} type="button" className="btn small" disabled={disabled || busy} onClick={() => setText(s.text)} title={s.text}>{s.label}</button>)}{suggestionsNote ? <span className="faint small">{suggestionsNote}</span> : null}</div> : null}
       <textarea value={text} onChange={e => setText(e.target.value)} placeholder={placeholder || 'Ask the lead, or type / for commands'} disabled={disabled || busy}
         data-testid={testId} onKeyDown={e => { if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') { e.preventDefault(); void submit(); } }} />
       <div className="row">

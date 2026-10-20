@@ -4,8 +4,8 @@ import { formatHash, navigate, type Route } from '../router/routes';
 import { track } from '../telemetry/events';
 import { AutopilotToggle } from '../monitor/AutopilotToggle';
 
-export function TopBar({ route, campaigns, campaignId, monitor, workspace, onMonitor, onSearch, wide, onWide, version, detached, onDetach }:
-  { route: Route; campaigns: CampaignRow[]; campaignId: string | null; monitor?: Monitor; workspace?: WorkspaceInfo; onMonitor: () => void; onSearch: () => void; wide: boolean; onWide: () => void; version?: number; detached?: boolean; onDetach?: () => void }) {
+export function TopBar({ route, campaigns, campaignId, monitor, workspace, onMonitor, onSearch, wide, onWide, version }:
+  { route: Route; campaigns: CampaignRow[]; campaignId: string | null; monitor?: Monitor; workspace?: WorkspaceInfo; onMonitor: () => void; onSearch: () => void; wide: boolean; onWide: () => void; version?: number }) {
   const current = campaigns.find(c => c.id === campaignId);
   const pill = monitor?.pill;
   return (
@@ -27,8 +27,7 @@ export function TopBar({ route, campaigns, campaignId, monitor, workspace, onMon
       {workspace?.dev_mode ? <Pill title="The Pi harness runs a dev profile">dev</Pill> : null}
       {current ? <button className={'pill ' + (pill?.state || '')} data-testid="monitor-pill" onClick={() => { track('monitor.open', { state: pill?.state || 'unknown' }); onMonitor(); }} title="Open the monitor">
         {pill ? pill.text : 'Monitor'}</button> : null}
-      {current && onDetach ? <button className={'btn quiet small' + (detached ? ' active' : '')} onClick={onDetach} title={detached ? 'Bring the chat back into this window' : 'Open the chat in its own window; the page fills this one'} data-testid="toggle-detach">{detached ? 'Reattach chat' : 'Detach chat'}</button> : null}
-      {!detached ? <button className="btn quiet small" onClick={onWide} title={wide ? 'Show the conversation' : 'Expand the page'} data-testid="toggle-wide">{wide ? 'Chat' : 'Expand'}</button> : null}
+      <button className="btn quiet small" onClick={onWide} title={wide ? 'Show the conversation' : 'Expand the page'} data-testid="toggle-wide">{wide ? 'Chat' : 'Expand'}</button>
     </header>
   );
 }

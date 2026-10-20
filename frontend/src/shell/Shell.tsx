@@ -86,13 +86,15 @@ export function Shell({ route, campaignId, threadId }: { route: Route; campaignI
   return (
     <div className="shell" data-testid="shell">
       <TopBar route={route} campaigns={campaigns.data || []} campaignId={campaignId} monitor={monitor.data} workspace={workspace.data}
-        onSearch={() => setPalette(true)} onMonitor={() => setDrawer(open => !open)} wide={wide} onWide={() => setWide(w => !w)} version={summary.data?.campaign.version}
-        detached={detached} onDetach={detach} />
+        onSearch={() => setPalette(true)} onMonitor={() => setDrawer(open => !open)} wide={wide} onWide={() => setWide(w => !w)} version={summary.data?.campaign.version} />
       {campaignId && summary.data?.stage.stage === 'optimize' ? <IterationProgress campaignId={campaignId} /> : null}
       <div className="body">
         <Rail route={route} summary={summary.data} monitor={monitor.data} />
-        <div className={'main' + (((wide || hideChat) && route.page !== 'new') || (route.page !== 'new' && !threadId) ? ' wide' : '')} data-detached={hideChat ? '1' : undefined}>
-          {route.page === 'new' ? <SetupChat setupId={route.id} /> : campaignId && threadId ? <ThreadChat campaignId={campaignId} threadId={threadId} route={route} /> : <div className="chat" />}
+        <div className={'main' + (hideChat && route.page !== 'new' ? ' split' : (wide && route.page !== 'new') || (route.page !== 'new' && !threadId) ? ' wide' : '')} data-detached={hideChat ? '1' : undefined}>
+          {route.page === 'new' ? <SetupChat setupId={route.id} /> : hideChat ? <div className="chat-strip" data-testid="chat-strip">
+            <button className="btn quiet small" onClick={detach} title="Bring the chat back into this window" data-testid="reattach-strip">Reattach chat</button>
+            <span className="faint small strip-label">chat open in its own window</span>
+          </div> : campaignId && threadId ? <ThreadChat campaignId={campaignId} threadId={threadId} route={route} onDetach={detach} /> : <div className="chat" />}
           <StagePanel route={route} campaignId={campaignId} threadId={threadId} />
         </div>
       </div>
