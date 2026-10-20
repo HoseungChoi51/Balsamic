@@ -56,6 +56,14 @@ chips that open the page in this thread. Slash commands: `/generate 3` (three ne
 H01 H02`, `/evolve H01`, `/review H01`, `/compare`, `/probe`, `/plan`, `/note`, `/fork`, `/park`, `/merge into
 <thread> <note>`, `/help`.
 
+### Confirm the charter
+
+Adopting the note hands it to the formulator, which writes the charter. The **Charter** tab of the Problem note page is
+a form: each blocking finding has its control right there (accept an assumption, type a missing number, set the bounds
+of a decision variable, answer the formulator's question from its options), every quantity and bound is an editable
+field, and "Ask the formulator" sends a change request in words when a number is not enough. Confirm is enabled once
+nothing blocks; it compiles the tasks and experiments can start.
+
 ### Find your way
 
 **Overview** (first on the rail) is the campaign at a glance and the place to remove it. Until the charter is confirmed, a

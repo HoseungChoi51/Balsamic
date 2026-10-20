@@ -171,3 +171,13 @@ a.stat { color: inherit; } a.stat:hover { text-decoration: none; border-color: v
 .callout.attention { border-color: var(--warn); background: var(--warn-soft); }
 .callout-mark { font-weight: 700; font-size: 18px; color: var(--info); width: 18px; text-align: center; }
 .callout.attention .callout-mark { color: var(--warn); }
+pre.wrap, .wrap pre { white-space: pre-wrap; overflow-wrap: anywhere; word-break: break-word; max-width: 100%; overflow-x: hidden; }
+.finding { border: 1px solid var(--line); border-left: 4px solid var(--line-2); border-radius: var(--radius-s); padding: 8px 12px; background: var(--panel); }
+.finding.blocking { border-left-color: var(--warn); background: var(--warn-soft); }
+.finding.answered { border-left-color: var(--good); }
+.finding.warning { border-left-color: var(--line-2); color: var(--ink-2); }
+.finding-code { font-family: var(--mono); font-size: 11px; color: var(--ink-3); margin-right: 8px; white-space: nowrap; }
+.finding-actions { margin-top: 6px; gap: 8px; }
+input.num { font-family: var(--mono); text-align: right; }
+input.num.bad { border-color: var(--bad); }
+table.quantities td { vertical-align: top; }

@@ -5,6 +5,7 @@ import type { PageProps } from '../shell/StagePanel';
 import { useRead, useSummary } from '../api/queries';
 import { api } from '../api/client';
 import { send } from '../commands/bus';
+import { CharterPanel } from './CharterPanel';
 import { Markdown } from '../chat/render/Markdown';
 import { VisualFrame } from '../chat/render/VisualFrame';
 import { Empty, Failed, Kv, Loading, Pill, Section, when } from '../primitives/ui';
@@ -131,39 +132,7 @@ function AnnotationCard({ annotation: a, campaignId, selected, thread, onResolve
 
 function CharterTab({ data, campaignId, version, onChanged }: { data: NoteView; campaignId: string; version?: number; onChanged: () => unknown }) {
   const charterId = data.charter?.charter_id || data.note.charter_id;
-  const charter = useRead<Record<string, unknown>>(['charter', charterId], charterId ? `/api/v1/problem-charters/${charterId}` : null, { refetchInterval: 8000 });
-  const queryClient = useQueryClient();
-  const [error, setError] = useState<string | null>(null);
   if (data.note.status === 'drafting' && !charterId) return <Empty>Adopt the note first: the formulator writes the charter from it, and you confirm the charter here.</Empty>;
-  if (!charterId) return <div className="card"><Pill tone="agent">formulator {data.charter?.status || 'starting'}</Pill> {data.charter?.error ? <span className="pill bad">{data.charter.error}</span> : <span className="small muted">The formulator is writing the charter from the adopted note; it appears here when it submits it.</span>}{data.charter?.reply ? <p className="small">{String(data.charter.reply)}</p> : null}</div>;
-  if (charter.isPending) return <Loading />;
-  if (charter.error) return <Failed error={charter.error} />;
-  const c = charter.data;
-  const quantities = (c.quantities || {}) as Record<string, Record<string, unknown>>;
-  const questions = (c.questions || []) as Record<string, unknown>[];
-  const proposals = (c.proposals || []) as Record<string, unknown>[];
-  const confirm = async () => {
-    setError(null);
-    try {
-      await api(`/api/v1/problem-charters/${charterId}/confirm`, { method: 'POST', body: JSON.stringify({ expected_revision: c.revision }) });
-      if (version !== undefined) await send({ operation: 'campaign.update', campaignId, expectedRevision: version, payload: { charter: { id: charterId, revision: c.revision }, rationale: 'Confirmed the charter adopted from the problem note' } });
-      await Promise.all([queryClient.invalidateQueries({ queryKey: ['charter', charterId] }), queryClient.invalidateQueries({ queryKey: ['summary', campaignId] }), queryClient.invalidateQueries({ queryKey: ['campaigns'] })]);
-      onChanged();
-    } catch (e) { setError(String((e as Error).message || e)); }
-  };
-  return (
-    <>
-      <Section title={String(c.title || 'Charter')} right={<div className="row"><Pill tone={c.status === 'confirmed' ? 'clear' : ''}>{String(c.status)} · r{String(c.revision)}</Pill>
-        {c.status !== 'confirmed' ? <button className="btn primary small" onClick={confirm} data-testid="confirm-charter" disabled={!!questions.filter(q => !(q as { answer?: unknown }).answer).length}>Confirm and set the tasks</button> : null}</div>}>
-        {error ? <div className="pill bad">{error}</div> : null}
-        {c.text ? <Markdown text={String(c.text)} thread={null} /> : null}
-        <h3>Quantities</h3>
-        {Object.keys(quantities).length ? <table><thead><tr><th>Name</th><th>Value</th><th>Unit</th><th>Role</th></tr></thead><tbody>{Object.entries(quantities).map(([name, q]) => <tr key={name}><td>{name}</td><td className="mono">{String(q.value ?? q.expression ?? '')}</td><td>{String(q.unit || '')}</td><td>{String(q.role || q.kind || '')}</td></tr>)}</tbody></table> : <p className="faint small">None yet.</p>}
-        {questions.length ? <><h3>Questions from the formulator</h3>{questions.map((q, i) => <div key={i} className="small">{String((q as { text?: unknown }).text || JSON.stringify(q))}</div>)}</> : null}
-        {proposals.length ? <><h3>Proposals</h3>{proposals.map((p, i) => <div key={i} className="card small"><pre>{JSON.stringify(p, null, 1).slice(0, 1500)}</pre></div>)}</> : null}
-        <p className="why">Confirming compiles the tasks and sets the campaign's charter revision; experiments can start after that. Only you confirm.</p>
-      </Section>
-      <details className="card"><summary>Raw charter</summary><pre>{JSON.stringify(c, null, 1).slice(0, 8000)}</pre></details>
-    </>
-  );
+  if (!charterId) return <div className="card"><Pill tone="agent">formulator {data.charter?.status || 'starting'}</Pill> {data.charter?.error ? <span className="pill bad">{data.charter.error}</span> : <span className="small muted">The formulator is writing the charter from the adopted note.</span>}</div>;
+  return <CharterPanel charterId={charterId} campaignId={campaignId} version={version} onChanged={onChanged} />;
 }

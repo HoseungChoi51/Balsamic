@@ -122,3 +122,21 @@ export const deskMessages = [
   { id: 'message_desk_1', campaign_id: CAMPAIGN_ID, role: 'user', origin: 'researcher', desk: 'discussion_moderator', content: 'Which proposal looked weakest?', created_at: '2026-10-19T08:12:00Z' },
   { id: 'message_desk_2', campaign_id: CAMPAIGN_ID, role: 'assistant', origin: 'page_agent', desk: 'discussion_moderator', content: 'The third: its mechanism is underspecified.', created_at: '2026-10-19T08:13:00Z' },
 ];
+export const charterView = { id: 'charter_1', title: 'Token sharing', status: 'draft', revision: 2, blocking: 3, proposals: [], history: [], values: { n_users: 10, n_agents: 2, n_seats: 12, working_days_per_month: 20, monthly_budget_tokens: null },
+  errors: { monthly_budget_tokens: 'no value' }, rendered: { text: 'Share **120 M** tokens across 12 seats.' },
+  findings: [
+    { key: 'assumption.unaccepted:working_days_per_month', code: 'assumption.unaccepted', severity: 'blocking', message: 'working_days_per_month = 20 day is an assumption. Accept it, change it, or ask for a change.', about: ['working_days_per_month'], waivable: false },
+    { key: 'quantity.no_value:monthly_budget_tokens', code: 'quantity.no_value', severity: 'blocking', message: 'monthly_budget_tokens has no value. Give one, or state how it follows from others.', about: ['monthly_budget_tokens'], waivable: false },
+    { key: 'variable.bounds:daily_cap', code: 'variable.bounds', severity: 'blocking', message: 'daily_cap is continuous and needs a lower and an upper bound.', about: ['daily_cap'], waivable: false },
+    { key: 'quantity.unused:weekly_limit_per_seat', code: 'quantity.unused', severity: 'warning', message: 'weekly_limit_per_seat reaches nothing.', about: ['weekly_limit_per_seat'], waivable: false },
+  ],
+  charter: { title: 'Token sharing', summary: 'Allocate a monthly token budget across seats.', text: 'Share {monthly_budget_tokens} tokens across {n_seats} seats.', assumptions: [], waivers: [],
+    quantities: {
+      n_users: { description: 'People on the team', kind: 'integer', role: 'input', value: 10, expression: null, units: '1', range: [1, null], origin: 'source', accepted: false },
+      n_seats: { description: 'People plus agents', kind: 'integer', role: 'derived', value: null, expression: 'n_users + n_agents', units: '1', range: null, origin: 'computed', accepted: false },
+      working_days_per_month: { description: 'Working days in the month', kind: 'integer', role: 'input', value: 20, expression: null, units: 'day', range: [1, 31], origin: 'assumed', accepted: false },
+      monthly_budget_tokens: { description: 'Tokens per month', kind: 'integer', role: 'input', value: null, expression: null, units: 'token', range: [0, null], origin: 'source', accepted: false },
+    },
+    variables: [{ name: 'daily_cap', description: 'Daily token cap for each seat', representation: 'continuous', shape: ['n_seats'], lower: 0, upper: null, values: [], units: 'token/day' }],
+    questions: [{ id: 'value_scoring', question: 'How is the value of work quantified?', options: ['Discrete 1-5 impact score', 'Continuous value in currency'], answer: null }] } };
+export const adoptedNoteView = { ...noteView, note: { ...noteView.note, status: 'adopted', adopted_revision: 2, charter_id: 'charter_1' }, charter: { charter_id: 'charter_1', status: 'ready', import_id: 'import_1', error: null } };

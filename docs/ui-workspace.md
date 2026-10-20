@@ -147,6 +147,15 @@ first message there posts one `agents_link` line in the researcher's thread; the
 agents threads in their own group of the switcher. Messages carry `agent_role`. A page agent's desk (requests made on
 its page) stays on the page.
 
+**Charter form.** `note/CharterPanel.tsx` reads `GET /api/v1/problem-charters/{id}` (the record plus `describe`: `findings`,
+`values`, `errors`, `rendered`, `blocking`) and settles each blocking finding in place: `assumption.unaccepted` → Accept
+(`accept-assumptions {names}`) or a new value; `quantity.no_value` / `quantity.range` → a number or an expression
+(`edit {changes: [{op: set, path: quantities.<name>.value|expression}]}`); `variable.bounds` / `variable.values` →
+bounds or values (`variables.<index>.lower|upper|values`); any finding → Ask the formulator (`requests`) or Waive when
+waivable. Quantities and variables are editable tables (numbers typed as numbers; derived values shown computed);
+questions are answered from their options or in words (`answers`); proposals are chosen (`…/decision`). Confirm is
+enabled only with no blocking finding and no open question, and says why otherwise. The raw charter wraps.
+
 **Overview page.** `#overview`, first on the rail: name, objective, stage and basis, charter state, tasks, counts (linked),
 budget meters, team, autopilot, threads, and the campaign's removal (moved here from Monitor → Resources).
 
