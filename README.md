@@ -124,7 +124,8 @@ paid fallback.
    `defaultModel`, optional `defaultThinkingLevel`). Every tier starts from it.
 3. **Which model each agent runs on:** **Monitor → Models**. Tiers name a model and a thinking level each; every role
    (the lead, the review-round specialists, the proposal reviewer, the implementation builder, test designer and
-   validator, the results analyst, the page agents, the problem importer) is assigned a tier. Saving applies to running
+   validator, the results analyst, the page agents, the problem importer, and the housekeeper, which names branches,
+   labels strategies for the lineage graph and writes branch summaries on the lightest tier) is assigned a tier. Saving applies to running
    agents within their campaign's model family; others switch at their next campaign. The page also says which
    providers are signed in; "… is not available from a signed-in Pi provider" means step 1 is missing.
 

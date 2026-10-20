@@ -22,7 +22,7 @@ export interface ThreadSummary { text: string; strip: { at: string; glyph: strin
 export interface Trial { id: string; campaign_id: string; task_id: string; algorithm: string; status: string; seed?: number; max_steps?: number; wall_seconds?: number; created_at?: string;
   progress?: Record<string, unknown>; result?: Record<string, unknown>; stopped_by?: string; hidden?: boolean; hypothesis_id?: string; [key: string]: unknown }
 export interface Experiments extends Scoped { short: Trial[]; long: Trial[]; checks: Trial[]; drafts: Record<string, unknown>[]; rules: Record<string, unknown>; profiles: Record<string, unknown>[] }
-export interface Hypothesis { id: string; title: string; status: string; mechanism?: string; rationale?: string; algorithm?: string; origin?: string; parent_ids?: string[];
+export interface Hypothesis { id: string; title: string; short_title?: string | null; status: string; mechanism?: string; rationale?: string; algorithm?: string; algorithm_chosen?: boolean; origin?: string; parent_ids?: string[];
   reviews?: { id: string; author: string; verdict?: string; text: string; created_at: string }[]; readiness?: { state: string; eligible: boolean; reason?: string }; created_at?: string; [key: string]: unknown }
 export interface Hypotheses extends Scoped { hypotheses: Hypothesis[]; aliases: { record_id: string; label: string }[]; rounds: Record<string, unknown> }
 export interface Decision { id: string; title: string; proposal?: string; rationale?: string; status: string; options: { id: string; label: string; description?: string }[]; recommendation?: string;

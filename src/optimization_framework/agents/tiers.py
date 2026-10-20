@@ -18,7 +18,9 @@ from .models import LEAD, ROLES, ModelChoice
 
 RECORD_ID = "model_tiers"
 IMPORTER = "problem_importer"
-ASSIGNABLE = (*ROLES, IMPORTER)
+# Not an agent: one-shot naming, labelling and summary calls (balsamic.housekeeping) on the lightest tier.
+HOUSEKEEPER = "housekeeper"
+ASSIGNABLE = (*ROLES, IMPORTER, HOUSEKEEPER)
 STRONG_ROLES = {LEAD, "proposal_reviewer", "implementation_validator", "discussion_moderator", "implementation_lead", IMPORTER}
 
 
@@ -54,14 +56,19 @@ def defaults(profile_model: dict | None) -> dict:
     model = profile_model or {"provider": "", "model": "", "effort": None}
     tiers = [{"id": tier, "label": tier.capitalize(), "model": dict(model)} for tier in ("strong", "medium", "fast")]
     return {"id": RECORD_ID, "revision": 0, "tiers": tiers,
-            "roles": {role: "strong" if role in STRONG_ROLES else "medium" for role in ASSIGNABLE}, "saved": False}
+            "roles": {role: "strong" if role in STRONG_ROLES else "fast" if role == HOUSEKEEPER else "medium" for role in ASSIGNABLE}, "saved": False}
 
 
 def load(store, profile_model=None) -> dict:
     try:
-        return store.get(RECORD_ID, "model_tiers")
+        saved = store.get(RECORD_ID, "model_tiers")
     except KeyError:
         return defaults(profile_model)
+    # A role added after the tiers were saved follows its default tier until the researcher assigns it.
+    fallback = defaults(profile_model)["roles"]
+    ids = {tier["id"] for tier in saved.get("tiers", [])}
+    missing = {role: tier for role, tier in fallback.items() if role not in saved.get("roles", {}) and tier in ids}
+    return {**saved, "roles": {**missing, **saved.get("roles", {})}} if missing else saved
 
 
 def choice_for(settings: dict, role: str) -> tuple[dict | None, str | None]:

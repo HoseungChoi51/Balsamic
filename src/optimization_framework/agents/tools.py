@@ -30,7 +30,7 @@ READ_KINDS = {"campaign", "task", "hypothesis", "source", "source_capture", "sou
 AGENT_RECORD_KINDS = {"agent_artifact", "agent_run"}
 # The commands of each page agent: the work of its page, and asking the researcher for approval.
 ROLE_OPERATIONS = {
-    "discussion_moderator": {"hypothesis.create", "hypothesis.review", "hypothesis.status", "approval.request"},
+    "discussion_moderator": {"hypothesis.create", "hypothesis.edit", "hypothesis.review", "hypothesis.status", "approval.request"},
     "experiment_operator": {"draft.save", "draft.launch", "trial.create", "trial.control", "trial.extension_request", "trial.continue",
                             "runtime.profile", "fixed_mask.run", "comparison.report", "approval.request", "experiments.rules", "trial.hide"},
     "implementation_lead": {"implementation.commission", "implementation.attach", "implementation.revalidate", "implementation.bind_builtin",

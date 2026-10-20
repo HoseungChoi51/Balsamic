@@ -30,6 +30,10 @@ test('the lineage tree draws rounds as columns with typed edges; a node opens it
   const lineage = page.getByTestId('lineage');
   await expect(lineage.locator('svg text', { hasText: 'round 1' })).toBeVisible();
   await expect(lineage.locator('path[data-kind="variant"]')).toHaveCount(1);
+  await expect(lineage.locator('[data-record-id="hypothesis_b"] text')).toHaveText('H02 Warm-start CMA-ES');
+  const legend = lineage.getByTestId('lineage-legend');
+  await expect(legend.locator('svg path')).toHaveCount(4);
+  await expect(legend).not.toContainText('Solid:');
   await expect(lineage.locator('g[data-record-id="hypothesis_c"]')).toHaveAttribute('data-stage', 'stopped');
   await lineage.locator('g[data-record-id="hypothesis_b"]').dblclick();
   await expect(page).toHaveURL(new RegExp(`#t/${THREAD_ID}/hypotheses/hypothesis_b`));

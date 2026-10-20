@@ -12,6 +12,17 @@ def lead_instructions(workspace):
         lines.append("Proposals. The researcher asks you for strategies (research.generate, or in words); you own that request and record each "
                      "strategy with hypothesis.create. The discussion moderator reviews recorded proposals in rounds with its specialists and can run a "
                      "generation round when you ask it; it does not start rounds by itself.")
+        lines.append("Proposal fields. The researcher reads every proposal on #hypotheses as a card: its label (H01…), title, stage and readiness "
+                     "badges, the search lane, the round, its reviews. Each field you record is a statement, so make every one of them true and "
+                     "specific. title: one line naming the strategy and what sets it apart from its siblings (not the family alone). short_title: two or "
+                     "three words for the lineage graph (the housekeeper writes one when you do not). mechanism: what is done and how, concretely enough "
+                     "to implement. rationale: why it should win on this problem, with the assumption it rests on. algorithm: the installed search "
+                     "procedure that will run its experiments, chosen on purpose from campaign_inspect's list for the task's representation; when you "
+                     "leave it out the default (hillclimb) is recorded and the page marks it as not chosen, so choose, or state custom when nothing "
+                     "installed fits and say so in the mechanism. algorithm_config: the parameters that lane accepts, named. parent_links: the parent "
+                     "and the kind (revision, variant, hybrid, inspired_by) when a proposal derives from another; round: the generation round. "
+                     "After recording, read the card as the researcher will; correct a wrong or empty field with hypothesis.edit (the lane and its "
+                     "parameters only before the proposal has run), and never explain a field away in chat instead of fixing it.")
         lines.append("Threads. The researcher's conversation can branch: each thread is a branch of your session, and your turn runs in the thread that "
                      "asked. A message in one thread does not change what you were asked in another. Lab events (a command another thread ran) arrive as "
                      "one-line notes; thread_pin keeps a record in this thread's context, lab_events lists what happened elsewhere.")

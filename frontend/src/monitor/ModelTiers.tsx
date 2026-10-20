@@ -7,7 +7,7 @@ import { Empty, Failed, Loading, Pill, Section } from '../primitives/ui';
 
 interface ModelChoice { provider: string | null; model: string | null; effort?: string | null }
 interface Tier { id: string; label: string; model: ModelChoice }
-interface View { mode: 'dev' | 'locked'; revision: number; saved: boolean; tiers: Tier[]; roles: Record<string, string>; assignable: string[]; providers: Record<string, { auth?: string; billing?: string }>;
+interface View { mode: 'dev' | 'locked'; revision: number; saved: boolean; tiers: Tier[]; roles: Record<string, string>; assignable: string[]; providers: Record<string, { auth?: string; billing?: string }>; housekeeping?: { enabled: boolean; model: { provider: string; model: string } | null; waiting: number; last_error: { text: string | null; at: string | null } };
   models: { provider: string; id: string; name?: string; reasoning?: boolean; thinking_levels?: string[]; family?: string }[]; updated_at?: string | null }
 
 export function ModelTiers() {
@@ -60,7 +60,12 @@ export function ModelTiers() {
             {data.assignable.map(role => <tr key={role} data-testid="role-row"><td>{role.replaceAll('_', ' ')}</td><td><select value={roles[role] || ''} aria-label={`tier of ${role}`} onChange={e => { setRoles(r => ({ ...r, [role]: e.target.value })); setDirty(true); }}>
               <option value="">(default tier)</option>{tiers.map(t => <option key={t.id} value={t.id}>{t.label} · {key(t.model)}</option>)}</select></td></tr>)}</tbody></table>
           {error ? <div className="pill bad">{error}</div> : null}{saved ? <div className="pill clear">{saved}</div> : null}
-          <p className="why">A running agent switches only within its campaign's model family; others keep their model until their campaign ends. The problem importer (the formulator behind Adopt) and the setup assistant use the lead's tier.</p>
+          <p className="why">A running agent switches only within its campaign's model family; others keep their model until their campaign ends. The problem importer (the formulator behind Adopt) and the setup assistant use the lead's tier. The housekeeper is not an agent: it names branches, labels strategies and writes branch summaries in one-shot calls.</p>
+          {data.housekeeping ? <div className="row wrap small" data-testid="housekeeping-status">
+            <Pill tone={data.housekeeping.last_error?.text ? 'bad' : data.housekeeping.enabled ? 'clear' : ''}>housekeeper {data.housekeeping.model ? key(data.housekeeping.model) : 'no model'}</Pill>
+            <span className="faint">{data.housekeeping.waiting} job{data.housekeeping.waiting === 1 ? '' : 's'} waiting</span>
+            {data.housekeeping.last_error?.text ? <span className="pill bad" title={data.housekeeping.last_error.at || ''}>last call failed: {data.housekeeping.last_error.text}</span> : null}
+          </div> : null}
         </Section>)}
     </>
   );

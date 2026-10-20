@@ -20,7 +20,9 @@ def create(workspace, campaign_id, values, *, identity, bundle=None):
         links.append({"id": values.library_entry_id, "kind": "inspired_by"})
     record = {**values.model_dump(mode="json"), "parent_links": links, "id": identity, "created_at": now(),
         "charter_version": campaign["version"], "origin": "researcher", "reviews": [], "status_revision": 0,
-        "claim_level": "rationale_only", "executable": values.algorithm in {item["id"] for item in algorithms()}}
+        "claim_level": "rationale_only", "executable": values.algorithm in {item["id"] for item in algorithms()},
+        # The default search lane is recorded like a choice; the page says when it was not one.
+        "algorithm_chosen": "algorithm" in values.model_fields_set}
     if values.implementation_version_id:
         if bundle is None or bundle["version"]["id"] != values.implementation_version_id:
             raise ValueError("A verified implementation binding is required")

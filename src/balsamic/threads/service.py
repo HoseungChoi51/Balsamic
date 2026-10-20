@@ -303,6 +303,7 @@ def register(workspace):
         identity = f"thread_{content_hash(command.id)[:10]}_{command.campaign_id}"
         title = branch_title(values.title or message.get("content"))
         record = {"id": identity, "campaign_id": command.campaign_id, "name": title, "title": title, "parent_thread_id": source["id"],
+                  "title_source": "researcher" if values.title else "message", "title_pending": not values.title,
                   "fork_message_id": values.message_id, "fork_entry_id": entry, "agent_leaf": None, "status": "active", "merged_into": None,
                   "pinned_ids": list(source.get("pinned_ids") or []), "excluded_ids": list(source.get("excluded_ids") or []), "anchors": values.anchors,
                   "summary": None, "guidance_revision": int(source.get("guidance_revision", 0)), "last_seen_message_id": None, "created_at": now(), "updated_at": now()}
@@ -316,7 +317,7 @@ def register(workspace):
         if not (values.title or "").strip():
             raise ValueError("A thread needs a title")
         title = branch_title(values.title)
-        thread.update(title=title, name=title if thread["name"] != MAIN else MAIN, updated_at=now())
+        thread.update(title=title, name=title if thread["name"] != MAIN else MAIN, title_source="researcher", title_pending=False, updated_at=now())
         workspace.store.put("thread", thread, "thread.renamed")
         return {"thread_id": thread["id"]}
 

@@ -1,5 +1,7 @@
 """The monitor: resources, model usage, the agent team, the inbox. Reads only; the resource level is the one write."""
 from fastapi import HTTPException, Query
+
+from balsamic import housekeeping
 from pydantic import Field
 from typing import Literal
 
@@ -93,7 +95,8 @@ def install(app, workspace):
         if models is None:
             status, models = harness_models()
         return {"mode": "dev" if dev_profile() else "locked", **load(workspace.store, profile_defaults()),
-                "assignable": list(ASSIGNABLE), "providers": (status or {}).get("providers", {}), "models": models}
+                "assignable": list(ASSIGNABLE), "providers": (status or {}).get("providers", {}), "models": models,
+                "housekeeping": housekeeping.status(workspace)}
 
     @app.post("/api/v1/providers/login")
     def provider_login():

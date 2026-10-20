@@ -130,10 +130,22 @@ summaries, the context drawer and placeholders arrive with M1.
 
 ## M1: formulation and branchable chat
 
+**Housekeeping.** `balsamic/housekeeping.py` runs naming and labelling jobs on the maintenance tick, a few per tick,
+on the lightest model: the `housekeeper` role on the model tiers (Monitor → Models; default tier `fast`), or the
+profile default before tiers are saved. Jobs: a two-to-six-word title for a branch forked without one (from the forked
+message and the turns around it; `thread.title_source = housekeeper`), a two-or-three-word `short_title` for every
+hypothesis (lineage nodes and chips show it; the title stays the full statement), and the branch summary cards.
+Each record keeps the outcome under `housekeeping.<job>`; a failed call is retried at most three times. Nothing runs
+with `GRATING_LLM_DISABLED` or without a model.
+
+**Checkpoint turns.** When a lead turn ends without `yield_work`, the controller asks once for the checkpoint
+(`pi_continue_*`). The report of that checkpoint is not posted as a message: the researcher already has the answer.
+Only text the lead writes beside it in that turn would be.
+
 **Threads.** `thread.fork {thread_id, message_id, title?}` starts a branch at a message; its `fork_entry_id` is the entry
 of the lead's reply to that message, and the branch's first turn carries `branch_from_entry_id` so the harness branches
 the session there. Each later turn carries the thread's `agent_leaf`; the reply moves it (`agent_run.result.entry_ids`,
-`message.entry_id`). Titles are shortened by `threads.service.branch_title` to at most 48 characters (first sentence or line, markdown and slash prefix stripped, cut at a word) whether given or derived from the forked message, so they fit the switcher. `thread.rename`, `thread.park` (writes a summary card), `thread.unpark`, `thread.pin {record_id,
+`message.entry_id`). A title the researcher gives is kept (shortened by `threads.service.branch_title` to 48 characters at a word). A branch forked without a title gets a capped placeholder and `title_pending`; the housekeeper (below) names it on the next maintenance tick. `thread.rename`, `thread.park` (writes a summary card), `thread.unpark`, `thread.pin {record_id,
 pinned, excluded}` (delegable: the lead's `thread_pin` tool) and `thread.merge {thread_id, into_thread_id, note}` (one
 message `merge_of_thread_id` in the target, the target's revision bumped, the source parked as merged, a lead turn on the
 target's leaf). A merged thread takes no more messages. Edit-and-resend is a fork before the edited message plus

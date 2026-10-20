@@ -13,6 +13,9 @@ test('the monitor drawer shows measured and forecast budget, the GPU row and aut
   await expect(rows).toContainText('forecast: measured use plus the remaining allotment of live runs');
   await expect(rows).toContainText('idle · 3 % · 1.0 of 24.0 GiB (measured by nvidia-smi)');
   await expect(rows).toContainText('Off: the lead acts on your requests.');
+  await expect(rows.locator('svg.meter')).toHaveCount(2);
+  await expect(rows.locator('svg.slots rect')).toHaveCount(2);
+  await expect(rows.locator('svg.ring')).toHaveCount(2);
   await page.getByTestId('monitor-drawer').getByRole('link', { name: 'Away digest' }).click();
   await expect(page.getByTestId('page-monitor')).toContainText('While you were away');
   await expect(page.getByTestId('page-monitor')).toContainText('hypothesis_c (worse than the baseline at every rung; autopilot)');
@@ -52,4 +55,19 @@ test('during Optimize the iteration progress line shows the best so far and the 
   await page.goto(`/#t/${THREAD_ID}/evolution`);
   await expect(page.getByTestId('iteration-progress')).toContainText('best so far 0.5200 (measured)');
   await expect(page.getByTestId('iteration-progress')).toContainText('1 live run');
+});
+
+test('the resources, usage and agents tabs draw rings, slots, bars and cards from the snapshots', async ({ page }) => {
+  await mockWorkspace(page);
+  await page.goto(`/#t/${THREAD_ID}/monitor/resources`);
+  const stats = page.getByTestId('machine-stats');
+  await expect(stats.locator('svg.ring')).toHaveCount(3);
+  await expect(stats).toContainText('16 cores');
+  await expect(stats.locator('svg.slots rect')).toHaveCount(3);
+  await page.goto(`/#t/${THREAD_ID}/monitor/usage`);
+  await expect(page.locator('.bars .bar-row')).toHaveCount(2);
+  await expect(page.locator('svg.columns rect')).toHaveCount(1);
+  await page.goto(`/#t/${THREAD_ID}/monitor/agents`);
+  await expect(page.getByTestId('agent-cards').locator('.agent-card')).toHaveCount(1);
+  await expect(page.getByTestId('agent-cards')).toContainText('Waiting for your request');
 });

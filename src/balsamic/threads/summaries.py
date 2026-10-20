@@ -3,7 +3,6 @@
 With model calls allowed and a lead to bill, two sentences come from the lead's model through the harness's single
 call; otherwise the card says what happened from the records alone and is labelled ``activity_only``.
 """
-import os
 
 from optimization_framework.storage.sqlite import now
 
@@ -24,8 +23,16 @@ def summarize(workspace, thread, messages, *, reason, model=True):
     strip = activity_strip(workspace, thread, messages)
     card = {"text": activity_text(messages), "strip": strip[-40:], "as_of_message_id": messages[-1]["id"] if messages else None,
             "written_by": "activity_only", "stale": False, "edited": False, "reason": reason, "written_at": now()}
-    if not model or os.environ.get("GRATING_LLM_DISABLED") or not messages:
+    if not model or not messages:
         return card
+    from balsamic import housekeeping
+    transcript = "\n".join(f"{'Researcher' if m.get('role') == 'user' else 'Lead'}: {(m.get('content') or '')[:1200]}" for m in messages[-TURNS:] if m.get("origin") != "lab_event")
+    reply = housekeeping.complete(workspace, "summary_" + thread["id"],
+        "Summarize a research conversation branch in two plain sentences: what was asked, and what was concluded or left open. No praise, no advice.",
+        transcript, max_tokens=200, label="branch summary", timeout=120)
+    if reply:
+        card.update(text=reply["text"][:600], written_by="model", model=reply["model"], cost_usd=reply.get("cost_usd"))
+    return card
     config = workspace.pi.configuration(thread["campaign_id"]) or {}
     default = (config.get("models") or {}).get("default")
     if not default:

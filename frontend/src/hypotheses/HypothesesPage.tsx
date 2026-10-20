@@ -45,12 +45,12 @@ export default function HypothesesPage({ campaignId, route, threadId }: PageProp
         {data.hypotheses.map(h => { const node = stages[h.id]; return (
           <article key={h.id} className={'card' + (selection.id === h.id ? ' selected' : '')} data-record-id={h.id} data-testid="hypothesis" style={{ cursor: 'pointer' }}
             onClick={() => { selection.select(h.id); navigate(formatHash({ page: 'hypotheses', id: h.id, sel: h.id }, route.thread)); }}>
-            <div className="row wrap"><Pill>{labels[h.id] || h.id.slice(0, 14)}</Pill><strong className="grow">{h.title}</strong>
+            <div className="row wrap"><Pill>{labels[h.id] || h.id.slice(0, 14)}</Pill><strong className="grow">{h.title}{h.short_title ? <span className="faint small" style={{ marginLeft: 8, fontWeight: 400 }}>{h.short_title}</span> : null}</strong>
               {node ? <Pill tone={STAGE_TONE[node.stage]} title={node.stop_reason || node.stage}>{node.stage}</Pill> : <Pill tone={statusTone(h.status)}>{h.status}</Pill>}
               {h.readiness ? <Pill tone={h.readiness.eligible ? 'clear' : 'attention'} title={h.readiness.reason}>{h.readiness.state.replaceAll('_', ' ')}</Pill> : null}
               {node?.autonomous ? <Pill tone="agent">autopilot</Pill> : null}</div>
             <p className="small muted">{(h.mechanism || '').slice(0, 240)}</p>
-            <div className="row small faint"><span>{h.algorithm || 'no executable algorithm yet'}</span><span>· {h.reviews?.length || 0} reviews</span><span>· round {node?.round ?? '–'}</span><span>· {when(h.created_at)}</span></div>
+            <div className="row small faint"><span>{h.algorithm ? <>{h.algorithm}{h.algorithm_chosen === false ? <span className="pill attention" style={{ marginLeft: 6 }} title="The default search lane was recorded because none was chosen; the lead can set it with hypothesis.edit">default, not chosen</span> : null}</> : 'no executable algorithm yet'}</span><span>· {h.reviews?.length || 0} reviews</span><span>· round {node?.round ?? '–'}</span><span>· {when(h.created_at)}</span></div>
           </article>); })}
         {placeholders.filter(p => p.status === 'pending').map(p => <div key={p.id} className="card" data-testid="placeholder"><div className="row"><Pill tone="agent">generating</Pill><span className="faint">{p.id}: the lead is recording this strategy</span></div></div>)}
       </> : <Empty>No proposal yet. Ask the lead for hypotheses in the conversation (/generate 3); each lands here with its mechanism, its stage and its review.</Empty>) : null}

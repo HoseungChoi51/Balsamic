@@ -779,6 +779,10 @@ class PiController:
                     text = (run.get("result") or {}).get("text")
                     parts = [part for part in (run.get("result") or {}).get("parts") or [] if isinstance(part, str) and part.strip()]
                     report = ((run.get("disposition") or {}).get("report") or "").strip()
+                    if report and rid.startswith("pi_continue_"):
+                        # The checkpoint asked for after a silent turn: its report restates an answer the researcher
+                        # already has. Only text the lead wrote beside it, if any, is new.
+                        report = ""
                     if report:
                         # The reply given in yield_work is the message; lines written beside tool calls fold under it.
                         earlier = parts or ([text] if text and text.strip() else [])
@@ -849,7 +853,7 @@ class PiController:
                             if stalls <= 2:
                                 self.enqueue(agent, "pi_continue_" + content_hash(rid)[:28], NOTICE +
                                     "Your last turn ended without yield_work. If the researcher's request is fulfilled, or you only answered a question, "
-                                    "call yield_work(complete) with a one-line summary. If jobs or assistants you started for the request are still running, "
+                                    "call yield_work(complete) with a one-line summary; the researcher has your answer already, so the report must not repeat it. If jobs or assistants you started for the request are still running, "
                                     "or you asked the researcher something, call yield_work(waiting). If a part of the request itself is still undone, do that "
                                     "part first. Start nothing the request did not ask for, and write no further message unless there is something new to report.")
                             else:

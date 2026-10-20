@@ -114,7 +114,7 @@ def rows(workspace, campaign_id, *, with_curves=False):
         verdicts = [r.get("verdict") for r in reviews if r.get("verdict")]
         review = {"verdict": verdicts[-1] if verdicts else None, "count": len(reviews), "readiness": readiness(store, hypothesis)}
         origin = created_by.get(hypothesis["id"], {})
-        row = {"id": hypothesis["id"], "label": aliases.get(hypothesis["id"]), "title": hypothesis["title"], "status": hypothesis.get("status", "proposed"),
+        row = {"id": hypothesis["id"], "label": aliases.get(hypothesis["id"]), "title": hypothesis["title"], "short_title": hypothesis.get("short_title"), "status": hypothesis.get("status", "proposed"),
                "origin": hypothesis.get("origin"), "actor": origin.get("actor"), "autonomous": origin.get("actor") == "autopilot", "round": hypothesis.get("round"),
                "parent_links": hypothesis.get("parent_links") or [{"id": p, "kind": "revision"} for p in hypothesis.get("parent_ids") or []],
                "algorithm": hypothesis.get("algorithm"), "worker_seconds": sum(float(t.get("execution_seconds") or 0) for t in own),
