@@ -155,7 +155,7 @@ def test_import_produces_a_reviewable_charter_through_the_harness(tmp_path):
         imports.add_document(record["id"], "late.md", b"x")
     manifest = imports.manifest(record["id"], run["id"])
     assert {tool["name"] for tool in manifest["tools"]} == {"files_list", "file_read", "files_search", "problem_catalog",
-        "charter_read", "charter_check", "charter_submit", "question_ask", "charter_propose"}
+        "charter_read", "charter_check", "charter_submit", "question_ask", "charter_propose", "panel_render"}
     assert "Formulating a scientific optimization problem" in manifest["instructions"]
     catalog = imports.call(record["id"], run["id"], "c1", "problem_catalog", {})
     assert "meent_2d_dual_polarization_deflector" in {adapter["problem_id"] for adapter in catalog["adapters"]}

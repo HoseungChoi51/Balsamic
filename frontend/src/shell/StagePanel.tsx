@@ -5,6 +5,7 @@ import { pageTitle } from '../router/routes';
 import { Loading } from '../primitives/ui';
 import { DeskPanel, deskRole } from '../desks/AgentDesk';
 import { NextStep } from './NextStep';
+import { PanelsOnPage } from '../panels/PanelsOnPage';
 import { useCampaigns } from '../api/queries';
 
 const RELOADED = 'balsamic.chunkReload';
@@ -56,11 +57,13 @@ export function StagePanel({ route, campaignId, threadId, desk = true }: { route
     <main className={'stage' + (desk && role ? ' with-desk' : '')} data-testid={`page-${route.page}`} data-page={route.page} data-sub={route.sub || ''}>
       <h1 className="sr-only">{pageTitle(route.page, route.sub)}</h1>
       {route.page !== 'new' ? <NextStep step={step} threadId={threadId} page={route.sub ? `${route.page}/${route.sub}` : route.page} /> : null}
+      {route.page !== 'new' && campaignId ? <PanelsOnPage campaignId={campaignId} page={route.sub ? `${route.page}/${route.sub}` : route.page} placement="top" threadId={threadId} /> : null}
       <PageBoundary where={route.raw}>
         <Suspense fallback={<Loading what="Opening the page" />}>
           <Page route={route} campaignId={campaignId || ''} threadId={threadId} />
         </Suspense>
       </PageBoundary>
+      {route.page !== 'new' && campaignId ? <PanelsOnPage campaignId={campaignId} page={route.sub ? `${route.page}/${route.sub}` : route.page} placement="bottom" threadId={threadId} /> : null}
       {desk && role && campaignId ? <DeskPanel campaignId={campaignId} role={role} mode="docked" /> : null}
     </main>
   );

@@ -156,6 +156,9 @@ waivable. Quantities and variables are editable tables (numbers typed as numbers
 questions are answered from their options or in words (`answers`); proposals are chosen (`…/decision`). Confirm is
 enabled only with no blocking finding and no open question, and says why otherwise. The raw charter wraps.
 
+**Panels.** Pages the lead and the formulator compose from a catalog of components, validated, resolved on the server
+and rendered by our components: `docs/panels.md`. The to-do for A2UI adoption, with its review date, is there.
+
 **Overview page.** `#overview`, first on the rail: name, objective, stage and basis, charter state, tasks, counts (linked),
 budget meters, team, autopilot, threads, and the campaign's removal (moved here from Monitor → Resources).
 

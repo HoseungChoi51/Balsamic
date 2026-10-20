@@ -183,3 +183,13 @@ input.num.bad { border-color: var(--bad); }
 table.quantities td { vertical-align: top; }
 .finding.next { box-shadow: 0 0 0 2px var(--you-soft); border-left-color: var(--you); }
 .finding.answered { background: var(--panel-2); }
+/* panels composed by agents */
+.panels { display: grid; gap: 12px; margin: 0 0 12px; }
+.panels.bottom { margin: 12px 0 0; }
+.panel { border: 1px solid var(--agent); border-radius: var(--radius); background: var(--panel); padding: 10px 14px; display: grid; gap: 8px; }
+.panel-head { display: flex; align-items: center; gap: 8px; }
+.panel-field { display: grid; gap: 4px; }
+.panel-field label { display: flex; align-items: center; gap: 8px; font-weight: 600; font-size: 13px; }
+.panel-section { border-left: 3px solid var(--agent-soft); padding-left: 10px; }
+.panel.compact { padding: 8px 10px; }
+.turn.panel-card { display: grid; gap: 6px; }

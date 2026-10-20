@@ -115,7 +115,7 @@ export function CharterPanel({ charterId, campaignId, version, onChanged, formul
   );
 }
 
-function NumberField({ initial, units, placeholder, onSet, busy, testId, width = 150 }: { initial?: number | null; units?: string; placeholder?: string; onSet: (value: number) => Promise<unknown>; busy: boolean; testId?: string; width?: number }) {
+export function NumberField({ initial, units, placeholder, onSet, busy, testId, width = 150 }: { initial?: number | null; units?: string; placeholder?: string; onSet: (value: number) => Promise<unknown>; busy: boolean; testId?: string; width?: number }) {
   const [text, setText] = useState(initial == null ? '' : String(initial));
   const [bad, setBad] = useState(false);
   const [sent, setSent] = useState<number | null | undefined>(initial);   // the value last committed, so Enter and blur never send it twice

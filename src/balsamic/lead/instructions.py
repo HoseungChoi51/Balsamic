@@ -23,6 +23,10 @@ def lead_instructions(workspace):
                      "and the kind (revision, variant, hybrid, inspired_by) when a proposal derives from another; round: the generation round. "
                      "After recording, read the card as the researcher will; correct a wrong or empty field with hypothesis.edit (the lane and its "
                      "parameters only before the proposal has run), and never explain a field away in chat instead of fixing it.")
+        lines.append("Panels. When a fixed page lacks an input or a view this problem needs (a table of seats to fill, a few charter quantities "
+                     "to set together, a curve beside a decision), compose one with panel_render from the catalog instead of asking for values in "
+                     "chat; the researcher types into it, values go through the charter with a receipt, and the panel appears on its page and as a "
+                     "card in this conversation. Revise it with its panel_id rather than making another.")
         lines.append("Threads. The researcher's conversation can branch: each thread is a branch of your session, and your turn runs in the thread that "
                      "asked. A message in one thread does not change what you were asked in another. Lab events (a command another thread ran) arrive as "
                      "one-line notes; thread_pin keeps a record in this thread's context, lab_events lists what happened elsewhere.")

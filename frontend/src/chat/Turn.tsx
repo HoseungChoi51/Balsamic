@@ -1,7 +1,10 @@
 import type { Message } from '../api/types';
 import { Markdown } from './render/Markdown';
 import { Pill, when } from '../primitives/ui';
-import { formatHash } from '../router/routes';
+import { formatHash, withThread } from '../router/routes';
+import { useRead } from '../api/queries';
+import type { Panel } from '../api/types';
+import { PanelView } from '../panels/PanelView';
 
 const ORIGIN_LABEL: Record<string, string> = { researcher: 'You', lead: 'Lead', page_agent: 'Agent', autopilot: 'Autopilot', lab_event: 'Lab', manager_system: 'Lab', pi: 'Lead', setup: 'Setup' };
 
@@ -10,6 +13,7 @@ export function Turn({ message, thread, aliases, onFork, onEdit }: { message: Me
   const lab = message.origin === 'lab_event' || message.origin === 'manager_system' || !!message.issue_id;
   const role = message.agent_role && message.agent_role !== 'lead' ? message.agent_role.replaceAll('_', ' ') : null;
   const who = user ? 'You' : role || ORIGIN_LABEL[String(message.origin)] || (message.role === 'assistant' ? 'Lead' : message.role);
+  if (message.kind === 'panel_link' && message.panel_id) return <PanelCard message={message} thread={thread} />;
   if (message.kind === 'agents_link' && message.link_thread_id) {
     return (
       <article className="turn lab agents-link" data-message-id={message.id} data-testid="agents-link">
@@ -31,6 +35,17 @@ export function Turn({ message, thread, aliases, onFork, onEdit }: { message: Me
         {onEdit && user ? <button className="btn quiet small" onClick={() => onEdit(message)} title="Edit and resend as a new branch" data-testid="edit-resend">Edit</button> : null}
       </div>
       {lab ? <div>{message.content}</div> : <Markdown text={message.content} thread={thread} aliases={aliases} />}
+    </article>
+  );
+}
+
+/** A panel the lead composed in this conversation: shown inline, with a link to the page it belongs to. */
+function PanelCard({ message, thread }: { message: Message; thread: string | null }) {
+  const panel = useRead<Panel>(['panel', message.panel_id], `/api/v1/panels/${message.panel_id}`, { refetchInterval: 15000 });
+  return (
+    <article className="turn lab panel-card" data-message-id={message.id} data-testid="panel-card">
+      <div className="row"><Pill tone="agent">panel</Pill><span className="grow">{message.content}</span>{panel.data ? <a href={withThread(panel.data.page, thread)} data-testid="open-panel-page">open the page</a> : null}</div>
+      {panel.data ? <PanelView panel={panel.data} threadId={thread} compact /> : <span className="faint small">{panel.error ? 'This panel is gone.' : 'Loading the panel…'}</span>}
     </article>
   );
 }

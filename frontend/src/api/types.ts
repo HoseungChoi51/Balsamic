@@ -13,7 +13,7 @@ export interface Thread { id: string; campaign_id: string; name: string; title: 
   merged_into: string | null; pinned_ids: string[]; excluded_ids: string[]; anchors?: string[]; summary: ThreadSummary | null; guidance_revision: number; message_count: number;
   last_message_id: string | null; last_activity_at: string | null; busy: boolean; queued: number; unread?: boolean; strip?: { at: string; glyph: string; id: string }[]; merge_draft?: { into_thread_id: string; text: string | null; run_id?: string; written_at?: string | null } | null; created_at: string }
 export interface Threads extends Scoped { threads: Thread[]; lead: { id: string; status: string } | null; request_open: boolean; active_run: { id: string; thread_id: string } | null }
-export interface Message { id: string; campaign_id: string; role: 'user' | 'assistant' | 'system'; content: string; created_at: string; origin?: string; agent_id?: string; agent_role?: string; fold_title?: string | null; kind?: string; link_thread_id?: string; to_agent_id?: string;
+export interface Message { id: string; campaign_id: string; role: 'user' | 'assistant' | 'system'; content: string; created_at: string; origin?: string; agent_id?: string; agent_role?: string; fold_title?: string | null; kind?: string; link_thread_id?: string; panel_id?: string; to_agent_id?: string;
   thread_id?: string; refs?: string[]; issue_id?: string; run_id?: string; desk?: string; parts?: string[]; merge_of_thread_id?: string; edited_from_message_id?: string; entry_id?: string; [key: string]: unknown }
 export interface Question { id: string; agent_id?: string; question: string; status: string; created_at: string; [key: string]: unknown }
 export interface Inherited { thread_id: string; title: string; count: number; from: string; to: string }
@@ -35,3 +35,8 @@ export interface Monitor extends Scoped { rows: { problem: Record<string, unknow
 export interface Files extends Scoped { assets: Record<string, unknown>[]; findings: Record<string, unknown>[]; reports: Record<string, unknown>[]; report_jobs: Record<string, unknown>[]; sources: Record<string, unknown>[]; artifacts: Record<string, unknown>[] }
 export interface CommandReceipt { id: string; campaign_id: string; status: string; outcome: Record<string, unknown>; actor: string; origin: unknown; request: { operation: string; payload: Record<string, unknown> }; created_at: string }
 export interface EventFrame { last_event_id: number; events: { id: number; kind: string; record_id: string | null; campaign_id: string | null; status?: string | null; revision?: number | null }[] }
+
+export interface PanelComponent { type: 'markdown' | 'kv' | 'table' | 'number' | 'select' | 'chart' | 'button' | 'link' | 'section'; id?: string; [key: string]: unknown }
+export interface Panel { id: string; campaign_id: string; title: string; page: string; placement: 'top' | 'bottom'; note?: string; components: PanelComponent[]; author: string; agent_id?: string | null;
+  run_id?: string | null; thread_id?: string | null; revision: number; status: string; created_at: string; updated_at: string; data: Record<string, Record<string, unknown>>; resolved_at?: string }
+export interface Panels { campaign_id: string; panels: Panel[] }

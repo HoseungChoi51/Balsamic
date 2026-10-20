@@ -64,6 +64,13 @@ of a decision variable, answer the formulator's question from its options), ever
 field, and "Ask the formulator" sends a change request in words when a number is not enough. Confirm is enabled once
 nothing blocks; it compiles the tasks and experiments can start.
 
+### Panels the agents compose
+
+When a fixed page lacks an input or a view a particular problem needs, the lead (any page) or the formulator (the
+charter page) composes a panel from a catalog of Balsamic components: text, bound values, tables of records, number and
+select fields bound to the charter, charts, buttons that issue commands, links. It appears on its page and, when made in
+a conversation, as a card in it. Values are read live and every change carries a receipt. See `docs/panels.md`.
+
 ### Find your way
 
 **Overview** (first on the rail) is the campaign at a glance and the place to remove it. Until the charter is confirmed, a

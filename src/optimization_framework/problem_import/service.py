@@ -77,6 +77,11 @@ TOOLS = {
                            "blocking": {"type": "boolean"}},
             "required": ["id", "question", "options"], "additionalProperties": False}}},
          "required": ["questions"], "additionalProperties": False}),
+    "panel_render": ("Compose a panel for the charter page (#note/charter) when the fixed form does not fit this problem: number and select "
+        "fields bound to this charter's quantity paths (quantities.<name>.value, variables.<index>.lower|upper) or questions, kv rows of computed "
+        "values, markdown, tables and sections. The researcher types into it; values go through the charter with a receipt. Pass panel_id to revise.",
+        {"type": "object", "properties": {"title": {"type": "string", "minLength": 1, "maxLength": 120}, "components": {"type": "array", "minItems": 1, "maxItems": 60, "items": {"type": "object"}},
+         "placement": {"enum": ["top", "bottom"]}, "note": {"type": "string", "maxLength": 2000}, "panel_id": S}, "required": ["title", "components"], "additionalProperties": False}),
     "charter_propose": ("Answer the researcher's request with one to three options. Each option is a list of changes with a label "
         "and a reason; the numbers are computed here. An option that leaves a blocking finding needs blocking_reason.",
         {"type": "object", "properties": {"request": S, "options": {"type": "array", "minItems": 1, "maxItems": 3, "items": {"type": "object",
@@ -413,6 +418,18 @@ class ProblemImports:
         if name == "charter_read":
             view = charters.view(charter_id)
             return {key: view[key] for key in ("revision", "status", "charter", "values", "errors", "rendered", "findings", "references")}
+        if name == "panel_render":
+            panels = getattr(self.workspace, "panels", None)   # installed by the service layer; the core never imports it
+            if panels is None:
+                return {"error": "Panels are not available in this workspace"}
+            charter = charters.get(charter_id)
+            campaign_id = next(iter(charter.get("campaign_ids") or []), None) or panels.campaign_of_charter(charter_id)
+            if not campaign_id:
+                return {"error": "This charter is not adopted by a campaign yet; a panel belongs to a campaign's page"}
+            values = {"title": arguments["title"], "page": "#note/charter", "components": arguments["components"],
+                      **({"placement": arguments["placement"]} if arguments.get("placement") else {}), **({"note": arguments["note"]} if arguments.get("note") else {})}
+            saved = panels.create(campaign_id, values, author="formulator", agent_id=record["id"], run_id=run_id, panel_id=arguments.get("panel_id"))
+            return {"panel_id": saved["id"], "revision": saved["revision"], "next": "Tell the researcher in one line what the panel asks for."}
         if name == "charter_propose":
             request = arguments["request"] or self.get(record["id"]).get("request") or ""
             proposal = charters.propose(charter_id, request, arguments["options"], run_id=run_id)
@@ -427,7 +444,7 @@ class ProblemImports:
         summary = {"files_list": "Listed", "file_read": "Read", "files_search": "Searched for",
                    "problem_catalog": "Checked the problem catalog", "charter_read": "Read the charter",
                    "charter_check": "Checked a draft", "charter_submit": "Saved a draft of the charter",
-                   "question_ask": "Asked the researcher", "charter_propose": "Proposed changes"}[name]
+                   "question_ask": "Asked the researcher", "charter_propose": "Proposed changes", "panel_render": "Composed a panel"}[name]
         text = f"{summary} {detail}".strip()
         if "error" in result:
             text += f" — {result['error'][:200]}"

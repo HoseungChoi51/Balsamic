@@ -140,3 +140,16 @@ export const charterView = { id: 'charter_1', title: 'Token sharing', status: 'd
     variables: [{ name: 'daily_cap', description: 'Daily token cap for each seat', representation: 'continuous', shape: ['n_seats'], lower: 0, upper: null, values: [], units: 'token/day' }],
     questions: [{ id: 'value_scoring', question: 'How is the value of work quantified?', options: ['Discrete 1-5 impact score', 'Continuous value in currency'], answer: null }, { id: 'granularity', question: 'Are caps set per day or per week?', options: ['Per day', 'Per week'], answer: null }] } };
 export const adoptedNoteView = { ...noteView, note: { ...noteView.note, status: 'adopted', adopted_revision: 2, charter_id: 'charter_1' }, charter: { charter_id: 'charter_1', status: 'ready', import_id: 'import_1', error: null } };
+export const panel = { id: 'panel_1', campaign_id: CAMPAIGN_ID, title: 'Seat budget', page: '#note/charter', placement: 'bottom', note: 'Type the budget; the per-user figure follows.', author: 'formulator', revision: 1, status: 'active',
+  created_at: '2026-10-20T08:00:00Z', updated_at: '2026-10-20T08:00:00Z', resolved_at: '2026-10-20T08:00:00Z',
+  components: [
+    { type: 'markdown', text: 'Seats share one monthly budget.' },
+    { type: 'number', id: 'budget', label: 'Monthly budget', bind: { charter: 'charter_1', path: 'quantities.monthly_budget_tokens.value' }, units: 'token', min: 0 },
+    { type: 'kv', id: 'facts', rows: [{ label: 'Per user', bind: { charter: 'charter_1', value: 'per_user' } }] },
+    { type: 'select', id: 'scoring', label: 'Value scoring', bind: { charter: 'charter_1', question: 'value_scoring' }, options: [{ value: 'Discrete' }, { value: 'Currency' }] },
+    { type: 'table', id: 'proposals', title: 'Proposals', columns: [{ key: 'title', label: 'Title' }, { key: 'status' }], source: { kind: 'hypothesis' } },
+    { type: 'chart', id: 'curve', title: 'Best run', source: { trial: 'trial_1' } },
+    { type: 'section', title: 'Next', children: [{ type: 'button', id: 'gen', label: 'Three strategies', command: { operation: 'research.generate', payload: { count: 3 } } }, { type: 'link', label: 'Hypotheses', page: '#hypotheses' }] },
+  ],
+  data: { budget: { value: null, units: 'token', revision: 2 }, facts: { rows: [{ label: 'Per user', value: null, units: 'token' }] }, scoring: { value: null, options: ['Discrete', 'Currency'], revision: 2 },
+    proposals: { rows: [{ title: 'Random restarts', status: 'proposed' }, { title: 'CMA-ES with warm start', status: 'investigating' }] }, curve: { points: [{ x: 10, y: 0.2 }, { x: 80, y: 0.41 }] } } };

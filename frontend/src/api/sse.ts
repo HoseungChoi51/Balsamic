@@ -12,6 +12,7 @@ const ROUTES: [RegExp, string[]][] = [
   [/^(study|race|confirmation|nomination|finalist)\./, ['evolution', 'experiments']],
   [/^(campaign|charter|problem_note|note)\./, ['summary', 'note', 'campaigns']],
   [/^(resources|workers|cost|llm)\./, ['monitor', 'resources']],
+  [/^panel\./, ['panels', 'panel', 'messages']],
 ];
 
 export type FrameListener = (frame: EventFrame) => void;

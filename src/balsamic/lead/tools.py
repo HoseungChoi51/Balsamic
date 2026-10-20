@@ -3,6 +3,8 @@ from optimization_framework.agents.tools import obj, register_tool, S
 from optimization_framework.contracts.base import content_hash
 from optimization_framework.storage.sqlite import now
 
+from balsamic.panels.schema import TOOL_INPUT
+
 VISUAL_BYTES = 256 * 1024
 SECTIONS = ("objective", "knobs", "observables", "noise", "constraints", "confounders", "open_questions")
 
@@ -95,6 +97,19 @@ def register(workspace=None):
                   obj({"record_id": S, "exclude": {"type": "boolean"}}, ["record_id"]), thread_pin)
     register_tool("lab_events", "What other threads and the lab did since: commands that completed elsewhere, as one line each.",
                   obj({"limit": {"type": "integer", "minimum": 1, "maximum": 100}}), lab_events)
+    def panel_render(tools, agent, run, args, identity):
+        from balsamic.panels import service
+        thread = thread_of_run(tools, run)
+        values = {k: v for k, v in args.items() if k != "panel_id"}
+        record = service.create(tools.workspace, agent["campaign_id"], values, author="lead", agent_id=agent["id"], run_id=run["id"],
+                                thread_id=thread["id"] if thread else None, panel_id=args.get("panel_id"))
+        return {"panel_id": record["id"], "revision": record["revision"], "link": record["page"] + f"?sel={record['id']}",
+                "note": "Shown on that page and, when made in a conversation, as a card in it. Revise it by passing panel_id."}
+
+    register_tool("panel_render", "Compose a panel for a page from the catalog: markdown, kv (bound values), table (records of a kind), number and select "
+                  "fields bound to a charter path or question, chart (a trial's curve), button (a command the researcher issues), link, section. "
+                  "Values resolve from the records when read; fields write through the charter service. Use it for inputs or views the fixed pages lack.",
+                  TOOL_INPUT, panel_render)
     register_tool("render_visual", "Save a small self-contained HTML/SVG visual (no network, at most 256 KiB) for the researcher; for a note question give the annotation_id.",
                   obj({"title": S, "html": S, "note_id": S, "annotation_id": S, "evidence_ids": {"type": "array", "items": S, "maxItems": 50}}, ["title", "html"]), render_visual)
     register_tool("problem_note_draft", "Write or revise the campaign's problem note. sections: any of " + ", ".join(SECTIONS) +

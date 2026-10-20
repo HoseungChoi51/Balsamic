@@ -90,6 +90,8 @@ def register(workspace):
     workspace.lead_operations = {"hypothesis.allocate", "hypothesis.edit", "intervention.batch", "research.generate", "hypothesis.nominate", "thread.pin", "problem_note.revise", "library.apply"}
     from balsamic.threads.service import register as register_threads
     register_threads(workspace)
+    from balsamic.panels.service import register as register_panels
+    register_panels(workspace)
     from balsamic.evolution.generate import register as register_generate
     register_generate(workspace)
     from balsamic.notes.service import register as register_notes
