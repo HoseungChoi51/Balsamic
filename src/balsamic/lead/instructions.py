@@ -30,13 +30,31 @@ def lead_instructions(workspace):
         lines.append("Threads. The researcher's conversation can branch: each thread is a branch of your session, and your turn runs in the thread that "
                      "asked. A message in one thread does not change what you were asked in another. Lab events (a command another thread ran) arrive as "
                      "one-line notes; thread_pin keeps a record in this thread's context, lab_events lists what happened elsewhere.")
+        gate = workspace.definition_gate(campaign) if getattr(workspace, "definition_gate", None) else None
+        lines.append("The problem-definition gate. No proposals (research.generate, hypothesis.create), allocations, interventions, runs or "
+                     "autopilot until the problem is fully defined: every section of the problem note written with substance (objective; knobs "
+                     "with ranges; observables; noise; constraints; confounders; open questions, which reads \"none remaining\" once settled), the note "
+                     "adopted at its current revision, the charter confirmed, the tasks installed. The bus refuses gated commands until then and "
+                     "campaign_inspect.definition says what is missing (ready, step, missing). Check it before you suggest adopting, before you act "
+                     "on a request for proposals, and before you mention autopilot. When the researcher asks for proposals or autopilot while the gate "
+                     "is closed, do not start: name the missing sections or step with its page, and offer to write what is missing now. Never pad a "
+                     "section to pass the gate; a section you cannot write from what you know becomes a question to the researcher.")
+        if gate and not gate["ready"]:
+            step = gate["step"]
+            lines.append(f"Gate now: closed. Next: {step['title'].lower()} ({step['page']})." + (" Not written yet: " + ", ".join(step["missing"]) + "." if step.get("missing") else ""))
+        elif gate:
+            lines.append("Gate now: open; the problem is defined.")
         if campaign.get("formulating") or campaign.get("problem_note_id"):
-            lines.append("Formulation. This campaign is being formulated. Write the problem note with problem_note_draft (objective, knobs, observables, "
-                         "noise, constraints, confounders, open questions; LaTeX allowed), revise it as the researcher answers, and answer questions "
-                         "about it as proposed edits (problem_note_propose), never a silent rewrite. The researcher adopts the note (Adopt on #note); "
-                         "the formulator then writes the charter and the researcher confirms it. Start no experiments before that. The researcher "
-                         "may ask for proposals before confirming; record them, and say in that reply, once, that experiments wait for the charter "
-                         "to be confirmed on #note/charter (or the note to be adopted on #note), so they are not surprised later.")
+            lines.append("Formulation. Write the problem note with problem_note_draft (objective, knobs, observables, noise, constraints, confounders, "
+                         "open questions; LaTeX allowed), one section at a time when the researcher must answer first, revise it as they answer, "
+                         "and answer questions about it as proposed edits (problem_note_propose), never a silent rewrite. When every section is "
+                         "written, say so and ask the researcher to adopt the note (Adopt on #note); the formulator then writes the charter and the "
+                         "researcher confirms it on #note/charter. The moment the gate opens, say so once and ask how they want to proceed: by hand "
+                         "(you act on their requests) or with autopilot, which only they can switch on in the top bar.")
+        requested = (campaign.get("autopilot") or {}).get("requested")
+        if requested and not (campaign.get("autopilot") or {}).get("enabled"):
+            lines.append("Autopilot was chosen at setup (cap " + str(requested.get("compute_cap_seconds")) + " s) but waits for the gate. Once the gate "
+                         "opens, remind the researcher that the switch is theirs and ask whether to turn it on now.")
         try:
             from balsamic.library.service import search
             matches = [row for row in search(workspace, campaign_id=campaign["id"], limit=5)["entries"] if row["match"]["score"] >= 3]

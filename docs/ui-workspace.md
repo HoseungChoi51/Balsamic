@@ -162,10 +162,19 @@ and rendered by our components: `docs/panels.md`. The to-do for A2UI adoption, w
 **Overview page.** `#overview`, first on the rail: name, objective, stage and basis, charter state, tasks, counts (linked),
 budget meters, team, autopilot, threads, and the campaign's removal (moved here from Monitor → Resources).
 
-**Next step.** `evolution.stages.next_step` names the formulation step still required before experiments can run: draft
-the note (`#note`), adopt it, confirm the charter (`#note/charter`), or finish the hand-over. `campaign_row.next_step`
-carries it; the stage panel shows a callout on every page until it is None, louder (`blocking`) once proposals wait on it.
-The housekeeper's suggestions and the lead's briefing name the same step.
+**The problem-definition gate.** `evolution.stages.definition` decides whether a campaign's problem is fully defined:
+every section of the problem note written (`sections` step lists the unwritten titles in `missing`), the note adopted at
+its current revision (`adopt`, "again" after a revision), the charter confirmed (`confirm`, `#note/charter`), the tasks
+installed (`tasks`). A campaign without a note that has tasks (a problem adapter or a charter confirmed without a note) is
+defined by its charter. `next_step` is the gate's step, None once open; `campaign_row.next_step` carries it; the stage
+panel shows a callout on every page until it is None, louder (`blocking`) once proposals wait on it. `evolution.gate`
+applies it: `research.generate`, `hypothesis.allocate` and `intervention.batch` are refused for every actor, the lead's
+and autopilot's `hypothesis.create`, `study.race.create`, `trial.create` and `draft.launch` through a bus guard, and
+`autopilot.set {enabled: true}` in its handler; `autopilot.rounds.round_state` starts no round while the gate is closed.
+`campaign_inspect.definition` (`workspace.definition_gate`) shows the lead the same state, and its briefing says what is
+missing and tells it to name the missing step instead of starting. A setup-time autopilot choice is stored as
+`campaign.autopilot.requested` (the switch stays off) and prefills the dialog once the gate opens. The housekeeper's
+suggestions and the lead's briefing name the same step.
 
 **Desks.** `GET /api/v1/campaigns/{id}/desks/{role}` is a page agent's conversation with the researcher (messages with
 `desk = role` and no thread). `DeskPanel` shows it docked under the agent's page (collapsible, agent-tinted header) and,

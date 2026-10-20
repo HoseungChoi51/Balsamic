@@ -89,10 +89,11 @@ export default function ProblemNotePage({ campaignId, route, threadId }: PagePro
         {!revision ? <Empty>No note yet. Describe the problem to the lead in the conversation, or type /note.</Empty> : data.sections.map(name => {
           const section = revision.sections[name];
           const anns = open.filter(a => a.anchor.section === name);
+          const empty = !(section?.text?.trim() || section?.items?.length || section?.latex?.length);
           return (
-            <section key={name} className="card" data-testid={`section-${name}`} onMouseUp={e => capture(name, e)}>
-              <div className="row"><h2 className="grow">{data.titles[name]}</h2>{anns.length ? <Pill>{anns.length} notes</Pill> : null}</div>
-              {section?.text ? <Markdown text={section.text} thread={route.thread} /> : <p className="faint small">Not written yet.</p>}
+            <section key={name} className={'card' + (empty ? ' unwritten' : '')} data-testid={`section-${name}`} data-empty={empty ? '1' : undefined} onMouseUp={e => capture(name, e)}>
+              <div className="row"><h2 className="grow">{data.titles[name]}</h2>{empty ? <Pill tone="warn" title="The gate needs every section written before proposals, allocations or autopilot">not written</Pill> : null}{anns.length ? <Pill>{anns.length} notes</Pill> : null}</div>
+              {section?.text ? <Markdown text={section.text} thread={route.thread} /> : <p className="faint small">Not written yet. Ask the lead to write it; the problem is not defined until every section is.</p>}
               {section?.items?.length ? <ul>{section.items.map((item, i) => <li key={i}><Markdown text={item} thread={route.thread} className="md inline" /></li>)}</ul> : null}
               {section?.latex?.map((formula, i) => <Markdown key={i} text={'$$' + formula + '$$'} thread={route.thread} />)}
               {menu?.section === name ? <div className="card" data-testid="annotation-menu"><div className="row wrap"><span className="small faint">“{menu.quote.slice(0, 80)}”</span>

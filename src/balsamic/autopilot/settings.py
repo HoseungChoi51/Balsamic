@@ -31,8 +31,10 @@ def register(workspace):
                     raise ValueError("Autopilot needs a compute cap: how many worker seconds it may allocate")
                 if not workspace.pi.owns(command.campaign_id):
                     raise ValueError("Start the agent team first: autopilot runs the lead")
+                from balsamic.evolution.gate import check
+                check(workspace, command.campaign_id, "Autopilot")
                 baseline = workspace.resources.assessment(command.campaign_id)["allocated_seconds"]
-                settings = {"enabled": True, "compute_cap_seconds": values.compute_cap_seconds, "report_by": values.report_by,
+                settings = {"enabled": True, "compute_cap_seconds": values.compute_cap_seconds, "report_by": values.report_by, "requested": None,
                             "baseline_allocated_seconds": baseline, "enabled_at": now(), "command_id": command.id,
                             "rounds_completed": previous.get("rounds_completed", 0) if previous.get("enabled") else 0, "rationale": values.rationale,
                             "report_requested": False, "last_round_run_id": previous.get("last_round_run_id") if previous.get("enabled") else None}

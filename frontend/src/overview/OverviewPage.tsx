@@ -1,6 +1,6 @@
 /** The campaign at a glance: what it is for, where it stands, what it has, and the one place to remove it. */
 import type { PageProps } from '../shell/StagePanel';
-import { useMonitor, useSummary, useThreads } from '../api/queries';
+import { useMonitor, useSummary, useThreads, useCampaigns } from '../api/queries';
 import { Empty, Failed, Kv, Loading, Pill, Section, duration, num, when } from '../primitives/ui';
 import { Meter } from '../primitives/charts';
 import { formatHash } from '../router/routes';
@@ -10,6 +10,8 @@ export default function OverviewPage({ campaignId, route }: PageProps) {
   const summary = useSummary(campaignId);
   const monitor = useMonitor(campaignId);
   const threads = useThreads(campaignId);
+  const campaigns = useCampaigns();
+  const row = campaigns.data?.find(c => c.id === campaignId);
   if (summary.isPending) return <Loading what="Reading the campaign" />;
   if (summary.error) return <Failed error={summary.error} />;
   const { campaign, stage, counts, charter, tasks } = summary.data;
@@ -44,7 +46,8 @@ export default function OverviewPage({ campaignId, route }: PageProps) {
       </Section>
       <Section title="Team and autopilot">
         <Kv rows={[['Agents', rows ? <><Pill tone={rows.agents.active ? 'agent' : ''}>{String(rows.agents.status)}</Pill> <span className="small">{String(rows.agents.headline || '')}</span></> : <Loading />],
-          ['Autopilot', autopilot?.enabled ? `on · ${String(autopilot.reason)}` : 'off: the lead acts on your requests'],
+          ['Problem definition', row?.next_step ? <><Pill tone="warn">gate closed</Pill> <span className="small">{row.next_step.title}{row.next_step.missing?.length ? `: ${row.next_step.missing.join(', ')} not written` : ''}</span></> : <Pill tone="good">defined</Pill>],
+          ['Autopilot', autopilot?.enabled ? `on · ${String(autopilot.reason)}` : row?.autopilot?.requested ? 'chosen at setup; waits for the problem definition' : 'off: the lead acts on your requests'],
           ['Threads', threads.data ? threads.data.threads.filter(t => t.kind !== 'agents').map(t => <a key={t.id} href={formatHash({ page: 'overview' }, t.id)} style={{ marginRight: 8 }}>{t.title}</a>) : <Loading />]]} />
       </Section>
       {!counts.hypothesis && !counts.trial ? <Empty>Nothing has been proposed or run yet. Ask the lead in the chat.</Empty> : null}

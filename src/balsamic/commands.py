@@ -104,6 +104,8 @@ def register(workspace):
     from balsamic.autopilot.rounds import register as register_rounds
     register_autopilot(workspace)
     register_rounds(workspace)
+    from balsamic.evolution.gate import register as register_gate
+    register_gate(workspace)   # last: it wraps the handlers that start work
     from balsamic.lead.tools import register as register_tools
     from balsamic.lead.instructions import lead_instructions
     if "thread_pin" not in __import__("optimization_framework.agents.tools", fromlist=["EXTRA_TOOLS"]).EXTRA_TOOLS:

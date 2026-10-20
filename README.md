@@ -130,7 +130,13 @@ guidance, and the away digest. Removing a campaign is on the Resources page (you
 
 ### Autopilot
 
-Off by default. "Autopilot off" in the top bar turns it on with a compute cap and an optional report date. The lead then
+Off by default, and gated: autopilot, proposal generation, allocations and interventions are refused until the problem is
+fully defined. The gate is passed when every section of the problem note is written (objective, knobs, observables, noise,
+constraints, confounders, open questions, which reads "none remaining" once settled), the note is adopted at its current
+revision, the charter is confirmed and its tasks are installed. The callout at the top of every page, the Overview's
+"Problem definition" row, the autopilot dialog and the lead's briefing all name the same missing step; a note revised after
+adoption closes the gate again until it is adopted again. A campaign set up with autopilot remembers the choice and the lead
+asks you to turn it on once the gate opens. "Autopilot off" in the top bar turns it on with a compute cap and an optional report date. The lead then
 runs rounds by itself in a system thread, within the cap, with a reason on every command and a badge on every row it
 touches; your messages still come first; the last round writes the report. When you come back after half an hour, the
 pill reads "Away digest": what was stopped, promoted, started and finished, and what waits for you.

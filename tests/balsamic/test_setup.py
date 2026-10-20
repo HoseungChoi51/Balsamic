@@ -53,7 +53,9 @@ def test_a_formulating_campaign_with_autopilot_is_created_and_the_lead_started(c
     created = client.post(f"/api/v1/setup/{sid}/create").json()
     campaign = workspace.store.get(created["campaign_id"], "campaign")
     assert campaign["formulating"] is True and campaign["objective"] == "Find a deflector with higher efficiency"
-    assert campaign["autopilot"]["enabled"] is True and campaign["autopilot"]["compute_cap_seconds"] == 3600 and workspace.pi.owns(campaign["id"])
+    # Autopilot waits for the problem-definition gate: the choice is remembered, the lead starts, the switch stays off until the researcher turns it on.
+    assert campaign["autopilot"]["enabled"] is False and campaign["autopilot"]["requested"]["compute_cap_seconds"] == 3600 and workspace.pi.owns(campaign["id"])
+    assert client.get("/api/v1/campaigns").json()["campaigns"][0]["next_step"]["kind"] == "note"   # the gate is closed until the note is written
     assert client.get("/api/v1/campaigns").json()["campaigns"][0]["stage"] == "formulate"
 
 

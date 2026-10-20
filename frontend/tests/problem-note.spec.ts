@@ -9,6 +9,10 @@ test('the note shows its sections with math, the glossary and the revisions; Ado
   await expect(objective).toContainText('Maximize the first-order efficiency');
   await expect(objective.locator('.katex')).toHaveCount(2);
   await expect(page.getByTestId('section-knobs')).toContainText('fill factor f');
+  // Unwritten sections are marked: the gate needs every one before proposals or autopilot.
+  await expect(page.getByTestId('section-noise')).toHaveAttribute('data-empty', '1');
+  await expect(page.getByTestId('section-noise')).toContainText('not written');
+  await expect(page.getByTestId('section-knobs')).not.toHaveAttribute('data-empty', '1');
   await expect(page.getByTestId('page-note')).toContainText('revision 2');
   await page.getByTestId('adopt').click();
   await expect.poll(() => recorded.commands.length).toBe(1);

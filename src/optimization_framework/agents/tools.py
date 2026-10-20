@@ -663,7 +663,10 @@ class PiTools:
                 "recent_decisions": [{"id": row["id"], "action": row["action"], "rationale": row["rationale"][:1000]}
                     for row in view["decisions"][-10:]],
                 "retrieval": "Read race_decision and race_endpoint evidence individually; the study race API has full endpoint details."})
+        gate = getattr(self.workspace, "definition_gate", None)
         return {"campaign": campaign, "guidance_revision": self.workspace.memory.state(campaign_id)["guidance_revision"],
+            # The problem-definition gate: proposals, allocations and autopilot are refused until ready; step says what is missing.
+            "definition": gate(campaign) if gate else None,
             "researcher_guidance": self.workspace.memory.state(campaign_id)["guidance"],
             "tasks": [{**t, "evaluator_readiness": self.workspace.evaluators.readiness(t)} for t in tasks[:20]],
             "methods": self.methods(tasks[:20]),

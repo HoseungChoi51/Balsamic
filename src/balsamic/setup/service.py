@@ -382,8 +382,6 @@ def campaign_input(draft):
         body["objective"] = "Develop an effective optimizer for the chosen problem."
     if draft.get("problem_id"):
         body["tasks"] = [{"name": draft["problem_id"], "problem_id": draft["problem_id"], "configuration": {}}]
-    if (draft.get("autopilot") or {}).get("enabled"):
-        body["autopilot"] = draft["autopilot"]
     return body
 
 
@@ -409,11 +407,16 @@ def create(workspace, setup_id):
         setup.update(status="created", campaign_id=campaign["id"], updated_at=now())
         workspace.store.put("campaign_setup", setup, "setup.created")
     if (draft.get("autopilot") or {}).get("enabled"):
+        # Autopilot waits for the problem-definition gate: the choice is remembered on the campaign, the lead starts now, and the
+        # researcher turns autopilot on (prefilled) once the note is complete, adopted and the charter confirmed.
+        with workspace.lock:
+            record = workspace.store.get(campaign["id"], "campaign")
+            record["autopilot"] = {"enabled": False, "requested": {"compute_cap_seconds": draft["autopilot"].get("compute_cap_seconds"),
+                                                                   "report_by": draft["autopilot"].get("report_by"), "at": now(), "by": "setup"}}
+            workspace.store.put("campaign", record, "campaign.autopilot_requested")
         try:
             workspace.commands.execute(Command(id="ui_setup_activate_" + content_hash([setup_id])[:20], campaign_id=campaign["id"], operation="agent.activate",
-                                               expected_revision=campaign["version"], payload={}), actor="researcher")
-            workspace.commands.execute(Command(id="ui_setup_autopilot_" + content_hash([setup_id])[:20], campaign_id=campaign["id"], operation="autopilot.set",
-                                               expected_revision=campaign["version"], payload={**draft["autopilot"], "rationale": "chosen at setup"}), actor="researcher")
+                                               expected_revision=workspace.store.get(campaign["id"], "campaign")["version"], payload={}), actor="researcher")
         except ValueError as exc:
             workspace.memory.issue(campaign["id"], "autopilot_setup", str(exc))
     return {"setup": setup, "campaign_id": campaign["id"], "thread_id": thread["id"], "receipt_id": receipt["id"], "already": False}

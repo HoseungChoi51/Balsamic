@@ -193,3 +193,7 @@ table.quantities td { vertical-align: top; }
 .panel-section { border-left: 3px solid var(--agent-soft); padding-left: 10px; }
 .panel.compact { padding: 8px 10px; }
 .turn.panel-card { display: grid; gap: 6px; }
+
+/* the problem-definition gate */
+.card.unwritten { border-style: dashed; }
+.pill.warn { background: var(--warn-soft); color: var(--warn); } .pill.good { background: var(--good-soft, var(--accent-soft)); color: var(--good, var(--accent)); }

@@ -35,6 +35,24 @@ test('autopilot is turned on with a cap through the bus, and off again', async (
   expect(recorded.commands[0]).toMatchObject({ operation: 'autopilot.set', payload: { enabled: true, compute_cap_seconds: 1800 }, origin: { thread_id: THREAD_ID } });
 });
 
+test('autopilot waits for the problem-definition gate: the dialog names the missing step and offers no switch', async ({ page }) => {
+  const step = { kind: 'sections', title: 'Complete the problem note', text: 'Not written yet: Noise, Confounders. Every section must be written before proposals, allocations or autopilot.', page: '#note', blocking: false, proposals: 0, missing: ['Noise', 'Confounders'] };
+  const recorded = await mockWorkspace(page, { '/api/v1/campaigns': { campaigns: [{ ...f.campaignRow, next_step: step, autopilot: { enabled: false, requested: { compute_cap_seconds: 3600, by: 'setup' } } }] } });
+  await page.goto(`/#t/${THREAD_ID}/monitor`);
+  await page.getByTestId('autopilot-toggle').click();
+  const gate = page.getByTestId('autopilot-gate');
+  await expect(gate).toContainText('Autopilot waits for the problem definition: complete the problem note');
+  await expect(gate).toContainText('Noise, Confounders');
+  await expect(gate).toContainText('Chosen at setup (cap 3600 s)');
+  await expect(page.getByTestId('autopilot-on')).toHaveCount(0);
+  await page.getByTestId('autopilot-gate-open').click();
+  await expect(page).toHaveURL(new RegExp(`#t/${THREAD_ID}/note$`));
+  expect(recorded.commands).toHaveLength(0);
+  await page.goto(`/#t/${THREAD_ID}/overview`);
+  await expect(page.getByTestId('overview')).toContainText('gate closed');
+  await expect(page.getByTestId('overview')).toContainText('chosen at setup; waits for the problem definition');
+});
+
 test('the merge dialog asks the lead for a draft and uses it', async ({ page }) => {
   const withDraft = { ...f.branch, merge_draft: { into_thread_id: THREAD_ID, text: 'The second coupling loses by 3 %; keep the first.', written_at: 'now' } };
   const recorded = await mockWorkspace(page, { [`/api/v1/campaigns/${CAMPAIGN_ID}/threads`]: { ...f.threads, threads: [f.thread, withDraft, f.parked] } });

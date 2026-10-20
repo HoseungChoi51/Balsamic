@@ -75,6 +75,10 @@ def round_state(workspace, campaign_id):
         return {**state, "can_start": False, "reason": f"{len(live)} runs of the previous round are still going"}
     if settings.get("report_requested"):
         return {**state, "can_start": False, "reason": "the final round asked for the report"}
+    from balsamic.evolution.stages import definition
+    gate = definition(workspace, campaign)
+    if not gate["ready"]:
+        return {**state, "can_start": False, "reason": "the problem definition is incomplete: " + gate["step"]["title"].lower() + " (" + gate["step"]["page"] + ")"}
     if report_due(settings) or state["remaining_seconds"] <= 0:
         return {**state, "can_start": True, "final": True, "reason": "the cap or the report date is reached: the last round writes the report"}
     return {**state, "can_start": True, "final": False, "reason": "ready for the next round"}
