@@ -111,7 +111,8 @@ def view(workspace, identity, *, revision=None):
         except (KeyError, ValueError):
             record = None
         if record:
-            if record.get("charter_id") and not note.get("charter_id"):
+            if record.get("charter_id") and note.get("charter_id") != record["charter_id"]:
+                # The note follows the charter of its current adoption: adopting again writes a new charter.
                 note["charter_id"] = record["charter_id"]
                 with workspace.lock:
                     workspace.store.put("problem_note", note, "problem_note.linked")

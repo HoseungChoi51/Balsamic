@@ -1,6 +1,6 @@
 /** The charter as a form: every blocking finding is settled in place (a value, a bound, an acceptance, an answer), nothing
  *  commits until Confirm, and the formulator is asked in words only when a number is not enough. Values are typed as numbers. */
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { api } from '../api/client';
 import { useRead } from '../api/queries';
@@ -104,12 +104,20 @@ function NumberField({ initial, units, placeholder, onSet, busy, testId, width =
   const [text, setText] = useState(initial == null ? '' : String(initial));
   const [bad, setBad] = useState(false);
   const [sent, setSent] = useState<number | null | undefined>(initial);   // the value last committed, so Enter and blur never send it twice
-  const commit = async () => { if (!text.trim()) return; const v = number(text); if (v == null) { setBad(true); return; } setBad(false); if (v === sent) return; setSent(v); await onSet(v); };
+  const [saved, setSaved] = useState(false);
+  // The charter is re-read after every edit: the field follows the saved value instead of keeping what was typed.
+  useEffect(() => { setText(initial == null ? '' : String(initial)); setSent(initial); }, [initial]);
+  const commit = async () => {
+    if (!text.trim()) return;
+    const v = number(text); if (v == null) { setBad(true); return; }
+    setBad(false); if (v === sent) return;
+    setSent(v); await onSet(v); setSaved(true); setTimeout(() => setSaved(false), 2500);
+  };
   return <span className="row" style={{ gap: 4 }}>
     <input className={'num' + (bad ? ' bad' : '')} style={{ width }} inputMode="decimal" value={text} placeholder={placeholder || 'number'} disabled={busy} data-testid={testId}
       onChange={e => setText(e.target.value)} onBlur={() => void commit()} onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); void commit(); } }} />
     {units && units !== '1' ? <span className="faint small">{units}</span> : null}
-    {bad ? <span className="pill bad">not a number</span> : null}
+    {bad ? <span className="pill bad">not a number</span> : saved ? <span className="pill clear" data-testid="saved">saved</span> : null}
   </span>;
 }
 

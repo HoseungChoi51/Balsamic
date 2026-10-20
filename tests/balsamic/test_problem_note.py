@@ -104,3 +104,17 @@ def test_render_visual_is_bounded_and_saved_as_an_artifact(client, workspace, fo
     assert too_big["executed"] is False and "at most" in too_big["error"]
     external = tool_call(workspace, team, run, "render_visual", {"title": "ext", "html": "<img src='https://example.org/x.png'>"}, call_id="ext")
     assert external["executed"] is False and "self-contained" in external["error"]
+
+
+def test_the_note_follows_the_charter_of_its_latest_adoption(client, workspace, campaign):
+    from balsamic.notes import service
+    from optimization_framework.storage.sqlite import now
+    note = service.ensure_note(workspace, campaign["id"])
+    note.update(charter_id="charter_old", import_id="import_new", status="adopted", adopted_revision=note["current_revision"])
+    workspace.store.put("problem_note", note)
+    workspace.store.put("problem_import", {"id": "import_new", "campaign_id": campaign["id"], "status": "ready", "charter_id": "charter_new", "error": None, "reply": "", "created_at": now()})
+    if hasattr(workspace, "problem_imports"):
+        workspace.problem_imports.sync = lambda identity: workspace.store.get(identity, "problem_import")
+    body = service.view(workspace, note["id"])
+    assert body["note"]["charter_id"] == "charter_new" and body["charter"]["charter_id"] == "charter_new"
+    assert workspace.store.get(note["id"], "problem_note")["charter_id"] == "charter_new"

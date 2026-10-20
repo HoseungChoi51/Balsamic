@@ -59,6 +59,9 @@ test('the charter page is a form: findings are settled with numbers, acceptances
   await expect.poll(() => posts.filter(p => p.path === 'edit').length).toBe(2);
   expect(posts.filter(p => p.path === 'edit')[1].body).toMatchObject({ changes: [{ op: 'set', path: 'variables.0.upper', value: 8000000 }] });
   await expect(panel.getByTestId('finding')).toHaveCount(0);
+  // The tables below follow the saved charter: the bound and the value typed on the findings now show there.
+  await expect(panel.getByTestId('upper-daily_cap')).toHaveValue('8000000');
+  await expect(panel.getByTestId('value-monthly_budget_tokens')).toHaveValue('120000000');
   await expect(panel.getByTestId('confirm-why')).toContainText('1 question from the formulator to answer first');
   // Answer the formulator's question from its options.
   await panel.getByTestId('question-option').first().click();
