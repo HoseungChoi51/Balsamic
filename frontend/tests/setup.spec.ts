@@ -11,6 +11,11 @@ test('a campaign is set up as a conversation: typed answers and choices fill the
   await page.getByTestId('setup-composer-send').click();
   await expect(page.getByTestId('page-new')).toContainText('Deflector v2');
   await expect(page.getByTestId('page-new')).toContainText('deflector-v2');
+  // The draft panel is a real column beside the setup chat, not squeezed into the gutter track.
+  const draft = await page.getByTestId('page-new').boundingBox();
+  const chatBox = await chat.boundingBox();
+  expect(draft!.width).toBeGreaterThan(300);
+  expect(draft!.x).toBeGreaterThanOrEqual(chatBox!.x + chatBox!.width);
   await expect(chat).toContainText('What do you want to find out?');
   await page.getByTestId('setup-choices').locator('[data-choice="later"]').click();
   await expect(page.getByTestId('page-new')).toContainText('to be formulated with the lead');
@@ -25,7 +30,11 @@ test('a campaign is set up as a conversation: typed answers and choices fill the
 
 test('a setup can be abandoned and started over; a created campaign can be removed from the overview with what to keep', async ({ page }) => {
   const recorded = await mockWorkspace(page);
+  await page.addInitScript(() => { try { localStorage.setItem('balsamic.chatDetached', '1'); } catch { /* private mode */ } });   // a detached lead chat does not hide the setup chat or the draft
   await page.goto('/#new');
+  const draft = await page.getByTestId('page-new').boundingBox();
+  expect(draft!.width).toBeGreaterThan(300);
+  await expect(page.getByTestId('setup-chat')).toBeVisible();
   await expect(page).toHaveURL(/#new\/setup_\d+$/);
   const first = page.url();
   await page.getByTestId('setup-composer').fill('Wrong one');

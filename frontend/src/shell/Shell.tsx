@@ -120,7 +120,7 @@ export function Shell({ route, campaignId, threadId }: { route: Route; campaignI
             <div className="strip-head"><button className="btn quiet small" onClick={detach} title="Bring the lead's chat back into this window" data-testid="reattach-strip">Reattach chat</button>{!desk ? <span className="faint small strip-label">chat open in its own window</span> : <span className="faint small">lead chat is in its own window</span>}</div>
             {desk && campaignId ? <DeskPanel campaignId={campaignId} role={desk} mode="column" /> : null}
           </div> : campaignId && threadId ? <ThreadChat campaignId={campaignId} threadId={threadId} route={route} onDetach={detach} /> : <div className="chat" />}
-          {!(hideChat && !desk) && !(wide || !threadId) ? <Gutter onDrag={dragChat} label="chat" /> : null}
+          {route.page === 'new' || (!(hideChat && !desk) && !(wide || !threadId)) ? <Gutter onDrag={dragChat} label="chat" /> : null}
           <StagePanel route={route} campaignId={campaignId} threadId={threadId} desk={!desk} />
         </div>
       </div>
