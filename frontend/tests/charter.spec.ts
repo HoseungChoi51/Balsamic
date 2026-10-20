@@ -24,7 +24,7 @@ async function charterRoutes(page: import('@playwright/test').Page) {
       view.findings = view.findings.filter((x: { about: string[] }) => !touched.includes(x.about[0]));
     }
     if (path === 'accept-assumptions') { view.charter.quantities.working_days_per_month.accepted = true; view.findings = view.findings.filter((x: { code: string }) => x.code !== 'assumption.unaccepted'); }
-    if (path === 'answers') view.charter.questions[0].answer = body.answer;
+    if (path === 'answers') view.charter.questions.find((q: { id: string }) => q.id === body.question_id).answer = body.answer;
     if (path === 'confirm') { view = { ...view, status: 'confirmed' }; return route.fulfill({ json: view }); }
     if (path === 'requests') return route.fulfill({ json: view });   // a request changes nothing until the formulator answers
     view = { ...view, revision: view.revision + 1, blocking: view.findings.filter((x: { severity: string }) => x.severity === 'blocking').length };
@@ -63,11 +63,20 @@ test('the charter page is a form: findings are settled with numbers, acceptances
   // The tables below follow the saved charter: the bound and the value typed on the findings now show there.
   await expect(panel.getByTestId('upper-daily_cap')).toHaveValue('8000000');
   await expect(panel.getByTestId('value-monthly_budget_tokens')).toHaveValue('120000000');
-  await expect(panel.getByTestId('confirm-why')).toContainText('1 question from the formulator to answer first');
-  // Answer the formulator's question from its options.
-  await panel.getByTestId('question-option').first().click();
+  await expect(panel.getByTestId('confirm-why')).toContainText('2 questions from the formulator to answer first');
+  // The first open item is marked next; answering it sends it to the end, compact, and the next one takes the mark.
+  await expect(panel.getByTestId('question').first()).toHaveAttribute('data-next', '1');
+  await panel.getByTestId('question').first().getByTestId('question-option').first().click();
   await expect.poll(() => posts.map(p => p.path)).toContain('answers');
   expect(posts.find(p => p.path === 'answers')!.body).toMatchObject({ question_id: 'value_scoring', answer: 'Discrete 1-5 impact score' });
+  await expect(panel.getByTestId('question').last()).toHaveAttribute('data-question-id', 'value_scoring');
+  await expect(panel.getByTestId('question').last()).toContainText('answered');
+  await expect(panel.getByTestId('question').last().getByTestId('question-option')).toHaveCount(0);
+  await expect(panel.getByTestId('question').first()).toHaveAttribute('data-question-id', 'granularity');
+  await expect(panel.getByTestId('question').first()).toHaveAttribute('data-next', '1');
+  await expect(panel.getByTestId('questions-state')).toHaveText('1 of 2 to answer');
+  await panel.getByTestId('question').first().getByTestId('question-option').first().click();
+  await expect(panel.getByTestId('questions-state')).toHaveText('all answered');
   await expect(panel.getByTestId('confirm-charter')).toBeEnabled();
   await panel.getByTestId('confirm-charter').click();
   await expect.poll(() => posts.map(p => p.path)).toContain('confirm');
@@ -92,4 +101,17 @@ test('the charter page is a form: findings are settled with numbers, acceptances
   const raw = panel.getByTestId('raw-charter');
   await expect(raw).toHaveCSS('white-space', 'pre-wrap');
   expect(await raw.evaluate(el => el.scrollWidth <= el.clientWidth + 1)).toBe(true);
+});
+
+test('while the formulator works on the answers, the questions say so and nothing asks to be answered again', async ({ page }) => {
+  await mockWorkspace(page, { [`/api/v1/campaigns/${CAMPAIGN_ID}/problem-note`]: { ...f.adoptedNoteView, charter: { ...f.adoptedNoteView.charter, status: 'running' } } });
+  const answered = { ...f.charterView, charter: { ...f.charterView.charter, questions: f.charterView.charter.questions.map(q => ({ ...q, answer: q.options[0] })) }, findings: [] };
+  await page.route('**/api/v1/problem-charters/charter_1', route => route.fulfill({ json: answered }));
+  await page.goto(`/#t/${THREAD_ID}/note/charter`);
+  const panel = page.getByTestId('charter-panel');
+  await expect(panel.getByTestId('formulator-working')).toContainText('Working on your answers');
+  await expect(panel.getByTestId('questions-state')).toContainText('the formulator is revising the charter');
+  await expect(panel.getByTestId('question').first()).toContainText('formulator working');
+  await expect(panel.getByTestId('question-option')).toHaveCount(0);
+  await expect(panel.locator('[data-next="1"]')).toHaveCount(0);
 });

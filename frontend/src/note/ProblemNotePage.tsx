@@ -134,5 +134,5 @@ function CharterTab({ data, campaignId, version, onChanged }: { data: NoteView; 
   const charterId = data.charter?.charter_id || data.note.charter_id;
   if (data.note.status === 'drafting' && !charterId) return <Empty>Adopt the note first: the formulator writes the charter from it, and you confirm the charter here.</Empty>;
   if (!charterId) return <div className="card"><Pill tone="agent">formulator {data.charter?.status || 'starting'}</Pill> {data.charter?.error ? <span className="pill bad">{data.charter.error}</span> : <span className="small muted">The formulator is writing the charter from the adopted note.</span>}</div>;
-  return <CharterPanel charterId={charterId} campaignId={campaignId} version={version} onChanged={onChanged} />;
+  return <CharterPanel charterId={charterId} campaignId={campaignId} version={version} onChanged={onChanged} formulator={data.charter?.status} />;
 }

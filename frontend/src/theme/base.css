@@ -181,3 +181,5 @@ pre.wrap, .wrap pre { white-space: pre-wrap; overflow-wrap: anywhere; word-break
 input.num { font-family: var(--mono); text-align: right; }
 input.num.bad { border-color: var(--bad); }
 table.quantities td { vertical-align: top; }
+.finding.next { box-shadow: 0 0 0 2px var(--you-soft); border-left-color: var(--you); }
+.finding.answered { background: var(--panel-2); }

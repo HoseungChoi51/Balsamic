@@ -19,7 +19,7 @@ interface CharterView { id: string; title?: string; status: string; revision: nu
 const number = (text: string) => { const v = Number(text.replace(/[,_\s]/g, '')); return Number.isFinite(v) ? v : null; };
 const show = (v: unknown) => v == null ? '' : typeof v === 'number' ? (Math.abs(v) >= 1e4 ? v.toLocaleString('en-US') : String(v)) : String(v);
 
-export function CharterPanel({ charterId, campaignId, version, onChanged }: { charterId: string; campaignId: string; version?: number; onChanged: () => unknown }) {
+export function CharterPanel({ charterId, campaignId, version, onChanged, formulator }: { charterId: string; campaignId: string; version?: number; onChanged: () => unknown; formulator?: string | null }) {
   const charter = useRead<CharterView>(['charter', charterId], `/api/v1/problem-charters/${charterId}`, { refetchInterval: 8000 });
   const queryClient = useQueryClient();
   const [error, setError] = useState<string | null>(null);
@@ -54,6 +54,10 @@ export function CharterPanel({ charterId, campaignId, version, onChanged }: { ch
   };
   const openQuestions = doc.questions.filter(q => q.answer == null);
   const blocking = c.findings.filter(f => f.severity === 'blocking' && f.code !== 'question.open');
+  const working = formulator === 'running';
+  // Open work first, settled work last: the first open item is marked "next" so the eye lands on it.
+  const questions = [...doc.questions.filter(q => q.answer == null), ...doc.questions.filter(q => q.answer != null)];
+  const nextId = blocking.length ? blocking[0].key : openQuestions.length ? openQuestions[0].id : null;
   const warnings = c.findings.filter(f => f.severity !== 'blocking');
   const confirmed = c.status === 'confirmed';
   const why = confirmed ? null : blocking.length ? `${blocking.length} blocking finding${blocking.length === 1 ? '' : 's'} to settle first` : openQuestions.length ? `${openQuestions.length} question${openQuestions.length === 1 ? '' : 's'} from the formulator to answer first` : null;
@@ -70,12 +74,14 @@ export function CharterPanel({ charterId, campaignId, version, onChanged }: { ch
 
       {blocking.length ? <Section title="To settle before confirming">
         <div className="col" data-testid="findings">
-          {blocking.map(f => <FindingRow key={f.key} finding={f} doc={doc} values={c.values} busy={busy} edit={edit} post={post} variableIndex={variableIndex} />)}
+          {blocking.map(f => <FindingRow key={f.key} finding={f} doc={doc} values={c.values} busy={busy} edit={edit} post={post} variableIndex={variableIndex} next={f.key === nextId} />)}
         </div>
       </Section> : null}
 
-      {doc.questions.length ? <Section title="Questions from the formulator">
-        {doc.questions.map(q => <QuestionRow key={q.id} question={q} busy={busy} post={post} />)}
+      {doc.questions.length ? <Section title="Questions from the formulator" right={<span className="small faint" data-testid="questions-state">
+          {openQuestions.length ? `${openQuestions.length} of ${doc.questions.length} to answer` : working ? 'all answered · the formulator is revising the charter' : 'all answered'}</span>}>
+        {!openQuestions.length && working ? <div className="finding small" data-testid="formulator-working"><span className="finding-code">formulator</span>Working on your answers: a new revision, new findings or new questions may follow. Nothing to do here until then.<Pill tone="agent">working</Pill></div> : null}
+        {questions.map(q => <QuestionRow key={q.id} question={q} busy={busy} post={post} working={working} next={q.id === nextId} />)}
       </Section> : null}
 
       <Section title="Quantities" right={<span className="small faint">type a number and press Enter; derived values are computed</span>}>
@@ -91,7 +97,7 @@ export function CharterPanel({ charterId, campaignId, version, onChanged }: { ch
       </Section> : null}
 
       {asked.filter(a => a.revision === c.revision).length ? <Section title="Asked of the formulator" right={<span className="small faint">it answers with a proposal below, or a new revision</span>}>
-        {asked.filter(a => a.revision === c.revision).map(a => <div key={a.at} className="finding small" data-testid="asked"><span className="finding-code">sent</span>{a.text}<Pill tone="agent">formulator working</Pill></div>)}
+        {asked.filter(a => a.revision === c.revision).map(a => <div key={a.at} className="finding small" data-testid="asked"><span className="finding-code">sent</span>{a.text}<Pill tone="agent">{working ? 'formulator working' : 'sent'}</Pill></div>)}
       </Section> : null}
       {c.proposals.length ? <Section title="Proposals from the formulator">
         {c.proposals.map(p => <ProposalRow key={p.id} proposal={p} busy={busy} charterId={charterId} refresh={refresh} setError={setError} />)}
@@ -139,7 +145,7 @@ function useLocalError() {
   return { error, guard, line: error ? <div className="pill bad" role="alert" data-testid="control-error">{error}</div> : null };
 }
 
-function FindingRow({ finding, doc, values, busy, edit, post, variableIndex }: { finding: Finding; doc: CharterView['charter']; values: Record<string, number | null>; busy: boolean; edit: (changes: Record<string, unknown>[], rationale: string) => Promise<unknown>; post: (path: string, body: Record<string, unknown>) => Promise<unknown>; variableIndex: (name: string) => number }) {
+function FindingRow({ finding, doc, values, busy, edit, post, variableIndex, next }: { finding: Finding; doc: CharterView['charter']; values: Record<string, number | null>; busy: boolean; edit: (changes: Record<string, unknown>[], rationale: string) => Promise<unknown>; post: (path: string, body: Record<string, unknown>) => Promise<unknown>; variableIndex: (name: string) => number; next?: boolean }) {
   const [mode, setMode] = useState<'value' | 'expression' | 'ask' | 'waive' | null>(null);
   const [text, setText] = useState('');
   const local = useLocalError();
@@ -150,8 +156,8 @@ function FindingRow({ finding, doc, values, busy, edit, post, variableIndex }: {
   const setValue = (v: number) => edit([{ op: 'set', path: `quantities.${name}.value`, value: v }], `Set ${name} on the Charter page`);
   const setExpression = () => edit([{ op: 'set', path: `quantities.${name}.expression`, value: text.trim() }, { op: 'set', path: `quantities.${name}.role`, value: 'derived' }], `Derived ${name} on the Charter page`);
   return (
-    <article className="finding blocking" data-testid="finding" data-code={code} data-about={name || ''}>
-      <div className="row"><span className="finding-code">{code}</span><span className="grow">{finding.message}</span></div>
+    <article className={'finding blocking' + (next ? ' next' : '')} data-testid="finding" data-code={code} data-about={name || ''} data-next={next ? '1' : undefined}>
+      <div className="row">{next ? <Pill tone="you">next</Pill> : null}<span className="finding-code">{code}</span><span className="grow">{finding.message}</span></div>
       <div className="row wrap finding-actions">
         {code === 'assumption.unaccepted' && quantity ? <>
           <button className="btn small primary" disabled={busy} onClick={() => post('accept-assumptions', { names: [name] })} data-testid="accept-assumption">Accept {show(quantity.value)}{quantity.units && quantity.units !== '1' ? ` ${quantity.units}` : ''}</button>
@@ -211,13 +217,15 @@ function VariableRow({ index, variable: v, busy, edit }: { index: number; variab
   </tr>;
 }
 
-function QuestionRow({ question: q, busy, post }: { question: Question; busy: boolean; post: (path: string, body: Record<string, unknown>) => Promise<unknown> }) {
+function QuestionRow({ question: q, busy, post, working, next }: { question: Question; busy: boolean; post: (path: string, body: Record<string, unknown>) => Promise<unknown>; working?: boolean; next?: boolean }) {
   const [text, setText] = useState('');
   const local = useLocalError();
   const answer = (value: string) => local.guard(() => post('answers', { question_id: q.id, answer: value }));
-  return <article className={'finding ' + (q.answer != null ? 'answered' : 'blocking')} data-testid="question" data-question-id={q.id}>
-    <div className="row"><span className="finding-code">question</span><span className="grow">{q.question}</span>{q.answer != null ? <Pill tone="clear">answered</Pill> : null}</div>
-    {q.answer != null ? <div className="small" style={{ marginTop: 4 }}><strong>Your answer:</strong> {q.answer}</div> : <>
+  const answered = q.answer != null;
+  return <article className={'finding ' + (answered ? 'answered' : 'blocking') + (next ? ' next' : '')} data-testid="question" data-question-id={q.id} data-answered={answered ? '1' : undefined} data-next={next ? '1' : undefined}>
+    <div className="row">{next ? <Pill tone="you">next</Pill> : null}<span className="finding-code">question</span><span className={'grow' + (answered ? ' faint' : '')}>{q.question}</span>
+      {answered ? <Pill tone={working ? 'agent' : 'clear'}>{working ? 'formulator working' : 'answered'}</Pill> : null}</div>
+    {answered ? <div className="small faint" style={{ marginTop: 4 }}>Your answer: {q.answer}</div> : <>
       {q.options?.length ? <div className="row wrap" style={{ marginTop: 6 }}>{q.options.map((o, i) => <button key={i} className="btn small" disabled={busy} onClick={() => answer(o)} data-testid="question-option">{o}</button>)}</div> : null}
       <div className="row" style={{ marginTop: 6 }}><input style={{ flex: 1 }} placeholder="or answer in your own words" value={text} onChange={e => setText(e.target.value)} disabled={busy} data-testid="question-text" />
         <button className="btn small primary" disabled={busy || !text.trim()} onClick={async () => { await answer(text.trim()); setText(''); }}>Answer</button></div>

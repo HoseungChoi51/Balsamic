@@ -138,5 +138,5 @@ export const charterView = { id: 'charter_1', title: 'Token sharing', status: 'd
       monthly_budget_tokens: { description: 'Tokens per month', kind: 'integer', role: 'input', value: null, expression: null, units: 'token', range: [0, null], origin: 'source', accepted: false },
     },
     variables: [{ name: 'daily_cap', description: 'Daily token cap for each seat', representation: 'continuous', shape: ['n_seats'], lower: 0, upper: null, values: [], units: 'token/day' }],
-    questions: [{ id: 'value_scoring', question: 'How is the value of work quantified?', options: ['Discrete 1-5 impact score', 'Continuous value in currency'], answer: null }] } };
+    questions: [{ id: 'value_scoring', question: 'How is the value of work quantified?', options: ['Discrete 1-5 impact score', 'Continuous value in currency'], answer: null }, { id: 'granularity', question: 'Are caps set per day or per week?', options: ['Per day', 'Per week'], answer: null }] } };
 export const adoptedNoteView = { ...noteView, note: { ...noteView.note, status: 'adopted', adopted_revision: 2, charter_id: 'charter_1' }, charter: { charter_id: 'charter_1', status: 'ready', import_id: 'import_1', error: null } };
