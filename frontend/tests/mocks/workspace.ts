@@ -64,6 +64,7 @@ export async function mockWorkspace(page: Page, overrides: Partial<Record<string
       '/api/v1/workspace': f.workspace, '/api/v1/campaigns': { campaigns: [f.campaignRow] }, [`/api/v1/campaigns/${f.CAMPAIGN_ID}/summary`]: f.summary,
       '/api/v1/threads/thread_main_deflector-v2': { ...f.thread, id: 'thread_main_deflector-v2', campaign_id: 'deflector-v2' },
       [`/api/v1/threads/${f.THREAD_ID}`]: f.thread, [`/api/v1/campaigns/${f.CAMPAIGN_ID}/threads`]: { ...f.threads, threads: [f.thread, f.branch, f.parked] }, [`/api/v1/threads/${f.THREAD_ID}/messages`]: f.messages,
+      [`/api/v1/threads/${f.AGENTS_THREAD_ID}`]: f.agentsThread, [`/api/v1/threads/${f.AGENTS_THREAD_ID}/messages`]: f.agentsMessages, [`/api/v1/threads/${f.AGENTS_THREAD_ID}/context`]: { ...f.context, thread_id: f.AGENTS_THREAD_ID },
       [`/api/v1/threads/${f.BRANCH_ID}`]: f.branch, [`/api/v1/threads/${f.BRANCH_ID}/messages`]: f.branchMessages, [`/api/v1/threads/${f.THREAD_ID}/context`]: f.context, [`/api/v1/threads/${f.BRANCH_ID}/context`]: { ...f.context, thread_id: f.BRANCH_ID },
       [`/api/v1/campaigns/${f.CAMPAIGN_ID}/problem-note`]: f.noteView, [`/api/v1/campaigns/${f.CAMPAIGN_ID}/evolution`]: f.evolution, '/api/v1/hypotheses/hypothesis_b': f.hypothesisCard,
       '/api/v1/records/hypothesis_b/provenance': { record_id: 'hypothesis_b', trail: f.hypothesisCard.provenance }, '/api/v1/records/trial_1/provenance': { record_id: 'trial_1', trail: f.hypothesisCard.provenance.slice(1) }, [`/api/v1/problem-notes/note_${f.CAMPAIGN_ID}`]: f.noteView,

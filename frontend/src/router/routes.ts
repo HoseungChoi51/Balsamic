@@ -36,7 +36,24 @@ export function formatHash(route: Partial<Route> & { page: string }, thread?: st
   return '#' + parts.join('/') + (query.toString() ? '?' + query.toString() : '');
 }
 
-export function navigate(hash: string) { if (location.hash !== hash) location.hash = hash; }
+export const CHAT_WINDOW = 'balsamic-chat';
+let channel: BroadcastChannel | null = null;
+/** The channel between the main window and a detached chat window (navigate, reattach, closed). */
+export function chatChannel(): BroadcastChannel | null {
+  if (channel) return channel;
+  try { channel = new BroadcastChannel('balsamic.chat'); } catch { channel = null; }
+  return channel;
+}
+export function isDetachedWindow() { return typeof window !== 'undefined' && window.name === CHAT_WINDOW; }
+
+export function navigate(hash: string) {
+  if (isDetachedWindow()) {
+    // The detached chat keeps showing the chat; the page it links to opens in the main window.
+    const target = parseHash(hash);
+    if (target.page !== 'chat') { chatChannel()?.postMessage({ type: 'navigate', hash }); return; }
+  }
+  if (location.hash !== hash) location.hash = hash;
+}
 
 /** A page link written by the lead (#experiments/trial_x) opened in the current thread. */
 export function withThread(hash: string, thread: string | null) {

@@ -138,6 +138,24 @@ hypothesis (lineage nodes and chips show it; the title stays the full statement)
 Each record keeps the outcome under `housekeeping.<job>`; a failed call is retried at most three times. Nothing runs
 with `GRATING_LLM_DISABLED` or without a model.
 
+**Agents' side conversations.** What agents say to each other while working on one researcher request never appears in
+the researcher's thread. `tools.assignment_origin` stamps each assistant (and the assistants it asks) with the lead run
+and thread the work descends from; `threads.service.route_message`, installed as `pi.message_thread`, sends their
+messages, the lead's requests to page agents and the lead's answers to agents' questions into the request's agents
+thread (`thread_agents_<run>_<campaign>`, `kind: agents`, parent = the request's thread, named by the housekeeper). The
+first message there posts one `agents_link` line in the researcher's thread; the chat shows it with a link, and lists
+agents threads in their own group of the switcher. Messages carry `agent_role`. A page agent's desk (requests made on
+its page) stays on the page.
+
+**Folded exchanges.** The chat groups messages into exchanges (a researcher message and the replies before the next one)
+and folds all but the last two under a one-sentence title: the housekeeper's `fold_title` on the researcher message
+(written once the next exchange begins), else the question's first sentence. Expand all / fold all is one button.
+
+**Detached chat.** "Detach chat" opens `#t/<thread>/chat`, a chat-only window (`window.name = balsamic-chat`); the main
+window hides its chat column so the page fills it. Page links clicked in the detached window go over
+`BroadcastChannel('balsamic.chat')` to the main window, which navigates; the chat window stays on the chat. Reattach,
+from either window, closes the chat window and shows the column again.
+
 **Checkpoint turns.** When a lead turn ends without `yield_work`, the controller asks once for the checkpoint
 (`pi_continue_*`). The report of that checkpoint is not posted as a message: the researcher already has the answer.
 Only text the lead writes beside it in that turn would be.

@@ -104,3 +104,16 @@ textarea { resize: vertical; }
 .agent-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 10px; }
 .agent-card { border: 1px solid var(--line); border-radius: var(--radius-s); padding: 10px 12px; background: var(--panel); display: grid; gap: 4px; }
 .agent-card .dot { width: 9px; height: 9px; border-radius: 50%; display: inline-block; margin-right: 6px; }
+
+/* folded exchanges and the detached chat */
+.fold { border-bottom: 1px solid var(--line); }
+.fold > summary { cursor: pointer; padding: 6px 12px; list-style: none; display: flex; align-items: baseline; gap: 6px; color: var(--ink-2); }
+.fold > summary::-webkit-details-marker { display: none; }
+.fold > summary::before { content: '▸'; color: var(--ink-3); font-size: 11px; }
+.fold[open] > summary::before { content: '▾'; }
+.fold > summary .fold-title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+.fold-bar { display: flex; align-items: center; justify-content: space-between; padding: 4px 12px; border-bottom: 1px dashed var(--line); }
+.shell.detached { display: flex; flex-direction: column; height: 100vh; }
+.shell.detached .chat { flex: 1; border-right: none; }
+.turn.agents-link { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.btn.active { border-color: var(--accent); color: var(--accent); }

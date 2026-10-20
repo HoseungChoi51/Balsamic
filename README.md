@@ -56,6 +56,14 @@ chips that open the page in this thread. Slash commands: `/generate 3` (three ne
 H01 H02`, `/evolve H01`, `/review H01`, `/compare`, `/probe`, `/plan`, `/note`, `/fork`, `/park`, `/merge into
 <thread> <note>`, `/help`.
 
+### Read the chat
+
+Earlier exchanges fold under a one-sentence title (written by the housekeeper once the next exchange begins); the last
+two stay open, and one button expands or folds them all. "Detach chat" in the top bar opens the conversation in its own
+window and lets the page fill the main one; links the lead writes open in the main window. When the lead hands work to
+agents, their conversation with each other goes to a side thread, linked from your thread by one line and listed under
+"Agents' conversations" in the switcher; only the lead's own reply comes back to you.
+
 ### Branch the conversation
 
 "Fork here" on any turn starts a branch at that point (a branch of the lead's own session tree, so the lead continues

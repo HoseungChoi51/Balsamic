@@ -207,3 +207,37 @@ def test_branch_titles_fit_the_switcher(client, workspace, campaign, team):
     assert len(explicit["outcome"]["thread"]["title"]) <= TITLE_LIMIT + 1
     command(client, "thread.rename", campaign["id"], {"thread_id": branch["id"], "title": long}, version())
     assert len(workspace.store.get(branch["id"], "thread")["title"]) <= TITLE_LIMIT + 1
+
+
+def test_agents_talk_in_a_side_thread_linked_from_the_request(client, workspace, campaign, team):
+    from support import submitted, tool_call
+    run_id = say(client, campaign, "Let agents review the proposals.")
+    run = submitted(workspace, run_id)
+    delegated = tool_call(workspace, team, run, "delegate", {"role": "proposal_reviewer", "objective": "Review the five proposals.", "request_key": "review-1"}, call_id="c1")
+    child = workspace.store.get(delegated["agent_id"], "agent_session")
+    assert child["assignment_origin"] == {"thread_id": MAIN, "message_id": "message_" + run_id.removeprefix("pi_run_"), "run_id": run_id}
+    finish_run(workspace, delegated["run_id"], "Recorded verdicts on all five.", entry_ids={"parent": "x0", "last": "x1"}, disposition="complete")
+    listing = client.get(f"/api/v1/campaigns/{campaign['id']}/threads").json()["threads"]
+    side = next(t for t in listing if t.get("kind") == "agents")
+    assert side["parent_thread_id"] == MAIN and side["root_run_id"] == run_id and side["title_pending"] and side["title"] == "Let agents review the proposals."
+    side_messages = client.get(f"/api/v1/threads/{side['id']}/messages").json()["messages"]
+    assert [(m["origin"], m["agent_role"], m["content"]) for m in side_messages] == [("page_agent", "proposal_reviewer", "Recorded verdicts on all five.")]
+    main_messages = client.get(f"/api/v1/threads/{MAIN}/messages").json()["messages"]
+    link = [m for m in main_messages if m.get("kind") == "agents_link"]
+    assert len(link) == 1 and link[0]["link_thread_id"] == side["id"] and link[0]["origin"] == "lab_event"
+    assert not [m for m in main_messages if m.get("origin") == "page_agent"], "no agent's reply leaks into the researcher's thread"
+    # The lead's request to a page agent and the agents' further assistants join the same side conversation.
+    asked = tool_call(workspace, team, run, "page_agent_message", {"page_agent": "discussion_moderator", "message": "Run a review round."}, call_id="c2")
+    moderator = workspace.store.get(asked["agent_id"], "agent_session")
+    assert moderator["assignment_origin"]["run_id"] == run_id
+    sub = submitted(workspace, asked["run_id"])
+    grand = tool_call(workspace, moderator, sub, "delegate", {"role": "methodology_specialist", "objective": "Assess methods.", "request_key": "m-1"}, call_id="c3")
+    finish_run(workspace, grand["run_id"], "Methods assessed.", entry_ids={"parent": "y0", "last": "y1"}, disposition="complete")
+    finish_run(workspace, asked["run_id"], "Round complete.", entry_ids={"parent": "z0", "last": "z1"}, disposition="complete")
+    side_messages = client.get(f"/api/v1/threads/{side['id']}/messages").json()["messages"]
+    assert [m["content"] for m in side_messages] == ["Recorded verdicts on all five.", "Run a review round.", "Methods assessed.", "Round complete."]
+    assert [m.get("agent_role") for m in side_messages] == ["proposal_reviewer", "lead", "methodology_specialist", "discussion_moderator"]
+    assert len([m for m in client.get(f"/api/v1/threads/{MAIN}/messages").json()["messages"] if m.get("kind") == "agents_link"]) == 1
+    # The lead's reply to the researcher stays in the main thread.
+    finish_run(workspace, run_id, "The review is done; see the side conversation.", entry_ids={"parent": "e0", "last": "e2"}, disposition="complete")
+    assert client.get(f"/api/v1/threads/{MAIN}/messages").json()["messages"][-1]["content"] == "The review is done; see the side conversation."

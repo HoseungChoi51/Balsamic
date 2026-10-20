@@ -18,6 +18,7 @@
                 "agent": "resource_planner"},
     "library": {"title": "Library", "description": "strategies that won earlier campaigns of the same problem, ready to apply"},
     "branches": {"title": "Branches", "description": "the map of this campaign's conversation branches with their summaries"},
+    "chat": {"title": "Chat", "description": ""},
     "new": {"title": "New campaign", "description": "start a campaign"}
   },
   "agents": {"discussion_moderator": "hypotheses", "experiment_operator": "experiments", "implementation_lead": "hypotheses/implementations", "resource_planner": "monitor/resources"},

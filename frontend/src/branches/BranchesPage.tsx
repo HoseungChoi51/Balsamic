@@ -23,6 +23,7 @@ export function SummaryCard({ thread, current, route, onPark, onUnpark, onMerge 
     <article className={'card' + (current ? ' selected' : '')} data-testid="thread-card" data-thread-id={thread.id} data-status={thread.status}>
       <div className="row">
         <a href={formatHash({ page: route.page === 'branches' ? 'monitor' : route.page, sub: route.sub }, thread.id)} onClick={() => track('thread.switch', { from: 'map' })}><strong>{thread.title}</strong></a>
+        {thread.kind === 'agents' ? <Pill tone="agent" title="The agents' own conversation while working on one of your requests">agents</Pill> : null}
         <Pill tone={thread.status === 'active' ? 'clear' : thread.status === 'parked' ? 'attention' : ''}>{thread.status}</Pill>
         {thread.busy ? <Pill tone="agent">lead working</Pill> : null}{thread.queued ? <Pill>{thread.queued} queued</Pill> : null}{thread.unread ? <Pill tone="you">new reply</Pill> : null}
         <span className="grow" /><span className="small faint">{thread.message_count} turns · {when(thread.last_activity_at)}</span>

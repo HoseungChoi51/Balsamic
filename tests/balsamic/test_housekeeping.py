@@ -31,6 +31,8 @@ def light_model(workspace, monkeypatch):
             return {"text": "Title: \"Second coupling first.\"\n", "usage": {"cost_usd": 0.0001}}
         if body["label"] == "hypothesis label":
             return {"text": "Warm-start CMA-ES", "usage": {}}
+        if body["label"] == "exchange title":
+            return {"text": "Asked which coupling wins; the lead named two candidates.", "usage": {}}
         return {"text": "A branch about the second coupling; nothing concluded yet.", "usage": {}}
     monkeypatch.setattr(workspace.pi.client, "complete", complete)
     return calls
@@ -152,3 +154,19 @@ def test_the_lead_corrects_proposal_fields_and_the_page_says_when_the_lane_was_n
     assert attempt("fix-5", {"hypothesis_id": created["id"], "rationale": "better stated"})["outcome"]["fields"] == ["rationale"]
     briefing = workspace.lead_instructions(team)
     assert "Proposal fields." in briefing and "hypothesis.edit" in briefing and "not chosen" in briefing
+
+
+def test_finished_exchanges_get_a_one_sentence_fold_title(client, workspace, campaign, team, light_model):
+    run1 = say(client, campaign, "Which coupling wins?")
+    finish_run(workspace, run1, "Two candidates.", entry_ids={"parent": "e0", "last": "e2"}, disposition="complete")
+    assert housekeeping.tick(workspace) == 0, "the last exchange is open until the researcher writes again"
+    run2 = say(client, campaign, "Try the first.")
+    assert housekeeping.tick(workspace) == 1
+    first = workspace.store.get("message_" + run1.removeprefix("pi_run_"), "message")
+    assert first["fold_title"] == "Asked which coupling wins; the lead named two candidates"
+    asked = [c for c in light_model if c["label"] == "exchange title"]
+    assert len(asked) == 1 and "Which coupling wins?" in asked[0]["prompt"] and "Two candidates." in asked[0]["prompt"]
+    finish_run(workspace, run2, "Started trial_1.", entry_ids={"parent": "e2", "last": "e4"}, disposition="complete")
+    assert housekeeping.tick(workspace) == 0
+    body = client.get(f"/api/v1/threads/{MAIN}/messages").json()
+    assert [m.get("fold_title") for m in body["messages"] if m["role"] == "user"] == [first["fold_title"], None]

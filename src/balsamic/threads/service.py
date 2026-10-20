@@ -48,10 +48,72 @@ def lead_agent(workspace, campaign_id):
 
 
 def conversation(workspace, campaign_id):
-    """The researcher's conversation with the lead: its messages and the lab's own lines, never a page agent's desk."""
+    """The researcher's conversation with the lead and, in their own side threads, the agents' conversations.
+
+    A page agent's desk (requests made on its page) stays on the page; what agents say while working on a request
+    the researcher made is routed to that request's agents thread (agents_thread) and read there."""
     page_agents = {agent["id"] for agent in workspace.store.list("agent_session", campaign_id) if agent["role"] in PAGE_AGENTS}
-    return [message for message in workspace.store.list("message", campaign_id)
-            if not message.get("desk") and message.get("agent_id") not in page_agents and message.get("to_agent_id") not in page_agents]
+    def visible(message):
+        if message.get("thread_id"):
+            return True
+        return not message.get("desk") and message.get("agent_id") not in page_agents and message.get("to_agent_id") not in page_agents \
+            and message.get("origin") != "page_agent"
+    return [message for message in workspace.store.list("message", campaign_id) if visible(message)]
+
+
+def agents_thread_id(campaign_id, root_run_id):
+    return f"thread_agents_{content_hash(root_run_id)[:10]}_{campaign_id}"
+
+
+def agents_thread(workspace, campaign_id, root):
+    """The side conversation of the agents working on one researcher request (the lead run `root`): created on first
+    use as a branch of the request's thread, linked from it by one line, named by the housekeeper."""
+    identity = agents_thread_id(campaign_id, root["run_id"])
+    try:
+        return workspace.store.get(identity, "thread")
+    except KeyError:
+        pass
+    parent_id = root.get("thread_id") or main_thread_id(campaign_id)
+    try:
+        parent = workspace.store.get(parent_id, "thread")
+    except KeyError:
+        parent = ensure_main(workspace, campaign_id)
+    request = ""
+    if root.get("message_id"):
+        try:
+            request = workspace.store.get(root["message_id"], "message").get("content") or ""
+        except KeyError:
+            request = ""
+    title = branch_title(request, fallback="Agents at work")
+    record = {"id": identity, "campaign_id": campaign_id, "name": title, "title": title, "kind": "agents", "parent_thread_id": parent["id"],
+              "fork_message_id": root.get("message_id"), "fork_entry_id": None, "agent_leaf": None, "status": "active", "merged_into": None,
+              "pinned_ids": [], "excluded_ids": [], "anchors": [], "summary": None, "guidance_revision": int(parent.get("guidance_revision", 0)),
+              "last_seen_message_id": None, "root_run_id": root["run_id"], "title_source": "message", "title_pending": True,
+              "created_at": now(), "updated_at": now()}
+    workspace.store.put("thread", record, "thread.created")
+    workspace.store.put("message", {"id": "message_agents_link_" + identity, "campaign_id": campaign_id, "role": "assistant", "origin": "lab_event",
+                                    "kind": "agents_link", "link_thread_id": identity, "thread_id": parent["id"], "run_id": root["run_id"],
+                                    "content": f"Agents are working on this request in a side conversation: {title}", "created_at": now()}, "message.created")
+    return record
+
+
+def route_message(workspace, agent, run):
+    """Where an agent's message belongs: the lead's replies to the researcher in the thread that asked; what agents say to
+    each other, and the lead's answers to them, in the request's agents thread."""
+    origin = (run or {}).get("origin") or {}
+    if agent["role"] == LEAD and not run.get("asked_by"):
+        return origin.get("thread_id")
+    root = agent.get("assignment_origin")
+    if agent["role"] == LEAD and run.get("asked_by"):
+        try:
+            root = workspace.store.get(run["asked_by"], "agent_session").get("assignment_origin")
+        except KeyError:
+            root = None
+    if not root and origin.get("run_id"):
+        root = {"thread_id": origin.get("thread_id"), "message_id": origin.get("message_id"), "run_id": origin["run_id"]}
+    if not root or not root.get("run_id"):
+        return origin.get("thread_id")
+    return agents_thread(workspace, agent["campaign_id"], root)["id"]
 
 
 def event_cursor(workspace, campaign_id):
@@ -281,6 +343,7 @@ def fork_entry(workspace, thread, message_id):
 
 
 def register(workspace):
+    workspace.pi.message_thread = lambda agent, run: route_message(workspace, agent, run)
     commands = workspace.commands
     original = workspace.create_campaign
 

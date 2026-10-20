@@ -540,14 +540,28 @@ class PiTools:
                 receipt(result)
         return result
 
-    def ask_page_agent(self, agent, target, message, evidence_ids, identity):
+    def assignment_origin(self, agent, run):
+        """The researcher's request an agent's work descends from: the lead's run and thread, inherited by assistants of assistants."""
+        if agent["role"] == LEAD:
+            origin = (run or {}).get("origin") or {}
+            return {"thread_id": origin.get("thread_id"), "message_id": origin.get("message_id"), "run_id": run["id"]} if run and origin.get("thread_id") else None
+        return agent.get("assignment_origin") or None
+
+    def ask_page_agent(self, agent, target, message, evidence_ids, identity, run=None):
         """The lead's request to a page agent, kept as a message on that agent's page; the result comes back to the lead."""
         if agent["role"] != LEAD:
             raise ValueError("Only the lead agent writes to the agents in charge of pages")
         for ref in evidence_ids:
             self.record(agent, ref)
-        self.store.put("message", {"id": "message_" + identity, "campaign_id": agent["campaign_id"], "role": "lead", "content": message,
-            "created_at": now(), "agent_id": target["id"], "from_agent_id": agent["id"]}, "message.created")
+        root = self.assignment_origin(agent, run)
+        if root:
+            # The page agent's work for this request, and what its assistants do, belongs to the request's side conversation.
+            target["assignment_origin"] = root
+            self.store.put("agent_session", target)
+        thread_id = self.controller.message_thread(target, {"origin": root or {}}) if self.controller.message_thread and root else None
+        self.store.put("message", {"id": "message_" + identity, "campaign_id": agent["campaign_id"], "role": "lead", "origin": "lead", "agent_role": LEAD, "content": message,
+            "created_at": now(), "agent_id": target["id"], "from_agent_id": agent["id"], "to_agent_id": target["id"],
+            **({"thread_id": thread_id} if thread_id else {})}, "message.created")
         text = message + (f"\nEvidence IDs: {json.dumps(evidence_ids)}" if evidence_ids else "")
         run = self.controller.ask_page_agent(target, text, "page_request_" + identity[-32:], agent["id"])
         return {"agent_id": target["id"], "run_id": run["id"], "status": run["status"], "page": "#" + PAGE_AGENTS[target["role"]],
@@ -810,6 +824,10 @@ class PiTools:
             aid = "agent_" + content_hash([agent["id"], args["request_key"]])[:30]
             child = self.controller.create_agent(cid, args["role"], args["objective"], aid,
                 parent_id=agent["id"], evidence_ids=args.get("evidence_ids"))
+            root = self.assignment_origin(agent, run)
+            if root:
+                child["assignment_origin"] = root
+                self.store.put("agent_session", child)
             task = self.controller.enqueue(child, "assignment_" + aid, args["objective"])
             return {"agent_id": aid, "run_id": task["id"], "status": task["status"]}
         if name in {"agent_message", "agent_cancel"}:
@@ -817,12 +835,12 @@ class PiTools:
             if child["parent_agent_id"] != agent["id"]:
                 raise ValueError("Only your own assistants can be written to or stopped")
             if name == "agent_message" and child["role"] in PAGE_AGENTS:
-                return self.ask_page_agent(agent, child, args["message"], [], identity)
+                return self.ask_page_agent(agent, child, args["message"], [], identity, run=run)
             if name == "agent_message":
                 return self.controller.enqueue(child, "message_" + identity, args["message"], mode="steer")
             return self.controller.control(cid, {"agent_id": child["id"], "action": "stop", "expected_control_revision": child["control_revision"]}, identity)
         if name == "page_agent_message":
-            return self.ask_page_agent(agent, self.controller.page_agent(cid, args["page_agent"]), args["message"], args.get("evidence_ids", []), identity)
+            return self.ask_page_agent(agent, self.controller.page_agent(cid, args["page_agent"]), args["message"], args.get("evidence_ids", []), identity, run=run)
         if name == "experiment_progress":
             from .experiments import progress
             return progress(self.workspace, cid, args.get("finished", 8))

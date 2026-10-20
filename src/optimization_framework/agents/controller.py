@@ -82,6 +82,7 @@ class PiController:
         self.schedule_lock = threading.Lock()
         self.diagnostic_processes = {}
         self.tool_locks = {}
+        self.message_thread = None   # (agent, run) -> thread id; installed by the service
         from .development import DevelopmentWorkspaces
         self.development = DevelopmentWorkspaces(self)
         self._migrate_records()
@@ -800,10 +801,12 @@ class PiController:
                         except KeyError:
                             pass
                     if text:
+                        # The service may route an agent's message to a thread of its own (agents' side conversations).
+                        thread_id = self.message_thread(agent, run) if self.message_thread else origin.get("thread_id")
                         self.store.put("message", {"id": "message_" + rid, "campaign_id": agent["campaign_id"],
                             "role": "assistant", "origin": "autopilot" if run.get("autopilot") else "lead" if agent["role"] == LEAD else "page_agent",
-                            "agent_id": agent_id, "content": text, "created_at": now(), "run_id": rid,
-                            **({"thread_id": origin["thread_id"]} if origin.get("thread_id") else {}),
+                            "agent_id": agent_id, "agent_role": agent["role"], "content": text, "created_at": now(), "run_id": rid,
+                            **({"thread_id": thread_id} if thread_id else {}),
                             **({"entry_id": entry_ids["last"]} if entry_ids.get("last") else {}),
                             **({"desk": agent["role"]} if agent["role"] in PAGE_AGENTS else {}),
                             **({"parts": parts} if len(parts) > 1 else {}), **({"to_agent_id": run["asked_by"]} if run.get("asked_by") else {}),

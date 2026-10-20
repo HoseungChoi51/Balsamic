@@ -12,6 +12,7 @@ import { ContextChip, ContextDrawer } from './ContextDrawer';
 import { parseSlash, SLASH } from './slash';
 import { Failed, Loading, Pill } from '../primitives/ui';
 import { formatHash, navigate, type Route } from '../router/routes';
+import { Folds } from './Folds';
 import { track } from '../telemetry/events';
 
 export function ThreadChat({ campaignId, threadId, route }: { campaignId: string; threadId: string; route: Route }) {
@@ -105,9 +106,11 @@ export function ThreadChat({ campaignId, threadId, route }: { campaignId: string
     <div className="chat" data-testid="thread-chat">
       <div className="thread-head">
         <select aria-label="Thread" value={threadId} data-testid="thread-switch" onChange={e => { track('thread.switch', {}); navigate(formatHash({ page: route.page, sub: route.sub, id: route.id }, e.target.value)); }}>
-          {(threads.data?.threads || []).map(t => <option key={t.id} value={t.id}>{t.title}{t.status === 'parked' ? ' (parked)' : t.status === 'merged' ? ' (merged)' : ''}{t.unread ? ' •' : ''}</option>)}
+          {(threads.data?.threads || []).filter(t => t.kind !== 'agents').map(t => <option key={t.id} value={t.id}>{t.title}{t.status === 'parked' ? ' (parked)' : t.status === 'merged' ? ' (merged)' : ''}{t.unread ? ' •' : ''}</option>)}
+          {(threads.data?.threads || []).some(t => t.kind === 'agents') ? <optgroup label="Agents' conversations" data-testid="agents-group">
+            {(threads.data?.threads || []).filter(t => t.kind === 'agents').map(t => <option key={t.id} value={t.id}>{t.title}{t.unread ? ' •' : ''}</option>)}</optgroup> : null}
         </select>
-        {thread?.name && thread.name !== 'main' ? <Pill>{thread.status === 'parked' ? 'parked branch' : 'branch'}</Pill> : null}
+        {thread?.kind === 'agents' ? <Pill tone="agent" title="What the agents said to each other while working on one of your requests">agents</Pill> : thread?.name && thread.name !== 'main' ? <Pill>{thread.status === 'parked' ? 'parked branch' : 'branch'}</Pill> : null}
         <span className="grow" />
         <ContextChip threadId={threadId} onOpen={() => setDrawer(d => !d)} />
         {lead ? <Pill tone={busy ? 'agent' : 'clear'} title="The lead agent's state">{busy ? 'Lead working' : lead.status === 'waiting' ? 'Lead waiting' : `Lead ${lead.status}`}</Pill> : <Pill title="No agent team yet; your first message starts it">No lead yet</Pill>}
@@ -119,8 +122,8 @@ export function ThreadChat({ campaignId, threadId, route }: { campaignId: string
           {inheritedOpen ? data.inherited_messages.map(m => <Turn key={m.id} message={m as Message} thread={threadId} aliases={aliases} />) : null}
         </div> : null}
         {data?.messages.length === 0 && !busy && !data.inherited.length ? <div className="empty">Nothing yet. Describe the problem or ask the lead what it sees; it starts nothing until you ask. Type / for commands.</div> : null}
-        {data?.messages.map(message => <Turn key={message.id} message={message} thread={threadId} aliases={aliases}
-          onFork={merged ? undefined : m => fork(m)} onEdit={merged ? undefined : (message.role === 'user' ? m => setEditing(m) : undefined)} />)}
+        {data ? <Folds messages={data.messages} render={message => <Turn key={message.id} message={message} thread={threadId} aliases={aliases}
+          onFork={merged ? undefined : m => fork(m)} onEdit={merged ? undefined : (message.role === 'user' ? m => setEditing(m) : undefined)} />} /> : null}
         {data?.placeholders?.length ? <div className="turn agent" data-testid="placeholders"><div className="meta"><Pill tone="agent">generating</Pill></div>
           {data.placeholders.map(p => <span key={p.id} className="chip" title="A strategy the lead is recording">{p.id} · pending</span>)}</div> : null}
         {data?.questions.length ? data.questions.map(q => <div key={q.id} className="turn lab" data-testid="question">The lead asks: {q.question}</div>) : null}

@@ -37,6 +37,23 @@ export const messages = { campaign_id: CAMPAIGN_ID, event_cursor: 10, unchanged:
     { id: 'message_1', campaign_id: CAMPAIGN_ID, role: 'user', origin: 'researcher', content: 'What do we know about the deflector so far?', created_at: '2026-10-19T08:01:00Z' },
     { id: 'message_2', campaign_id: CAMPAIGN_ID, role: 'assistant', origin: 'lead', content: 'Two proposals exist: hypothesis_a (H01) and hypothesis_b. The first run is trial_1; see #experiments/trial_1 and the inbox at #inbox.', created_at: '2026-10-19T08:05:00Z' },
   ] };
+export const AGENTS_THREAD_ID = 'thread_agents_0123456789_' + CAMPAIGN_ID;
+export const agentsThread = { ...thread, id: AGENTS_THREAD_ID, name: 'Review of the proposals', title: 'Review of the proposals', kind: 'agents', parent_thread_id: THREAD_ID, fork_message_id: 'message_5', root_run_id: 'pi_run_5', message_count: 2, strip: [] };
+export const foldedMessages = { ...messages, messages: [
+  { id: 'message_1', campaign_id: CAMPAIGN_ID, role: 'user', origin: 'researcher', content: 'What do we know about the deflector so far? Give me the short version.', fold_title: 'Asked what is known; two proposals and one run exist', created_at: '2026-10-19T08:01:00Z' },
+  { id: 'message_2', campaign_id: CAMPAIGN_ID, role: 'assistant', origin: 'lead', content: 'Two proposals exist: hypothesis_a (H01) and hypothesis_b. The first run is trial_1.', created_at: '2026-10-19T08:05:00Z' },
+  { id: 'message_3', campaign_id: CAMPAIGN_ID, role: 'user', origin: 'researcher', content: 'Try the second one with a warm start.', created_at: '2026-10-19T08:06:00Z' },
+  { id: 'message_4', campaign_id: CAMPAIGN_ID, role: 'assistant', origin: 'lead', content: 'Started trial_2 on hypothesis_b.', created_at: '2026-10-19T08:07:00Z' },
+  { id: 'message_5', campaign_id: CAMPAIGN_ID, role: 'user', origin: 'researcher', content: 'Let the agents review the proposals.', created_at: '2026-10-19T08:08:00Z' },
+  { id: 'message_agents_link_' + AGENTS_THREAD_ID, campaign_id: CAMPAIGN_ID, role: 'assistant', origin: 'lab_event', kind: 'agents_link', link_thread_id: AGENTS_THREAD_ID, content: 'Agents are working on this request in a side conversation: Review of the proposals', created_at: '2026-10-19T08:08:30Z' },
+  { id: 'message_6', campaign_id: CAMPAIGN_ID, role: 'assistant', origin: 'lead', content: 'The moderator is reviewing them; the result comes back here.', created_at: '2026-10-19T08:09:00Z' },
+  { id: 'message_7', campaign_id: CAMPAIGN_ID, role: 'user', origin: 'researcher', content: 'How long will that take?', created_at: '2026-10-19T08:10:00Z' },
+  { id: 'message_8', campaign_id: CAMPAIGN_ID, role: 'assistant', origin: 'lead', content: 'A few minutes.', created_at: '2026-10-19T08:11:00Z' },
+] };
+export const agentsMessages = { ...messages, thread_id: AGENTS_THREAD_ID, parent_path: [{ thread_id: THREAD_ID, title: 'Demo', fork_message_id: 'message_5' }], messages: [
+  { id: 'message_page_request_1', campaign_id: CAMPAIGN_ID, role: 'lead', origin: 'lead', agent_role: 'lead', to_agent_id: 'agent_mod', thread_id: AGENTS_THREAD_ID, content: 'Run a review round on the five proposals.', created_at: '2026-10-19T08:08:40Z' },
+  { id: 'message_assignment_1', campaign_id: CAMPAIGN_ID, role: 'assistant', origin: 'page_agent', agent_role: 'proposal_reviewer', agent_id: 'agent_rev', thread_id: AGENTS_THREAD_ID, content: 'Recorded verdicts on all five.', created_at: '2026-10-19T08:09:10Z' },
+] };
 export const monitor = { campaign_id: CAMPAIGN_ID, event_cursor: 10, unchanged: false, rows: { problem: { name: 'Demo campaign', objective: 'Find a better deflector', tasks: 1 },
   budget: { worker: { allocated_seconds: 120, actual_seconds: 54, forecast_seconds: 160, forecast_basis: 'measured use plus the remaining allotment of live runs', budget_seconds: 3600, exhausted: false }, llm: { cap_usd: 5, agent_charged_usd: 0.42, implementation_committed_usd: 0, spent_usd: 0.42, exhausted: false } },
   compute: { busy: 1, limit: 2, queued: 0, level: 'balanced', gpu: { reported: true, measured: true, devices: 1, busy: false, utilization_percent: 3, memory_used_bytes: 1073741824, memory_total_bytes: 25769803776, basis: 'measured by nvidia-smi' } }, autopilot: { enabled: false, reason: 'autopilot is off', can_start: false },

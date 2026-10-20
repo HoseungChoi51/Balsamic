@@ -4,9 +4,10 @@ The housekeeper is a role on the model tiers (default: the "fast" tier), not an 
 short completion through the harness. Jobs run on the maintenance tick, a few per tick, and each record
 remembers the outcome so a failed call is retried a bounded number of times and never storms the model.
 
-Jobs: a title for a forked branch (2 to 6 words from the forked message and the turns around it), and a
-short label for every hypothesis (2 or 3 words) that fits a lineage node. Branch summaries (threads/summaries.py)
-use the same model.
+Jobs: a title for a forked branch (2 to 6 words from the forked message and the turns around it), a short
+label for every hypothesis (2 or 3 words) that fits a lineage node, and a one-sentence title for each finished
+exchange with the lead (the chat folds earlier exchanges under it). Branch summaries (threads/summaries.py) use
+the same model.
 """
 from __future__ import annotations
 
@@ -171,14 +172,58 @@ def label_hypothesis(workspace, hypothesis):
     return label or None
 
 
+FOLD_LIMIT = 110
+
+
+def exchanges(workspace, campaign_id):
+    """Finished exchanges: a researcher message and the lead's replies before the next researcher message in the same thread."""
+    from balsamic.threads.service import main_thread_id
+    main = main_thread_id(campaign_id)
+    by_thread = {}
+    for message in sorted(workspace.store.list("message", campaign_id), key=lambda m: m.get("created_at") or ""):
+        if message.get("origin") in {"lab_event", "manager_system", "setup"} or message.get("kind") == "agents_link":
+            continue
+        by_thread.setdefault(message.get("thread_id") or main, []).append(message)
+    for rows in by_thread.values():
+        question, replies = None, []
+        for message in rows:
+            if message.get("role") == "user":
+                if question and replies:
+                    yield question, replies
+                question, replies = message, []
+            elif question and message.get("origin") in {"lead", "autopilot", "pi"}:
+                replies.append(message)
+        # The last exchange is open until the next researcher message: the chat shows it unfolded anyway.
+
+
+def title_exchange(workspace, question, replies):
+    attempt = _attempt(question, "fold")
+    transcript = f"Researcher: {(question.get('content') or '')[:1500]}\n" + "\n".join(f"Lead: {(r.get('content') or '')[:1500]}" for r in replies[-3:])
+    reply = complete(workspace, "fold_" + content_hash([question["id"], attempt])[:16],
+                     "Write one sentence of at most 14 words that says what the researcher asked and what came of it, in the past tense. "
+                     "Plain words, no quotes, no markdown, no trailing period.", transcript, max_tokens=40, label="exchange title")
+    title = clean(reply["text"], FOLD_LIMIT) if reply else ""
+    if title:
+        question["fold_title"] = title
+        _done(question, "fold", model=reply["model"], cost_usd=reply.get("cost_usd"))
+    else:
+        _failed(question, "fold")
+    workspace.store.put("message", question, "message.titled" if title else None)
+    return title or None
+
+
 def jobs(workspace):
-    """Pending work, oldest first: branches awaiting a title, hypotheses awaiting a label."""
+    """Pending work, oldest first: branches awaiting a title, hypotheses awaiting a label, exchanges awaiting a fold title."""
     for thread in workspace.store.list("thread"):
         if thread.get("title_pending") and pending(thread, "title") and thread.get("status") != "merged":
             yield ("thread", thread)
     for hypothesis in workspace.store.list("hypothesis"):
         if not hypothesis.get("short_title") and pending(hypothesis, "label"):
             yield ("hypothesis", hypothesis)
+    for campaign in workspace.store.list("campaign"):
+        for question, replies in exchanges(workspace, campaign["id"]):
+            if not question.get("fold_title") and pending(question, "fold"):
+                yield ("exchange", (question, replies))
 
 
 def status(workspace):
@@ -199,7 +244,9 @@ def tick(workspace, limit=JOBS_PER_TICK):
             if name_thread(workspace, record) or not pending(record, "title"):
                 record["title_pending"] = False
                 workspace.store.put("thread", record, None)
-        else:
+        elif kind == "hypothesis":
             label_hypothesis(workspace, record)
+        else:
+            title_exchange(workspace, *record)
         done += 1
     return done
