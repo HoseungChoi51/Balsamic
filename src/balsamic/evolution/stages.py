@@ -50,7 +50,7 @@ def next_step(workspace, campaign):
     if note.get("status") == "drafting":
         return {**base, "kind": "adopt", "title": "Adopt the problem note", "page": "#note",
                 "text": "Read the note on the Problem note page and adopt it; the formulator then drafts the charter for you to confirm."}
-    charter = store.get(note["charter_id"], "charter") if _exists(store, note.get("charter_id")) else None
+    charter = store.get(note["charter_id"]) if _exists(store, note.get("charter_id")) else None   # kind problem_charter
     if charter is None or charter.get("status") != "confirmed":
         return {**base, "kind": "confirm", "title": "Confirm the charter", "page": "#note/charter",
                 "text": "No experiment can start until you confirm the charter. Review it on the Charter page and confirm it, or send it back with what to change."}

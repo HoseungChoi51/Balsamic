@@ -188,7 +188,9 @@ def test_the_next_formulation_step_is_named_until_the_charter_is_confirmed(clien
     workspace.store.put("problem_note", note); record["problem_note_id"] = "note_x"; workspace.store.put("campaign", record)
     assert next_step(workspace, record)["kind"] == "adopt"
     note.update(status="adopted", charter_id="charter_x"); workspace.store.put("problem_note", note)
-    workspace.store.put("charter", {"id": "charter_x", "campaign_id": campaign["id"], "status": "proposed", "revision": 1, "charter": {}, "created_at": now()})
+    from optimization_framework.problem_charter.service import KIND
+    workspace.store.put(KIND, {"id": "charter_x", "campaign_id": campaign["id"], "status": "proposed", "revision": 1, "charter": {}, "created_at": now()})
+    assert client.get("/api/v1/campaigns").status_code == 200, "the campaign list must never fail on a charter lookup"
     step = next_step(workspace, record)
     assert step["kind"] == "confirm" and step["page"] == "#note/charter" and step["blocking"] is False
     hypothesis(client, campaign, "A proposal before the charter")
