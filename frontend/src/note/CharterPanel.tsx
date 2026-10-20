@@ -24,6 +24,7 @@ export function CharterPanel({ charterId, campaignId, version, onChanged }: { ch
   const queryClient = useQueryClient();
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [asked, setAsked] = useState<{ text: string; at: number; revision: number }[]>([]);
   if (charter.isPending) return <Loading what="Reading the charter" />;
   if (charter.error) return <Failed error={charter.error} />;
   const c = charter.data;
@@ -31,7 +32,12 @@ export function CharterPanel({ charterId, campaignId, version, onChanged }: { ch
   const refresh = () => Promise.all([queryClient.invalidateQueries({ queryKey: ['charter', charterId] }), queryClient.invalidateQueries({ queryKey: ['campaigns'] })]);
   const post = async (path: string, body: Record<string, unknown>) => {
     setError(null); setBusy(true);
-    try { await api(`/api/v1/problem-charters/${charterId}/${path}`, { method: 'POST', body: JSON.stringify({ expected_revision: c.revision, ...body }) }); await refresh(); }
+    const payload = path === 'requests' ? body : { expected_revision: c.revision, ...body };   // a request to the formulator carries only the words
+    try {
+      await api(`/api/v1/problem-charters/${charterId}/${path}`, { method: 'POST', body: JSON.stringify(payload) });
+      if (path === 'requests') setAsked(list => [...list, { text: String(body.text), at: Date.now(), revision: c.revision }]);
+      await refresh();
+    }
     catch (e) { setError(String((e as Error).message || e)); throw e; }
     finally { setBusy(false); }
   };
@@ -84,6 +90,9 @@ export function CharterPanel({ charterId, campaignId, version, onChanged }: { ch
         </tbody></table>
       </Section> : null}
 
+      {asked.filter(a => a.revision === c.revision).length ? <Section title="Asked of the formulator" right={<span className="small faint">it answers with a proposal below, or a new revision</span>}>
+        {asked.filter(a => a.revision === c.revision).map(a => <div key={a.at} className="finding small" data-testid="asked"><span className="finding-code">sent</span>{a.text}<Pill tone="agent">formulator working</Pill></div>)}
+      </Section> : null}
       {c.proposals.length ? <Section title="Proposals from the formulator">
         {c.proposals.map(p => <ProposalRow key={p.id} proposal={p} busy={busy} charterId={charterId} refresh={refresh} setError={setError} />)}
       </Section> : null}
@@ -105,25 +114,35 @@ function NumberField({ initial, units, placeholder, onSet, busy, testId, width =
   const [bad, setBad] = useState(false);
   const [sent, setSent] = useState<number | null | undefined>(initial);   // the value last committed, so Enter and blur never send it twice
   const [saved, setSaved] = useState(false);
+  const [failed, setFailed] = useState<string | null>(null);
   // The charter is re-read after every edit: the field follows the saved value instead of keeping what was typed.
   useEffect(() => { setText(initial == null ? '' : String(initial)); setSent(initial); }, [initial]);
   const commit = async () => {
     if (!text.trim()) return;
     const v = number(text); if (v == null) { setBad(true); return; }
     setBad(false); if (v === sent) return;
-    setSent(v); await onSet(v); setSaved(true); setTimeout(() => setSaved(false), 2500);
+    setSent(v);
+    try { await onSet(v); setSaved(true); setTimeout(() => setSaved(false), 2500); }
+    catch (e) { setSent(initial); setFailed(String((e as Error).message || e)); }
   };
   return <span className="row" style={{ gap: 4 }}>
     <input className={'num' + (bad ? ' bad' : '')} style={{ width }} inputMode="decimal" value={text} placeholder={placeholder || 'number'} disabled={busy} data-testid={testId}
       onChange={e => setText(e.target.value)} onBlur={() => void commit()} onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); void commit(); } }} />
     {units && units !== '1' ? <span className="faint small">{units}</span> : null}
-    {bad ? <span className="pill bad">not a number</span> : saved ? <span className="pill clear" data-testid="saved">saved</span> : null}
+    {bad ? <span className="pill bad">not a number</span> : failed ? <span className="pill bad" data-testid="control-error">{failed}</span> : saved ? <span className="pill clear" data-testid="saved">saved</span> : null}
   </span>;
+}
+
+function useLocalError() {
+  const [error, setError] = useState<string | null>(null);
+  const guard = async (action: () => Promise<unknown>) => { setError(null); try { await action(); } catch (e) { setError(String((e as Error).message || e)); } };
+  return { error, guard, line: error ? <div className="pill bad" role="alert" data-testid="control-error">{error}</div> : null };
 }
 
 function FindingRow({ finding, doc, values, busy, edit, post, variableIndex }: { finding: Finding; doc: CharterView['charter']; values: Record<string, number | null>; busy: boolean; edit: (changes: Record<string, unknown>[], rationale: string) => Promise<unknown>; post: (path: string, body: Record<string, unknown>) => Promise<unknown>; variableIndex: (name: string) => number }) {
   const [mode, setMode] = useState<'value' | 'expression' | 'ask' | 'waive' | null>(null);
   const [text, setText] = useState('');
+  const local = useLocalError();
   const name = finding.about[0];
   const quantity = name ? doc.quantities[name] : undefined;
   const variable = name ? doc.variables.find(v => v.name === name) : undefined;
@@ -159,9 +178,10 @@ function FindingRow({ finding, doc, values, busy, edit, post, variableIndex }: {
       {mode === 'expression' ? <div className="row"><input style={{ flex: 1 }} placeholder={`expression in other quantities, e.g. n_seats * weekly_limit_per_seat`} value={text} onChange={e => setText(e.target.value)} disabled={busy} data-testid="finding-expression" />
         <button className="btn small primary" disabled={busy || !text.trim()} onClick={setExpression}>Derive</button><span className="small faint">known: {Object.keys(values).slice(0, 8).join(', ')}</span></div> : null}
       {mode === 'ask' ? <div className="row"><input style={{ flex: 1 }} placeholder="what should change, in words; the formulator answers with options" value={text} onChange={e => setText(e.target.value)} disabled={busy} data-testid="finding-request" />
-        <button className="btn small primary" disabled={busy || !text.trim()} onClick={async () => { await post('requests', { text: `About "${finding.message}": ${text.trim()}` }); setText(''); setMode(null); }}>Send</button></div> : null}
+        <button className="btn small primary" disabled={busy || !text.trim()} data-testid="finding-request-send" onClick={() => local.guard(async () => { await post('requests', { text: `About "${finding.message}": ${text.trim()}` }); setText(''); setMode(null); })}>Send</button></div> : null}
+      {local.line}
       {mode === 'waive' ? <div className="row"><input style={{ flex: 1 }} placeholder="why this finding may stand" value={text} onChange={e => setText(e.target.value)} disabled={busy} />
-        <button className="btn small" disabled={busy || !text.trim()} onClick={async () => { await post('waive', { key: finding.key, reason: text.trim() }); setText(''); setMode(null); }}>Waive</button></div> : null}
+        <button className="btn small" disabled={busy || !text.trim()} onClick={() => local.guard(async () => { await post('waive', { key: finding.key, reason: text.trim() }); setText(''); setMode(null); })}>Waive</button></div> : null}
     </article>
   );
 }
@@ -193,13 +213,15 @@ function VariableRow({ index, variable: v, busy, edit }: { index: number; variab
 
 function QuestionRow({ question: q, busy, post }: { question: Question; busy: boolean; post: (path: string, body: Record<string, unknown>) => Promise<unknown> }) {
   const [text, setText] = useState('');
-  const answer = (value: string) => post('answers', { question_id: q.id, answer: value });
+  const local = useLocalError();
+  const answer = (value: string) => local.guard(() => post('answers', { question_id: q.id, answer: value }));
   return <article className={'finding ' + (q.answer != null ? 'answered' : 'blocking')} data-testid="question" data-question-id={q.id}>
     <div className="row"><span className="finding-code">question</span><span className="grow">{q.question}</span>{q.answer != null ? <Pill tone="clear">answered</Pill> : null}</div>
     {q.answer != null ? <div className="small" style={{ marginTop: 4 }}><strong>Your answer:</strong> {q.answer}</div> : <>
       {q.options?.length ? <div className="row wrap" style={{ marginTop: 6 }}>{q.options.map((o, i) => <button key={i} className="btn small" disabled={busy} onClick={() => answer(o)} data-testid="question-option">{o}</button>)}</div> : null}
       <div className="row" style={{ marginTop: 6 }}><input style={{ flex: 1 }} placeholder="or answer in your own words" value={text} onChange={e => setText(e.target.value)} disabled={busy} data-testid="question-text" />
         <button className="btn small primary" disabled={busy || !text.trim()} onClick={async () => { await answer(text.trim()); setText(''); }}>Answer</button></div>
+      {local.line}
     </>}
   </article>;
 }
@@ -220,8 +242,11 @@ function ProposalRow({ proposal: p, busy, charterId, refresh, setError }: { prop
 
 function AskFormulator({ busy, post }: { busy: boolean; post: (path: string, body: Record<string, unknown>) => Promise<unknown> }) {
   const [text, setText] = useState('');
+  const local = useLocalError();
   return <Section title="Ask the formulator for a change" right={<span className="small faint">in words; it answers with options you choose from, never with numbers it made up</span>}>
-    <div className="row"><input style={{ flex: 1 }} placeholder="e.g. make the weekly limit follow from the monthly budget" value={text} onChange={e => setText(e.target.value)} disabled={busy} data-testid="charter-request" />
-      <button className="btn small primary" disabled={busy || !text.trim()} onClick={async () => { await post('requests', { text: text.trim() }); setText(''); }} data-testid="charter-request-send">Send</button></div>
+    <div className="row"><input style={{ flex: 1 }} placeholder="e.g. make the weekly limit follow from the monthly budget" value={text} onChange={e => setText(e.target.value)} disabled={busy} data-testid="charter-request"
+      onKeyDown={e => { if (e.key === 'Enter' && text.trim()) { e.preventDefault(); void local.guard(async () => { await post('requests', { text: text.trim() }); setText(''); }); } }} />
+      <button className="btn small primary" disabled={busy || !text.trim()} onClick={() => local.guard(async () => { await post('requests', { text: text.trim() }); setText(''); })} data-testid="charter-request-send">Send</button></div>
+    {local.line}
   </Section>;
 }

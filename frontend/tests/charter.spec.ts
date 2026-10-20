@@ -26,6 +26,7 @@ async function charterRoutes(page: import('@playwright/test').Page) {
     if (path === 'accept-assumptions') { view.charter.quantities.working_days_per_month.accepted = true; view.findings = view.findings.filter((x: { code: string }) => x.code !== 'assumption.unaccepted'); }
     if (path === 'answers') view.charter.questions[0].answer = body.answer;
     if (path === 'confirm') { view = { ...view, status: 'confirmed' }; return route.fulfill({ json: view }); }
+    if (path === 'requests') return route.fulfill({ json: view });   // a request changes nothing until the formulator answers
     view = { ...view, revision: view.revision + 1, blocking: view.findings.filter((x: { severity: string }) => x.severity === 'blocking').length };
     return route.fulfill({ json: view });
   });
@@ -71,6 +72,18 @@ test('the charter page is a form: findings are settled with numbers, acceptances
   await panel.getByTestId('confirm-charter').click();
   await expect.poll(() => posts.map(p => p.path)).toContain('confirm');
   await expect.poll(() => recorded.commands.some((c: any) => c.operation === 'campaign.update')).toBe(true);
+  // Asking the formulator sends the words alone and is shown as asked until it answers.
+  await panel.getByTestId('charter-request').fill('Make the weekly limit follow from the monthly budget');
+  await panel.getByTestId('charter-request-send').click();
+  await expect.poll(() => posts.map(p => p.path)).toContain('requests');
+  expect(posts.find(p => p.path === 'requests')!.body).toEqual({ text: 'Make the weekly limit follow from the monthly budget' });
+  await expect(panel.getByTestId('asked')).toContainText('Make the weekly limit follow from the monthly budget');
+  await expect(panel.getByTestId('charter-request')).toHaveValue('');
+  // A refused post says so beside the control that sent it.
+  await page.route('**/api/v1/problem-charters/charter_1/requests', route => route.fulfill({ status: 422, json: { detail: 'The formulator is busy; wait for it to finish or stop it' } }));
+  await panel.getByTestId('charter-request').fill('Another change');
+  await panel.getByTestId('charter-request-send').click();
+  await expect(panel.getByTestId('control-error')).toContainText('The formulator is busy');
   // A non-number is refused before it is sent; the raw charter wraps instead of scrolling sideways.
   await panel.getByTestId('value-n_users').fill('ten');
   await panel.getByTestId('value-n_users').press('Enter');
