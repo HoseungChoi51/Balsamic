@@ -33,3 +33,26 @@ def _exists(store, identity):
         return True
     except KeyError:
         return False
+
+
+def next_step(workspace, campaign):
+    """The formulation step the researcher must take before experiments can run, or None once the charter is confirmed
+    and the tasks exist. Shown on every page until then, louder once proposals are waiting on it."""
+    store = workspace.store
+    if store.list("task", campaign["id"]):
+        return None
+    waiting = len(store.list("hypothesis", campaign["id"]))
+    base = {"blocking": waiting > 0, "proposals": waiting}
+    note = store.get(campaign["problem_note_id"], "problem_note") if _exists(store, campaign.get("problem_note_id")) else None
+    if note is None:
+        return {**base, "kind": "note", "title": "Draft the problem note", "page": "#note",
+                "text": "Ask the lead to write the problem note (/note). Adopting it drafts the charter that experiments run under."}
+    if note.get("status") == "drafting":
+        return {**base, "kind": "adopt", "title": "Adopt the problem note", "page": "#note",
+                "text": "Read the note on the Problem note page and adopt it; the formulator then drafts the charter for you to confirm."}
+    charter = store.get(note["charter_id"], "charter") if _exists(store, note.get("charter_id")) else None
+    if charter is None or charter.get("status") != "confirmed":
+        return {**base, "kind": "confirm", "title": "Confirm the charter", "page": "#note/charter",
+                "text": "No experiment can start until you confirm the charter. Review it on the Charter page and confirm it, or send it back with what to change."}
+    return {**base, "kind": "tasks", "title": "Finish the charter hand-over", "page": "#note/charter",
+            "text": "The charter is confirmed but its tasks are not installed yet; open the Charter page to finish."}

@@ -48,7 +48,10 @@ test('detaching the chat opens it in its own window and the page fills the main 
   await expect(chatWindow.getByTestId('thread-chat')).toBeVisible();
   await expect(page.locator('.main')).toHaveAttribute('data-detached', '1');
   await expect(page.getByTestId('thread-chat')).toHaveCount(0);
-  await expect(page.getByTestId('chat-strip')).toBeVisible();
+  // The hypotheses page has an agent in charge: its desk fills the chat column while the lead's chat is away.
+  await expect(page.getByTestId('desk-column')).toBeVisible();
+  await expect(page.getByTestId('desk-discussion_moderator')).toHaveAttribute('data-mode', 'column');
+  await expect(page.getByTestId('desk-discussion_moderator')).toContainText('Which proposal looked weakest?');
   // A page link clicked in the detached chat opens the page in the main window, not in the chat window.
   await chatWindow.getByTestId('thread-chat').locator('a', { hasText: '#inbox' }).first().click();
   await expect(page).toHaveURL(new RegExp(`#t/${THREAD_ID}/inbox`));
@@ -56,7 +59,7 @@ test('detaching the chat opens it in its own window and the page fills the main 
   await page.getByTestId('reattach-strip').click();
   await expect(page.getByTestId('thread-chat')).toBeVisible();
   await expect(page.getByTestId('thread-chat').getByTestId('toggle-detach')).toBeVisible();
-  await expect(page.getByTestId('chat-strip')).toHaveCount(0);
+  await expect(page.getByTestId('desk-column')).toHaveCount(0);
 });
 
 test('suggestions come from the housekeeper after the last reply; stale ones are not shown', async ({ page }) => {

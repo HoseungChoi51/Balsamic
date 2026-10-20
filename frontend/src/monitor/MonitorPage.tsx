@@ -7,9 +7,7 @@ import { Rows } from './Rows';
 import { Empty, Failed, Kv, Loading, Pill, Section, duration, num, statusTone, when } from '../primitives/ui';
 import { formatHash } from '../router/routes';
 import { send } from '../commands/bus';
-import { AgentDesk } from '../desks/AgentDesk';
 import { AwayDigest } from './AwayDigest';
-import { CampaignRemoval } from '../setup/CampaignRemoval';
 import { ModelTiers } from './ModelTiers';
 import { Bars, Columns, Meter, Ring, Slots } from '../primitives/charts';
 
@@ -36,7 +34,6 @@ export default function MonitorPage({ campaignId, route }: PageProps) {
 
 function Resources({ campaignId }: { campaignId: string }) {
   const snapshot = useRead<Record<string, unknown>>(['resources', campaignId], `/api/v1/resources?campaign_id=${campaignId}`, { refetchInterval: 5000, staleTime: 2000 });
-  const summary = useSummary(campaignId);
   const queryClient = useQueryClient();
   const [error, setError] = useState<string | null>(null);
   if (snapshot.isPending) return <Loading what="Reading the machine" />;
@@ -48,9 +45,11 @@ function Resources({ campaignId }: { campaignId: string }) {
   const memUsed = memory.used_bytes ?? host.memory_used_bytes, memTotal = memory.capacity_bytes ?? memory.total_bytes ?? host.memory_total_bytes;
   const gpus = Object.entries((host.gpu && typeof host.gpu === 'object' && !Array.isArray(host.gpu) ? (host.gpu as Record<string, unknown>).devices || host.gpu : {}) as Record<string, Record<string, unknown>>).filter(([, v]) => v && typeof v === 'object' && 'utilization_percent' in v);
   const workers = (data.workers || {}) as Record<string, unknown>;
-  const busy = workers.running ?? workers.busy ?? data.running ?? data.busy, limit = workers.max_workers ?? workers.limit ?? data.max_workers ?? data.limit;
-  const queued = workers.queued ?? data.queued ?? ((data.admission as Record<string, unknown>)?.queued as number | undefined);
-  const level = String(data.level || summary.data?.row?.autopilot ? data.level : data.level || '');
+  const admission = (data.admission || {}) as Record<string, unknown>;
+  const busy = workers.running_count ?? workers.running ?? data.running, limit = workers.configured_limit ?? workers.max_workers ?? admission.max_workers ?? data.max_workers;
+  const queued = workers.queued_count ?? workers.queued ?? data.queued;
+  const level = String(admission.level || data.level || '');
+  const levels: { id: string; label: string; summary?: string }[] = ((admission.levels || []) as { id: string; label: string; summary?: string }[]).length ? (admission.levels as { id: string; label: string; summary?: string }[]) : ['cautious', 'balanced', 'aggressive'].map(id => ({ id, label: id[0].toUpperCase() + id.slice(1) }));
   const setLevel = async (value: string) => {
     setError(null);
     try { await fetch('/api/v1/resources/level', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ level: value, reason: 'set from the monitor' }) }).then(r => { if (!r.ok) throw new Error('Could not set the level'); }); await queryClient.invalidateQueries({ queryKey: ['resources'] }); }
@@ -68,11 +67,14 @@ function Resources({ campaignId }: { campaignId: string }) {
         <Kv rows={[['CPU busy', num(cpuPercent, 0, ' %')], ['Memory', memUsed != null ? `${num(Number(memUsed) / 1e9, 1, ' GB')} of ${num(Number(memTotal) / 1e9, 1, ' GB')}` : <span className="faint">unknown</span>],
           ['GPU', gpus.length ? gpus.map(([name, g]) => `${name}: ${String(g.utilization_percent)} %`).join(' · ') : <span className="faint">not reported</span>], ['Workers', `${String(busy ?? '?')} running of ${String(limit ?? '?')}`]]} />
       </Section>
-      <Section title="Resource level" right={<span className="small faint">yours alone; agents plan within it</span>}>
-        <div className="row wrap">{['cautious', 'balanced', 'aggressive'].map(value => <button key={value} className={'btn small' + (level === value ? ' primary' : '')} onClick={() => setLevel(value)}>{value}</button>)}{error ? <span className="pill bad">{error}</span> : null}</div>
+      <Section title="Resource level" right={<span className="small faint">yours alone; agents plan within it{admission.set_by ? ` · set by ${String(admission.set_by)} ${when(admission.updated_at)}` : ''}</span>}>
+        <div className="level-grid" data-testid="resource-levels" data-level={level}>
+          {levels.map(option => <button key={option.id} type="button" className={'level' + (level === option.id ? ' chosen' : '')} aria-pressed={level === option.id} onClick={() => setLevel(option.id)} data-testid={`level-${option.id}`}>
+            <strong>{option.label}</strong>{option.summary ? <span className="small faint">{option.summary}</span> : null}
+          </button>)}
+        </div>
+        {error ? <div className="pill bad" style={{ marginTop: 6 }}>{error}</div> : null}
       </Section>
-      <AgentDesk campaignId={campaignId} role="resource_planner" />
-      <CampaignRemoval campaignId={campaignId} />
       <details className="card"><summary>Raw snapshot</summary><pre>{JSON.stringify(data, null, 1).slice(0, 6000)}</pre></details>
     </>
   );

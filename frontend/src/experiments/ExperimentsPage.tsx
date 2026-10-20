@@ -6,7 +6,6 @@ import { Empty, Failed, Kv, Loading, Pill, Section, duration, num, statusTone, w
 import { Curve } from '../primitives/charts';
 import { formatHash, navigate } from '../router/routes';
 import { useSelection } from '../stores/selection';
-import { AgentDesk } from '../desks/AgentDesk';
 import { TraceOrigin } from '../evolution/TraceOrigin';
 import { useState } from 'react';
 
@@ -45,7 +44,6 @@ export default function ExperimentsPage({ campaignId, route }: PageProps) {
       {sub === 'checks' ? table(data.checks, 'Checks: validations, recipes, speed probes') : null}
       {sub === 'drafts' ? <Section title={`Drafts (${data.drafts.length})`}>{data.drafts.length ? data.drafts.map(d => <div key={String(d.id)} className="card row"><strong className="grow">{String(d.title || d.id)}</strong><Pill>{String(d.status || 'draft')}</Pill></div>) : <Empty>No draft waits to be started.</Empty>}</Section> : null}
       {sub === 'rules' ? <Section title="Experiment rules"><Kv rows={Object.entries(data.rules).filter(([k]) => !['id', 'campaign_id'].includes(k)).map(([k, v]) => [k.replaceAll('_', ' '), typeof v === 'object' ? JSON.stringify(v) : String(v)])} /><p className="why">The experiment operator changes these on request (experiments.rules).</p></Section> : null}
-      <AgentDesk campaignId={campaignId} role="experiment_operator" />
     </div>
   );
 }

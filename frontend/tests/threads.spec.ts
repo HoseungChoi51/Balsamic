@@ -83,8 +83,14 @@ test('the context chip opens the drawer with the three layers and pins through t
 });
 
 test('the chat suggests the next request by stage until the lead has spoken: proposal generation once a problem is set', async ({ page }) => {
+  // Once the lead has replied, only live suggestions (from the housekeeper) are shown; stale stage defaults are not.
+  await mockWorkspace(page);
+  await page.goto(`/#t/${THREAD_ID}/hypotheses`);
+  await expect(page.getByTestId('turn')).toHaveCount(2);
+  await expect(page.getByTestId('suggestions')).toHaveCount(0);
   const recorded = await mockWorkspace(page, { [`/api/v1/threads/${THREAD_ID}/messages`]: { ...f.messages, messages: f.messages.messages.slice(0, 1) } });
   await page.goto(`/#t/${THREAD_ID}/hypotheses`);
+  await page.reload();
   const suggestions = page.getByTestId('suggestions');
   await expect(suggestions).toContainText('Three more strategies');
   await suggestions.getByRole('button', { name: 'Three more strategies' }).click();
@@ -92,9 +98,4 @@ test('the chat suggests the next request by stage until the lead has spoken: pro
   await page.getByTestId('send').click();
   await expect.poll(() => recorded.commands.length).toBe(1);
   expect(recorded.commands[0]).toMatchObject({ operation: 'research.generate', payload: { count: 3, operation: 'diversify' } });
-  // Once the lead has replied, only live suggestions (from the housekeeper) are shown; stale stage defaults are not.
-  await mockWorkspace(page);
-  await page.goto(`/#t/${THREAD_ID}/hypotheses`);
-  await expect(page.getByTestId('turn')).toHaveCount(2);
-  await expect(page.getByTestId('suggestions')).toHaveCount(0);
 });

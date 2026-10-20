@@ -238,6 +238,8 @@ class PiController:
             # Stopping a page agent ends its current work, not its place on the page.
             agent.update(status="waiting")
         agent.update(request_open=True, requested_by=requested_by, request_changed_at=now())
+        if requested_by == "researcher":
+            agent.pop("assignment_origin", None)   # answered on the desk, not in a lead request's side conversation
         self.store.put("agent_session", agent, "agent.request_opened")
         return self.enqueue(agent, identity, text, mode="steer")
 

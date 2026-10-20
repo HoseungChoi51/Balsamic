@@ -25,8 +25,8 @@ export function TopBar({ route, campaigns, campaignId, monitor, workspace, onMon
       {current ? <button className="btn small" onClick={onSearch} data-testid="search-button" title="Pages, threads and messages (Ctrl+K)">Search ⌘K</button> : null}
       {current ? <AutopilotToggle campaign={current} version={version} threadId={route.thread} /> : null}
       {workspace?.dev_mode ? <Pill title="The Pi harness runs a dev profile">dev</Pill> : null}
-      {current ? <button className={'pill ' + (pill?.state || '')} data-testid="monitor-pill" onClick={() => { track('monitor.open', { state: pill?.state || 'unknown' }); onMonitor(); }} title="Open the monitor">
-        {pill ? pill.text : 'Monitor'}</button> : null}
+      {current ? <button className={'btn control ' + (pill?.state || '')} data-testid="monitor-pill" onClick={() => { track('monitor.open', { state: pill?.state || 'unknown' }); onMonitor(); }} title="Open the monitor drawer">
+        <span className="dot" />{pill ? pill.text : 'Monitor'}</button> : null}
       <button className="btn quiet small" onClick={onWide} title={wide ? 'Show the conversation' : 'Expand the page'} data-testid="toggle-wide">{wide ? 'Chat' : 'Expand'}</button>
     </header>
   );

@@ -6,7 +6,6 @@ import { send } from '../commands/bus';
 import { Empty, Failed, Loading, Pill, Section, statusTone, when } from '../primitives/ui';
 import { formatHash, navigate } from '../router/routes';
 import { useSelection } from '../stores/selection';
-import { AgentDesk } from '../desks/AgentDesk';
 import { HypothesisCard } from './HypothesisCard';
 import { useEvolution, STAGE_TONE } from '../evolution/EvolutionPage';
 import { track } from '../telemetry/events';
@@ -56,7 +55,6 @@ export default function HypothesesPage({ campaignId, route, threadId }: PageProp
       </> : <Empty>No proposal yet. Ask the lead for hypotheses in the conversation (/generate 3); each lands here with its mechanism, its stage and its review.</Empty>) : null}
       {sub === 'rounds' ? <Rounds rounds={data.rounds} /> : null}
       {sub === 'implementations' ? <Implementations campaignId={campaignId} /> : null}
-      <AgentDesk campaignId={campaignId} role={sub === 'implementations' ? 'implementation_lead' : 'discussion_moderator'} />
     </div>
   );
 }

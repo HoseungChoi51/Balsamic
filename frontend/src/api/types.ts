@@ -1,8 +1,9 @@
 /** Shapes of the reads the workspace shows. Kept narrow: pages read what they render. */
 export interface WorkspaceInfo { workspace_id: string; max_workers: number; dev_mode: boolean; provider: { configured: boolean; providers: Record<string, unknown> }; level: string | null; service: string }
 export type Stage = 'formulate' | 'generate' | 'optimize' | 'report';
+export interface NextStep { kind: 'note' | 'adopt' | 'confirm' | 'tasks'; title: string; text: string; page: string; blocking: boolean; proposals: number }
 export interface CampaignRow { id: string; name: string; version: number; objective?: string; autonomy?: string; stage: Stage; stage_pinned: boolean; stage_basis: string;
-  autopilot: { enabled: boolean; compute_cap_seconds?: number | null; report_by?: string | null; enabled_at?: string | null; rounds_completed?: number }; problem_note_id: string | null; active_thread_id: string; created_at?: string }
+  autopilot: { enabled: boolean; compute_cap_seconds?: number | null; report_by?: string | null; enabled_at?: string | null; rounds_completed?: number }; problem_note_id: string | null; active_thread_id: string; created_at?: string; next_step?: NextStep | null }
 export interface Campaign { id: string; name: string; version: number; objective: string; autonomy: string; compute_budget_seconds: number; llm_budget_usd: number;
   delegated_trial_seconds: number; validation_reserve_seconds: number; implementation_compute_budget_seconds: number; active_study_id: string | null; formulating?: boolean; [key: string]: unknown }
 export interface Summary { campaign: Campaign; row: CampaignRow; tasks: Record<string, unknown>[]; charter: Record<string, unknown> | null; budget: Record<string, unknown> | null;

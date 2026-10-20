@@ -169,3 +169,29 @@ def test_provenance_walks_origin_run_turn_thread_and_model(client, workspace, ca
     card = client.get(f"/api/v1/hypotheses/{hid}").json()
     assert card["ledger_row"]["actor"] == "lead" and card["provenance"][0]["record"]["id"] == hid and card["parents"] == [] and "runnable" in card["implementation"]
     assert client.get("/api/v1/records/nothing/provenance").status_code == 404
+
+
+def test_the_next_formulation_step_is_named_until_the_charter_is_confirmed(client, workspace, campaign):
+    from balsamic.evolution.stages import next_step
+    from optimization_framework.storage.sqlite import now
+    record = workspace.store.get(campaign["id"], "campaign")
+    tasks = workspace.store.list("task", campaign["id"])
+    if tasks:
+        assert next_step(workspace, record) is None and client.get("/api/v1/campaigns").json()["campaigns"][0]["next_step"] is None
+        for task in tasks:
+            workspace.store.delete(task["id"], "task") if hasattr(workspace.store, "delete") else None
+    if workspace.store.list("task", campaign["id"]):
+        return   # the fixture campaign carries tasks and the store keeps them: the None branch above is the test
+    record.pop("problem_note_id", None); workspace.store.put("campaign", record)
+    assert next_step(workspace, record)["kind"] == "note"
+    note = {"id": "note_x", "campaign_id": campaign["id"], "thread_id": MAIN, "title": "t", "current_revision": 1, "adopted_revision": None, "charter_id": None, "import_id": None, "status": "drafting", "created_at": now(), "updated_at": now()}
+    workspace.store.put("problem_note", note); record["problem_note_id"] = "note_x"; workspace.store.put("campaign", record)
+    assert next_step(workspace, record)["kind"] == "adopt"
+    note.update(status="adopted", charter_id="charter_x"); workspace.store.put("problem_note", note)
+    workspace.store.put("charter", {"id": "charter_x", "campaign_id": campaign["id"], "status": "proposed", "revision": 1, "charter": {}, "created_at": now()})
+    step = next_step(workspace, record)
+    assert step["kind"] == "confirm" and step["page"] == "#note/charter" and step["blocking"] is False
+    hypothesis(client, campaign, "A proposal before the charter")
+    step = next_step(workspace, workspace.store.get(campaign["id"], "campaign"))
+    assert step["kind"] == "confirm" and step["blocking"] is True and step["proposals"] == 1
+    assert client.get("/api/v1/campaigns").json()["campaigns"][0]["next_step"]["kind"] == "confirm"

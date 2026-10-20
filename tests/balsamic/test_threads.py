@@ -241,3 +241,21 @@ def test_agents_talk_in_a_side_thread_linked_from_the_request(client, workspace,
     # The lead's reply to the researcher stays in the main thread.
     finish_run(workspace, run_id, "The review is done; see the side conversation.", entry_ids={"parent": "e0", "last": "e2"}, disposition="complete")
     assert client.get(f"/api/v1/threads/{MAIN}/messages").json()["messages"][-1]["content"] == "The review is done; see the side conversation."
+
+
+def test_a_desk_request_is_answered_on_the_desk_and_read_there(client, workspace, campaign, team):
+    from support import submitted, tool_call
+    # The lead asks the moderator first (a side conversation), then the researcher writes on the desk.
+    run = submitted(workspace, say(client, campaign, "Review the proposals."))
+    asked = tool_call(workspace, team, run, "page_agent_message", {"page_agent": "discussion_moderator", "message": "Run a review round."}, call_id="d1")
+    finish_run(workspace, asked["run_id"], "Round complete.", entry_ids={"parent": "z0", "last": "z1"}, disposition="complete")
+    version = lambda: workspace.store.get(campaign["id"], "campaign")["version"]
+    receipt = command(client, "agent.message", campaign["id"], {"message": "Which proposal looked weakest?", "page_agent": "discussion_moderator"}, version())
+    finish_run(workspace, "pi_run_" + receipt["id"], "The third: its mechanism is underspecified.", entry_ids={"parent": "z1", "last": "z2"}, disposition="complete")
+    desk = client.get(f"/api/v1/campaigns/{campaign['id']}/desks/discussion_moderator").json()
+    assert desk["agent"]["role"] == "discussion_moderator" and desk["page"] == "#hypotheses"
+    assert [(m["role"], m["content"]) for m in desk["messages"]] == [("user", "Which proposal looked weakest?"), ("assistant", "The third: its mechanism is underspecified.")]
+    side = next(t for t in client.get(f"/api/v1/campaigns/{campaign['id']}/threads").json()["threads"] if t.get("kind") == "agents")
+    assert [m["content"] for m in client.get(f"/api/v1/threads/{side['id']}/messages").json()["messages"]] == ["Run a review round.", "Round complete."]
+    assert not [m for m in client.get(f"/api/v1/threads/{MAIN}/messages").json()["messages"] if m.get("desk")]
+    assert client.get(f"/api/v1/campaigns/{campaign['id']}/desks/nobody").status_code == 404

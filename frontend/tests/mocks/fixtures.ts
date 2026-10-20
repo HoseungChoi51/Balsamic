@@ -2,7 +2,7 @@
 export const CAMPAIGN_ID = 'demo';
 export const THREAD_ID = `thread_main_${CAMPAIGN_ID}`;
 export const workspace = { workspace_id: 'ws_test', max_workers: 2, dev_mode: true, provider: { configured: true, providers: { 'openai-codex': {} } }, level: 'balanced', service: 'balsamic' };
-export const campaignRow = { id: CAMPAIGN_ID, name: 'Demo campaign', version: 3, objective: 'Find a better deflector', autonomy: 'delegated', stage: 'generate', stage_pinned: false,
+export const campaignRow = { next_step: null, id: CAMPAIGN_ID, name: 'Demo campaign', version: 3, objective: 'Find a better deflector', autonomy: 'delegated', stage: 'generate', stage_pinned: false,
   stage_basis: 'strategies are being proposed and screened', autopilot: { enabled: false }, problem_note_id: null, active_thread_id: THREAD_ID, created_at: '2026-10-19T08:00:00Z' };
 export const campaign = { id: CAMPAIGN_ID, name: 'Demo campaign', version: 3, objective: 'Find a better deflector', autonomy: 'delegated', compute_budget_seconds: 3600, llm_budget_usd: 5,
   delegated_trial_seconds: 60, validation_reserve_seconds: 120, implementation_compute_budget_seconds: 0, active_study_id: 'study_1' };
@@ -118,3 +118,7 @@ export const setupSteps = {
 };
 export const setupStart = { id: 'setup_1', status: 'asking', mode: 'scripted', model: null, cost_usd: 0, draft: { name: null, identity: null, objective: null, problem_id: null, decided: [] },
   transcript: [{ role: 'assistant', text: "Let's set up a campaign. First: What shall we call the campaign?", field: 'name', choices: [] }], step: setupSteps.name, campaign_id: null };
+export const deskMessages = [
+  { id: 'message_desk_1', campaign_id: CAMPAIGN_ID, role: 'user', origin: 'researcher', desk: 'discussion_moderator', content: 'Which proposal looked weakest?', created_at: '2026-10-19T08:12:00Z' },
+  { id: 'message_desk_2', campaign_id: CAMPAIGN_ID, role: 'assistant', origin: 'page_agent', desk: 'discussion_moderator', content: 'The third: its mechanism is underspecified.', created_at: '2026-10-19T08:13:00Z' },
+];

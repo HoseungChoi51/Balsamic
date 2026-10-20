@@ -56,6 +56,15 @@ chips that open the page in this thread. Slash commands: `/generate 3` (three ne
 H01 H02`, `/evolve H01`, `/review H01`, `/compare`, `/probe`, `/plan`, `/note`, `/fork`, `/park`, `/merge into
 <thread> <note>`, `/help`.
 
+### Find your way
+
+**Overview** (first on the rail) is the campaign at a glance and the place to remove it. Until the charter is confirmed, a
+callout at the top of every page names the step still required (draft the note, adopt it, confirm the charter): no
+experiment runs before that, even though proposals can be recorded. Each page with an agent in charge has that agent's
+desk docked at its bottom; open it to talk to the moderator, the operator, the implementation lead or the resource
+planner. Drag the gutters to resize the three columns; fold the rail with the button at its foot. Flat capsules are
+status and do nothing when clicked; bordered buttons act; dotted mono chips open records.
+
 ### Read the chat
 
 Earlier exchanges fold under a one-sentence title (written by the housekeeper once the next exchange begins); the last

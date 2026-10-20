@@ -219,16 +219,19 @@ SLASH_HELP = ("/generate N [hybrid|diversify|revise of H01 H02] asks for N strat
 
 def suggestion_context(workspace, thread, messages):
     """What the suggestions are made from: the stage, the counts, and the last exchange."""
-    from balsamic.evolution.stages import campaign_stage
+    from balsamic.evolution.stages import campaign_stage, next_step
     campaign = workspace.store.get(thread["campaign_id"], "campaign")
     stage = campaign_stage(workspace, campaign)
+    step = next_step(workspace, campaign)
     counts = {kind: len(workspace.store.list(kind, campaign["id"])) for kind in ("hypothesis", "trial", "adaptive_race", "decision")}
     live = sum(1 for t in workspace.store.list("trial", campaign["id"]) if t.get("status") in {"queued", "running"})
     waiting = sum(1 for d in workspace.store.list("decision", campaign["id"]) if d.get("status") == "pending")
     recent = [m for m in messages if m.get("origin") not in {"lab_event", "manager_system", "setup"} and m.get("kind") != "agents_link"][-4:]
     transcript = "\n".join(f"{'Researcher' if m.get('role') == 'user' else 'Lead'}: {(m.get('content') or '')[:1200]}" for m in recent)
+    required = (f"\nRequired before any experiment: {step['title']} ({step['page']}); one suggestion must point the researcher there"
+                f"{' now, since proposals are waiting on it' if step['blocking'] else ''}." if step else "")
     return (f"Campaign stage: {stage['stage']} ({stage['basis']}). Proposals: {counts['hypothesis']}; runs: {counts['trial']} ({live} live); "
-            f"races: {counts['adaptive_race']}; decisions waiting for the researcher: {waiting}.\nCommands: {SLASH_HELP}.\n\n{transcript}")
+            f"races: {counts['adaptive_race']}; decisions waiting for the researcher: {waiting}.{required}\nCommands: {SLASH_HELP}.\n\n{transcript}")
 
 
 def parse_suggestions(text):

@@ -23,7 +23,7 @@ export function AutopilotToggle({ campaign, version, threadId }: { campaign: Cam
   };
   return (
     <>
-      <button className={'pill ' + (enabled ? 'agent' : '')} onClick={() => setOpen(o => !o)} data-testid="autopilot-toggle" title={enabled ? `Autopilot on: cap ${campaign.autopilot.compute_cap_seconds} s` : 'Autopilot off: the lead acts on your requests'}>Autopilot {enabled ? 'on' : 'off'}</button>
+      <button className={'btn control toggle' + (enabled ? ' on' : '')} onClick={() => setOpen(o => !o)} data-testid="autopilot-toggle" title={enabled ? `Autopilot on: cap ${campaign.autopilot.compute_cap_seconds} s` : 'Autopilot off: the lead acts on your requests'}><span className={'switch' + (enabled ? ' on' : '')} aria-hidden="true" />Autopilot {enabled ? 'on' : 'off'}</button>
       {open ? <div className="drawer" data-testid="autopilot-dialog" style={{ width: 380 }}>
         <div className="row"><h2 className="grow">Autopilot</h2><button className="btn quiet small" onClick={() => setOpen(false)}>Close</button></div>
         <p className="small muted">While on, the lead runs rounds by itself: it reviews the frontier, stops, promotes, allocates and generates within the cap, with a reason on every command, and writes the report when the cap or the date is reached. Your messages still come first. Only you can raise limits.</p>

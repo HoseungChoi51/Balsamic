@@ -147,6 +147,28 @@ first message there posts one `agents_link` line in the researcher's thread; the
 agents threads in their own group of the switcher. Messages carry `agent_role`. A page agent's desk (requests made on
 its page) stays on the page.
 
+**Overview page.** `#overview`, first on the rail: name, objective, stage and basis, charter state, tasks, counts (linked),
+budget meters, team, autopilot, threads, and the campaign's removal (moved here from Monitor → Resources).
+
+**Next step.** `evolution.stages.next_step` names the formulation step still required before experiments can run: draft
+the note (`#note`), adopt it, confirm the charter (`#note/charter`), or finish the hand-over. `campaign_row.next_step`
+carries it; the stage panel shows a callout on every page until it is None, louder (`blocking`) once proposals wait on it.
+The housekeeper's suggestions and the lead's briefing name the same step.
+
+**Desks.** `GET /api/v1/campaigns/{id}/desks/{role}` is a page agent's conversation with the researcher (messages with
+`desk = role` and no thread). `DeskPanel` shows it docked under the agent's page (collapsible, agent-tinted header) and,
+while the lead's chat is detached, in the chat column of that page. `deskRole(route)` maps the address to the agent via
+the `agents` map in pages.json.
+
+**Layout.** Three resizable columns: gutters between rail and main and between chat and page; the rail folds to initials.
+`balsamic.layout` in localStorage keeps widths and the fold. A page chunk that fails to load after a rebuild reloads the
+tab once (`lazyPage`); a page that throws shows its error with Try again and Reload (`PageBoundary`) instead of a blank.
+
+**Visual language.** Status is inert: `.pill`, a flat tinted capsule, default cursor, never clickable. Controls are
+`.btn` (bordered, hover, pointer); `.btn.control` for the chrome controls that open something (monitor, context,
+autopilot, with a state dot or switch); `.btn.primary` for the one main action. Links to records and pages are `.chip`
+(mono, dotted underline) or plain links. Resource levels are `.level` option cards with `aria-pressed`.
+
 **Live suggestions.** After each lead reply the housekeeper writes three next requests for the thread
 (`thread.suggestions {items, as_of_message_id}`, event `thread.suggested`) from the stage, the counts and the last exchange;
 the composer shows them while they match the last message, and the stage defaults only until the lead has spoken.

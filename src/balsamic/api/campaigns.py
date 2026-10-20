@@ -9,7 +9,7 @@ from typing import Literal
 from optimization_framework.contracts.requests import Model
 from optimization_framework.storage.sqlite import now
 
-from balsamic.evolution.stages import campaign_stage
+from balsamic.evolution.stages import campaign_stage, next_step
 from balsamic.threads.service import ensure_main, main_thread_id
 
 
@@ -22,7 +22,8 @@ def campaign_row(workspace, campaign):
     return {"id": campaign["id"], "name": campaign["name"], "version": campaign["version"], "objective": campaign.get("objective"),
             "autonomy": campaign.get("autonomy"), "stage": stage["stage"], "stage_pinned": stage["pinned"], "stage_basis": stage["basis"],
             "autopilot": campaign.get("autopilot") or {"enabled": False}, "problem_note_id": campaign.get("problem_note_id"),
-            "active_thread_id": main_thread_id(campaign["id"]), "created_at": campaign.get("created_at"), "updated_at": campaign.get("updated_at")}
+            "active_thread_id": main_thread_id(campaign["id"]), "created_at": campaign.get("created_at"), "updated_at": campaign.get("updated_at"),
+            "next_step": next_step(workspace, campaign)}
 
 
 def install(app, workspace):

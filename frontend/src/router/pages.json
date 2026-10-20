@@ -1,7 +1,8 @@
 {
   "comment": "The workspace's pages, shared by the frontend router and the lead agent's page links (optimization_framework/agents/pages.py). Addresses are #<page>[/<sub>][/<record_id>]; the router puts the current thread in front (#t/<thread>/...).",
-  "rail": ["note", "hypotheses", "experiments", "evolution", "files", "inbox", "monitor", "library", "branches"],
+  "rail": ["overview", "note", "hypotheses", "experiments", "evolution", "files", "inbox", "monitor", "library", "branches"],
   "pages": {
+    "overview": {"title": "Overview", "description": "the campaign at a glance: objective, stage, charter, budgets, counts, team, autopilot; and removing the campaign"},
     "note": {"title": "Problem note", "description": "the problem note the lead drafts with you: objective, knobs, observables, noise, constraints, confounders, open questions; its revisions, and the charter it is adopted into",
              "subs": {"charter": "Charter", "revisions": "Revisions"}},
     "hypotheses": {"title": "Hypotheses", "description": "every proposal with its mechanism, reviews and status; the discussion moderator takes requests here; one proposal: #hypotheses/<hypothesis_id>",
@@ -36,7 +37,7 @@
     "problem_note.revise": "note", "problem_note.adopt": "note/charter", "library.publish": "library", "library.apply": "hypotheses"
   },
   "aliases": {
-    "overview": "monitor", "decisions": "inbox", "problem": "note", "problem-import": "new",
+    "decisions": "inbox", "problem": "note", "problem-import": "new",
     "implementations": "hypotheses/implementations", "discussions": "hypotheses/rounds", "hypotheses/rounds/graph": "hypotheses/rounds",
     "comparison": "evolution/frontier", "studies": "evolution/races", "validation": "experiments/checks", "drafts": "experiments/drafts",
     "assets": "files/assets", "notebook": "files/notebook", "reports": "files/reports",

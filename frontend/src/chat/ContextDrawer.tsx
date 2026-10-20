@@ -16,7 +16,7 @@ export function ContextChip({ threadId, onOpen }: { threadId: string; onOpen: ()
   const context = useRead<Context>(['context', threadId], `/api/v1/threads/${threadId}/context`, { staleTime: 10000 });
   const data = context.data;
   const total = data ? (data.layers.project.bytes || 0) + (typeof data.layers.branch.bytes === 'number' ? data.layers.branch.bytes : 0) : null;
-  return <button className="pill" data-testid="context-chip" title="What the lead sees in this thread" onClick={() => { track('context.open', {}); onOpen(); }}>
+  return <button className="btn control" data-testid="context-chip" title="Open what the lead sees in this thread" onClick={() => { track('context.open', {}); onOpen(); }}>
     Context{total != null ? ` ${kb(total)}` : ''}{data?.pinned_ids.length ? ` · ${data.pinned_ids.length} pinned` : ''}{data?.lab_events_since_last_turn ? ` · ${data.lab_events_since_last_turn} lab events` : ''}</button>;
 }
 

@@ -30,7 +30,9 @@ def lead_instructions(workspace):
             lines.append("Formulation. This campaign is being formulated. Write the problem note with problem_note_draft (objective, knobs, observables, "
                          "noise, constraints, confounders, open questions; LaTeX allowed), revise it as the researcher answers, and answer questions "
                          "about it as proposed edits (problem_note_propose), never a silent rewrite. The researcher adopts the note (Adopt on #note); "
-                         "the formulator then writes the charter and the researcher confirms it. Start no experiments before that.")
+                         "the formulator then writes the charter and the researcher confirms it. Start no experiments before that. The researcher "
+                         "may ask for proposals before confirming; record them, and say in that reply, once, that experiments wait for the charter "
+                         "to be confirmed on #note/charter (or the note to be adopted on #note), so they are not surprised later.")
         try:
             from balsamic.library.service import search
             matches = [row for row in search(workspace, campaign_id=campaign["id"], limit=5)["entries"] if row["match"]["score"] >= 3]

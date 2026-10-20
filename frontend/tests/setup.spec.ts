@@ -23,7 +23,7 @@ test('a campaign is set up as a conversation: typed answers and choices fill the
   expect((recorded.commands[0] as any).setup_answer).toEqual({ text: 'Deflector v2' });
 });
 
-test('a setup can be abandoned and started over; a created campaign can be removed from the monitor with what to keep', async ({ page }) => {
+test('a setup can be abandoned and started over; a created campaign can be removed from the overview with what to keep', async ({ page }) => {
   const recorded = await mockWorkspace(page);
   await page.goto('/#new');
   await expect(page).toHaveURL(/#new\/setup_\d+$/);
@@ -35,7 +35,8 @@ test('a setup can be abandoned and started over; a created campaign can be remov
   await expect.poll(() => page.url()).toMatch(/#new\/setup_\d+$/);
   await expect.poll(() => page.url()).not.toBe(first);
   await expect(page.getByTestId('setup-chat')).not.toContainText('Wrong one');
-  await page.goto('/#t/thread_main_demo/monitor/resources');
+  await page.goto('/#t/thread_main_demo/overview');
+  await expect(page.getByTestId('overview')).toContainText('Demo campaign');
   await page.getByTestId('remove-campaign').click();
   await expect(page.getByTestId('removal-plan')).toContainText('keep records (2.5 MB)');
   await page.getByTestId('removal-plan').locator('input[type=radio]').first().check();
