@@ -375,5 +375,6 @@ GRATING_PI_URL=http://127.0.0.1:8768 uv run optimization-lab --directory runs/de
 | M2 Evolution graph v1 | built | ledger rows, lineage, stages, provenance, frontier interventions, allocation, stop reasons with race holds, hypothesis card, experiment log |
 | M3 Merge, monitor, autopilot | built | merge note drafted by the lead, monitor rows with forecasts and the GPU row, the pill with a digest state, the away digest, autopilot rounds within a cap, iteration progress |
 | M4 Reuse and polish | built | strategy library (publish, search by signature, apply as an inspired_by root, the lead's first-turn matches), Ctrl+K search over pages, threads and messages, keyboard navigation, thread and graph export |
+| M5 Problem-agnostic constraints | planned, not started | design constraints as expressions over the candidate and outcome constraints on reported metrics, in the contract, the manifest, the checks, the guideline and the Charter page; starts only once the present framework is confirmed correct end to end, as the reference point ([problem-setup.md](problem-setup.md#next-step-problem-agnostic-constraints-planned-not-started)) |
 
 The page placeholders for later milestones say which milestone brings them; nothing pretends to exist.

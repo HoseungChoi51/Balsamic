@@ -346,4 +346,27 @@ with their formulators, folders and sessions; nothing was kept.
 - **One browser test is flaky.** `study-progress` "manual refresh…" expects exactly two reads, and
   under the full parallel run an automatic refresh sometimes makes three. It passes alone. That
   page was not changed by this work.
+### Next step: problem-agnostic constraints (planned, not started)
 
+Decided on 21 October 2026. The checks in `charter.py` are generic in vocabulary (nothing names a domain) but narrow in
+what they can judge: the framework itself checks or enforces only two constraint forms, a true/false test on quantities
+and a linear condition on the decision variables. Everything else either lives in the evaluator ("evaluator" form, a
+promise for a declared problem) or stays words ("qualitative", recorded and never enforced). That limits the problems
+the framework handles without a hand-written adapter:
+
+- a design constraint that is not linear in the decision variables (minimum feature width, connectivity, a conditional
+  rule, a ratio) has no checkable form;
+- a constraint on outcomes rather than inputs (a floor on a second metric, a cap on a measured cost) has no form at all
+  and becomes a recorded metric plus words;
+- a "quantities" test cannot refer to the candidate, so it says nothing about designs.
+
+The step adds two forms to the contract, the manifest handed to the optimizer and the checks: a **design constraint**
+evaluated by an expression over the candidate's variables (vectors, comparisons, and the functions the expression
+language already has), and an **outcome constraint** on the metrics the evaluator reports. The qualitative form then
+shrinks to policy rules that no code can judge. It touches `contracts/problem_charter.py`, `charter.py` (findings,
+`manifest`, `compile_setups`), the candidate schema and the optimizers' admission, the formulator's guideline and the
+Charter page.
+
+Sequencing: the researcher works on this only after the present, narrower framework is confirmed to work correctly end
+to end, so that there is a reference point to compare against. Until then the suggestions on a qualitative finding
+(keep as a recorded criterion, or ask the formulator for a checkable form) are the whole answer.
