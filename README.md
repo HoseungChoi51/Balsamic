@@ -22,16 +22,35 @@ Linux, Python 3.12 or 3.13, `uv`, Node.js 22.
 uv sync --extra dev --extra meent
 (cd agent-harness && npm ci && npm run build)
 (cd frontend && npm ci && npm run build)
-scripts/dev-stack up            # a scripted fake lead answers: no model, no keys needed
-scripts/dev-stack up --real     # the Pi agent harness with your model provider (see "Models and keys")
+scripts/start                   # the real Pi harness with your model provider (see "Models and keys")
+scripts/start --fake            # a scripted fake lead answers: no model, no keys needed
 ```
 
-Open **http://127.0.0.1:8765** and start a campaign from `#new`. `scripts/dev-stack down` stops the three services
-(the workspace on 8765, the implementation service on 8767, the harness on 8768; `BALSAMIC_PORT`, `BALSAMIC_LIBRARY_PORT`
-and `BALSAMIC_PI_PORT` change them). Logs are in `runs/dev/*.log`; campaign data stay in `runs/dev/workspace` after the
-browser closes. For a frontend with hot reload run `cd frontend && npm run dev` and open http://127.0.0.1:5173.
+`scripts/start` brings up the three services (the workspace on 8765, the implementation service on 8767, the harness
+on 8768), adds a tailnet-only HTTPS route to the workspace when Tailscale is installed (see "Remote access"), and
+ends with the addresses and the token:
 
-The services can also be run one by one (`uv run optimization-lab --directory DIR --port 8765 --workers 2`,
+```
+Balsamic is up (real harness; data and logs in …/runs/dev)
+  local URL:    http://127.0.0.1:8765
+  tailnet URL:  https://<machine>.<tailnet>.ts.net:8444   (tailnet only, never public)
+  service token (workspace <-> harness, …/runs/dev/pi.token):
+    <48 hex characters>
+  implementation service token (…/runs/dev/library/service.token):
+    <token>
+```
+
+Open the local or the tailnet URL and start a campaign from `#new`. The service token is what the workspace sends the
+harness (and the harness sends back) as a bearer token; the browser never needs it. `scripts/start` is idempotent
+(running services are left alone); `scripts/stop` stops the services and removes the tailnet route. Options:
+`--no-tailnet` (localhost only), `--dir DIR` (data and logs elsewhere than `runs/dev`); `BALSAMIC_PORT`,
+`BALSAMIC_LIBRARY_PORT`, `BALSAMIC_PI_PORT` and `BALSAMIC_TAILNET_PORT` change the ports. Logs are in `runs/dev/*.log`;
+campaign data stay in `runs/dev/workspace` after the browser closes. For a frontend with hot reload run
+`cd frontend && npm run dev` and open http://127.0.0.1:5173.
+
+Underneath, `scripts/start` calls `scripts/dev-stack up [--real]`, which starts the services and nothing else
+(`scripts/dev-stack down` and `status` are the other verbs). The services can also be run one by one
+(`uv run optimization-lab --directory DIR --port 8765 --workers 2`,
 `uv run optimization-implementations --directory DIR --port 8767`, `npm --prefix agent-harness start`) or from a
 launcher configuration with `scripts/labctl` ([server control](docs/server-control.md)).
 
@@ -174,15 +193,18 @@ model budget, subscription calls do not. Details: [docs/pi-agent-harness.md](doc
 
 ## Remote access
 
-The services bind to localhost. On a Tailscale machine, expose the workspace to your tailnet only (never Funnel):
+The services bind to localhost. On a Tailscale machine, `scripts/start` exposes the workspace to your tailnet only
+(never Funnel) and prints the URL; `scripts/stop` removes the route. What it runs, if you want it by hand:
 
 ```bash
-sudo tailscale set --operator=$USER          # once
+sudo tailscale set --operator=$USER          # once, so that `tailscale serve` needs no sudo
 tailscale serve --bg --https=8444 http://127.0.0.1:8765
+tailscale status --json | jq -r .Self.DNSName   # the <machine>.<tailnet>.ts.net part of the URL
 ```
 
-Then open `https://<machine>.<tailnet>.ts.net:8444`. `tailscale serve --https=8444 off` removes the route. The
-implementation service and the harness stay on localhost and use their token file.
+Then open `https://<machine>.<tailnet>.ts.net:8444`. `tailscale serve --https=8444 off` removes the route
+(`BALSAMIC_TAILNET_PORT` chooses another port for both scripts). The implementation service and the harness stay on
+localhost and use their token files.
 
 ## Optional components
 
@@ -207,8 +229,8 @@ GRATING_LLM_DISABLED=true uv run pytest -q          # the core and tests/balsami
 (cd frontend && npx tsc -b && npx playwright test)  # the workspace, against a mocked backend
 ```
 
-`tests/fake_harness.py` is a scripted stand-in for the Pi harness with a session tree; `scripts/dev-stack up` uses it
-when `--real` is not given.
+`tests/fake_harness.py` is a scripted stand-in for the Pi harness with a session tree; `scripts/start --fake` (and
+`scripts/dev-stack up` without `--real`) uses it.
 
 ## Code map
 

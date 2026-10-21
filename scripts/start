@@ -1,0 +1,53 @@
+#!/usr/bin/env bash
+# Start Balsamic for use: the local stack (scripts/dev-stack up) with the real Pi harness, plus a tailnet-only HTTPS
+# route to the workspace through `tailscale serve`. Prints the local URL, the tailnet URL and the service token.
+#   scripts/start                 real harness (your signed-in provider), workspace on 8765, tailnet route on 8444
+#   scripts/start --fake          the scripted fake lead instead (no model, no keys)
+#   scripts/start --no-tailnet    localhost only
+#   scripts/start --dir DIR       data and logs there instead of runs/dev
+#   BALSAMIC_PORT, BALSAMIC_LIBRARY_PORT, BALSAMIC_PI_PORT change the local ports; BALSAMIC_TAILNET_PORT the HTTPS one.
+# Idempotent: services already running are left alone. scripts/stop undoes it.
+set -euo pipefail
+repo="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
+dir="$repo/runs/dev"; real=1; tailnet=1
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --fake) real=0;; --real) real=1;; --no-tailnet) tailnet=0;; --dir) dir="$2"; shift;;
+    -h|--help) sed -n '2,10p' "$0"; exit 0;;
+    *) echo "unknown option $1" >&2; exit 2;;
+  esac; shift
+done
+WORKSPACE_PORT="${BALSAMIC_PORT:-8765}"; TAILNET_PORT="${BALSAMIC_TAILNET_PORT:-8444}"
+
+stack_args=(--dir "$dir"); [ "$real" = 1 ] && stack_args+=(--real)
+"$repo/scripts/dev-stack" up "${stack_args[@]}"
+
+if ! curl -sf "http://127.0.0.1:$WORKSPACE_PORT/api/health" > /dev/null; then
+  echo "workspace did not answer on $WORKSPACE_PORT; see $dir/workspace.log" >&2; exit 1
+fi
+
+tailnet_url=""
+if [ "$tailnet" = 1 ]; then
+  if ! command -v tailscale > /dev/null; then
+    echo "tailscale is not installed: no tailnet route (use --no-tailnet to silence this)" >&2
+  elif ! tailscale serve --bg --https="$TAILNET_PORT" "http://127.0.0.1:$WORKSPACE_PORT" > /dev/null; then
+    echo "tailscale serve failed; once: sudo tailscale set --operator=\$USER" >&2
+  else
+    host="$(tailscale status --json | jq -r '.Self.DNSName' | sed 's/\.$//')"
+    tailnet_url="https://$host:$TAILNET_PORT"
+  fi
+fi
+
+echo
+echo "Balsamic is up ($([ "$real" = 1 ] && echo "real harness" || echo "fake harness"); data and logs in $dir)"
+echo "  local URL:    http://127.0.0.1:$WORKSPACE_PORT"
+if [ -n "$tailnet_url" ]; then
+  echo "  tailnet URL:  $tailnet_url   (tailnet only, never public)"
+fi
+echo "  service token (workspace <-> harness, $dir/pi.token):"
+echo "    $(cat "$dir/pi.token")"
+if [ -f "$dir/library/service.token" ]; then
+  echo "  implementation service token ($dir/library/service.token):"
+  echo "    $(cat "$dir/library/service.token")"
+fi
+echo "  stop: scripts/stop        status: scripts/dev-stack status        logs: $dir/*.log"
