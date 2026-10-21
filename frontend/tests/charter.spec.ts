@@ -40,7 +40,7 @@ test('the charter page is a form: findings are settled with numbers, acceptances
   const panel = page.getByTestId('charter-panel');
   await expect(panel.getByTestId('finding')).toHaveCount(3);
   await expect(panel.getByTestId('confirm-charter')).toBeDisabled();
-  await expect(panel.getByTestId('confirm-why')).toContainText('3 blocking findings to settle first');
+  await expect(panel.getByTestId('confirm-why')).toContainText('3 checks to pass first');
   await expect(panel.getByTestId('quantities').getByTestId('quantity')).toHaveCount(4);
   await expect(panel.getByTestId('quantity').nth(1)).toContainText('12');
   // Accept the assumption with one click.
@@ -114,4 +114,24 @@ test('while the formulator works on the answers, the questions say so and nothin
   await expect(panel.getByTestId('question').first()).toContainText('formulator working');
   await expect(panel.getByTestId('question-option')).toHaveCount(0);
   await expect(panel.locator('[data-next="1"]')).toHaveCount(0);
+});
+
+test('a finding offers suggested ways out: one click sends the worded request, and the ask box starts from it', async ({ page }) => {
+  await mockWorkspace(page, { [`/api/v1/campaigns/${CAMPAIGN_ID}/problem-note`]: f.adoptedNoteView });
+  const posts = await charterRoutes(page);
+  await page.goto(`/#t/${THREAD_ID}/note/charter`);
+  const panel = page.getByTestId('charter-panel');
+  await expect(panel.getByRole('heading', { name: 'Checks to pass before confirming' })).toBeVisible();
+  const bounds = panel.locator('[data-code="variable.bounds"]');
+  await expect(bounds.getByTestId('finding-suggestion')).toHaveCount(1);
+  await expect(bounds.getByTestId('finding-suggestion')).toHaveText('Ask the formulator for the bounds of daily_cap');
+  // The ask box opens with the suggested words, ready to edit or send.
+  await bounds.getByTestId('finding-ask').click();
+  await expect(bounds.getByTestId('finding-request')).toHaveValue('daily_cap needs a lower and an upper bound. Take them from the sources.');
+  await bounds.getByTestId('finding-ask').click();
+  // The suggestion itself is one click.
+  await bounds.getByTestId('finding-suggestion').click();
+  await expect.poll(() => posts.map(p => p.path)).toContain('requests');
+  expect(posts.find(p => p.path === 'requests')!.body).toEqual({ text: 'daily_cap needs a lower and an upper bound. Take them from the sources.' });
+  await expect(panel.getByTestId('asked')).toContainText('daily_cap needs a lower and an upper bound');
 });

@@ -127,7 +127,8 @@ export const charterView = { id: 'charter_1', title: 'Token sharing', status: 'd
   findings: [
     { key: 'assumption.unaccepted:working_days_per_month', code: 'assumption.unaccepted', severity: 'blocking', message: 'working_days_per_month = 20 day is an assumption. Accept it, change it, or ask for a change.', about: ['working_days_per_month'], waivable: false },
     { key: 'quantity.no_value:monthly_budget_tokens', code: 'quantity.no_value', severity: 'blocking', message: 'monthly_budget_tokens has no value. Give one, or state how it follows from others.', about: ['monthly_budget_tokens'], waivable: false },
-    { key: 'variable.bounds:daily_cap', code: 'variable.bounds', severity: 'blocking', message: 'daily_cap is continuous and needs a lower and an upper bound.', about: ['daily_cap'], waivable: false },
+    { key: 'variable.bounds:daily_cap', code: 'variable.bounds', severity: 'blocking', message: 'daily_cap is continuous and needs a lower and an upper bound.', about: ['daily_cap'], waivable: false,
+      suggestions: [{ label: 'Ask the formulator for the bounds of daily_cap', action: 'request', text: 'daily_cap needs a lower and an upper bound. Take them from the sources.' }] },
     { key: 'quantity.unused:weekly_limit_per_seat', code: 'quantity.unused', severity: 'warning', message: 'weekly_limit_per_seat reaches nothing.', about: ['weekly_limit_per_seat'], waivable: false },
   ],
   charter: { title: 'Token sharing', summary: 'Allocate a monthly token budget across seats.', text: 'Share {monthly_budget_tokens} tokens across {n_seats} seats.', assumptions: [], waivers: [],

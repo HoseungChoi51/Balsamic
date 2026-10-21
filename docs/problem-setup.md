@@ -130,14 +130,16 @@ confirmed problem charter revision it was made from, plus its settings.
 
 The checks are code. They run on every revision and on every edit, without a model. The formulator
 finds what code cannot, from reading the sources. A blocking finding must be resolved, or waived by
-the researcher with a reason, before confirming.
+the researcher with a reason, before confirming. Every blocking finding carries `suggestions` made from the charter
+itself, so that it is settled like a question, from choices: a waiver with its reason where waiving is allowed, and
+always a worded request to the formulator; none invents a number (`charter.suggestions`).
 
 | Problem | Example | Found by | Handling |
 |---|---|---|---|
 | The statement as a whole is unclear | "Optimize the reactor" with no feed, temperature range or measure of success | Formulator | It asks before writing a charter, with what it would assume. |
 | Conflicting constraints | Fill fraction at most 30% and at least 40%; a pressure input outside its own stated range | Checks: tests on quantities, and linear conditions on the decision variables (a feasibility test); formulator for the rest | A blocking finding. The formulator asks which one to relax. |
 | Unclear objective | "Maximize efficiency for both polarizations": the mean, the minimum, or both kept apart? "Best yield at low cost": which weighting? | Formulator | A question with the options; the other numbers become recorded metrics. |
-| Qualitative constraint | "Must be manufacturable", "thin enough", "safe operating conditions" | Checks (a constraint without a test) and formulator | Blocking until it gets a test, or the researcher waives it as a criterion that is recorded and not enforced. |
+| Qualitative constraint | "Must be manufacturable", "thin enough", "safe operating conditions" | Checks (a constraint stated in words only: no true/false test on quantities and no linear condition on the decision variables, so no design can be checked against it and the optimizer cannot enforce it) and formulator | Blocking until it gets a checkable form, or the researcher keeps it as a recorded criterion that is not checked (a waiver). The finding offers both as one click: the waiver with its reason, and a worded request to the formulator for candidate conditions. |
 | The same quantity defined twice | A text states 1050 nm while the input holds 1100 nm; `Px` and `period_x_nm` both present | Checks: numbers in the texts with a quantity's units; two inputs with the same units and value; one evaluator field mapped twice | One definition is kept, and the texts use references. |
 | One quantity depends on another | A period from the wavelength and angle; a material property from a table at the operating temperature; a total from its parts | Formulator states the relation; code computes it | A derived quantity. It follows its inputs, and changes only through a proposal. |
 | Missing constraint or under-defined problem | No grid size, no incidence angle, no fidelity, no bounds on a continuous variable | Checks against the evaluator's required fields, and for inputs without a value or variables without bounds; formulator for the rest | Blocking: the formulator asks, or records an assumption that the researcher accepts. |
@@ -344,3 +346,4 @@ with their formulators, folders and sessions; nothing was kept.
 - **One browser test is flaky.** `study-progress` "manual refresh…" expects exactly two reads, and
   under the full parallel run an automatic refresh sometimes makes three. It passes alone. That
   page was not changed by this work.
+

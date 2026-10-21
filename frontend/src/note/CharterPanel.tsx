@@ -10,7 +10,8 @@ import { Empty, Failed, Loading, Pill, Section } from '../primitives/ui';
 
 interface Quantity { description?: string; kind?: string; role: 'input' | 'derived' | string; value: number | null; expression: string | null; units?: string; range?: [number | null, number | null] | null; origin?: string; accepted?: boolean; note?: string }
 interface Variable { name: string; description?: string; representation: string; lower: number | null; upper: number | null; values: unknown[]; units?: string; shape?: unknown[] }
-interface Finding { key: string; code: string; severity: 'blocking' | 'warning' | string; message: string; about: string[]; waivable: boolean }
+interface Suggestion { label: string; action: 'waive' | 'request' | string; reason?: string; text?: string }
+interface Finding { key: string; code: string; severity: 'blocking' | 'warning' | string; message: string; about: string[]; waivable: boolean; suggestions?: Suggestion[] }
 interface Question { id: string; question: string; options?: string[]; answer: string | null }
 interface Proposal { id: string; status: string; request?: string; options?: { summary?: string; changes?: unknown[] }[] }
 interface CharterView { id: string; title?: string; status: string; revision: number; blocking: number; findings: Finding[]; values: Record<string, number | null>; errors?: Record<string, string>;
@@ -60,7 +61,7 @@ export function CharterPanel({ charterId, campaignId, version, onChanged, formul
   const nextId = blocking.length ? blocking[0].key : openQuestions.length ? openQuestions[0].id : null;
   const warnings = c.findings.filter(f => f.severity !== 'blocking');
   const confirmed = c.status === 'confirmed';
-  const why = confirmed ? null : blocking.length ? `${blocking.length} blocking finding${blocking.length === 1 ? '' : 's'} to settle first` : openQuestions.length ? `${openQuestions.length} question${openQuestions.length === 1 ? '' : 's'} from the formulator to answer first` : null;
+  const why = confirmed ? null : blocking.length ? `${blocking.length} check${blocking.length === 1 ? '' : 's'} to pass first` : openQuestions.length ? `${openQuestions.length} question${openQuestions.length === 1 ? '' : 's'} from the formulator to answer first` : null;
   const variableIndex = (name: string) => doc.variables.findIndex(v => v.name === name);
   return (
     <div className="col" data-testid="charter-panel" data-revision={c.revision}>
@@ -72,7 +73,8 @@ export function CharterPanel({ charterId, campaignId, version, onChanged, formul
         {doc.summary ? <p className="lede">{doc.summary}</p> : null}
       </Section>
 
-      {blocking.length ? <Section title="To settle before confirming">
+      {blocking.length ? <Section title="Checks to pass before confirming" right={<span className="small faint">found by the charter's own checks (code, no model), on every revision</span>}>
+        <p className="small muted">Each is something the lab cannot compute, check or enforce as the charter stands. Settle it with the field beside it, pick a suggested way out, or ask the formulator in words.</p>
         <div className="col" data-testid="findings">
           {blocking.map(f => <FindingRow key={f.key} finding={f} doc={doc} values={c.values} busy={busy} edit={edit} post={post} variableIndex={variableIndex} next={f.key === nextId} />)}
         </div>
@@ -80,6 +82,7 @@ export function CharterPanel({ charterId, campaignId, version, onChanged, formul
 
       {doc.questions.length ? <Section title="Questions from the formulator" right={<span className="small faint" data-testid="questions-state">
           {openQuestions.length ? `${openQuestions.length} of ${doc.questions.length} to answer` : working ? 'all answered · the formulator is revising the charter' : 'all answered'}</span>}>
+        <p className="small muted">What the formulator could not decide from the sources alone. Pick an option, or answer in your own words; it revises the charter from your answers.</p>
         {!openQuestions.length && working ? <div className="finding small" data-testid="formulator-working"><span className="finding-code">formulator</span>Working on your answers: a new revision, new findings or new questions may follow. Nothing to do here until then.<Pill tone="agent">working</Pill></div> : null}
         {questions.map(q => <QuestionRow key={q.id} question={q} busy={busy} post={post} working={working} next={q.id === nextId} />)}
       </Section> : null}
@@ -155,6 +158,9 @@ function FindingRow({ finding, doc, values, busy, edit, post, variableIndex, nex
   const code = finding.code;
   const setValue = (v: number) => edit([{ op: 'set', path: `quantities.${name}.value`, value: v }], `Set ${name} on the Charter page`);
   const setExpression = () => edit([{ op: 'set', path: `quantities.${name}.expression`, value: text.trim() }, { op: 'set', path: `quantities.${name}.role`, value: 'derived' }], `Derived ${name} on the Charter page`);
+  // Waive suggestions are offered only when the service lets this finding be waived.
+  const suggestions = (finding.suggestions || []).filter(s => s.action !== 'waive' || finding.waivable);
+  const suggestedRequest = suggestions.find(s => s.action === 'request')?.text || '';
   return (
     <article className={'finding blocking' + (next ? ' next' : '')} data-testid="finding" data-code={code} data-about={name || ''} data-next={next ? '1' : undefined}>
       <div className="row">{next ? <Pill tone="you">next</Pill> : null}<span className="finding-code">{code}</span><span className="grow">{finding.message}</span></div>
@@ -177,14 +183,17 @@ function FindingRow({ finding, doc, values, busy, edit, post, variableIndex, nex
           <input style={{ width: 240 }} placeholder="permitted values, comma-separated" value={text} onChange={e => setText(e.target.value)} disabled={busy} data-testid="finding-values" />
           <button className="btn small primary" disabled={busy || !text.trim()} onClick={() => edit([{ op: 'set', path: `variables.${variableIndex(name)}.values`, value: text.split(',').map(s => number(s) ?? s.trim()) }], `Set the values of ${name}`)}>Set</button>
         </> : null}
-        {!quantity && !variable && code !== 'assumption.unaccepted' ? <span className="small faint">{finding.about.length ? `Settled by ${finding.about.join(', ')} above.` : 'Needs a change to the charter itself.'}</span> : null}
-        <button className="btn quiet small" onClick={() => setMode(mode === 'ask' ? null : 'ask')} data-testid="finding-ask">Ask the formulator</button>
+        {!quantity && !variable && code !== 'assumption.unaccepted' ? <span className="small faint">{finding.about.length ? `Settled by ${finding.about.join(', ')} above.` : 'No single field settles this: take a suggestion below, or ask the formulator.'}</span> : null}
+        <button className="btn quiet small" onClick={() => { if (mode !== 'ask' && !text.trim() && suggestedRequest) setText(suggestedRequest); setMode(mode === 'ask' ? null : 'ask'); }} data-testid="finding-ask">Ask the formulator</button>
         {finding.waivable ? <button className="btn quiet small" onClick={() => setMode(mode === 'waive' ? null : 'waive')}>Waive</button> : null}
       </div>
+      {suggestions.length ? <div className="row wrap finding-actions" data-testid="finding-suggestions"><span className="small faint">Suggested:</span>
+        {suggestions.map((s, i) => <button key={i} className="btn small" disabled={busy} data-testid="finding-suggestion" data-action={s.action} title={s.action === 'waive' ? `Waives it with the reason: ${s.reason}` : `Sends to the formulator: ${s.text}`}
+          onClick={() => local.guard(() => s.action === 'waive' ? post('waive', { key: finding.key, reason: s.reason || s.label }) : post('requests', { text: s.text || s.label }))}>{s.label}</button>)}</div> : null}
       {mode === 'expression' ? <div className="row"><input style={{ flex: 1 }} placeholder={`expression in other quantities, e.g. n_seats * weekly_limit_per_seat`} value={text} onChange={e => setText(e.target.value)} disabled={busy} data-testid="finding-expression" />
         <button className="btn small primary" disabled={busy || !text.trim()} onClick={setExpression}>Derive</button><span className="small faint">known: {Object.keys(values).slice(0, 8).join(', ')}</span></div> : null}
       {mode === 'ask' ? <div className="row"><input style={{ flex: 1 }} placeholder="what should change, in words; the formulator answers with options" value={text} onChange={e => setText(e.target.value)} disabled={busy} data-testid="finding-request" />
-        <button className="btn small primary" disabled={busy || !text.trim()} data-testid="finding-request-send" onClick={() => local.guard(async () => { await post('requests', { text: `About "${finding.message}": ${text.trim()}` }); setText(''); setMode(null); })}>Send</button></div> : null}
+        <button className="btn small primary" disabled={busy || !text.trim()} data-testid="finding-request-send" onClick={() => local.guard(async () => { await post('requests', { text: text.trim() === suggestedRequest ? suggestedRequest : `About "${finding.message}": ${text.trim()}` }); setText(''); setMode(null); })}>Send</button></div> : null}
       {local.line}
       {mode === 'waive' ? <div className="row"><input style={{ flex: 1 }} placeholder="why this finding may stand" value={text} onChange={e => setText(e.target.value)} disabled={busy} />
         <button className="btn small" disabled={busy || !text.trim()} onClick={() => local.guard(async () => { await post('waive', { key: finding.key, reason: text.trim() }); setText(''); setMode(null); })}>Waive</button></div> : null}

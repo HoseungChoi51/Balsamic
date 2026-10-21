@@ -366,3 +366,27 @@ def test_the_formulator_cannot_waive_accept_or_answer_for_the_researcher(workspa
     again = workspace.charters.submit(record["id"], {**record["charter"], "waivers": [{"key": "constraint.qualitative:safe", "reason": "x"}]}, run_id="r")
     assert again["charter"]["quantities"]["pressure_bar"]["accepted"] and again["charter"]["questions"][0]["answer"] == "A"
     assert again["charter"]["waivers"] == []
+
+
+def test_every_blocking_finding_carries_suggested_ways_out():
+    """A finding is settled like a question: with choices. Each blocking finding carries best-effort suggestions made from
+    the charter itself (a waiver with its reason where waiving is allowed, and always a worded request to the formulator);
+    none invents a number. The qualitative-constraint finding says in plain words what "no test" means."""
+    draft = reactor()
+    draft["constraints"].append({"id": "safe", "form": "qualitative", "statement": "Operate safely."})
+    draft["quantities"]["pressure_bar"]["value"] = None
+    rows = C.findings(draft)
+    blocking = [row for row in rows if row["severity"] == "blocking" and row["code"] != "question.open"]
+    assert blocking
+    for row in blocking:
+        actions = [item["action"] for item in row["suggestions"]]
+        assert "request" in actions, row["code"]
+        assert all(item["label"] and (item.get("text") or item.get("reason")) for item in row["suggestions"])
+        assert ("waive" in actions) <= row["waivable"]
+    safe = next(row for row in rows if row["code"] == "constraint.qualitative")
+    assert "no condition the lab can evaluate" in safe["message"] and "has no test" not in safe["message"]
+    assert [item["action"] for item in safe["suggestions"]] == ["waive", "request"]
+    assert "Operate safely." in safe["suggestions"][0]["reason"] and "options" in safe["suggestions"][1]["text"]
+    missing = next(row for row in rows if row["code"] == "quantity.no_value")
+    assert [item["action"] for item in missing["suggestions"]] == ["request"] and "pressure_bar" in missing["suggestions"][0]["text"]
+    assert all("suggestions" not in row for row in rows if row["severity"] == "warning")

@@ -151,8 +151,10 @@ its page) stays on the page.
 `values`, `errors`, `rendered`, `blocking`) and settles each blocking finding in place: `assumption.unaccepted` → Accept
 (`accept-assumptions {names}`) or a new value; `quantity.no_value` / `quantity.range` → a number or an expression
 (`edit {changes: [{op: set, path: quantities.<name>.value|expression}]}`); `variable.bounds` / `variable.values` →
-bounds or values (`variables.<index>.lower|upper|values`); any finding → Ask the formulator (`requests`) or Waive when
-waivable. Quantities and variables are editable tables (numbers typed as numbers; derived values shown computed);
+bounds or values (`variables.<index>.lower|upper|values`); any finding → its `suggestions` as one-click buttons (a
+`waive` posts `waive {key, reason}`, a `request` posts `requests {text}`; "Ask the formulator" opens its box prefilled
+with the suggested request) or Waive when waivable. The section is titled "Checks to pass before confirming" and says
+the findings come from the checks, not the formulator; the questions section says the opposite. Quantities and variables are editable tables (numbers typed as numbers; derived values shown computed);
 questions are answered from their options or in words (`answers`); proposals are chosen (`…/decision`). Confirm is
 enabled only with no blocking finding and no open question, and says why otherwise. The raw charter wraps.
 

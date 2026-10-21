@@ -78,10 +78,14 @@ H01 H02`, `/evolve H01`, `/review H01`, `/compare`, `/probe`, `/plan`, `/note`, 
 ### Confirm the charter
 
 Adopting the note hands it to the formulator, which writes the charter. The **Charter** tab of the Problem note page is
-a form: each blocking finding has its control right there (accept an assumption, type a missing number, set the bounds
-of a decision variable, answer the formulator's question from its options), every quantity and bound is an editable
-field, and "Ask the formulator" sends a change request in words when a number is not enough. Confirm is enabled once
-nothing blocks; it compiles the tasks and experiments can start.
+a form with two kinds of open item. **Checks to pass** are what the charter's own checks found (code, run on every
+revision, no model): a value missing, a bound missing, an assumption not yet accepted, a constraint stated in words only
+that nothing can evaluate. Each has its control right there (accept, type the number, set the bounds) and suggested ways
+out made from the charter itself: a one-click waiver with its reason where waiving is allowed, and a worded request to
+the formulator that one click sends (the "Ask the formulator" box starts from the same words, for editing). **Questions
+from the formulator** are what it could not decide from the sources alone; they come with options, or take an answer in
+words. Every quantity and bound is an editable field. Confirm is enabled once nothing blocks; it compiles the tasks and
+experiments can start.
 
 ### Panels the agents compose
 

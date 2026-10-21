@@ -331,6 +331,66 @@ def findings(charter, registry=None) -> list[dict]:
     for row in out:
         if row["key"] in waived and row["waivable"]:
             row["waived"] = waived[row["key"]]
+        if row["severity"] == "blocking" and row["code"] != "question.open":
+            row["suggestions"] = suggestions(row, charter)
+    return out
+
+
+def suggestions(row, charter) -> list[dict]:
+    """Best-effort ways out of a blocking finding, from what the charter itself holds, so that a researcher with little
+    background still has something to choose from (as the formulator's questions come with options). Each is one click on
+    the Charter page: a waiver records the reason and keeps the charter as it is; a request asks the formulator in words,
+    and it answers with options. Nothing here invents a number: when a value is missing, the suggestion is to ask for it."""
+    code, subject, about = row["code"], row["key"].split(":", 1)[1], row["about"]
+    name = about[0] if about else None
+    quantity = charter.quantities.get(name) if name else None
+    units = f" in {quantity.units}" if quantity and quantity.units.strip() not in DIMENSIONLESS else ""
+    ask = lambda label, text: {"label": label, "action": "request", "text": text}
+    keep = lambda label, reason: {"label": label, "action": "waive", "reason": reason}
+    out = []
+    if code == "constraint.qualitative":
+        constraint = next((c for c in charter.constraints if c.id == subject), None)
+        statement = constraint.statement if constraint else subject
+        out.append(keep("Keep it as a recorded criterion (not checked)",
+            f"“{statement}” is stated in words; it stays recorded as a criterion the lab does not check or enforce."))
+        out.append(ask("Ask the formulator for a checkable condition",
+            f"Constraint {subject} (“{statement}”) is words only. Propose conditions the lab can check and offer them as options: "
+            "a true/false test on named quantities (a limit a quantity must stay within), or a linear condition on the decision "
+            "variables, with the thresholds the sources support; or say why it has to stay in words."))
+    elif code == "quantity.no_value" and quantity:
+        out.append(ask(f"Ask the formulator for the value of {name}",
+            f"{name} ({quantity.description}) has no value. Give the value the sources state{units}, or the relation by which it "
+            "follows from other quantities; if the sources disagree or are silent, offer each candidate as an option and say so."))
+    elif code == "variable.bounds" and name:
+        out.append(ask(f"Ask the formulator for the bounds of {name}",
+            f"{name} needs a lower and an upper bound. Take them from the sources (physical, operational or budget limits), "
+            "say which source each comes from, and offer alternatives as options if the sources leave room."))
+    elif code == "variable.values" and name:
+        out.append(ask(f"Ask the formulator for the permitted values of {name}",
+            f"{name} is discrete and needs its permitted values. List them from the sources, with the source for each."))
+    elif code == "quantity.range" and quantity:
+        out.append(keep("Keep the value; the range was advisory", f"{row['message']} The value stands; the range was advisory."))
+        out.append(ask(f"Ask whether the value or the range of {name} is right",
+            f"{row['message']} Say which is right, the value or the range, with the source, and offer both as options."))
+    elif code == "constraint.violated":
+        out.append(ask("Ask which to change: the values or the constraint",
+            f"{row['message']} Say which input to change or whether the constraint should be relaxed, and offer the choices as options."))
+        out.append(keep("Keep both and record the violation", f"{row['message']} Recorded; the values stand for this campaign."))
+    elif code == "constraint.infeasible":
+        out.append(ask("Ask which constraint to relax", f"{row['message']} Propose which constraint to relax and by how much, as options."))
+        out.append(keep("Keep them and record that no design meets all", f"{row['message']} Recorded as it stands."))
+    elif code == "text.literal_mismatch":
+        out.append(ask("Ask the formulator to fix the text", f"{row['message']} Rewrite the text so it refers to the quantity by name, "
+            "or move the number to the reference results; offer the rewrites as options."))
+        out.append(keep("Keep the text as written", f"{row['message']} The number in the text is kept as written."))
+    elif code == "assumption.unaccepted" and not quantity:
+        out.append(ask("Ask the formulator to ground or replace the assumption",
+            f"{row['message']} Say what the sources support instead, or why the assumption is needed, and offer the choices as options."))
+    elif code.startswith("evaluator."):
+        out.append(ask("Ask the formulator to fix the evaluator binding", f"{row['message']} Fix the binding between the charter and "
+            "the evaluator (which quantity each field takes, the objective, the decision variables) and offer the fixes as options."))
+    if not any(item["action"] == "request" for item in out):
+        out.append(ask("Ask the formulator to resolve it", f"Resolve this finding from the sources and offer the choices as options: {row['message']}"))
     return out
 
 
@@ -359,8 +419,9 @@ def constraint_findings(charter, values, tables, sizes):
     variables = {variable.name: variable for variable in charter.variables}
     for constraint in charter.constraints:
         if constraint.form == "qualitative":
-            out.append(finding("constraint.qualitative", "blocking", constraint.id, f"“{constraint.statement}” has no test. Give it one "
-                "(a condition on quantities or a linear condition on the decision variables), or waive it to keep it as a recorded criterion.", []))
+            out.append(finding("constraint.qualitative", "blocking", constraint.id, f"“{constraint.statement}” is stated in words only: "
+                "there is no condition the lab can evaluate, so no design can be checked against it and the optimizer cannot enforce it. "
+                "Keep it as a recorded criterion that is not checked, or give it a checkable form.", []))
         elif constraint.form == "quantities":
             try:
                 result = evaluate(constraint.test, values, tables)
