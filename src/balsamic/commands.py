@@ -111,3 +111,5 @@ def register(workspace):
     if "thread_pin" not in __import__("optimization_framework.agents.tools", fromlist=["EXTRA_TOOLS"]).EXTRA_TOOLS:
         register_tools()   # process-wide; handlers act on the workspace of the tools that call them
     workspace.lead_instructions = lead_instructions(workspace)
+    from balsamic.lead.state import lead_state
+    workspace.lead_state = lead_state(workspace)   # the lead's part of each turn's state block (agents/turn_state.py)

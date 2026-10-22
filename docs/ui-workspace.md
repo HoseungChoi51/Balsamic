@@ -240,7 +240,8 @@ pending `placeholders`, the thread's `status`, `merged_into` and `summary`. The 
 an activity `strip` (glyphs from records: message, strategy, run, decision, note, merge). `GET /threads/{id}/context`
 reports the three layers: project (campaign, tasks, charter, guidance, with byte counts), branch (measured from the
 harness's context at the thread's leaf when it answers, otherwise estimated and labelled so) and live (pinned and
-excluded records with their current status), plus the lab events since the thread's last turn.
+excluded records with their current status, which go into the next turn's state block), plus the state block of the
+thread's last lead turn (`state`: its text, size and run) and the lab events since the thread's last turn.
 
 **Guidance.** A message bumps its thread's `guidance_revision`; the lead's `campaign_command` pins
 `expected_thread_revision` from its run (never from the model) and `expected_guidance_revision` from the run unless the

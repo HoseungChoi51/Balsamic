@@ -469,6 +469,13 @@ def check_no_failed_runs(ctx, arg):
     return not failed, f"{len(failed)} failed runs" + (f": {failed[0]}" if failed else "")
 
 
+def check_last_state_contains(ctx, arg):
+    """The state block the lead's last turn was given (saved on its run) says this: what the platform told it, not what it said."""
+    runs = [r for r in ctx.lead_runs() if r.get("turn_state")]
+    text = runs[-1]["turn_state"]["text"] if runs else ""
+    return arg in text, "found" if arg in text else ("no state block saved" if not runs else f"not in the last state block ({len(text)} characters)")
+
+
 def check_records_at_least(ctx, arg):
     count = len(ctx.store.list(arg["kind"], ctx.campaign_id))
     return count >= arg["count"], f"{count} {arg['kind']}"

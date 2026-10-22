@@ -33,14 +33,15 @@ def test_the_rules_start_from_the_runtime_gate_and_change_by_revision(tmp_path, 
     with pytest.raises(ValueError, match='changed'):
         command(w, c, 'experiments.rules', {'max_concurrent': 3, 'expected_revision': 0, 'rationale': 'stale'}, 'r2')
     assert command(w, c, 'experiments.rules', {'max_concurrent': 0, 'expected_revision': 1, 'rationale': 'No limit'}, 'r3')['max_concurrent'] is None
-    # The lead reads them; the operator is told them in its instructions, and changes them under its own name.
+    # The lead reads them; the operator is told them in each turn's state block, and changes them under its own name.
     lead_run = submitted(w, w.pi.message(c['id'], {'message': 'What are the rules?'}, 'ask'))
     assert call(w, lead, lead_run, 'campaign_inspect', {}, 'inspect')['experiment_rules']['short_run_seconds'] == 900
     asked = submitted(w, w.pi.message(c['id'], {'message': 'Allow two runs at once.', 'page_agent': 'experiment_operator'}, 'op'))
     operator = w.store.get(asked['agent_id'], 'agent_session')
     from optimization_framework.agents.tools import PiTools
-    instructions = PiTools(w.pi).manifest(operator['id'], asked['id'])['instructions']
-    assert 'revision 2' in instructions and 'Short runs are allotted less than 900 seconds' in instructions and 'expected improvement' not in instructions
+    state = PiTools(w.pi).turn_state(operator['id'], asked['id'])['text']
+    assert 'revision 2' in state and 'Short runs are allotted less than 900 seconds' in state and 'expected improvement' not in state
+    assert 'experiment rules' in PiTools(w.pi).manifest(operator['id'], asked['id'])['instructions'] and '900' not in PiTools(w.pi).manifest(operator['id'], asked['id'])['instructions']
     changed = call(w, operator, asked, 'campaign_command', {'operation': 'experiments.rules', 'request_key': 'two', 'guidance_revision': w.memory.state(c['id'])['guidance_revision'],
         'payload': {'max_concurrent': 2, 'expected_revision': 2, 'rationale': 'The researcher asked for two at once'}}, 'rules')
     assert changed['outcome']['max_concurrent'] == 2 and current(w.store, c['id'])['updated_by'] == 'manager' and changed['page'] == '#experiments/rules'

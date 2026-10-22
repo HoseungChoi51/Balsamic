@@ -42,6 +42,46 @@ def specialist(team, role="methodology_specialist"):
     return team.workspace.store.get(child["agent_id"], "agent_session"), submitted(team.workspace, child["run_id"])
 
 
+def team_of(client, workspace, campaign_id, monkeypatch, *, tasks):
+    """A campaign's lead turn and a turn of each page agent and of one specialist."""
+    from optimization_framework.agents.models import PAGE_AGENTS
+    campaign = command(client, "campaign.create", campaign_id, {"name": campaign_id, "objective": "Find a better optimizer",
+                       **({"tasks": [QUADRATIC]} if tasks else {})}, 0)["outcome"]["campaign"]
+    lead = activate_team(client, workspace, campaign, monkeypatch)
+    version = lambda: workspace.store.get(campaign_id, "campaign")["version"]
+    thread = "thread_main_" + campaign_id
+    run = submitted(workspace, "pi_run_" + command(client, "agent.message", campaign_id, {"message": "Hello", "thread_id": thread}, version(),
+                                                   origin={"thread_id": thread})["id"])
+    agents = {"lead": (lead, run)}
+    for role in PAGE_AGENTS:
+        asked = submitted(workspace, "pi_run_" + command(client, "agent.message", campaign_id, {"message": "Wait.", "page_agent": role}, version())["id"])
+        agents[role] = (workspace.store.get(asked["agent_id"], "agent_session"), asked)
+    team = SimpleNamespace(workspace=workspace, lead=lead, run=run, tools=PiTools(workspace.pi))
+    agents["methodology_specialist"] = specialist(team)
+    return agents
+
+
+def test_the_manifest_is_static_per_role(tmp_path, monkeypatch):
+    """Two campaigns in different states: each role is given byte-identical instructions and tools (harness plan, principle 2)."""
+    from balsamic.app import create_app
+    monkeypatch.setenv("GRATING_LLM_DISABLED", "true")
+    app = create_app(tmp_path / "workspace", start_workers=False)
+    with TestClient(app) as client:
+        workspace = app.state.workspace
+        defined = team_of(client, workspace, "defined", monkeypatch, tasks=True)
+        command(client, "experiments.rules", "defined", {"max_concurrent": 2, "short_run_seconds": 900, "expected_revision": 0, "rationale": "x"},
+                workspace.store.get("defined", "campaign")["version"])
+        drafting = team_of(client, workspace, "drafting", monkeypatch, tasks=False)
+        command(client, "problem_note.revise", "drafting", {"note_id": "note_drafting", "sections": {"objective": {"text": "Maximise"}}},
+                workspace.store.get("drafting", "campaign")["version"])
+        tools = PiTools(workspace.pi)
+        for role in defined:
+            one = tools.manifest(defined[role][0]["id"], defined[role][1]["id"])
+            other = tools.manifest(drafting[role][0]["id"], drafting[role][1]["id"])
+            assert one["instructions"] == other["instructions"], f"{role}'s instructions depend on the campaign's state"
+            assert one["tools"] == other["tools"], f"{role}'s tools depend on the campaign's state"
+
+
 def words(text):
     return len(text.split())
 

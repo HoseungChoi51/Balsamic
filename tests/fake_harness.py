@@ -1,10 +1,12 @@
 """A scripted stand-in for the Pi agent harness, speaking its HTTP protocol, with a session tree.
 
 For tests and for a local stack without a model: ``uv run python tests/fake_harness.py --port 8768`` beside
-``GRATING_PI_URL=http://127.0.0.1:8768 optimization-lab ...``. Each run it receives plays a script: it fetches the
-agent's manifest from the workspace, calls a few tools through the gateway (campaign_inspect, then yield_work with a
-reply that echoes the request), and reports the run completed with the entry ids its session tree grew by. Threads
-work as on the real harness: a run with ``branch_from_entry_id`` or ``leaf_entry_id`` positions the leaf first.
+``GRATING_PI_URL=http://127.0.0.1:8768 optimization-lab ...``. Each run it receives plays a script: it calls a few tools
+through the gateway (campaign_inspect, then yield_work with a reply that echoes the request), and reports the run completed
+with the entry ids its session tree grew by. As on the real harness, the agent's manifest is fetched once, when its runtime
+is made (``restart()`` forgets every runtime, as a harness restart does), and every turn asks the workspace for its state
+block and puts it before the message. Threads work as on the real harness too: a run with ``branch_from_entry_id`` or
+``leaf_entry_id`` positions the leaf first.
 """
 from __future__ import annotations
 
@@ -16,6 +18,7 @@ import time
 import uuid
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
+from urllib.error import HTTPError
 from urllib.request import Request, urlopen
 
 STATUS = {"configured": True, "mode": "dev", "provider": "openai-codex", "providers": {"openai-codex": {"auth": "oauth", "billing": "subscription"}},
@@ -77,7 +80,8 @@ class FakeHarness:
 
     def _agent(self, agent_id, spec=None):
         with self.lock:
-            agent = self.agents.setdefault(agent_id, {"id": agent_id, "spec": spec, "runs": {}, "events": [], "seq": 0, "tree": SessionTree(), "control": None})
+            agent = self.agents.setdefault(agent_id, {"id": agent_id, "spec": spec, "runs": {}, "events": [], "seq": 0, "tree": SessionTree(), "control": None,
+                                                      "manifest": None})
             if spec:
                 agent["spec"] = spec
             return agent
@@ -115,8 +119,11 @@ class FakeHarness:
             elif run["leaf_entry_id"] and run["leaf_entry_id"] != tree.leaf:
                 tree.branch(run["leaf_entry_id"])
             parent = tree.leaf
-            tree.append("message", run["text"], role="user")
-            self.gateway("manifest", {"agent_id": agent["id"], "run_id": run["id"]})
+            if agent.get("manifest") is None:
+                agent["manifest"] = self.gateway("manifest", {"agent_id": agent["id"], "run_id": run["id"]})
+            state = self._turn_state(agent, run)
+            run["prompt"] = f"[Assignment {run['id']}]\n" + (state + "\n\n" if state else "") + run["text"]
+            tree.append("message", run["prompt"], role="user")
             def tools(name, arguments):
                 self.live[agent["id"]]["steps"].append({"label": name, "done": False, "failed": False})
                 result = self.gateway("tool", {"agent_id": agent["id"], "run_id": run["id"], "call_id": name + "_" + uuid.uuid4().hex[:6], "name": name, "arguments": arguments})
@@ -139,6 +146,21 @@ class FakeHarness:
                     notify([agent["id"]])
                 except Exception:
                     pass
+
+    def _turn_state(self, agent, run):
+        """The workspace's state block for this turn; empty from a workspace without the route."""
+        try:
+            return (self.gateway("turn_state", {"agent_id": agent["id"], "run_id": run["id"]}) or {}).get("text") or ""
+        except HTTPError as exc:
+            if exc.code == 404:
+                return ""
+            raise
+
+    def restart(self):
+        """What a harness restart does to the runtimes: each agent's next turn fetches its manifest again."""
+        with self.lock:
+            for agent in self.agents.values():
+                agent["manifest"] = None
 
     def control(self, agent_id, action):
         agent = self._agent(agent_id)

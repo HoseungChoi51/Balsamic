@@ -180,7 +180,7 @@ request. The chat shows both, marked as an exchange between agents.
 The experiment operator keeps the campaign's experiment rules (`campaigns/experiment_rules.py`): naming, the
 threshold between short and long runs, how many of the campaign's runs may go at once (the scheduler enforces
 it), how runs are chosen and ordered, and how runs are presented on the Experiments page. It is given them in
-every turn's instructions, and has `experiment_progress` and `config_suggest` (`agents/experiments.py`).
+every turn's state block (below), and has `experiment_progress` and `config_suggest` (`agents/experiments.py`).
 
 ## Reports
 
@@ -206,6 +206,31 @@ job's card on the Reports page, under the stage it belongs to, through the same 
 ## What the lead agent is given
 
 [Lead agent readiness](lead-agent-readiness.md) keeps apart what of this is implemented and what is only proposed.
+
+### Instructions and the state block
+
+An agent's instructions and tools (the manifest, `POST /api/internal/pi/manifest`) are fetched once, when the harness
+makes the agent's runtime, and serve every later turn of that runtime. They are the same for a role whatever the
+campaign's state (`tests/test_turn_state.py`, `tests/test_harness_contract.py`): a change to the system prompt or the
+tool set would alter the start of every request and cost the provider's prompt cache for the whole session (Pi folds
+system-prompt changes into the leading system message for these providers).
+
+What changes comes in the state block instead. Right before each prompt the harness asks the workspace for it
+(`POST /api/internal/pi/turn_state`) and sends `[Assignment <run>]`, the block, a blank line, and the run's text; the
+run's identity stays its text alone, so a run submitted again is the same run. The workspace builds the block from its
+records at that moment (`agents/turn_state.py`, and `balsamic/lead/state.py` for the lead's part), in a fixed order,
+at most 3,000 characters, with no wall-clock time, and saves it on the run (`agent_run.turn_state`):
+
+| Who | Items |
+|---|---|
+| Every standing agent | Whether the turn is a request or a platform notice; its thread; the researcher's open questions it answers for (up to five) |
+| Lead | The problem-definition gate (open, or the next step, its page and the unwritten sections); autopilot (on with its cap and what is left, chosen at setup and waiting, or off); up to three library strategies that match; up to ten records pinned in this thread and the ones set aside; the page agents with an open request |
+| Experiment operator | Who asked; the experiment rules (naming, short/long threshold, runs at once, how runs are chosen, how they are presented) |
+| Resource planner | Who asked; the researcher's resource level and the launcher's maximum |
+| Other assistants, import agents, implementation roles | Nothing |
+
+A workspace without the route answers 404 and the harness sends the prompt as before; any other error fails the run, as
+a manifest error does. Steering messages go to the turn in progress unchanged.
 
 `campaign_inspect` returns, besides the campaign, its tasks and hypotheses:
 

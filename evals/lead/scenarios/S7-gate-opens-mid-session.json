@@ -10,6 +10,7 @@
     {"wait": "request_closed", "timeout_s": 900}
   ],
   "checks": [
+    {"last_state_contains": "Gate: open"},
     {"records_at_least": {"kind": "hypothesis", "count": 2}},
     {"reply_contains_none": ["gate is closed", "gate is still closed", "gate closed", "not fully defined", "definition is incomplete"]},
     {"request_closed": true}

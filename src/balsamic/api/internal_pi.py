@@ -1,4 +1,4 @@
-"""Authenticated callbacks of the Pi harness: tool manifests, tool calls, run notices, implementation assignments."""
+"""Authenticated callbacks of the Pi harness: tool manifests, each turn's state block, tool calls, run notices, implementation assignments."""
 import hmac
 import json
 import time
@@ -73,6 +73,13 @@ def install(app, workspace):
         if is_import_agent(body.agent_id):
             return workspace.problem_imports.manifest(body.agent_id, body.run_id)
         return gateway.manifest(body.agent_id, body.run_id)
+
+    @app.post("/api/internal/pi/turn_state", dependencies=[Depends(authenticate)])
+    def turn_state(body: Context):
+        # Asked right before each prompt; formulators have no campaign state to tell.
+        if is_import_agent(body.agent_id):
+            return {"text": ""}
+        return gateway.turn_state(body.agent_id, body.run_id)
 
     @app.post("/api/internal/pi/notify", dependencies=[Depends(authenticate)])
     def notify(body: Notice):

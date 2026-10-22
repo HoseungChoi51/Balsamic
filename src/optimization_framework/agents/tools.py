@@ -197,12 +197,10 @@ RECORD_NAMES = (("hypothesis", "hypothesis"), ("trial", "experiment"), ("artifac
 
 
 def planner_instructions(workspace):
-    """The resource planner's standing rules, with the researcher's current level."""
-    from optimization_framework.execution.admission import LEVELS, MARGIN, SETTLING_EVALUATIONS
-    admission = getattr(workspace, "admission", None)
-    level = admission.level() if admission else {"level": "balanced", **LEVELS["balanced"]}
-    return ("\nThe researcher chose the " + level["label"].lower() + " resource level: " + level["summary"] + " The level, the launcher's "
-        f"maximum of {workspace.max_workers} runs at once, budgets and campaign limits are the researcher's; ask with approval.request "
+    """The resource planner's standing rules. The researcher's current level comes in the state block (agents/turn_state.py)."""
+    from optimization_framework.execution.admission import MARGIN, SETTLING_EVALUATIONS
+    return ("\nThe researcher's resource level and the launcher's maximum of runs at once are in the state block at the top of each turn. "
+        "The level, that maximum, budgets and campaign limits are the researcher's; ask with approval.request "
         "(worker_ceiling) when the maximum is what holds the campaign back. Within them the scheduler starts a queued run only when what it is "
         "expected to use fits: a kind of run (the problem as configured, the method and its settings; not the seed) is expected to use "
         f"the most any of its runs used, plus {MARGIN - 1:.0%}. A kind never measured starts while no other such run is still in its first "
@@ -421,18 +419,9 @@ class PiTools:
                 "there and reads your replies there; the lead agent's requests come as its messages, and your closing reply goes back to it. "
                 "What is said above of the lead's replies holds for yours: short, with links to the pages that show the details.")
             if agent["role"] == "experiment_operator":
-                from optimization_framework.campaigns.experiment_rules import current as experiment_rules
-                rules = experiment_rules(self.store, agent["campaign_id"])
-                instructions += ("\nThe campaign's experiment rules (revision " + str(rules["revision"]) + ", kept with experiments.rules; the researcher "
-                    "may change them on the Experiments page):\n- Name each run in the first line of its question: " + rules["naming"] +
-                    "\n- Short runs are allotted less than " + f"{rules['short_run_seconds']:g}" + " seconds; long runs at least that."
-                    "\n- Runs of this campaign at once: " + (f"at most {rules['max_concurrent']} (the scheduler holds the rest in the queue)" if rules["max_concurrent"]
-                        else "no limit of the campaign's own") + f"; the workspace runs at most {self.workspace.max_workers} in all."
-                    "\n- How runs are chosen and ordered:\n" + rules["strategy"] +
-                    "\n- How runs are presented on the Experiments page (" + ("chosen: " + (rules["presentation"].get("rationale") or "no reason given")
-                        if rules.get("presentation_chosen") else "not chosen yet; a default drawn from the problem's description is shown") + "): list columns "
-                        + ", ".join(rules["presentation"]["list_columns"]) + "; entry sections " + ", ".join(rules["presentation"]["entry_sections"])
-                        + "; design drawn as " + rules["presentation"]["design"]["render"] + "."
+                instructions += ("\nThe campaign's experiment rules, kept with experiments.rules (the researcher may change them on the Experiments "
+                    "page), are in the state block at the top of each turn: how runs are named, where short runs end, how many may go at once, how "
+                    "runs are chosen and ordered, and how runs are presented."
                     "\nYou decide how runs are presented, for this problem: what the list of runs shows and what a run's entry shows, chosen "
                     "from what the page can draw (experiments.rules, presentation; command_schema lists the choices). Before the campaign's "
                     "first runs if it is not chosen, or when asked: ask the lead agent (lead_ask) what the researcher needs to see in a run of "
@@ -454,6 +443,17 @@ class PiTools:
             instructions += self.workspace_instructions(agent)
         return {"instructions": instructions, "tools": [{"name": name, "description": EXTRA_TOOLS[name]["description"] if name in EXTRA_TOOLS else TOOLS[name][0],
                                                           "input_schema": self.schema(agent, name)} for name in sorted(self.names(agent))]}
+
+    def turn_state(self, agent_id, run_id):
+        """This turn's state block (agents/turn_state.py), saved on the run: what the model was told the campaign is now."""
+        from .turn_state import build
+        agent, run = self._context(agent_id, run_id)
+        state = build(self, agent, run)
+        with self.workspace.lock, self.store.transaction():
+            current = self.store.get(run_id, "agent_run")
+            current["turn_state"] = {**state, "at": now()}
+            self.store.put("agent_run", current)
+        return state
 
     def workspace_instructions(self, agent):
         """What the lead needs to know about the researcher's workspace: set by the service layer (threads, the problem note)."""

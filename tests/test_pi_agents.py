@@ -748,7 +748,7 @@ def test_resource_events_wake_the_resource_planner_which_plans_but_starts_nothin
     manifest = tools.manifest(planner['id'], run['id'])
     names = {tool['name'] for tool in manifest['tools']}
     assert {'resource_inspect', 'campaign_command', 'experiment_progress', 'lead_ask'} <= names and 'page_agent_message' not in names
-    assert 'balanced resource level' in manifest['instructions'] and 'resources.estimate' in manifest['instructions']
+    assert 'balanced resource level' in tools.turn_state(planner['id'], run['id'])['text'] and 'resources.estimate' in manifest['instructions']
     assert tools.schema(planner, 'campaign_command')['properties']['operation']['enum'] == ['approval.request', 'resources.estimate', 'resources.plan', 'runtime.profile']
     # It reads each running run's memory and the GPU's processes, and records an estimate and a plan through its own commands.
     inspected = tools.call(planner['id'], run['id'], 'inspect', 'resource_inspect', {})

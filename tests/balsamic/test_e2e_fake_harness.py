@@ -83,3 +83,30 @@ def test_a_message_becomes_a_turn_whose_reply_lands_in_its_thread_with_its_entri
     assert [m["role"] for m in branch["messages"]] == ["user", "assistant"] and branch["inherited"][0]["count"] == 2
     context = client.get(f"/api/v1/threads/{fork['id']}/context").json()
     assert context["layers"]["branch"]["measured"] is True and context["layers"]["branch"]["entries_since_fork"] == 4
+
+
+def test_each_turn_carries_the_state_at_its_start_and_the_manifest_is_fetched_once(client, workspace, campaign, stack):
+    calls, gateway = [], stack.gateway
+    stack.gateway = lambda operation, body: (calls.append(operation), gateway(operation, body))[1]
+    version = lambda: workspace.store.get("demo", "campaign")["version"]
+    command(client, "agent.activate", "demo", {}, version())
+    def turn(text):
+        receipt = command(client, "agent.message", "demo", {"message": text, "thread_id": MAIN}, version(), origin={"thread_id": MAIN})
+        return settle(workspace, "demo", "pi_run_" + receipt["id"])
+    lead_id = workspace.pi.configuration("demo")["lead_id"]
+    first = turn("Hello")
+    prompt = stack.agents[lead_id]["runs"][first["id"]]["prompt"]
+    assert prompt.startswith(f"[Assignment {first['id']}]\n[Workspace state") and "Gate: open" in prompt and prompt.endswith("\n\nHello")
+    # The researcher starts a problem note between the two turns: the gate closes, and the next turn is told so, by the same runtime.
+    command(client, "problem_note.revise", "demo", {"note_id": "note_demo", "sections": {"objective": {"text": "Minimise the quadratic"}}}, version())
+    second = turn("Propose two strategies.")
+    prompt = stack.agents[lead_id]["runs"][second["id"]]["prompt"]
+    assert "Gate: closed" in prompt and "Not written yet: Knobs" in prompt and "Gate: open" not in prompt
+    assert workspace.store.get(second["id"], "agent_run")["turn_state"]["text"] in prompt
+    entries = stack.session(lead_id, "entries", {})["entries"]
+    assert [e["preview"][:len(f"[Assignment {second['id']}]")] for e in entries if e["role"] == "user"][-1] == f"[Assignment {second['id']}]"
+    assert calls.count("manifest") == 1 and calls.count("turn_state") == 2
+    # A harness restart makes a new runtime, which fetches the manifest again.
+    stack.restart()
+    turn("Again.")
+    assert calls.count("manifest") == 2

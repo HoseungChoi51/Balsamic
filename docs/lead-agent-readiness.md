@@ -38,6 +38,7 @@ to replace that outside session.
 | Experiments: short and long runs apart, runs edited or run again, obsolete runs hidden, the operator's rules and presentation | Implemented, live, checked with the operator on a scratch campaign; see Part J |
 | The review rounds drawn as a graph | Implemented, tested; see Part K |
 | Lead-agent evals that can be run again (scripted and live), a prompt-size ratchet | Implemented, tested with the scripted harness; no live baseline yet; see Part L |
+| The campaign's state in every turn (state block); instructions fixed per role; pins reach the model | Implemented, tested; not checked live; see Part M |
 
 "Live" means the running services on X670 use the code (last restarted on 14 October 2026).
 "Not live" means the code is in the working tree and tested, and the services still run the old
@@ -746,6 +747,52 @@ repeated, so a change to the instructions or the tools could not be compared wit
 - No real-model baseline yet: real runs cost money and were not approved in this session. The command to record it on
   `a7e89b8` is in `evals/lead/README.md`; until then the later Parts are checked with `--fake` and the tests only.
 - No LLM rubric; every check reads records or the reply's text.
+
+## Part M — The state of the campaign in every turn, the instructions fixed (22 October 2026; harness plan, Phase 2)
+
+### What was wrong
+
+- The harness fetched an agent's instructions only when it made the agent's runtime, and kept them for every later
+  turn. The parts that described the campaign were therefore a snapshot of the first turn after a harness restart: the
+  lead's "Gate now" line, its library matches and autopilot paragraphs, the experiment operator's rules (which the docs
+  said it got every turn) and the resource planner's level (F1).
+- `thread_pin` saved a record id on the thread, and the context drawer showed pins as "what the lead sees", but nothing
+  put them into a turn (F2).
+- The scripted harness fetched the manifest on every run, so no test could have caught this (F7).
+
+Making the instructions follow the campaign would not have helped: for the providers in use, Pi folds a change of the
+system prompt into the leading system message, so every change costs the prompt cache of the whole session.
+
+### What changed
+
+| Change | Where |
+|---|---|
+| Each turn starts with a state block built from the records at that moment and put before the message: the kind of turn, the thread, the researcher's open questions; for the lead the gate, autopilot, up to three library matches, up to ten pins of the thread and what it sets aside, the page agents at work; for the operator its rules; for the planner the level. Fixed order, at most 3,000 characters, no wall-clock time; saved on the run | `agents/turn_state.py`, `balsamic/lead/state.py` (`workspace.lead_state`), `PiTools.turn_state` |
+| `POST /api/internal/pi/turn_state`; the harness calls it right before `prompt()`. The run's identity stays its text; a 404 (an older workspace) leaves the prompt as it was, any other error fails the run | `balsamic/api/internal_pi.py`, `agent-harness/src/supervisor.ts`, `server.ts` |
+| The instructions no longer describe the campaign: the lead's briefing says where to read the state, the problem-note paragraph is always there, the operator's and the planner's instructions keep only their standing rules | `balsamic/lead/instructions.py`, `agents/tools.py` (`manifest`, `planner_instructions`) |
+| The scripted harness fetches the manifest once per runtime (`restart()` forgets them) and puts the state block in the user entry | `tests/fake_harness.py` |
+| The context drawer shows the state block the thread's last turn was given; the live layer says pins go into the next turn's block | `balsamic/threads/context.py`, `frontend/src/chat/ContextDrawer.tsx` |
+| S7 checks the block its last turn was given (`last_state_contains`) | `evals/lead/scenarios/S7-gate-opens-mid-session.json` |
+
+### Checked
+
+- `tests/test_turn_state.py`: the lead's, operator's and planner's instructions and tools are byte-identical before and
+  after the gate opens, autopilot is switched on, a library entry is added, the experiment rules change and the resource
+  level changes; each change shows in the next state block; a pin reaches the next turn of its thread only; the block is
+  saved on the run and capped; the route needs the token. `tests/test_harness_contract.py`: every role's manifest is the
+  same in two campaigns in different states. The end-to-end test over the scripted harness: the gate changes between two
+  turns of one runtime and the second turn's prompt says so; the manifest is fetched once, and again after `restart()`.
+- Harness: `turn_state` is called on every run and the manifest once per runtime; the prompt carries the block; a 404 is
+  tolerated; the same run submitted again while the state differs is the same run.
+- The lead's instructions are 3,105 words (the problem-note paragraph is no longer conditional), inside the ratchet.
+- `--fake`: S7 passes, with the gate closed in its first turn's block and open in its second.
+
+### Not done
+
+- Live S7 and the `cacheRead` comparison over a five-turn conversation: they need real model calls, not approved in this
+  session.
+- Steering messages carry no state block; they reach a turn whose block is minutes old at most.
+- The state block accumulates in the transcript, one per turn; the cap and the ten-pin limit bound it.
 
 ## Not planned
 

@@ -249,7 +249,10 @@ export class Supervisor {
         run.entry_ids = {parent: sm.getLeafId(), last: null};
         this.save(agent);
       }
-      await agent.runtime.prompt(`[Assignment ${run.id}]\n${run.text}`);
+      // The state block is built from the workspace's records now, not when the run was queued, and goes before the
+      // message: the instructions stay fixed for the session (and the provider's cache). run.text alone is the run's identity.
+      const state = await this.turnState(agent, run);
+      await agent.runtime.prompt(`[Assignment ${run.id}]\n${state ? state + '\n\n' : ''}${run.text}`);
       if (expired) throw new Error('Implementation time allocation exhausted; session and artifacts are saved.');
       const last = agent.runtime.messages?.filter((m: any) => m.role === 'assistant').at(-1);
       if (last?.stopReason === 'error') throw new Error(last.errorMessage || 'Provider request failed');
@@ -272,6 +275,16 @@ export class Supervisor {
       live.finished_at = run.finished_at; live.phase = run.status;
       this.event(agent, 'run.' + run.status, {run_id: run.id, error: run.error});
       if (!this.closing && !agent.control) void this.pump(agent);
+    }
+  }
+  /** This turn's state block from the workspace; empty when its gateway has none (an older workspace answers 404). */
+  async turnState(agent: any, run: any) {
+    try {
+      const state = await this.gateway('turn_state', {agent_id: agent.id, run_id: run.id});
+      return typeof state?.text === 'string' ? state.text : '';
+    } catch (error: any) {
+      if (error?.status === 404) return '';
+      throw error;
     }
   }
   async control(id: string, action: string) {

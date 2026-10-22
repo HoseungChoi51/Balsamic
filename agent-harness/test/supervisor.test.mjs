@@ -38,7 +38,7 @@ test('restart uses the exact saved session and interrupts an uncertain run witho
   fs.appendFileSync(path.join(f.directory,'pi/events.jsonl'),JSON.stringify({seq:50,type:'after_snapshot'})+'\n');
   const restarted=new Supervisor(f.directory,f.factory,f.gateway,'private-auth');
   assert.equal(restarted.view('pi').runs.first.status,'interrupted');
-  await restarted.submit('pi',request('recovery'));await until(()=>f.runtimes.length===2);
+  await restarted.submit('pi',request('recovery'));await until(()=>f.runtimes[1]?.finish);
   assert.equal(f.options[1].sessionFile,saved);
   assert.ok(restarted.view('pi',50).events[0].seq>50);
   f.runtimes[1].finish();await until(()=>restarted.view('pi').runs.recovery.status==='completed');
@@ -224,4 +224,38 @@ test('a turn keeps its separate texts beside the joined text when there are seve
   await s.submit('pi',request('second'));await until(()=>f.runtimes[0].input?.includes('second'));
   say('Only one.');f.runtimes[0].finish();await until(()=>s.view('pi').runs.second.status==='completed');
   assert.deepEqual(s.view('pi').runs.second.result,{text:'Only one.'});
+});
+test('each turn starts with the workspace state block; the manifest is fetched once per runtime', async t=>{
+  const f=fixture(t); let state='[Workspace state] Gate: closed.';
+  const gateway=async (operation,data)=>{f.gatewayCalls.push({operation,data});
+    return operation==='manifest'?{instructions:'frozen',tools:[]}:operation==='turn_state'?{text:state,hash:'h'}:{ok:true};};
+  const s=new Supervisor(f.directory,f.factory,gateway,'private-auth');
+  await s.submit('lead',request('first')); await until(()=>f.runtimes[0]?.finish);
+  assert.equal(f.runtimes[0].input,'[Assignment first]\n[Workspace state] Gate: closed.\n\nwork');
+  f.runtimes[0].finish(); await until(()=>s.view('lead').runs.first.status==='completed');
+  state='[Workspace state] Gate: open.';
+  await s.submit('lead',request('second','more')); await until(()=>f.runtimes[0].input?.includes('second'));
+  assert.equal(f.runtimes[0].input,'[Assignment second]\n[Workspace state] Gate: open.\n\nmore');
+  // The state is not part of the run's identity: the same run submitted again while the state differs is the same request.
+  state='[Workspace state] Gate: closed again.';
+  await s.submit('lead',request('second','more'));
+  assert.deepEqual(f.gatewayCalls.map(call=>call.operation).filter(op=>op!=='tool'),['manifest','turn_state','turn_state']);
+  assert.ok(f.gatewayCalls.filter(call=>call.operation==='turn_state').every(call=>call.data.agent_id==='lead'));
+  assert.equal(f.options[0].instructions,'frozen');
+  f.runtimes[0].finish(); await until(()=>s.view('lead').runs.second.status==='completed');
+});
+test('a workspace without the state route leaves the prompt as it was; any other gateway error fails the run', async t=>{
+  const f=fixture(t); let failure={status:404};
+  const gateway=async operation=>{
+    if(operation==='manifest') return {instructions:'frozen',tools:[]};
+    if(operation==='turn_state') throw Object.assign(new Error(failure.status===404?'Not Found':'Workspace record not readable'),failure);
+    return {ok:true};
+  };
+  const s=new Supervisor(f.directory,f.factory,gateway,'private-auth');
+  await s.submit('lead',request('first')); await until(()=>f.runtimes[0]?.finish);
+  assert.equal(f.runtimes[0].input,'[Assignment first]\nwork');
+  f.runtimes[0].finish(); await until(()=>s.view('lead').runs.first.status==='completed');
+  failure={status:500};
+  await s.submit('lead',request('second')); await until(()=>s.view('lead').runs.second.status==='failed');
+  assert.match(s.view('lead').runs.second.error,/not readable/);
 });

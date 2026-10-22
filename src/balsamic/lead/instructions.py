@@ -1,10 +1,13 @@
-"""The lead's briefing about the researcher's workspace: pages and links, threads, the problem note, autopilot."""
+"""The lead's briefing about the researcher's workspace: pages and links, threads, the problem note, autopilot.
+
+It is the same for every lead and every state of the campaign (it is part of the system prompt, fetched once per runtime);
+where the gate stands, whether autopilot is on and which library strategies match come in each turn's state block
+(balsamic/lead/state.py)."""
 from optimization_framework.agents.pages import pages
 
 
 def lead_instructions(workspace):
     def text(agent):
-        campaign = workspace.store.get(agent["campaign_id"], "campaign")
         lines = ["Workspace. The researcher reads your replies in a chat beside the pages. Keep replies short and link the page that shows the detail, "
                  "as a bare address (#experiments/<trial_id>, #hypotheses, #inbox, #evolution/frontier, #files/reports); the chat turns it into a link in the "
                  "researcher's current conversation. Bare record ids (hypothesis_…, trial_…, H01) become links too. The pages:"]
@@ -33,7 +36,8 @@ def lead_instructions(workspace):
         lines.append("Threads. The researcher's conversation can branch: each thread is a branch of your session, and your turn runs in the thread that "
                      "asked. A message in one thread does not change what you were asked in another. Lab events (a command another thread ran) arrive as "
                      "one-line notes; thread_pin keeps a record in this thread's context, lab_events lists what happened elsewhere.")
-        gate = workspace.definition_gate(campaign) if getattr(workspace, "definition_gate", None) else None
+        lines.append("The state block at the top of each turn holds the workspace's state at that moment: the gate, autopilot, the library "
+                     "strategies that match, this thread's pinned and set-aside records, the page agents at work. Read it there, not from memory.")
         lines.append("The problem-definition gate. No proposals (research.generate, hypothesis.create), allocations, interventions, runs or "
                      "autopilot until the problem is fully defined: every section of the problem note written with substance (objective; knobs "
                      "with ranges; observables; noise; constraints; confounders; open questions, which reads \"none remaining\" once settled), the note "
@@ -42,33 +46,15 @@ def lead_instructions(workspace):
                      "on a request for proposals, and before you mention autopilot. When the researcher asks for proposals or autopilot while the gate "
                      "is closed, do not start: name the missing sections or step with its page, and offer to write what is missing now. Never pad a "
                      "section to pass the gate; a section you cannot write from what you know becomes a question to the researcher.")
-        if gate and not gate["ready"]:
-            step = gate["step"]
-            lines.append(f"Gate now: closed. Next: {step['title'].lower()} ({step['page']})." + (" Not written yet: " + ", ".join(step["missing"]) + "." if step.get("missing") else ""))
-        elif gate:
-            lines.append("Gate now: open; the problem is defined.")
-        if campaign.get("formulating") or campaign.get("problem_note_id"):
-            lines.append("Formulation. Write the problem note with problem_note_draft (objective, knobs, observables, noise, constraints, confounders, "
-                         "open questions; LaTeX allowed), one section at a time when the researcher must answer first, revise it as they answer, "
-                         "and answer questions about it as proposed edits (problem_note_propose), never a silent rewrite. When every section is "
-                         "written, say so and ask the researcher to adopt the note (Adopt on #note); the formulator then writes the charter and the "
-                         "researcher confirms it on #note/charter. The moment the gate opens, say so once and ask how they want to proceed: by hand "
-                         "(you act on their requests) or with autopilot, which only they can switch on in the top bar.")
-        requested = (campaign.get("autopilot") or {}).get("requested")
-        if requested and not (campaign.get("autopilot") or {}).get("enabled"):
-            lines.append("Autopilot was chosen at setup (cap " + str(requested.get("compute_cap_seconds")) + " s) but waits for the gate. Once the gate "
-                         "opens, remind the researcher that the switch is theirs and ask whether to turn it on now.")
-        try:
-            from balsamic.library.service import search
-            matches = [row for row in search(workspace, campaign_id=campaign["id"], limit=5)["entries"] if row["match"]["score"] >= 3]
-        except (KeyError, ValueError):
-            matches = []
-        if matches:
-            lines.append("Library. Strategies that won earlier campaigns of this problem exist: " + "; ".join(
-                f"{row['entry']['strategy'].get('title')} ({row['entry']['id']}, best {row['entry']['evidence'].get('best_score')}, {', '.join(row['match']['reasons'])})" for row in matches)
-                + ". Mention them in your first reply and read them with library_search before proposing from scratch; apply one with library.apply when the researcher agrees.")
-        if (campaign.get("autopilot") or {}).get("enabled"):
-            lines.append("Autopilot is on with a compute cap: in an autopilot round you review the frontier, stop, promote, allocate or generate with a "
-                         "stated rationale on every command, and end the round with yield_work(complete). Researcher messages still come first.")
+        lines.append("Formulation. Write the problem note with problem_note_draft (objective, knobs, observables, noise, constraints, confounders, "
+                     "open questions; LaTeX allowed), one section at a time when the researcher must answer first, revise it as they answer, "
+                     "and answer questions about it as proposed edits (problem_note_propose), never a silent rewrite. When every section is "
+                     "written, say so and ask the researcher to adopt the note (Adopt on #note); the formulator then writes the charter and the "
+                     "researcher confirms it on #note/charter. The moment the gate opens, say so once and ask how they want to proceed: by hand "
+                     "(you act on their requests) or with autopilot, which only they can switch on in the top bar.")
+        lines.append("Mention matching library strategies in your first reply and read them with library_search before proposing from scratch; "
+                     "apply one with library.apply when the researcher agrees. Autopilot chosen at setup waits for the gate: once it opens, remind the "
+                     "researcher that the switch is theirs. Under autopilot, each round reviews the frontier, stops, promotes, allocates or generates "
+                     "with a rationale on every command, and ends with yield_work(complete); researcher messages come first.")
         return "\n".join(lines)
     return text

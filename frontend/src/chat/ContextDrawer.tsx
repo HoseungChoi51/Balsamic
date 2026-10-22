@@ -8,7 +8,8 @@ import { track } from '../telemetry/events';
 
 interface Layer { items?: { id: string; kind: string | null; title: string; bytes?: number; status?: string | null; revision?: unknown; excluded?: boolean }[]; bytes?: number;
   entries_since_fork?: number; summary_entries?: number; compactions?: number; leaf_entry_id?: string | null; measured?: boolean; basis?: string }
-interface Context { thread_id: string; layers: { project: Layer; branch: Layer; live: Layer }; pinned_ids: string[]; excluded_ids: string[]; lab_events_since_last_turn: number }
+interface StateBlock { text: string; bytes: number; run_id: string | null; at: string | null }
+interface Context { thread_id: string; layers: { project: Layer; branch: Layer; live: Layer; state?: StateBlock }; pinned_ids: string[]; excluded_ids: string[]; lab_events_since_last_turn: number }
 
 const kb = (bytes: unknown) => typeof bytes === 'number' ? `${(bytes / 1024).toFixed(1)} KiB` : 'unknown';
 
@@ -49,7 +50,7 @@ export function ContextDrawer({ threadId, campaignId, onClose }: { threadId: str
         <p className="small muted">{layers.branch.measured ? 'Measured by the harness from this branch\'s leaf.' : 'Estimated from the saved messages; the harness has not reported this branch yet.'}</p>
         <Kv rows={[['Entries since fork', String(layers.branch.entries_since_fork ?? 'unknown')], ['Branch summaries', String(layers.branch.summary_entries ?? 'unknown')], ['Compactions', String(layers.branch.compactions ?? 'none reported')], ['Leaf', layers.branch.leaf_entry_id || <span className="faint">no turn yet</span>]]} /></section>
       <section className="card"><h3>Live layer</h3>
-        <p className="small muted">Records this thread keeps in view (pinned) or out of it (excluded); the lead reads their current state each turn.</p>
+        <p className="small muted">Records this thread keeps in view (pinned) or out of it (excluded); they go into the next turn's state block.</p>
         {(layers.live.items || []).length ? (layers.live.items || []).map(item => <div key={item.id} className="row small" data-testid="context-item">
           <Pill tone={item.excluded ? 'bad' : 'clear'}>{item.excluded ? 'excluded' : 'pinned'}</Pill><span className="grow">{item.title} <span className="faint mono">{item.id}</span>{item.status ? <> · {item.status}</> : null}</span>
           {item.excluded ? <button className="btn small" onClick={() => pin(item.id, false)}>Pin</button> : <button className="btn small" onClick={() => pin(item.id, true)}>Exclude</button>}
@@ -57,6 +58,10 @@ export function ContextDrawer({ threadId, campaignId, onClose }: { threadId: str
         <form className="row" style={{ marginTop: 8 }} onSubmit={e => { e.preventDefault(); if (recordId.trim()) { void pin(recordId.trim(), false); setRecordId(''); } }}>
           <input className="grow" placeholder="record id to pin (hypothesis_…, trial_…)" value={recordId} onChange={e => setRecordId(e.target.value)} data-testid="pin-input" /><button className="btn small" type="submit">Pin</button></form>
         {error ? <div className="pill bad">{error}</div> : null}</section>
+      <section className="card"><h3>State block {layers.state?.text ? <span className="faint small">{kb(layers.state.bytes)}</span> : null}</h3>
+        <p className="small muted">Built from the records at the start of each turn and put before the message: the gate, autopilot, library matches, this thread's pins, the agents at work. The last turn here was given:</p>
+        {layers.state?.text ? <pre className="small" data-testid="context-state" style={{ whiteSpace: 'pre-wrap', margin: 0 }}>{layers.state.text}</pre>
+          : <div className="faint small">No turn in this thread has been given one yet.</div>}</section>
       <p className="why">Lab events since the last turn: {context.data.lab_events_since_last_turn}. A forgotten report? Tell us: <button className="btn quiet small" onClick={() => track('context.forgot_report', {})}>it forgot something</button></p>
     </aside>
   );
