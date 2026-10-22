@@ -152,6 +152,12 @@ campaign's model budget: do not spend turns on work nobody asked for.
 """
 
 
+# Extension calls: the arguments and the part of a result a receipt keeps; how long an extension's dialog waits by default (D9).
+EXTERNAL_ARGUMENT_BYTES = 8 * 1024
+EXTERNAL_EXCERPT_BYTES = 24 * 1024
+DIALOG_SECONDS = 15 * 60
+
+
 # A command refused because the researcher acted during the turn (the bus's "Researcher guidance changed ..." message).
 GUIDANCE_RECOVERY = ("The researcher changed the campaign during your turn. Read campaign_inspect, check the change against what you were doing, "
                      "and retry only if it still applies.")
@@ -449,8 +455,11 @@ class PiTools:
             instructions += "\nSubmit your result with submit_output using this JSON schema:\n" + json.dumps(agent["output_schema"])
         if agent["role"] == LEAD:
             instructions += self.workspace_instructions(agent)
+        from .extensions import for_agent, hosts_extensions
         return {"instructions": instructions, "tools": [{"name": name, "description": EXTRA_TOOLS[name]["description"] if name in EXTRA_TOOLS else TOOLS[name][0],
-                                                          "input_schema": self.schema(agent, name)} for name in sorted(self.names(agent))]}
+                                                          "input_schema": self.schema(agent, name)} for name in sorted(self.names(agent))],
+                # The session's extensions: the Balsamic one unless this is an implementation grant's role, then the role's curated set.
+                "extension_host": hosts_extensions(agent), "extensions": for_agent(agent)}
 
     def turn_state(self, agent_id, run_id):
         """This turn's state block (agents/turn_state.py), saved on the run: what the model was told the campaign is now."""
@@ -462,6 +471,77 @@ class PiTools:
             current["turn_state"] = {**state, "at": now()}
             self.store.put("agent_run", current)
         return state
+
+    def external_receipt(self, agent_id, run_id, call_id, tool, extension, arguments, result_excerpt, result_bytes, is_error=False, annotations=None):
+        """The receipt of an extension tool's call, posted by the Balsamic extension after the tool ran in the harness.
+
+        Same identity as a gateway call's (agent, run, call id), so a repeated post is the same receipt; immutable; readable
+        with evidence_read in the campaign. Refused for a tool the role's allowlist does not name, or a run that is not active."""
+        from .extensions import tool_extension
+        if not isinstance(call_id, str) or not 0 < len(call_id) <= 500:
+            raise ValueError("Invalid tool call identity")
+        identity = "pi_tool_" + content_hash([agent_id, run_id, call_id])[:32]
+        arguments = arguments if serialized_bytes(arguments) <= EXTERNAL_ARGUMENT_BYTES else {"omitted": f"{serialized_bytes(arguments)} bytes of arguments"}
+        request_hash = content_hash([tool, arguments])
+        with self.workspace.lock, self.store.transaction():
+            try:
+                old = self.store.get(identity, "agent_tool_receipt")
+            except KeyError:
+                old = None
+            if old:
+                if not old.get("external") or old["request_hash"] != request_hash:
+                    raise ValueError("Tool identity belongs to another request")
+                return {"receipt_id": identity}
+            agent, run = self._context(agent_id, run_id)
+            if tool in self.names(agent):
+                raise ValueError("A workspace tool is receipted by the workspace itself")
+            provider = tool_extension(agent, tool)
+            if provider is None:
+                raise ValueError(f"{tool} is not an extension tool allowlisted for the {agent['role'].replace('_', ' ')}")
+            self.store.put_immutable("agent_tool_receipt", {"id": identity, "campaign_id": agent["campaign_id"], "agent_id": agent_id, "run_id": run_id,
+                "tool": tool, "request_hash": request_hash, "external": True, "extension": provider, "reported_extension": str(extension)[:200],
+                "arguments": arguments, "result": {"external": True, "excerpt": str(result_excerpt or "")[:EXTERNAL_EXCERPT_BYTES],
+                "bytes": int(result_bytes or 0), "is_error": bool(is_error), "annotations": annotations if isinstance(annotations, dict) else None},
+                "created_at": now()}, "agent.tool_completed")
+        return {"receipt_id": identity}
+
+    def ui_request(self, agent_id, run_id, request_id, method, title, message=None, options=None, placeholder=None, prefill=None, timeout_ms=None):
+        """An extension's dialog (select, confirm, input, editor) as a question to the researcher; the extension waits for it.
+
+        Its deadline is the extension's own timeout, else DIALOG_SECONDS. A run under autopilot has nobody to ask: the
+        dialog is cancelled at once. Answered with agent.ui_respond, which opens no request and starts no turn."""
+        agent, run = self._context(agent_id, run_id)
+        if run.get("autopilot"):
+            return {"status": "cancelled", "reason": "Autopilot runs without the researcher; an extension's dialog is cancelled at once."}
+        if method not in {"select", "confirm", "input", "editor"}:
+            raise ValueError("Unknown dialog")
+        identity = "question_ui_" + content_hash([agent_id, run_id, request_id])[:28]
+        seconds = min(max(float(timeout_ms) / 1000, 1.0), DIALOG_SECONDS * 4) if timeout_ms else DIALOG_SECONDS
+        dialog = {"method": method, "title": str(title)[:500], **({"message": str(message)[:4000]} if message else {}),
+                  **({"options": [str(option)[:300] for option in options][:40]} if options else {}),
+                  **({"placeholder": str(placeholder)[:300]} if placeholder else {}), **({"prefill": str(prefill)[:20000]} if prefill else {})}
+        with self.workspace.lock, self.store.transaction():
+            try:
+                question = self.store.get(identity, "agent_question")
+            except KeyError:
+                question = self.store.put("agent_question", {"id": identity, "campaign_id": agent["campaign_id"], "agent_id": agent_id, "run_id": run_id,
+                    "kind": "extension_dialog", "status": "pending", "dialog": dialog, "question": dialog["title"] + (": " + dialog["message"] if dialog.get("message") else ""),
+                    "reason": "An extension of the agent's session asks; the agent waits for the answer.", "deadline_at": time.time() + seconds,
+                    "created_at": now()}, "agent.question_created")
+        return self.ui_state(agent_id, question["id"])
+
+    def ui_state(self, agent_id, question_id):
+        """Where an extension's dialog stands: pending, answered (with its value), cancelled, or expired past its deadline."""
+        with self.workspace.lock, self.store.transaction():
+            question = self.store.get(question_id, "agent_question")
+            if question.get("agent_id") != agent_id or question.get("kind") != "extension_dialog":
+                raise ValueError("Not this agent's extension dialog")
+            if question["status"] == "pending" and time.time() >= question["deadline_at"]:
+                question.update(status="expired", expired_at=now())
+                self.store.put("agent_question", question, "agent.question_expired")
+        status = {"pending": "pending", "answered": "answered", "expired": "expired"}.get(question["status"], "cancelled")
+        return {"question_id": question_id, "status": status, "deadline_at": question["deadline_at"],
+                **({"value": question.get("answer_value")} if status == "answered" else {})}
 
     def workspace_instructions(self, agent):
         """What the lead needs to know about the researcher's workspace: set by the service layer (threads, the problem note)."""
@@ -606,7 +686,7 @@ class PiTools:
             return question.get("agent_id") == agent["id"] or agent["role"] == LEAD and not (owner and owner["role"] in PAGE_AGENTS)
         if any(g["status"] in {"reserved", "queued", "submitted", "running", "building", "validating", "reviewing", "repairing", "stopping"} and started_here(g["id"])
                for g in self.store.list("implementation_grant", cid)) \
-                or any(q["status"] == "pending" and asked_here(q) for q in self.store.list("agent_question", cid)) \
+                or any(q["status"] == "pending" and q.get("kind") != "extension_dialog" and asked_here(q) for q in self.store.list("agent_question", cid)) \
                 or any(j["status"] in {"queued", "running"} and started_here(j["id"]) for j in self.store.list("fixed_mask_job", cid)):
             return "Unresolved questions or numerical/implementation jobs remain"
         if agent["role"] == LEAD and any(j["status"] in {"running", "awaiting_focus"} and j.get("requested_by") == LEAD

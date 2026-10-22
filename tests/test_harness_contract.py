@@ -80,6 +80,14 @@ def test_the_manifest_is_static_per_role(tmp_path, monkeypatch):
             other = tools.manifest(drafting[role][0]["id"], drafting[role][1]["id"])
             assert one["instructions"] == other["instructions"], f"{role}'s instructions depend on the campaign's state"
             assert one["tools"] == other["tools"], f"{role}'s tools depend on the campaign's state"
+            assert (one["extension_host"], one["extensions"]) == (other["extension_host"], other["extensions"]), f"{role}'s extensions depend on the campaign"
+            assert one["extension_host"] is True
+        # An implementation grant's roles take no extensions at all.
+        lead = defined["lead"][0]
+        builder = workspace.pi.create_agent("defined", "implementation_builder", "Build", "builder_contract", parent_id=lead["id"], grant_id="grant_contract")
+        built = submitted(workspace, workspace.pi.enqueue(builder, "builder_contract_run", "Build it")["id"])
+        grant = tools.manifest(builder["id"], built["id"])
+        assert grant["extension_host"] is False and grant["extensions"] == []
 
 
 def words(text):

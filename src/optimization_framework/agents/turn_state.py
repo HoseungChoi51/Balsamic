@@ -39,7 +39,8 @@ def common(tools, agent, run):
         # As in yield_work's outstanding check: the lead answers for every question but the page agents' own.
         owner = sessions.get(question.get("agent_id"))
         return question.get("agent_id") == agent["id"] or agent["role"] == LEAD and not (owner and owner["role"] in PAGE_AGENTS)
-    pending = [q for q in store.list("agent_question", agent["campaign_id"]) if q["status"] == "pending" and asked_here(q)]
+    # An extension's dialog is answered inside the tool call that asked it, not in a turn.
+    pending = [q for q in store.list("agent_question", agent["campaign_id"]) if q["status"] == "pending" and q.get("kind") != "extension_dialog" and asked_here(q)]
     if pending:
         lines.append(f"Open questions to the researcher ({len(pending)}):")
         lines += [f"- {q['id']}: {one_line(q.get('question'))}" for q in pending[:QUESTIONS]]

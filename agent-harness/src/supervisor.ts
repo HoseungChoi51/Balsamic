@@ -2,8 +2,14 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { createHash } from 'node:crypto';
 import * as sessions from './sessions.js';
+import { brief } from './brief.js';
+import { gatewayExtension } from './gateway-extension.js';
+import { createUIContext } from './ui-bridge.js';
+export { brief };
 
 const terminal = new Set(['completed', 'failed', 'paused', 'stopped', 'interrupted']);
+// An implementation grant's protected roles: their runtime takes no extensions (harness plan §2.8).
+const GRANT_ROLES = new Set(['implementation_builder', 'implementation_test_designer', 'implementation_validator']);
 const safeID = (id: string) => { if (!/^[a-zA-Z0-9_-]{1,200}$/.test(id)) throw new Error('Invalid identity'); return id; };
 function atomic(file: string, value: any) {
   const temp = file + '.tmp'; fs.writeFileSync(temp, JSON.stringify(value), {mode: 0o600}); fs.renameSync(temp, file);
@@ -13,19 +19,6 @@ function digest(value: any) { return createHash('sha256').update(JSON.stringify(
 // writing and the end of its reasoning. Held in memory only; reasoning never reaches the event journal.
 const LIVE_TEXT = 4000, LIVE_STEPS = 40;
 const tail = (text: string) => text.length > LIVE_TEXT ? text.slice(-LIVE_TEXT) : text;
-const cut = (value: any, limit: number) => typeof value === 'string' && value.length > limit ? value.slice(0, limit) + '…' : value;
-const plain = (value: any) => value === null || ['string', 'number', 'boolean'].includes(typeof value);
-/** A tool call's arguments, short enough to show: long texts are cut and deep values left out. */
-export function brief(args: any) {
-  if (!args || typeof args !== 'object' || Array.isArray(args)) return {};
-  const result: Record<string, any> = {};
-  for (const [key, value] of Object.entries(args).slice(0, 12)) {
-    if (plain(value)) result[key] = cut(value, 200);
-    else if (Array.isArray(value)) result[key] = value.filter(plain).slice(0, 6).map(item => cut(item, 80));
-    else if (value && typeof value === 'object') result[key] = Object.fromEntries(Object.entries(value).filter(([, item]) => plain(item)).slice(0, 8).map(([name, item]) => [name, cut(item, 120)]));
-  }
-  return result;
-}
 export class Supervisor {
   agents = new Map<string, any>();
   closing = false;
@@ -111,6 +104,12 @@ export class Supervisor {
   }
   liveView(ids: string[]) {
     return Object.fromEntries(ids.map(safeID).filter(id => this.live.has(id)).map(id => [id, this.live.get(id)]));
+  }
+  /** An extension's notice or status line: shown as the agent's activity, kept in its journal. */
+  activity(agent: any, text: string, data: any = {}) {
+    const entry = this.live.get(agent.id);
+    if (entry && !entry.finished_at) { entry.activity = String(text).slice(0, 500); entry.updated_at = new Date().toISOString(); }
+    this.event(agent, 'extension.' + (data.kind || 'notify'), {...data, text: String(text).slice(0, 2000)});
   }
   /** One model call outside any agent's session, such as a stage of the report writer. Its reasoning shows in the live view under the caller's id. */
   async complete(id: string, input: any, signal?: AbortSignal) {
@@ -202,17 +201,30 @@ export class Supervisor {
       if (run.deadline_at && run.deadline_at * 1000 <= Date.now()) throw new Error('Implementation allocation expired before dispatch; saved work is retained.');
       if (!agent.runtime) {
         const manifest = await this.gateway('manifest', {agent_id: agent.id, run_id: run.id});
+        const active = () => Object.values(agent.runs).find((r: any) => r.status === 'running') as any;
         const tools = manifest.tools.map((tool: any) => ({...tool, label: tool.name, parameters: tool.input_schema,
           execute: async (callId: string, args: any, signal: AbortSignal) => {
-            const active: any = Object.values(agent.runs).find((r: any) => r.status === 'running');
-            if (!active) throw new Error('No active assignment');
-            const result = await this.gateway('tool', {agent_id: agent.id, run_id: active.id, call_id: callId, name: tool.name, arguments: args}, signal);
+            const owner = active();
+            if (!owner) throw new Error('No active assignment');
+            const result = await this.gateway('tool', {agent_id: agent.id, run_id: owner.id, call_id: callId, name: tool.name, arguments: args}, signal);
             // A saved yield_work ends the turn: without this a model may keep writing closing lines and yielding again.
             const ends = tool.name === 'yield_work' && result?.saved === true;
+            if (ends) owner.yielded = true;
             return {content: [{type: 'text', text: JSON.stringify(result)}], details: {}, ...(ends ? {terminate: true} : {})};
           }}));
+        // The extension set is part of the manifest, so it is fixed for the runtime's life. An older workspace's manifest
+        // says nothing of it: then every role but an implementation grant's hosts the Balsamic extension.
+        const extensionHost = typeof manifest.extension_host === 'boolean' ? manifest.extension_host : !GRANT_ROLES.has(agent.spec.role);
+        const extensions = extensionHost && Array.isArray(manifest.extensions) ? manifest.extensions : [];
+        const host = {agentId: agent.id, role: agent.spec.role, gatewayTools: new Set<string>(manifest.tools.map((tool: any) => tool.name)),
+          allowedTools: new Map<string, string>(extensions.flatMap((e: any) => (e.tools || []).map((name: string) => [name, e.name] as [string, string]))),
+          activeRun: active, yielded: (id: string) => Boolean(agent.runs[id]?.yielded), gateway: this.gateway,
+          event: (type: string, data: any) => { this.event(agent, type, data); }};
         agent.runtime = await this.factory({directory: path.join(this.directory, agent.id), sessionFile: agent.sessionFile,
-          authPath: this.authPath, ...agent.spec, instructions: manifest.instructions, tools});
+          authPath: this.authPath, ...agent.spec, instructions: manifest.instructions, tools, extensionHost, extensions,
+          ...(extensionHost ? {balsamicExtension: gatewayExtension(host),
+            uiContext: createUIContext({agentId: agent.id, activeRun: active, gateway: this.gateway, activity: (text, data) => this.activity(agent, text, data)})} : {}),
+          onExtensionError: (error: any) => { this.event(agent, 'extension.error', {extension: error.extensionPath, event: error.event, error: String(error.error).slice(0, 1500)}); }});
         agent.sessionFile = agent.runtime.sessionFile; agent.sessionId = agent.runtime.sessionId; this.save(agent);
         agent.runtime.subscribe((event: any) => {
           this.observe(this.live.get(agent.id), event);
@@ -308,7 +320,7 @@ export class Supervisor {
       for (let waited = 0; agent.busy && waited < 10000; waited += 50) await new Promise(resolve => setTimeout(resolve, 50));
       agent.removed = true; this.agents.delete(id); this.changed.delete(id);
       this.live.delete(id);
-      agent.runtime?.dispose?.(); agent.runtime = null;
+      await this.release(agent);
     }
     const existed = fs.existsSync(directory);
     fs.rmSync(directory, {recursive: true, force: true});
@@ -321,7 +333,14 @@ export class Supervisor {
       agent.control = 'interrupted'; this.save(agent);
       await agent.runtime?.abort();
       for (const run of Object.values(agent.runs) as any[]) if (!terminal.has(run.status)) run.status = 'interrupted';
-      agent.control = null; this.save(agent); agent.runtime?.dispose?.();
+      agent.control = null; this.save(agent); await this.release(agent);
     }
+  }
+  /** End a runtime: its extensions' session_shutdown handlers run, then the session is disposed. */
+  async release(agent: any) {
+    const runtime = agent.runtime; agent.runtime = null;
+    if (!runtime) return;
+    try { if (runtime.shutdown) await runtime.shutdown(); else runtime.dispose?.(); }
+    catch (error: any) { this.event(agent, 'extension.error', {event: 'session_shutdown', error: String(error?.message || error).slice(0, 1500)}); }
   }
 }

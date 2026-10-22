@@ -284,6 +284,63 @@ researcher's own command (`campaign.update`, `validation.waive` or `workers.set`
 changes nothing. A changed worker ceiling holds until the services restart, when the launcher
 configuration's `workers` applies again. The per-experiment limit may be set up to 86,400 s.
 
+## Extensions
+
+Pi extensions run inside the harness process with its permissions, and can see prompts, tool calls, credentials and
+session history. In Balsamic they may change how an agent thinks; anything that acts goes through the gateway or reports
+to it (harness plan, §2.5).
+
+**Binding.** After `createAgentSession` the harness calls `session.bindExtensions` (mode `rpc`), as Pi's own RPC and
+interactive modes do: `session_start` fires (extensions start connections and rebuild their state there), the UI context
+below is attached, and extension errors are written to the agent's journal as `extension.error` (extension, event, error).
+Ending a runtime (`forget`, shutdown) emits `session_shutdown` before the session is disposed (`runtime.ts` `shutdown`).
+
+**The curated set.** The manifest names each role's extensions (`extensions: [{name, path, tools}]`) from the versioned
+allowlist `agent-harness/extensions/allowlist.json` (`GRATING_PI_EXTENSIONS` names another, as the evals do;
+`agents/extensions.py`). Being part of the manifest, the set is fixed for a runtime's life. Locked mode discovers nothing:
+an empty agent directory of the session's own, no `~/.pi`, no working-directory resources, no skills, prompts or context
+files; only the allowlisted paths load. Dev mode keeps loading the profile's extensions for experiments. In both modes the
+Balsamic extension loads first, and an implementation grant's roles (builder, test designer, validator) load nothing
+(`extension_host: false`). The allowlist is empty for now (D8): every session loads the Balsamic extension only.
+
+**The Balsamic extension** (`agent-harness/src/gateway-extension.ts`, one per session):
+
+| Hook | What it does |
+|---|---|
+| `tool_call` | The gateway's tools pass; another tool runs only if the role's allowlist names it, else it is blocked with a reason naming the role |
+| `tool_result` | Every other tool's result is receipted (`POST /api/internal/pi/external_receipt`): an immutable `agent_tool_receipt` with `external: true`, the same identity as a gateway call's (agent, run, call id), bounded arguments, the first 24 kB of the result, its size and the tool's annotations, readable with `evidence_read` in the campaign. A result over 256 kB is cut for the model. A result the workspace cannot receipt is withheld |
+| `agent_before_settle` | A run about to end without a saved `yield_work` gets one continuation in the same turn, with a reminder; the controller's `pi_continue_*` notice stays the fallback when that ends without one too |
+| `turn_end` | The session's context usage (tokens, window) goes to the journal as `context.usage` |
+
+A web page an agent wants to cite is still captured with `source_ingest`, so findings cite `source` records; an extension's
+result is evidence only through its receipt.
+
+**Dialogs.** `select`, `confirm`, `input` and `editor` become a question to the researcher (`POST
+/api/internal/pi/ui_request`, an `agent_question` with `kind: "extension_dialog"`), shown above the chat for the lead and on
+the agent's desk for a page agent (`frontend/src/chat/ExtensionDialog.tsx`). The answer (`agent.ui_respond {question_id,
+value | cancelled}`) goes back to the waiting extension, which polls `/api/internal/pi/ui_request/{id}`; it opens no
+request, queues no turn and changes no guidance. Dismissing the question cancels the dialog. Deadlines (D9): the
+extension's own timeout, otherwise 15 minutes; in an autopilot round a dialog is cancelled at once. A cancelled or
+expired dialog resolves as in RPC mode (undefined, or false for `confirm`). `notify` and `setStatus` become the agent's
+activity line and journal events; widgets, titles, themes and terminal components do nothing. Extension dialogs hold no
+request open (`yield_work`'s outstanding check) and are not listed in the state block.
+
+**Codemode, tool search and MCP** are not loaded. When they are (harness plan, Phase 8), they go into
+`extensionFactories` (`createCodemodeExtension()`, `createToolSearchExtension()`, `createMcpExtension()`), and the binding
+above is what lets MCP connect.
+
+**Trying a third-party extension** (the way onto the allowlist):
+
+1. Try it in the dev profile with `scripts/pi-dev`, then in a scratch campaign on `scripts/dev-stack up --real`.
+2. Read its code and list what it touches: files, network, processes, the prompt, messages.
+3. If it acts, its tools must be allowlisted per role and receipted by the Balsamic extension. If it spawns processes or
+   agents, do not promote it.
+4. Add or extend an eval scenario, run the suite and compare with the baseline, `cacheRead` included: `context`
+   transforms and prompt changes can cost the cache on every request.
+5. Pin its exact version in `agent-harness/package.json` (installed with `npm ci --ignore-scripts`), add a folder under
+   `agent-harness/extensions/session/` whose `index.ts` loads it, and list it in the allowlist for the roles that need it.
+   A changed list applies to sessions made afterwards and resets running sessions' prompt cache once.
+
 ## Numerical diagnostics
 
 `mask_create` makes deterministic full-size masks without putting all cells into

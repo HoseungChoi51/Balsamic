@@ -81,7 +81,8 @@ Later runs compare with it: `--compare evals/lead/baselines/a7e89b8.json`. Recor
 ```
 
 - `setup.preset`: `quadratic` (a task installed, so the problem-definition gate is open) or `formulating` (no task, gate closed).
-  `setup.seeds` run before the team starts. Optional `scoring`: `all` (default: pass^k, every repeat passes) or `any`.
+  `setup.seeds` run before the team starts. `setup.extensions` names an extension allowlist (relative to the checkout) for
+  the scenario's sessions instead of `agent-harness/extensions/allowlist.json` (S9 uses `evals/lead/extensions/allowlist.json`). Optional `scoring`: `all` (default: pass^k, every repeat passes) or `any`.
   Optional `known_failure`: why the scenario is expected to fail on the current code; remove it with the fix.
 - Steps: `say` (a researcher message in the main thread; `{key}` takes a value a seed returned), `wait`
   (`request_closed`: the lead closed the request and no agent run is active; `idle`; `trials_settled`; `seconds`, with
@@ -90,8 +91,9 @@ Later runs compare with it: `--compare evals/lead/baselines/a7e89b8.json`. Recor
   (agents' accepted commands), `max_lead_turns`, `max_continue_turns` (`pi_continue_*` runs), `no_model_calls`,
   `cost_usd_max`, `no_refusal_containing` (any refused tool call of the campaign's agents), `max_tool_result_bytes`,
   `reply_contains_any`, `reply_contains_none`, `reply_links_page`, `reply_matches` (a regular expression; the lead's last
-  reply), `last_state_contains` (the state block the lead's last turn was given), `no_researcher_question`, `request_closed`,
-  `no_failed_runs`, `records_at_least`, `records_at_most`.
+  reply), `last_state_contains` (the state block the lead's last turn was given), `external_receipts_at_least` and
+  `no_external_receipts` (receipts of extension tools), `no_researcher_question`, `request_closed`, `no_failed_runs`,
+  `records_at_least`, `records_at_most`.
 
 | ID | Scenario | Source | Expected |
 |---|---|---|---|
@@ -103,6 +105,8 @@ Later runs compare with it: `--compare evals/lead/baselines/a7e89b8.json`. Recor
 | S6 | Strategies asked for while the gate is closed | Gate rules | No proposal; the reply names the missing sections and links `#note` |
 | S7 | The gate opens between two requests, same session | F1 | Proposals recorded; the reply does not say the gate is closed |
 | S8 | Two short runs finished, then "How are the experiments going?" | F5 | Numbers in the reply; lead and operator turns recorded |
+| S9 | An allowlisted extension tool and one off the list (`evals/lead/extensions/`) | Phase 4 | The first receipted, the second blocked, the code word in the reply |
+| S10 | A question that invites an answer in prose | F10 | No `pi_continue` turn, one lead turn: the Balsamic extension continues the turn |
 
 ## Turning a new failure into a scenario
 

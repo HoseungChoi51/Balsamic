@@ -40,6 +40,7 @@ to replace that outside session.
 | Lead-agent evals that can be run again (scripted and live), a prompt-size ratchet | Implemented, tested with the scripted harness; no live baseline yet; see Part L |
 | The campaign's state in every turn (state block); instructions fixed per role; pins reach the model | Implemented, tested; not checked live; see Part M |
 | The guidance revision pinned on the server, never taken from the model | Implemented, tested; not checked live; see Part N |
+| Pi extensions bound and curated per role; extension tools receipted; dialogs answered by the researcher; a turn without yield_work continued in the turn | Implemented, tested; not checked live; see Part O |
 
 "Live" means the running services on X670 use the code (last restarted on 14 October 2026).
 "Not live" means the code is in the working tree and tested, and the services still run the old
@@ -831,6 +832,52 @@ stated the revision it had read in an earlier turn was refused (F3).
 
 - Live S4 with k=3: needs real model calls.
 - Removing `guidance_revision` from the schema: next release.
+
+## Part O — Pi extensions inside Balsamic (22 October 2026; harness plan, Phase 4)
+
+### What was wrong
+
+- Pi extensions could not be used safely (F9): locked mode loaded none; dev mode gave every role, implementation grants
+  included, the profile's extensions; the harness never called `bindExtensions`, so `session_start` never fired (nothing an
+  extension starts there, such as an MCP connection, ever started), `ctx.ui` had nothing behind it and extension errors
+  went unreported; and an extension's tool would have run without a receipt, an authority check or a size limit.
+- A turn that ended without `yield_work` cost a whole extra controller turn (`pi_continue_*`) (F10).
+
+### What changed
+
+| Change | Where |
+|---|---|
+| The harness binds extensions after creating a session (mode `rpc`); extension errors go to the journal as `extension.error`; ending a runtime emits `session_shutdown` | `agent-harness/src/runtime.ts`, `supervisor.ts` |
+| A UI bridge like RPC mode's: dialogs become questions to the researcher, answered with `agent.ui_respond` without a turn; 15-minute default, the extension's timeout if it gives one, cancelled at once under autopilot; notices become the activity line | `agent-harness/src/ui-bridge.ts`; `PiTools.ui_request`, `ui_state`; `controller.ui_respond`; `frontend/src/chat/ExtensionDialog.tsx` (chat, inbox, desks) |
+| A curated set per role in both modes, from a versioned allowlist in the manifest; locked mode discovers nothing; grant roles load nothing; empty for now (D8) | `agent-harness/extensions/allowlist.json`, `agents/extensions.py`, `PiTools.manifest` |
+| The Balsamic extension, loaded first: blocks tools off the allowlist, receipts the others (`external_receipt`, same identity scheme as gateway calls, immutable, readable in the campaign), cuts results over 256 kB, continues a run once in the same turn when it would end without `yield_work`, journals context usage | `agent-harness/src/gateway-extension.ts`; `PiTools.external_receipt` |
+| The scripted harness plays the extension's rules: allowlisted calls receipted, others blocked, dialogs through the workspace, the one continuation | `tests/fake_harness.py` |
+| S9 (an allowlisted extension tool receipted, another blocked) and S10 (an answer in prose, without `yield_work`) | `evals/lead/scenarios/`, `evals/lead/extensions/` |
+
+### Checked
+
+- Harness (`agent-harness/test/extensions.test.mjs`, real Pi sessions with test extensions): `session_start` runs once per
+  runtime, the Balsamic extension's first; nothing in `~/.pi` or the working directory loads in locked mode; a grant's
+  runtime loads nothing; `session_shutdown` runs on release; an extension error is reported. The extension blocks a tool off
+  the list with a reason, receipts an allowlisted one with the active run, cuts a large result, withholds a result it
+  cannot receipt, continues at most once and never after a saved `yield_work`. The UI bridge: an answer resolves a dialog,
+  a timeout gives the default, a cancellation resolves as RPC mode does. 30 harness tests pass.
+- Python (`tests/test_extensions.py`): the manifest names the role's extensions and a grant has none; an allowlist path
+  outside its folder is refused; receipts are idempotent, immutable, refused for a tool off the list, for a gateway tool,
+  for another agent's run and for a finished run, and readable only in their campaign; a dialog is answered without a
+  run or a request and without a guidance change, dismissed or expired, refused when answered by message, cancelled at
+  once in an autopilot round; the controller's `pi_continue_*` fallback still counts stalls and asks the researcher after
+  three. The manifest's extension set is the same for a role across campaigns (`tests/test_harness_contract.py`). End to
+  end over the scripted harness: a receipted call, a blocked call and a dialog answered from the chat in one turn, which
+  the in-turn continuation closes without a notice turn.
+- `--fake`: S9 and S10 pass.
+
+### Not done
+
+- No live run: the suite against the baseline, `pi_continue_*` counts dropping to about zero, and the cost of the extra
+  continuation need real model calls. Until then F10 is fixed only as far as the scripted harness shows.
+- No third-party extension is promoted; the allowlist is empty (D8). Codemode, tool search and MCP are Phase 8's.
+- The dialog UI is type-checked; the browser tests were not extended for it.
 
 ## Not planned
 

@@ -100,6 +100,22 @@ class QuestionDismiss(Contract):
     question_id: str = Field(min_length=1, max_length=200)
 
 
+class UiRespond(Contract):
+    """The researcher's answer to an extension's dialog: a choice, yes or no, a text; or cancelled. It goes back to the waiting
+    extension, not into a turn."""
+    question_id: str = Field(min_length=1, max_length=200)
+    value: str | bool | None = None
+    cancelled: bool = False
+
+    @model_validator(mode="after")
+    def answer_or_cancel(self):
+        if self.cancelled == (self.value is not None):
+            raise ValueError("Give a value or cancel the dialog, not both")
+        if isinstance(self.value, str) and len(self.value) > 20000:
+            raise ValueError("An answer is at most 20,000 characters")
+        return self
+
+
 class Control(Contract):
     agent_id: str | None = None
     action: Literal["pause", "resume", "stop"]

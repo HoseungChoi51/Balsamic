@@ -106,9 +106,17 @@ class Turn:
         self.memory = agent.setdefault("memory", {})
         self._tools, self.store = tools, store
         self.notice = "[Platform notice." in self.text
+        self.continuation = bool(run.get("continuation"))   # the Balsamic extension's one continuation of a turn without yield_work
 
     def call(self, name, **arguments):
         return self._tools(name, arguments)
+
+    def external(self, tool, arguments, text):
+        """An extension tool: blocked unless allowlisted for the role, receipted by the workspace otherwise."""
+        return self._tools.external(tool, arguments, text)
+
+    def dialog(self, method, title, **fields):
+        return self._tools.dialog(method, title, **fields)
 
     def finish(self, report, summary="replied", disposition="complete"):
         """yield_work, then the reply; a refused yield_work leaves the turn without a checkpoint, as a model's would."""
@@ -227,6 +235,10 @@ class Stack:
                 os.environ.pop(key, None)
             else:
                 os.environ[key] = value
+
+    def extensions(self, allowlist):
+        """The extension allowlist the next sessions' manifests name (setup.extensions), or the default one."""
+        self._env(GRATING_PI_EXTENSIONS=str((self.source / allowlist).resolve()) if allowlist else None)
 
     def command(self, campaign_id, operation, payload, *, origin=None, expect_ok=True):
         campaign = self.workspace.store.get(campaign_id, "campaign") if operation != "campaign.create" else {"version": 0}
@@ -476,6 +488,20 @@ def check_last_state_contains(ctx, arg):
     return arg in text, "found" if arg in text else ("no state block saved" if not runs else f"not in the last state block ({len(text)} characters)")
 
 
+def _external(ctx):
+    return [r for r in ctx.receipts() if r.get("external")]
+
+
+def check_external_receipts_at_least(ctx, arg):
+    count = sum(r["tool"] == arg["tool"] for r in _external(ctx))
+    return count >= arg["count"], f"{count} receipts of {arg['tool']}"
+
+
+def check_no_external_receipts(ctx, arg):
+    found = [r["tool"] for r in _external(ctx) if r["tool"] in arg]
+    return not found, ", ".join(found) or "none"
+
+
 def check_records_at_least(ctx, arg):
     count = len(ctx.store.list(arg["kind"], ctx.campaign_id))
     return count >= arg["count"], f"{count} {arg['kind']}"
@@ -550,6 +576,7 @@ def run_scenario(stack, scenario, repeat, *, model, scale, fakes):
     try:
         for name in setup.get("seeds", []):
             ctx.timeline.append(step_seed(ctx, name))
+        stack.extensions(setup.get("extensions"))
         stack.command(campaign_id, "agent.activate", {**({"model": model} if model else {})})
         for step in scenario["steps"]:
             ctx.timeline.append(run_step(ctx, step))

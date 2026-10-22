@@ -3,7 +3,8 @@
 import { useEffect, useRef, useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { useRead, useSummary } from '../api/queries';
-import type { Message } from '../api/types';
+import type { Message, Question } from '../api/types';
+import { ExtensionDialog } from '../chat/ExtensionDialog';
 import { send } from '../commands/bus';
 import { Composer } from '../chat/Composer';
 import { Markdown } from '../chat/render/Markdown';
@@ -24,7 +25,7 @@ export function deskRole(route: Pick<Route, 'page' | 'sub'>): string | null {
   return byPage ? byPage[0] : null;
 }
 
-interface Desk { role: string; page: string; agent: { id: string; status: string; activity?: string; model?: string } | null; messages: Message[]; truncated: boolean }
+interface Desk { role: string; page: string; agent: { id: string; status: string; activity?: string; model?: string } | null; messages: Message[]; truncated: boolean; dialogs?: Question[] }
 
 export function DeskPanel({ campaignId, role, mode }: { campaignId: string; role: string; mode: 'docked' | 'column' }) {
   const queryClient = useQueryClient();
@@ -62,6 +63,8 @@ export function DeskPanel({ campaignId, role, mode }: { campaignId: string; role
             <Markdown text={m.content} thread={null} />
           </article>) : <p className="small muted">{agent?.activity || `The ${name.toLowerCase()} takes requests from you here and from the lead, and acts on nothing else.`}</p>}
         </div>
+        {(desk.data?.dialogs || []).map(q => <ExtensionDialog key={q.id} question={q} campaignId={campaignId} version={summary.data?.campaign?.version} who={`The ${name.toLowerCase()}`}
+          onDone={() => queryClient.invalidateQueries({ queryKey: ['desk', campaignId, role] })} />)}
         <Composer onSend={ask} placeholder={`Ask the ${name.toLowerCase()}…`} testId="desk-composer" />
       </> : null}
     </section>

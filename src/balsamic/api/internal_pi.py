@@ -1,4 +1,5 @@
-"""Authenticated callbacks of the Pi harness: tool manifests, each turn's state block, tool calls, run notices, implementation assignments."""
+"""Authenticated callbacks of the Pi harness: tool manifests, each turn's state block, tool calls, extension receipts and dialogs,
+run notices, implementation assignments."""
 import hmac
 import json
 import time
@@ -21,6 +22,28 @@ class ToolCall(Context):
     call_id: str
     name: str
     arguments: dict = Field(default_factory=dict)
+
+
+class ExternalReceipt(Context):
+    call_id: str
+    tool: str = Field(max_length=200)
+    extension: str = Field(default="", max_length=200)
+    arguments: dict = Field(default_factory=dict)
+    result_excerpt: str = ""
+    result_bytes: int = Field(default=0, ge=0)
+    is_error: bool = False
+    annotations: dict | None = None
+
+
+class UiRequest(Context):
+    request_id: str = Field(min_length=1, max_length=200)
+    method: str
+    title: str = ""
+    message: str | None = None
+    options: list[str] | None = None
+    placeholder: str | None = None
+    prefill: str | None = None
+    timeout_ms: float | None = Field(default=None, ge=0)
 
 
 class Notice(BaseModel):
@@ -80,6 +103,20 @@ def install(app, workspace):
         if is_import_agent(body.agent_id):
             return {"text": ""}
         return gateway.turn_state(body.agent_id, body.run_id)
+
+    @app.post("/api/internal/pi/external_receipt", dependencies=[Depends(authenticate)])
+    def external_receipt(body: ExternalReceipt):
+        # What an extension tool did, receipted like a gateway call (agent-harness/src/gateway-extension.ts).
+        return gateway.external_receipt(**body.model_dump())
+
+    @app.post("/api/internal/pi/ui_request", dependencies=[Depends(authenticate)])
+    def ui_request(body: UiRequest):
+        # An extension's dialog becomes a question to the researcher; the harness polls the route below for the answer.
+        return gateway.ui_request(**body.model_dump())
+
+    @app.api_route("/api/internal/pi/ui_request/{question_id}", methods=["GET", "POST"], dependencies=[Depends(authenticate)])
+    def ui_state(question_id: str, agent_id: str | None = None, body: Context | None = None):
+        return gateway.ui_state(body.agent_id if body else agent_id, question_id)
 
     @app.post("/api/internal/pi/notify", dependencies=[Depends(authenticate)])
     def notify(body: Notice):

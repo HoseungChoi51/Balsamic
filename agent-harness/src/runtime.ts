@@ -2,16 +2,18 @@ import { createAgentSession, createExtensionRuntime, DefaultResourceLoader, Mode
 import fs from 'node:fs';
 import path from 'node:path';
 
-// Locked mode (no profile): neither host extensions nor repository instructions are
-// discovered, and all tools are scoped by the application gateway, not a prompt.
-// Dev mode (GRATING_PI_PROFILE names an agent directory): that profile's settings,
-// packages, extensions and skills load, so Pi configurations can be tried without
-// changing Balsamic. Pi's built-in file/shell tools stay off in both modes.
+// Locked mode (no profile): nothing is discovered (no host extensions, skills or repository instructions); only the
+// curated extensions the manifest names for the agent's role load, after the Balsamic extension, and every tool that
+// acts is the application gateway's or receipted by it (gateway-extension.ts).
+// Dev mode (GRATING_PI_PROFILE names an agent directory): that profile's settings, packages, extensions and skills
+// load too, so Pi configurations can be tried without changing Balsamic; the Balsamic extension still loads first.
+// An implementation grant's roles get no extensions in either mode. Pi's built-in file/shell tools stay off.
 // Sessions recorded before the provider was stored all used the OpenAI Codex subscription.
 export const LEGACY_PROVIDER = 'openai-codex';
 // Locked mode offers exactly one provider, and only when the server names it: no default provider.
 export const LOCKED_PROVIDER = process.env.GRATING_PI_PROVIDER || null;
 export const profile = process.env.GRATING_PI_PROFILE ? path.resolve(process.env.GRATING_PI_PROFILE) : null;
+export const BALSAMIC = 'balsamic';
 const OVERRIDES = {compaction: {enabled: true, reserveTokens: 16384, keepRecentTokens: 20000},
   retry: {enabled: true, maxRetries: 3, baseDelayMs: 2000}};
 
@@ -42,15 +44,27 @@ export async function createRuntime(options: any) {
   fs.mkdirSync(sessionDir, {recursive: true, mode: 0o700});
   const manager = options.sessionFile ? SessionManager.open(options.sessionFile)
     : SessionManager.create(options.directory, sessionDir);
-  let resourceLoader: any, settingsManager: any;
-  if (profile) {
-    settingsManager = SettingsManager.create(options.directory, profile);
-    settingsManager.applyOverrides(OVERRIDES);
-    resourceLoader = new DefaultResourceLoader({cwd: options.directory, agentDir: profile, settingsManager,
-      systemPrompt: options.instructions, noContextFiles: true});
+  const host = options.extensionHost === true;
+  const curated = host ? (options.extensions || []) : [];
+  const factories = host && options.balsamicExtension ? [{name: BALSAMIC, factory: options.balsamicExtension}] : [];
+  // Pi loads inline extensions after the files; the Balsamic extension's handlers must run first.
+  const balsamicFirst = (result: any) => ({...result, extensions: [...result.extensions.filter((e: any) => e.path === `<inline:${BALSAMIC}>`),
+    ...result.extensions.filter((e: any) => e.path !== `<inline:${BALSAMIC}>`)]});
+  const settingsManager: any = profile ? SettingsManager.create(options.directory, profile) : SettingsManager.inMemory(OVERRIDES);
+  if (profile) settingsManager.applyOverrides(OVERRIDES);
+  let resourceLoader: any;
+  if (host) {
+    const common = {cwd: options.directory, settingsManager, systemPrompt: options.instructions, noContextFiles: true,
+      additionalExtensionPaths: curated.map((e: any) => e.path), extensionFactories: factories, extensionsOverride: balsamicFirst};
+    if (profile) resourceLoader = new DefaultResourceLoader({...common, agentDir: profile});
+    else {
+      // An empty agent directory of the session's own: nothing of ~/.pi or of the working directory is read.
+      const agentDir = path.join(options.directory, 'pi-agent');
+      fs.mkdirSync(agentDir, {recursive: true, mode: 0o700});
+      resourceLoader = new DefaultResourceLoader({...common, agentDir, noExtensions: true, noSkills: true, noPromptTemplates: true, noThemes: true});
+    }
     await resourceLoader.reload();
   } else {
-    settingsManager = SettingsManager.inMemory(OVERRIDES);
     resourceLoader = {
       getExtensions: () => ({extensions: [], errors: [], runtime: createExtensionRuntime()}),
       getSkills: () => ({skills: [], diagnostics: []}), getPrompts: () => ({prompts: [], diagnostics: []}),
@@ -60,16 +74,30 @@ export async function createRuntime(options: any) {
       extendResources: () => {}, reload: async () => {},
     };
   }
+  const extensionTools = curated.flatMap((e: any) => e.tools || []);
   const {session, modelFallbackMessage} = await createAgentSession({
     cwd: options.directory, modelRuntime: runtime, model, thinkingLevel: options.effort,
     resourceLoader, customTools: options.tools, sessionManager: manager, settingsManager,
-    // Dev profiles may add extension tools; the locked runtime exposes only gateway tools.
-    ...(profile ? {noTools: 'builtin'} : {tools: options.tools.map((t: any) => t.name)}),
+    // Dev profiles may add extension tools; otherwise the gateway's tools and the role's allowlisted extension tools.
+    ...(profile && host ? {noTools: 'builtin'} : {tools: [...options.tools.map((t: any) => t.name), ...extensionTools]}),
   } as any);
   if (modelFallbackMessage) { session.dispose(); throw new Error(modelFallbackMessage); }
+  // What Pi's RPC and interactive modes do and an SDK host must do itself: fire session_start (extensions start their
+  // connections and rebuild their state there), attach the UI, and report extension errors.
+  if (host) await session.bindExtensions({uiContext: options.uiContext, mode: 'rpc', onError: options.onExtensionError, shutdownHandler: () => {}});
+  (session as any).shutdown = () => shutdown(session);
   const auth = await runtime.checkAuth(provider).catch(() => undefined);
   (session as any).billing = auth?.type === 'oauth' ? 'subscription' : auth?.type === 'api_key' ? 'api' : 'unknown';
   return session;
+}
+
+/** session_shutdown for the session's extensions (AgentSession.dispose() does not emit it), then dispose. Idempotent. */
+export async function shutdown(session: any) {
+  if (session.balsamicShutdown) return;
+  session.balsamicShutdown = true;
+  const runner = session.extensionRunner;
+  try { if (runner?.hasHandlers?.('session_shutdown')) await runner.emit({type: 'session_shutdown', reason: 'quit'}); }
+  finally { session.dispose(); }
 }
 
 /** Switch an existing session in place; Pi records the change in the session file. */

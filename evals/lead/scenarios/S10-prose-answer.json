@@ -1,0 +1,16 @@
+{
+  "id": "S10-prose-answer",
+  "source": "F10: a turn that ends without yield_work cost a whole notice turn (pi_continue); the Balsamic extension continues it in the turn",
+  "setup": {"preset": "quadratic", "llm_budget_usd": 0.3},
+  "steps": [
+    {"say": "Quick question, no work needed: in one sentence, what does coordinate search do?"},
+    {"wait": "request_closed", "timeout_s": 600}
+  ],
+  "checks": [
+    {"max_continue_turns": 0},
+    {"max_lead_turns": 1},
+    {"max_commands": 0},
+    {"request_closed": true}
+  ],
+  "repeats": 3
+}

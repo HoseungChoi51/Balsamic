@@ -1,6 +1,7 @@
 """Scripted turns for --fake runs: what a lead (and the page agents it asks) does in each scenario, played through the real
 gateway by tests/fake_harness.py. They check the runner's plumbing and its graders, not a model. A turn gets a Turn
-(scripts/run_lead_evals.py): .role, .text, .notice, .memory (kept across the agent's turns), .call(tool, **args), .finish(report).
+(scripts/run_lead_evals.py): .role, .text, .notice, .continuation, .memory (kept across the agent's turns), .call(tool, **args),
+.external(tool, args, text) for an extension tool, .dialog(method, title, ...), .finish(report).
 
 Where a scenario reproduces a failure seen with real models, the script makes the same mistake (S4 states the guidance
 revision it read in an earlier turn), so the fake run shows whether the platform still lets the mistake through (on a7e89b8
@@ -100,6 +101,19 @@ def experiment_status(turn):
     return turn.finish("", summary="Asked the experiment operator", disposition="waiting")
 
 
+def extension_tools(turn):
+    found = turn.external("eval_lookup", {}, "The code word is BALSAMIC-7.")
+    saved = turn.external("eval_write", {"note": "BALSAMIC-7"}, "Saved.")
+    return turn.finish(f"{found['content']} eval_lookup ran and was recorded; eval_write was refused: {saved.get('reason', 'it ran')}.")
+
+
+def prose_answer(turn):
+    if turn.continuation:
+        return turn.finish("Coordinate search changes one parameter at a time and keeps a change when the score improves.", summary="Answered")
+    # The mistake F10 is about: the answer written in prose, and the turn ended without yield_work.
+    return "Coordinate search changes one parameter at a time and keeps a change when the score improves."
+
+
 def scripted(play):
     """A scenario's script for the turns it is about; other agents' notices get the plain acknowledgement."""
     def turn(t):
@@ -115,4 +129,6 @@ FAKES = {
     "S6-gate-closed": scripted(gate_closed),
     "S7-gate-opens-mid-session": scripted(gate_opens),
     "S8-experiment-status": scripted(experiment_status),
+    "S9-extension-tools": scripted(extension_tools),
+    "S10-prose-answer": scripted(prose_answer),
 }

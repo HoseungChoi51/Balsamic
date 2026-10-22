@@ -71,9 +71,12 @@ def install(app, workspace):
         agent = next((a for a in workspace.store.list("agent_session", campaign_id) if a["role"] == role), None)
         rows = [m for m in workspace.store.list("message", campaign_id) if m.get("desk") == role and not m.get("thread_id")]
         rows.sort(key=lambda m: m.get("created_at") or "")
+        # Dialogs its session's extensions opened: answered here, on the agent's own page.
+        dialogs = [q for q in workspace.store.list("agent_question", campaign_id) if agent and q.get("agent_id") == agent["id"]
+                   and q.get("kind") == "extension_dialog" and q["status"] == "pending"]
         return {"campaign_id": campaign_id, "role": role, "page": "#" + PAGE_AGENTS[role], "event_cursor": event_cursor(workspace, campaign_id),
                 "agent": {k: v for k, v in agent.items() if k not in {"output_schema", "output"}} if agent else None,
-                "messages": rows[-limit:], "truncated": len(rows) > limit}
+                "messages": rows[-limit:], "truncated": len(rows) > limit, "dialogs": dialogs}
 
     @app.get("/api/v1/campaigns/{campaign_id}/agents/live")
     def agents_live(campaign_id: str):

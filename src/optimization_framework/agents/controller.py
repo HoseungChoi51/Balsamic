@@ -17,7 +17,7 @@ from . import usage as llm_usage
 from .client import PiClient
 from .families import family_of, check_same_family
 from . import tiers
-from .models import (Activate, Configure, Message, Control, QuestionDismiss, ROLES, LEAD, STANDING_OBJECTIVE, FORMER_OBJECTIVE, NOTICE,
+from .models import (Activate, Configure, Message, Control, QuestionDismiss, UiRespond, ROLES, LEAD, STANDING_OBJECTIVE, FORMER_OBJECTIVE, NOTICE,
     PAGE_AGENTS, PAGE_OBJECTIVES, STANDING, DISCUSSION_ROLES)
 from .tools import step_label
 
@@ -426,6 +426,8 @@ class PiController:
         config = self.configuration(campaign_id)
         if not config or not config["enabled"]:
             raise ValueError("Activate Pi for this campaign first")
+        if values.question_id and self.store.get(values.question_id, "agent_question").get("kind") == "extension_dialog":
+            raise ValueError("An extension's dialog is answered with agent.ui_respond, not with a message")
         agent = self.page_agent(campaign_id, values.page_agent) if values.page_agent else self.store.get(values.agent_id or config["lead_id"], "agent_session")
         if agent["campaign_id"] != campaign_id:
             raise ValueError("Agent belongs to another campaign")
@@ -480,6 +482,26 @@ class PiController:
             raise ValueError("Question is no longer pending in this campaign")
         question.update(status="dismissed", dismissed_at=now())
         return self.store.put("agent_question", question, "agent.question_dismissed")
+
+    def ui_respond(self, campaign_id, payload):
+        """The researcher answers an extension's dialog. The waiting extension reads it (PiTools.ui_state); no request is opened,
+        no turn is queued, and the guidance does not change."""
+        values = UiRespond.model_validate(payload)
+        question = self.store.get(values.question_id, "agent_question")
+        if question["campaign_id"] != campaign_id or question.get("kind") != "extension_dialog":
+            raise ValueError("Not an extension's dialog in this campaign")
+        if question["status"] != "pending" or time.time() >= question["deadline_at"]:
+            raise ValueError("This dialog is no longer waiting for an answer")
+        if values.cancelled:
+            question.update(status="cancelled", cancelled_at=now())
+            return self.store.put("agent_question", question, "agent.question_dismissed")
+        method, options = question["dialog"]["method"], question["dialog"].get("options") or []
+        if method == "confirm" and not isinstance(values.value, bool) or method != "confirm" and not isinstance(values.value, str):
+            raise ValueError("Answer a confirmation with yes or no, and the other dialogs with text")
+        if method == "select" and values.value not in options:
+            raise ValueError("Choose one of the dialog's options")
+        question.update(status="answered", answer_value=values.value, answer=str(values.value), answered_at=now())
+        return self.store.put("agent_question", question, "agent.question_answered")
 
     def control(self, campaign_id, payload, command_id):
         values = Control.model_validate(payload)
