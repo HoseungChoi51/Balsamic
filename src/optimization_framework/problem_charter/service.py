@@ -31,6 +31,13 @@ QUESTION_ROUNDS = 2
 def question_rounds(record) -> int:
     return sum(1 for row in record.get("history", []) if row.get("by") == "formulator" and str(row.get("rationale", "")).startswith("Asked "))
 
+
+# While the formulator works on a charter the researcher's inputs wait: a value, an answer or a choice made on what the page
+# showed would meet a charter the formulator is rewriting from an older reading.
+WORKING = {"running"}
+NOT_LISTENING = ("The formulator is revising this charter. Your input waits until it has saved its revision, so that it meets "
+                 "the charter you then see; nothing was changed.")
+
 class Charters:
     def __init__(self, workspace, registry=None):
         self.workspace, self.store = workspace, workspace.store
@@ -61,7 +68,7 @@ class Charters:
             lineage = {**origin, "title": base["title"], "changes": [row for row in mechanics.diff(base, record["charter"])
                                                                       if row["part"] in {"value", "relation", "quantity"}]}
         return {**record, **mechanics.describe(record["charter"], self.registry), "lineage": lineage,
-                "question_rounds": rounds, "question_rounds_max": QUESTION_ROUNDS,
+                "formulator": self.formulator(record), "question_rounds": rounds, "question_rounds_max": QUESTION_ROUNDS,
                 "proposals": sorted(proposals, key=lambda row: row["created_at"], reverse=True)[:20],
                 "history": record["history"][-50:]}
 
@@ -83,10 +90,38 @@ class Charters:
             return self._save(record, charter, by, rationale)
 
     def _current(self, charter_id, expected_revision):
+        """The charter a researcher's input applies to: the revision the page showed, with the formulator listening."""
         record = self.get(charter_id)
+        if not self.formulator(record)["listening"]:
+            raise ValueError(NOT_LISTENING)
         if expected_revision is not None and record["revision"] != expected_revision:
             raise ValueError(f"The charter changed (now revision {record['revision']}); reload it and try again")
         return record
+
+    # Whether the formulator listens ----------------------------------------------------------------------
+    def formulator(self, record):
+        """The charter's formulator as last recorded: its status, and whether the researcher's input is taken now."""
+        imports = getattr(self.workspace, "problem_imports", None)
+        if not record.get("import_id") or imports is None:
+            return {"status": None, "listening": True}
+        try:
+            status = self.store.get(record["import_id"], "problem_import")["status"]
+        except KeyError:
+            return {"status": None, "listening": True}
+        return {"status": status, "listening": status not in WORKING}
+
+    def _listening(self, charter_id):
+        """Before a researcher's input, with no lock held: bring the formulator's status up to date with the harness, and
+        refuse while it works. The check is made again under the lock (_current), where its status cannot change."""
+        record = self.get(charter_id)
+        imports = getattr(self.workspace, "problem_imports", None)
+        if record.get("import_id") and imports is not None:
+            try:
+                imports.sync(record["import_id"])
+            except Exception:   # noqa: BLE001 - the harness may be down; the recorded status decides
+                pass
+        if not self.formulator(self.get(charter_id))["listening"]:
+            raise ValueError(NOT_LISTENING)
 
     # Starting points -------------------------------------------------------------------------------------
     def from_example(self, example_id):
@@ -154,6 +189,7 @@ class Charters:
     # The researcher's edits ------------------------------------------------------------------------------
     def edit(self, charter_id, changes, *, expected_revision=None, rationale="", charter=None):
         """Typed inputs and other direct edits; a whole charter when edited as JSON."""
+        self._listening(charter_id)
         with self.workspace.lock, self.store.transaction():
             record = self._current(charter_id, expected_revision)
             if charter is not None:
@@ -169,6 +205,7 @@ class Charters:
         return {"charter": updated, **mechanics.describe(updated, self.registry), "diff": mechanics.diff(record["charter"], updated)}
 
     def accept_assumptions(self, charter_id, names=None, *, expected_revision=None):
+        self._listening(charter_id)
         with self.workspace.lock, self.store.transaction():
             record = self._current(charter_id, expected_revision)
             charter = record["charter"]
@@ -181,6 +218,7 @@ class Charters:
             return self._save(record, charter, "researcher", "Accepted assumptions")
 
     def waive(self, charter_id, key, reason, *, expected_revision=None):
+        self._listening(charter_id)
         with self.workspace.lock, self.store.transaction():
             record = self._current(charter_id, expected_revision)
             row = next((row for row in mechanics.findings(record["charter"], self.registry) if row["key"] == key), None)
@@ -193,6 +231,7 @@ class Charters:
             return self._save(record, charter, "researcher", f"Waived ({row['key']}): {reason}")
 
     def answer(self, charter_id, question_id, text, *, expected_revision=None):
+        self._listening(charter_id)
         with self.workspace.lock, self.store.transaction():
             record = self._current(charter_id, expected_revision)
             charter = record["charter"]
@@ -209,6 +248,7 @@ class Charters:
         """Send the round as it stands. The researcher is not expected to know every answer: what is left unanswered goes
         to the formulator as a decision it makes from the answers, the sources and convention, and records as an assumption
         the researcher can change later, when a run has shown what the question meant."""
+        self._listening(charter_id)
         with self.workspace.lock:
             record = self._current(charter_id, expected_revision)
         return self._send_round(record)
@@ -296,6 +336,17 @@ class Charters:
             for question in questions:
                 if question["id"] in taken:
                     raise ValueError(f"A question named {question['id']} exists; choose another name")
+                options, unrunnable = question.get("options") or [], set(question.get("unrunnable_options") or [])
+                if any(index >= len(options) for index in unrunnable):
+                    raise ValueError(f"Question {question['id']}: unrunnable_options names an option it does not have")
+                # The page shows the first option as recommended: it must be one the lab can run, when there is one.
+                if 0 in unrunnable and len(unrunnable) < len(options):
+                    raise ValueError(f"Question {question['id']}: its first option, shown as recommended, leaves nothing able to run "
+                                     "while another option runs. Put a runnable option first and recommend it; the unrunnable one goes "
+                                     "last, says what stays blocked and until when, and is never called recommended.")
+                if any("recommend" in options[index].lower() for index in unrunnable):
+                    raise ValueError(f"Question {question['id']}: an option under which nothing can run is never recommended; "
+                                     "take the word out of it.")
                 charter["questions"].append({**question, "answer": None, "answered_at": None})
             return self._save(record, charter, "formulator", f"Asked {len(questions)} question{'s' if len(questions) != 1 else ''}")
 
@@ -316,6 +367,8 @@ class Charters:
                           "blocking_reason": option.get("blocking_reason"), "charter": updated,
                           "diff": mechanics.diff(record["charter"], updated),
                           "findings": new_blocking})
+        # An option that leaves checks open comes after those that leave none: the first one shown is one the lab can take.
+        built.sort(key=lambda option: bool(option["blocking_reason"] or option["findings"]))
         proposal = {"id": identifier("charter_proposal"), "charter_id": charter_id, "base_revision": record["revision"],
                     "base_hash": core_hash(record["charter"]),
                     "request": request, "asked": asked or None, "run_id": run_id, "options": built, "status": "open", "accepted_option": None,
@@ -329,11 +382,12 @@ class Charters:
 
     def decide(self, proposal_id, option: int | None):
         """Accept one option (its index) or reject the proposal (None)."""
+        self._listening(self.store.get(proposal_id, PROPOSAL)["charter_id"])
         with self.workspace.lock, self.store.transaction():
             proposal = self.store.get(proposal_id, PROPOSAL)
             if proposal["status"] != "open":
                 raise ValueError(f"This proposal is {proposal['status']}")
-            record = self.get(proposal["charter_id"])
+            record = self._current(proposal["charter_id"], None)
             if option is None:
                 self.store.put(PROPOSAL, {**proposal, "status": "rejected", "decided_at": now()})
                 return record
@@ -350,6 +404,7 @@ class Charters:
 
     def request(self, charter_id, text: str):
         """The researcher asks for a change in words; the formulator answers with a proposal."""
+        self._listening(charter_id)
         record = self.get(charter_id)
         prompt = (f"Researcher request about charter {charter_id} (revision {record['revision']}):\n{text}\n\n"
                   "Answer with charter_propose: one to three options of changes. Use solve for a wanted derived value and "
@@ -391,6 +446,7 @@ class Charters:
 
     # Confirmation and forks ------------------------------------------------------------------------------
     def confirm(self, charter_id, *, expected_revision=None):
+        self._listening(charter_id)
         with self.workspace.lock, self.store.transaction():
             record = self._current(charter_id, expected_revision)
             try:
