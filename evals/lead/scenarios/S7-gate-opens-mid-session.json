@@ -1,0 +1,18 @@
+{
+  "id": "S7-gate-opens-mid-session",
+  "source": "F1: the lead's gate line is a snapshot of its first turn after a harness restart",
+  "setup": {"preset": "formulating", "llm_budget_usd": 0.3, "seeds": ["partial_note"]},
+  "steps": [
+    {"say": "Where do we stand with the problem definition? Answer briefly."},
+    {"wait": "request_closed", "timeout_s": 600},
+    {"seed": "open_gate"},
+    {"say": "Propose two strategies for this problem and record them. Nothing else."},
+    {"wait": "request_closed", "timeout_s": 900}
+  ],
+  "checks": [
+    {"records_at_least": {"kind": "hypothesis", "count": 2}},
+    {"reply_contains_none": ["gate is closed", "gate is still closed", "gate closed", "not fully defined", "definition is incomplete"]},
+    {"request_closed": true}
+  ],
+  "repeats": 1
+}

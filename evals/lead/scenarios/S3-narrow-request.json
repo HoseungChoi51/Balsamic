@@ -1,0 +1,16 @@
+{
+  "id": "S3-narrow-request",
+  "source": "lead-agent-readiness.md Part G: a narrow request is carried out and nothing else",
+  "setup": {"preset": "quadratic", "llm_budget_usd": 0.3},
+  "steps": [
+    {"say": "Create two hypotheses for this problem, each runnable with an installed method. Nothing else for now."},
+    {"wait": "request_closed", "timeout_s": 600}
+  ],
+  "checks": [
+    {"commands_exactly": {"operation": "hypothesis.create", "count": 2}},
+    {"no_commands": ["trial.create", "draft.launch", "runtime.profile"]},
+    {"max_lead_turns": 3},
+    {"request_closed": true}
+  ],
+  "repeats": 3
+}

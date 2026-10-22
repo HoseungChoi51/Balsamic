@@ -37,6 +37,7 @@ to replace that outside session.
 | Page agents: discussion moderator, experiment operator, implementation lead | Implemented, live, each checked once on a scratch campaign; see Part I |
 | Experiments: short and long runs apart, runs edited or run again, obsolete runs hidden, the operator's rules and presentation | Implemented, live, checked with the operator on a scratch campaign; see Part J |
 | The review rounds drawn as a graph | Implemented, tested; see Part K |
+| Lead-agent evals that can be run again (scripted and live), a prompt-size ratchet | Implemented, tested with the scripted harness; no live baseline yet; see Part L |
 
 "Live" means the running services on X670 use the code (last restarted on 14 October 2026).
 "Not live" means the code is in the working tree and tested, and the services still run the old
@@ -707,6 +708,44 @@ the records the Review rounds list already reads.
 
 The layout is computed again only when nodes appear or go, so a live update does not move the picture.
 Nothing is written and no model is called: the graph reads what the list reads.
+
+## Part L — Evals that can be run again (22 October 2026; harness plan, Phase 1)
+
+### What was wrong
+
+Parts E and G–K were checked by hand: a rehearsal, a service check, a scratch campaign. None of it could be
+repeated, so a change to the instructions or the tools could not be compared with what came before
+(`docs/harness-update-plan.md`, F8).
+
+### What changed
+
+| Change | Where |
+|---|---|
+| A runner that starts a workspace and a harness of its own (the real one, or the scripted one with `--fake`), plays a scenario's requests through the bus, grades from the store, and writes `results.json`, `summary.md` and a transcript per run; repeats with pass^k, a per-campaign model budget and a suite cap, baselines and comparison | `scripts/run_lead_evals.py` |
+| Eight scenarios from the audits and the plan's findings (S1–S8), with seeds that build their state and scripted turns for `--fake` | `evals/lead/scenarios/`, `seeds.py`, `fakes.py` |
+| How to run them, what each step and check means, how to record a baseline of an older commit, and how a new failure becomes a scenario | `evals/lead/README.md` |
+| A prompt-size ratchet: the lead's instructions (2,889 words) and a specialist's (1,993) may not grow more than 10% | `tests/test_harness_contract.py` |
+| The scripted suite runs with the tests | `tests/test_lead_evals.py` |
+
+### Checked
+
+- `--fake`: every scenario runs and is graded; S1–S3 and S5–S8 pass. S4 fails as expected: its scripted lead states the
+  guidance revision it read in its first turn, as the models did in Parts E and G, and the handler refuses it (F3). It is
+  marked as a known failure until the fix (Part N).
+- Python tests: 879 pass; the 16 that fail and the 3 files that do not load need `torch` or `gymnasium`, which this
+  environment does not have, and fail the same way without these changes. Harness tests: 21 pass.
+
+### Seen while writing the scenarios
+
+- A status question cannot be closed while a run the researcher started is still going: `outstanding()` counts every
+  run no page agent started as the lead's, so `yield_work(complete)` is refused and the lead must wait for the runs to end.
+  S8 lets its runs finish before it asks. Not changed.
+
+### Not done
+
+- No real-model baseline yet: real runs cost money and were not approved in this session. The command to record it on
+  `a7e89b8` is in `evals/lead/README.md`; until then the later Parts are checked with `--fake` and the tests only.
+- No LLM rubric; every check reads records or the reply's text.
 
 ## Not planned
 
