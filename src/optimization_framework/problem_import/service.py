@@ -74,13 +74,17 @@ TOOLS = {
         "without checking first; a draft with findings is fine to save. Resolve each blocking one or ask about it.",
         {"type": "object", "properties": {"charter": {"type": "object"}}, "required": ["charter"], "additionalProperties": False}),
     "question_ask": ("Put questions to the researcher. Each has an id, the question, two to four options (recommended first) "
-        "and the quantities it is about. End your turn after asking; the answers start your next turn. Questions come in rounds, "
+        "and the quantities it is about. The first option is shown as recommended: it must be one the lab can run. An option under "
+        "which nothing can run until something outside the charter changes (a platform limit, an evaluator nobody supplies) goes "
+        "last, is listed in unrunnable_options and is never recommended. End your turn after asking; the answers start your next turn. Questions come in rounds, "
         "all at once: a charter takes at most two rounds, so ask everything you need together, and after the answers ask only what "
         "they left genuinely open; the second round is the last, then record assumptions instead. The researcher may leave a "
         "question unanswered: then you decide it (answers, sources, convention, your recommendation) and record an assumption.",
         {"type": "object", "properties": {"questions": {"type": "array", "minItems": 1, "maxItems": 10, "items": {"type": "object",
             "properties": {"id": {"type": "string", "pattern": "^[a-z][a-z0-9_]{0,63}$"}, "question": S,
-                           "options": {"type": "array", "items": S, "maxItems": 6}, "about": {"type": "array", "items": S, "maxItems": 20},
+                           "options": {"type": "array", "items": S, "maxItems": 6},
+                           "unrunnable_options": {"type": "array", "items": {"type": "integer", "minimum": 0, "maximum": 5}, "maxItems": 6},
+                           "about": {"type": "array", "items": S, "maxItems": 20},
                            "blocking": {"type": "boolean"}},
             "required": ["id", "question", "options"], "additionalProperties": False}}},
          "required": ["questions"], "additionalProperties": False}),
@@ -90,7 +94,8 @@ TOOLS = {
         {"type": "object", "properties": {"title": {"type": "string", "minLength": 1, "maxLength": 120}, "components": {"type": "array", "minItems": 1, "maxItems": 60, "items": {"type": "object"}},
          "placement": {"enum": ["top", "bottom"]}, "note": {"type": "string", "maxLength": 2000}, "panel_id": S}, "required": ["title", "components"], "additionalProperties": False}),
     "charter_propose": ("Answer the researcher's request with one to three options. Each option is a list of changes with a label "
-        "and a reason; the numbers are computed here. An option that leaves a blocking finding needs blocking_reason.",
+        "and a reason; the numbers are computed here. An option that leaves a blocking finding needs blocking_reason, and is shown "
+        "after the options that leave none.",
         {"type": "object", "properties": {"request": S, "options": {"type": "array", "minItems": 1, "maxItems": 3, "items": {"type": "object",
             "properties": {"label": S, "reason": S, "changes": {"type": "array", "items": CHANGE, "minItems": 1, "maxItems": 50},
                            "blocking_reason": S}, "required": ["label", "reason", "changes"], "additionalProperties": False}}},

@@ -165,6 +165,8 @@ class Question(Part):
     id: str = Field(pattern=NAME)
     question: str = Field(min_length=1, max_length=2000)
     options: list[str] = Field(default_factory=list, max_length=6)
+    unrunnable_options: list[int] = Field(default_factory=list, max_length=6,
+        description="Indices of options under which nothing can run until something outside the charter changes; never recommended")
     about: list[str] = Field(default_factory=list, max_length=20)
     blocking: bool = True
     answer: str | None = Field(default=None, max_length=5000)
