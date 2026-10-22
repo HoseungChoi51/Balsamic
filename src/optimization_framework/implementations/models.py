@@ -109,7 +109,8 @@ class BoundOptimizerSpec(ImplementationSpec):
 
 
 REGENERATE = ("Generated data is not shipped: the package regenerates it where it runs and checks each output against the "
-              "SHA-256 recorded in a small manifest file, refusing to run on a mismatch.")
+              "SHA-256 and runtime recorded in a small manifest file on every use, held copies and restored checkpoints "
+              "included, refusing to run on a mismatch.")
 
 
 class SourceFile(Contract):
