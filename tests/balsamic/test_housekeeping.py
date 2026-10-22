@@ -155,8 +155,10 @@ def test_the_lead_corrects_proposal_fields_and_the_page_says_when_the_lane_was_n
     workspace.store.put("trial", {"id": "trial_x", "campaign_id": campaign["id"], "hypothesis_id": created["id"], "status": "completed", "algorithm": "annealing", "created_at": "2026-10-20T00:00:00Z"})
     assert "bound to 1 trial" in str(attempt("fix-4", {"hypothesis_id": created["id"], "algorithm": "population"}))
     assert attempt("fix-5", {"hypothesis_id": created["id"], "rationale": "better stated"})["outcome"]["fields"] == ["rationale"]
-    briefing = workspace.lead_instructions(team)
-    assert "Proposal fields." in briefing and "hypothesis.edit" in briefing and "not chosen" in briefing
+    # What each field must say is a procedure the lead reads before recording proposals; its catalog names it.
+    procedure = workspace.procedures.read("lead", "proposal-fields")["text"]
+    assert "# Proposal fields" in procedure and "hypothesis.edit" in procedure and "not chosen" in procedure
+    assert "proposal-fields" in workspace.procedures.catalog_text("lead")
 
 
 def test_finished_exchanges_get_a_one_sentence_fold_title(client, workspace, campaign, team, light_model):

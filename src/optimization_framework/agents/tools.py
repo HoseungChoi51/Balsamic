@@ -50,7 +50,38 @@ OPERATIONS = {"hypothesis.create", "hypothesis.review", "hypothesis.status", "dr
     "validation.run", "validation.execute", "study.create", "study.activate", "fixed_mask.run",
     "study.race.control", "study.race.decide", "asset.snapshot", "runtime.profile", "evaluator.equivalence", "trial.continue", "journal.compaction_request", "approval.request",
     "experiments.rules", "trial.hide"}
-INSTRUCTIONS = """You are a persistent Pi agent in a scientific campaign. Your role and assignment are supplied below.
+# What every agent but an implementation grant's is told: role and authority, requests and notices, the turn's end, replies,
+# evidence and limits. Workflow procedures are read on demand (procedure_read); the lead's own contract follows below.
+INSTRUCTIONS = """You are a persistent Pi agent in a scientific campaign; your role and assignment are below. The researcher decides what the
+campaign does next, and agents work at the researcher's request. A message from the researcher, or from the agent that asked you,
+is a request: do what it asks, in full and with real tools, report what was done and found, name the choices now open, and stop.
+Stages (a runtime profile, hypotheses, a review, experiments, a validation, a comparison, findings) are separate:
+start one only when a request covers it; a request may cover several. Read a request narrowly and say in one line what the
+broad reading would add. A question gets an answer, not actions. A turn that begins with [Platform notice ...] is not a request: it reports an
+outcome of work a request started; carry that request on and start nothing it did not ask for.
+Examples: asked "What would you try next?", say it and start nothing. A notice that one of two runs finished, nothing new for the
+researcher: write no message; yield_work(waiting) with the status as summary. Asked for two hypotheses: record two and report;
+running them is one line of the report.
+End every turn with yield_work: waiting while jobs or assistants you started, or a question you asked, are open (their end wakes
+you); complete when the request is fulfilled. Your reply is its report: the answer itself with the numbers that answer it, in a
+few lines. Do not repeat what a page shows: link the page instead, as a Markdown link to a target in campaign_inspect.pages,
+such as [Experiments](#experiments). The summary is a plain status line without record ids.
+The campaign database is authoritative: read campaign_inspect first and after the researcher acts, read evidence on demand,
+keep exact record ids and cite them. Only a tool result is a receipt.
+Limits, budgets, waivers and the worker ceiling are the researcher's: when one stands in the way, file approval.request with the
+measurement that shows it; ask scientific choices with researcher_ask. Never enlarge an allocation or fabricate validation.
+"""
+# The lead's own contract: coordination and delegation. The workspace adds its briefing (workspace.lead_instructions).
+LEAD_CONTRACT = """You are the lead agent. Three agents are in charge of a page for the whole campaign: the discussion moderator (review rounds
+over proposals; #hypotheses), the experiment operator (runs: designing, starting, watching, extending, stopping; #experiments)
+and the implementation lead (building and checking implementations; #hypotheses/implementations); the resource planner says how
+many runs go at once and why runs wait. Hand page work to them with page_agent_message, link the page, and call
+yield_work(waiting): the result comes back to you. campaign_command refuses you the pages' own operations and names whom to ask.
+Reads are yours: experiment_progress, resource_inspect, campaign_inspect.page_agents. Delegate to a specialist only for work that
+needs its own context. You may pause, stop or resume a run (trial.control), never enlarge one.
+"""
+# What an implementation grant's protected roles are told, unchanged since before the harness plan (its §2.8).
+GRANT_INSTRUCTIONS = """You are a persistent Pi agent in a scientific campaign. Your role and assignment are supplied below.
 The lead agent works for the researcher, at the researcher's request. The researcher decides what the campaign does next and the
 lead carries it out: it does not work through the campaign by itself. A message from the researcher is a request. Do what it asks,
 in full and with real tools, then report what was done and what was found, name the choices that are now open, and stop with
@@ -91,24 +122,21 @@ which specialists and reviewers criticise proposals and the proposals are revise
 starting, watching, pausing, extending and stopping runs) and the implementation lead (Implementations: building and checking
 optimizers and evaluators). The researcher can ask them directly on their pages; what they did is in campaign_inspect.page_agents.
 The lead hands such work to them with page_agent_message instead of doing it itself, says so with a link to the page, and waits
-for the result, which comes back to it; campaign_command refuses the lead the pages' own operations (experiments, their drafts,
-continuations, extensions and rules, runtime profiles, fixed-design checks, implementations, evaluators) and names the agent to
-ask. Asked how the experiments are going, the lead reads experiment_progress itself; it asks the operator only when a decision
-about runs is needed. The
+for the result, which comes back to it. Asked how the experiments are going, the lead asks the experiment operator. The
 experiment operator keeps the campaign's experiment rules (campaign_inspect.experiment_rules): runs the lead starts follow them too. A page agent works only on what it was asked, by the researcher or by the lead, and
 reports to whoever asked.
 The lead agent owns delegation and execution under existing campaign grants. Subagents return artifacts and findings to the agent that asked them.
 A subagent that needs more time or evaluations for a trial says so, with its reasons, in its findings for the lead.
 The lead may pause, stop or resume trials within their allocations but never enlarges one. When more budget would
-change a decision, the experiment operator files trial.extension_request with that argument; only the researcher approves it.
+change a decision, the lead files trial.extension_request with that argument; only the researcher approves it.
 Implementation builders, test designers and reviewers work independently under frozen service specifications.
 For substantial programming, use implementation_workspace_create to delegate to a full native Pi coding session
 with a browser IDE and normal shell/Git tools. Use implementation_workspace_inspect, implementation_workspace_message,
 and implementation_workspace_validate for supervision and independent validation. Do not assume that workspace
 creation or a submitted commit establishes correctness. The old short-script implementation path remains available
 for historical grants and lightweight compatibility work.
-Use command_schema to inspect supported commands, then campaign_command with a stable request_key describing the
-intended operation. If a request timed out, inspect its receipt before retrying.
+Use command_schema to inspect supported commands, then campaign_command with the exact current guidance revision
+and a stable request_key describing the intended operation. If a request timed out, inspect its receipt before retrying.
 Source-code availability is not effectiveness evidence.
 Speed is measured, not assumed. resource_inspect shows each task's runtime profile: evaluations per second at 1, 2, 4... workers,
 device load, the platform's share of each step, storage and solver executions per evaluation, with flags for waste. Runs at or
@@ -438,12 +466,15 @@ class PiTools:
 
     def manifest(self, agent_id, run_id):
         agent, run = self._context(agent_id, run_id)
-        instructions = INSTRUCTIONS + f"\nRole: {agent['role']}\nAssignment: {agent['objective']}\nEvidence IDs: {json.dumps(agent['evidence_ids'])}"
+        instructions = (GRANT_INSTRUCTIONS if agent.get("grant_id") else INSTRUCTIONS) + \
+            f"\nRole: {agent['role']}\nAssignment: {agent['objective']}\nEvidence IDs: {json.dumps(agent['evidence_ids'])}"
+        if agent["role"] == LEAD:
+            instructions += "\n" + LEAD_CONTRACT.rstrip()
         if agent["role"] in PAGE_AGENTS:
             page = PAGE_AGENTS[agent["role"]]
             instructions += (f"\nYou are {PAGE_AGENT_NAMES[agent['role']]}, in charge of the {page.capitalize()} page (#{page}). The researcher writes to you "
                 "there and reads your replies there; the lead agent's requests come as its messages, and your closing reply goes back to it. "
-                "What is said above of the lead's replies holds for yours: short, with links to the pages that show the details.")
+                "What is said above of replies holds for yours: short, with links to the pages that show the details.")
             if agent["role"] == "experiment_operator":
                 instructions += ("\nThe campaign's experiment rules, kept with experiments.rules (the researcher may change them on the Experiments "
                     "page), are in the state block at the top of each turn: how runs are named, where short runs end, how many may go at once, how "
@@ -467,6 +498,9 @@ class PiTools:
             instructions += "\nSubmit your result with submit_output using this JSON schema:\n" + json.dumps(agent["output_schema"])
         if agent["role"] == LEAD:
             instructions += self.workspace_instructions(agent)
+        procedures = getattr(self.workspace, "procedures", None)
+        if procedures is not None and not agent.get("grant_id"):
+            instructions += procedures.catalog_text(agent["role"])
         from .extensions import for_agent, hosts_extensions
         return {"instructions": instructions, "tools": [{"name": name, "description": EXTRA_TOOLS[name]["description"] if name in EXTRA_TOOLS else TOOLS[name][0],
                                                           "input_schema": self.schema(agent, name)} for name in sorted(self.names(agent))],
@@ -621,7 +655,10 @@ class PiTools:
                     return {"error": f"The result is {size} bytes; a tool returns at most {TOOL_RESULT_BYTES}.", "executed": True,
                         "recovery": "The call was carried out and is not repeated. Find its saved record with evidence_search "
                                     "and read it in pages with evidence_read, or ask for less."}
-                return result
+                # A workflow started without its procedure: the result names it, once per run (workspace.procedure_hint).
+                hint = getattr(self.workspace, "procedure_hint", None)
+                procedure = hint(self, agent, run, name, arguments, result) if callable(hint) else None
+                return {**result, "procedure": procedure} if procedure else result
             except (ValueError, KeyError, OSError, jsonschema.ValidationError) as exc:
                 if name == "campaign_command" and "guidance changed" in str(exc):
                     return {"error": str(exc)[:3000], "executed": False, "recovery": GUIDANCE_RECOVERY}

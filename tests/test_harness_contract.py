@@ -15,10 +15,13 @@ from support import QUADRATIC, activate_team, command, submitted  # noqa: E402
 from optimization_framework.agents.tools import PiTools  # noqa: E402
 
 MAIN = "thread_main_demo"
-# Words of the instructions at a7e89b8: the lead's (shared instructions, role lines and the workspace briefing) and a specialist's.
-LEAD_WORDS = 2889
-SPECIALIST_WORDS = 1993
+# Words of the instructions since the procedures moved out (harness plan, Phase 6): the lead's (the shared core, role lines, its
+# contract, the workspace briefing and its procedure catalog) and a specialist's. At a7e89b8 they were 2,889 and 1,993.
+LEAD_WORDS = 886
+SPECIALIST_WORDS = 389
 GROWTH = 1.10
+# The plan's targets: the lead's contract at most 900 words, the shared core at most 350.
+LEAD_LIMIT, CORE_LIMIT = 900, 350
 
 
 @pytest.fixture
@@ -100,3 +103,5 @@ def test_instructions_do_not_grow_past_the_ratchet(team):
     other = team.tools.manifest(agent["id"], run["id"])["instructions"]
     assert words(lead) <= LEAD_WORDS * GROWTH, f"The lead's instructions grew to {words(lead)} words (ratchet {LEAD_WORDS} + 10%)"
     assert words(other) <= SPECIALIST_WORDS * GROWTH, f"A specialist's instructions grew to {words(other)} words (ratchet {SPECIALIST_WORDS} + 10%)"
+    from optimization_framework.agents.tools import INSTRUCTIONS
+    assert words(lead) <= LEAD_LIMIT and words(INSTRUCTIONS) <= CORE_LIMIT

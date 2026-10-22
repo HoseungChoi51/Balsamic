@@ -260,6 +260,39 @@ The lead agent files `journal.compaction_request` when the researcher asks for t
 results are analysed and recorded; the researcher approves it in the decision inbox, and only then are evaluated designs removed from
 the finished experiments' journals.
 
+### The contract and the procedures
+
+The system prompt is a short contract: what every agent but an implementation grant's is told (`INSTRUCTIONS` in
+`agents/tools.py`, at most 350 words: the researcher decides, requests and notices, the narrow reading with three short
+examples, the `yield_work` protocol, replies and links, evidence ids, the researcher's limits), the role and assignment
+lines, the lead's contract (`LEAD_CONTRACT`: the page agents and delegation), the workspace briefing
+(`balsamic/lead/instructions.py`: links, threads, the state block, the gate in two lines, proposals, names) and the role's
+procedure catalog. The lead's comes to under 900 words (2,889 at `a7e89b8`); a test pins both limits and a ratchet
+(`tests/test_harness_contract.py`). An implementation grant's roles keep the instructions they had before (`GRANT_INSTRUCTIONS`).
+
+Workflow procedures are files in the Agent Skills format, `src/balsamic/procedures/<name>/SKILL.md` (frontmatter `name`,
+`description`, `metadata.roles`; bundled files under `references/`), usable from the Pi CLI or Claude Code too. The service
+layer scans them at start-up (`workspace.procedures`); each role's catalog (name and description, sorted) is in its static
+instructions, and `procedure_read(name, file?)` returns a body (at most 24 kB) and its bundled files, refused for a procedure
+outside the agent's roles; its receipt records which run read which. When a workflow starts without its procedure having been
+read in the run (`report_write`, `problem_note_draft`, `hypothesis.create` and `hypothesis.edit`, `journal.compaction_request`,
+`finding.record`, `runtime.profile`, `implementation_workspace_create`, `panel_render`), the result carries
+`"procedure": "<name>"`, once per run (`workspace.procedure_hint`).
+
+| Procedure | For |
+|---|---|
+| `report-brief` | Starting the report writer and waiting for it |
+| `problem-formulation` | The problem note and the problem-definition gate |
+| `proposal-fields` | What each field of a proposal says; correcting one |
+| `journal-cleanup` | Asking for journal compaction after findings are recorded |
+| `recording-findings` | Earlier campaigns' findings; `finding.record` and publishing |
+| `runtime-profiling` | Profiles, flags, waivers, worker ceilings; optimizing a slow evaluator |
+| `implementation-supervision` | Coding workspaces up to an independent validation |
+| `panels` | `panel_render` |
+| `analysis-scripts` | Repository and experiment files; `analysis_run` |
+| `rcwa-convergence-check` | A score at the searched RCWA orders checked at higher orders (draft from Part F) |
+| `meent-problem-setup` | The installed MEENT grating problems (draft from `paper-mapping.md` and `problem-setup.md`) |
+
 ### Files and the agents' own analysis
 
 Agents other than the protected implementation roles can read two places outside the database:

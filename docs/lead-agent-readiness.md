@@ -42,6 +42,7 @@ to replace that outside session.
 | The guidance revision pinned on the server, never taken from the model | Implemented, tested; not checked live; see Part N |
 | Pi extensions bound and curated per role; extension tools receipted; dialogs answered by the researcher; a turn without yield_work continued in the turn | Implemented, tested; not checked live; see Part O |
 | The pages' operations routed in code: refused from the lead with the agent to ask; the lead reads experiment progress itself | Implemented, tested; not checked live; see Part P |
+| Workflow procedures read on demand; the lead's instructions cut from 2,889 to 886 words | Implemented, tested; two domain procedures await review; not checked live; see Part Q |
 
 "Live" means the running services on X670 use the code (last restarted on 14 October 2026).
 "Not live" means the code is in the working tree and tested, and the services still run the old
@@ -920,6 +921,50 @@ tools (the table left that open). `hypothesis.allocate` starts experiments in th
 - Live S3, S8 and S11 against the baseline (fewer lead turns on S8 expected): real model calls needed.
 - Whether the lead should keep `fixed_mask.run` for diagnostics, and its `implementation_workspace_*` tools, is still open
   (D1's notes); both follow the table's default for now (the first moved, the second kept).
+
+## Part Q — Procedures read when needed, a short contract (22 October 2026; harness plan, Phase 6)
+
+### What was wrong
+
+The procedures of particular workflows (writing a report, cleaning journals, supervising a coding workspace, runtime
+profiles and waivers, proposal fields, panels, writing the problem note) were in the system prompt of every turn of every
+agent: the lead's instructions were 2,889 words at `a7e89b8`, a specialist's 1,993, most of it the lead's workflows (F6).
+
+### What changed
+
+| Change | Where |
+|---|---|
+| Eleven procedures in the Agent Skills format, from the instructions they replace, plus two domain procedures | `src/balsamic/procedures/*/SKILL.md` |
+| A loader that gives each role its catalog in its static instructions; `procedure_read` (role-scoped, 24 kB, receipted); a hint in the result of a workflow-starting call without its procedure, once per run | `balsamic/procedures/__init__.py` (`workspace.procedures`, `workspace.procedure_hint`); `PiTools.manifest`, `_call` |
+| The shared core rewritten: 349 words, with three short examples instead of rule lists (a question gets an answer; a notice with nothing new gets no message; the narrow reading in one line) | `agents/tools.py` `INSTRUCTIONS` |
+| The lead's own contract (the page agents and delegation, 119 words) and a briefing cut to links, threads, the state block, the gate in two lines, proposals and names | `LEAD_CONTRACT`; `balsamic/lead/instructions.py` |
+| An implementation grant's roles keep the instructions they had (§2.8) | `GRANT_INSTRUCTIONS` |
+| The ratchet reset to the new sizes; limits of 900 words for the lead and 350 for the core | `tests/test_harness_contract.py` |
+
+Sizes: the lead 886 words (−69% from `a7e89b8`), a specialist 389 (−80%).
+
+The two domain procedures were drafted from the repository's documents only and are marked as drafts in their
+frontmatter: `rcwa-convergence-check` from Part F and `docs/paper-mapping.md`, `meent-problem-setup` from
+`docs/paper-mapping.md` and `docs/problem-setup.md`. **They need the researcher's review before they are relied on.**
+
+### Checked
+
+- `tests/test_procedures.py`: every procedure parses, names its folder, serves real roles, and every hint names one; the
+  lead's manifest carries its catalog and none of the moved texts; a grant's instructions are byte-identical to the branch
+  base (pinned by hash) and carry no catalog or `procedure_read`; a procedure is refused to a role it does not serve, an
+  unknown file is refused, a long body is cut, a bundled file is read, the read is receipted with its run; a hint comes once
+  per run, not after a failed call or after the procedure was read, and again in a new run.
+- The catalog is the same for a role across campaigns (`tests/test_harness_contract.py`, which compares whole manifests).
+- Tests that checked moved sentences check them in the procedure (`test_housekeeping.py`); the sentences other tests pin
+  stayed in the core ("at the researcher's request", "start one only when a request covers it", `campaign_inspect.pages`,
+  "link the page instead").
+
+### Not done
+
+- No live run: the plan judges this phase by the suite against the baseline (no regression, instruction tokens down by at
+  least half, cost and turns per scenario). The word counts above are the only measurement so far.
+- Option B of D3 (an extension-provided `read` so Pi lists the procedures as native skills) was not tried.
+- The domain procedures await review; running a procedure's scripts is out of scope.
 
 ## Not planned
 
