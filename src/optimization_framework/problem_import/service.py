@@ -21,7 +21,7 @@ from optimization_framework.storage.sqlite import now
 from .files import ImportFolder
 
 PREFIX = "import_"
-ROLE = "problem_importer"
+ROLE = "formulator"
 THINKING = Literal["off", "minimal", "low", "medium", "high", "xhigh", "max"]
 ACTIVE = {"running"}
 
@@ -38,8 +38,10 @@ Reads are paged, and tree-wide searches skip files over 2 MB unless you search o
 Tools, in the usual order:
 - problem_catalog: installed evaluators with their fields, and the charter's schema.
 - charter_read: the current charter with its computed values and findings (the researcher may have changed it).
-- charter_check: check a whole draft (charter) or changes to the current one (changes) without saving.
-- charter_submit: save a whole draft. Values the researcher set cannot change this way.
+- charter_submit: save a whole draft; it returns the computed values and the findings, so save directly rather than
+  checking first. Values the researcher set cannot change this way.
+- charter_check: check a draft (charter) or changes to the current one (changes) without saving: only for a draft
+  you do not want to save, such as an option before charter_propose.
 - question_ask: put questions to the researcher; their answers start your next turn.
 - charter_propose: answer a researcher's request with one to three options of changes.
 An error explains what to fix; fix it and call again.
@@ -64,13 +66,18 @@ TOOLS = {
     "charter_read": ("The current charter, its computed values, its texts with values, and its findings.",
         {"type": "object", "properties": {}, "additionalProperties": False}),
     "charter_check": ("Check a draft without saving it: give a whole charter, or changes to the current one. "
-        "Returns computed values, findings and, for changes, what would change.",
+        "Returns computed values, findings and, for changes, what would change. Only for a draft you do not want to save "
+        "(an option before charter_propose); saving with charter_submit already returns the findings.",
         {"type": "object", "properties": {"charter": {"type": "object"}, "changes": {"type": "array", "items": CHANGE, "maxItems": 50}},
          "additionalProperties": False}),
-    "charter_submit": ("Save a whole charter as the new draft. Returns its findings: resolve each blocking one or ask about it.",
+    "charter_submit": ("Save a whole charter as the new draft. Returns its computed values and findings, so save directly "
+        "without checking first; a draft with findings is fine to save. Resolve each blocking one or ask about it.",
         {"type": "object", "properties": {"charter": {"type": "object"}}, "required": ["charter"], "additionalProperties": False}),
     "question_ask": ("Put questions to the researcher. Each has an id, the question, two to four options (recommended first) "
-        "and the quantities it is about. End your turn after asking; the answers start your next turn.",
+        "and the quantities it is about. End your turn after asking; the answers start your next turn. Questions come in rounds, "
+        "all at once: a charter takes at most two rounds, so ask everything you need together, and after the answers ask only what "
+        "they left genuinely open; the second round is the last, then record assumptions instead. The researcher may leave a "
+        "question unanswered: then you decide it (answers, sources, convention, your recommendation) and record an assumption.",
         {"type": "object", "properties": {"questions": {"type": "array", "minItems": 1, "maxItems": 10, "items": {"type": "object",
             "properties": {"id": {"type": "string", "pattern": "^[a-z][a-z0-9_]{0,63}$"}, "question": S,
                            "options": {"type": "array", "items": S, "maxItems": 6}, "about": {"type": "array", "items": S, "maxItems": 20},
@@ -162,9 +169,9 @@ class ProblemImports:
         tier_id = values.tier or settings["roles"].get(tiers.IMPORTER)
         tier = next((tier for tier in settings["tiers"] if tier["id"] == tier_id), None)
         if tier is None:
-            raise ValueError("Choose a model tier for the importer")
+            raise ValueError("Choose a model tier for the formulator")
         if not tier["model"].get("provider") or not tier["model"].get("model"):
-            raise ValueError("Choose a model for the importer's tier in Models; no model provider is selected by default")
+            raise ValueError("Choose a model for the formulator's tier in Models; no model provider is selected by default")
         return {key: tier["model"].get(key) for key in ("provider", "model", "effort")}, tier_id
 
     def create(self, values: ImportCreate):
@@ -258,7 +265,7 @@ class ProblemImports:
         with self.lock:
             record = self.sync(import_id)
             if record["status"] in ACTIVE | {"collecting"}:
-                raise ValueError("The importer is busy; wait for it to finish or stop it")
+                raise ValueError("The formulator is busy; wait for it to finish or stop it")
             self._check_model(record["model"])
             if record["status"] == "stopped":
                 self.client.control(record["id"], "resume")
@@ -335,8 +342,9 @@ class ProblemImports:
             lines += ["", "No code base was supplied."]
         if record["notes"].strip():
             lines += ["", "Researcher notes:", record["notes"].strip()]
-        lines += ["", "Start with problem_catalog and read the material. Write the charter, check it with charter_check, "
-                  "save it with charter_submit, and ask about what the material leaves open with question_ask."]
+        lines += ["", "Start with problem_catalog and read the material. Write the charter and save it with charter_submit "
+                  "(saving returns the findings; do not check it first), fix what the findings say, and ask about what the "
+                  "material leaves open with question_ask."]
         return "\n".join(lines)
 
     # Harness callbacks -------------------------------------------------------------
@@ -354,7 +362,7 @@ class ProblemImports:
         if run_id not in record["runs"] or record["status"] not in ACTIVE:
             raise ValueError("This import is not running; preserve findings and stop")
         if name not in TOOLS:
-            raise ValueError("Tool is not available to the problem importer")
+            raise ValueError("Tool is not available to the formulator")
         try:
             jsonschema.validate(arguments, TOOLS[name][1])
             result = self._execute(record, run_id, name, arguments)
@@ -397,9 +405,9 @@ class ProblemImports:
                     current["charter_id"] = saved["id"]
                     self.save(current)
             view = mechanics.describe(saved["charter"])
-            return {"saved": True, "revision": saved["revision"], "blocking": view["blocking"],
+            return {"saved": True, "revision": saved["revision"], "blocking": view["blocking"], "values": view["values"], "errors": view["errors"],
                     "findings": [row for row in view["findings"] if not row.get("waived")],
-                    "next": "Resolve each blocking finding from the sources or ask about it with question_ask; then reply briefly."}
+                    "next": "Resolve each blocking finding from the sources (save again; no check needed) or ask about it with question_ask; then reply briefly."}
         if name == "question_ask":
             if not charter_id:
                 stub = {"title": record["title"] or "Untitled problem", "summary": "Waiting for the researcher's answers."}
@@ -431,8 +439,9 @@ class ProblemImports:
             saved = panels.create(campaign_id, values, author="formulator", agent_id=record["id"], run_id=run_id, panel_id=arguments.get("panel_id"))
             return {"panel_id": saved["id"], "revision": saved["revision"], "next": "Tell the researcher in one line what the panel asks for."}
         if name == "charter_propose":
-            request = arguments["request"] or self.get(record["id"]).get("request") or ""
-            proposal = charters.propose(charter_id, request, arguments["options"], run_id=run_id)
+            asked = self.get(record["id"]).get("request")   # the researcher's own words, when this turn answers a request
+            request = arguments["request"] or asked or ""
+            proposal = charters.propose(charter_id, request, arguments["options"], run_id=run_id, asked=asked)
             return {"proposed": proposal["id"], "options": [{"label": option["label"], "changes": option["diff"],
                     "blocking": [row["message"] for row in option["findings"]]} for option in proposal["options"]],
                     "next": "Reply briefly; the researcher accepts one option or rejects them on the charter page. "
@@ -493,7 +502,7 @@ class ProblemImports:
                             record.update(status="failed", error="The formulator finished without saving a charter; ask it to continue.")
                     else:
                         record.update(status="stopped" if run["status"] in {"stopped", "paused"} else "failed",
-                                      error=run.get("error") or f"The importer run {run['status']}")
+                                      error=run.get("error") or f"The formulator run {run['status']}")
                     self._activity(record, "status", {"ready": "Draft ready"}.get(record["status"], record["error"] or record["status"]))
             if record["status"] in ACTIVE and record["billing"] == "api" and record["usage"]["charged_usd"] >= record["budget_usd"]:
                 self.client.control(record["id"], "stop")

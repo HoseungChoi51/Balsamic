@@ -7,6 +7,27 @@ import { Empty, Failed, Loading, Pill, Section } from '../primitives/ui';
 
 interface ModelChoice { provider: string | null; model: string | null; effort?: string | null }
 interface Tier { id: string; label: string; model: ModelChoice }
+/** Every role by the name the pages use, what it does, and whether the researcher talks with it directly. */
+const ROLE_INFO: Record<string, { label: string; does: string; direct?: boolean }> = {
+  lead: { label: 'Lead', does: 'your conversation; writes the problem note, records proposals, runs the campaign on your requests', direct: true },
+  formulator: { label: 'Formulator', does: 'writes the charter from the adopted note; asks you its questions on the Charter tab', direct: true },
+  discussion_moderator: { label: 'Discussion moderator', does: 'reviews proposals in rounds on Hypotheses when you or the lead ask', direct: true },
+  experiment_operator: { label: 'Experiment operator', does: 'designs, starts and watches runs on Experiments when you or the lead ask', direct: true },
+  implementation_lead: { label: 'Implementation lead', does: 'builds and attaches optimizer and evaluator code on Implementations', direct: true },
+  resource_planner: { label: 'Resource planner', does: 'plans machine use within your resource level, on Monitor', direct: true },
+  housekeeper: { label: 'Housekeeper', does: 'one-shot calls: branch titles, strategy labels, summaries, the suggested next requests' },
+  literature_specialist: { label: 'Literature specialist', does: 'what the sources say, for the lead and the moderator' },
+  methodology_specialist: { label: 'Methodology specialist', does: 'methods and their fit, for the lead and the moderator' },
+  cross_domain_explorer: { label: 'Cross-domain explorer', does: 'ideas from other fields, for the lead and the moderator' },
+  skeptical_domain_analyst: { label: 'Skeptical analyst', does: 'what could go wrong, for the lead and the moderator' },
+  empirical_assessor: { label: 'Empirical assessor', does: 'what the evidence supports, for the lead and the moderator' },
+  proposal_reviewer: { label: 'Proposal reviewer', does: 'verdicts on proposals in a review round' },
+  implementation_builder: { label: 'Implementation builder', does: 'writes code for the implementation lead' },
+  implementation_test_designer: { label: 'Test designer', does: 'tests for the implementation lead' },
+  implementation_validator: { label: 'Implementation validator', does: 'checks the code before it is attached' },
+  results_analyst: { label: 'Results analyst', does: 'reads run results for the lead' },
+};
+const info = (role: string) => ROLE_INFO[role] || { label: role.replaceAll('_', ' '), does: '' };
 interface View { mode: 'dev' | 'locked'; revision: number; saved: boolean; tiers: Tier[]; roles: Record<string, string>; assignable: string[]; providers: Record<string, { auth?: string; billing?: string }>; housekeeping?: { enabled: boolean; model: { provider: string; model: string } | null; waiting: number; last_error: { text: string | null; at: string | null } };
   models: { provider: string; id: string; name?: string; reasoning?: boolean; thinking_levels?: string[]; family?: string }[]; updated_at?: string | null }
 
@@ -56,11 +77,17 @@ export function ModelTiers() {
             </tr>)}</tbody></table>
           <button className="btn small" style={{ marginTop: 6 }} onClick={() => { const id = `tier-${tiers.length + 1}`; setTiers(ts => [...ts, { id, label: 'New tier', model: { provider: models[0]?.provider || null, model: models[0]?.id || null, effort: null } }]); setDirty(true); }}>Add a tier</button>
           <h3 style={{ marginTop: 12 }}>Which tier each role runs on</h3>
-          <table><thead><tr><th>Role</th><th>Tier</th></tr></thead><tbody>
-            {data.assignable.map(role => <tr key={role} data-testid="role-row"><td>{role.replaceAll('_', ' ')}</td><td><select value={roles[role] || ''} aria-label={`tier of ${role}`} onChange={e => { setRoles(r => ({ ...r, [role]: e.target.value })); setDirty(true); }}>
-              <option value="">(default tier)</option>{tiers.map(t => <option key={t.id} value={t.id}>{t.label} · {key(t.model)}</option>)}</select></td></tr>)}</tbody></table>
+          {[true, false].map(direct => <div key={String(direct)} data-testid={direct ? 'roles-direct' : 'roles-behind'}>
+            <h4 style={{ marginTop: 8 }}>{direct ? 'Talk with you' : 'Work behind the scenes'}</h4>
+            <p className="why">{direct ? 'The agents you read and answer: slow or weak here, and you feel it on every page.' : 'Called by the lead or a page agent for one assignment each; you see their work through them.'}</p>
+            <table><thead><tr><th>Role</th><th>Tier</th></tr></thead><tbody>
+              {data.assignable.filter(role => !!info(role).direct === direct).map(role => <tr key={role} data-testid="role-row" data-role={role} data-direct={direct ? '1' : undefined} className={direct ? 'accent' : ''}>
+                <td><strong>{info(role).label}</strong>{info(role).does ? <div className="small faint">{info(role).does}</div> : null}</td>
+                <td><select value={roles[role] || ''} aria-label={`tier of ${role}`} onChange={e => { setRoles(r => ({ ...r, [role]: e.target.value })); setDirty(true); }}>
+                  <option value="">(default tier)</option>{tiers.map(t => <option key={t.id} value={t.id}>{t.label} · {key(t.model)}</option>)}</select></td></tr>)}</tbody></table>
+          </div>)}
           {error ? <div className="pill bad">{error}</div> : null}{saved ? <div className="pill clear">{saved}</div> : null}
-          <p className="why">A running agent switches only within its campaign's model family; others keep their model until their campaign ends. The problem importer (the formulator behind Adopt) and the setup assistant use the lead's tier. The housekeeper is not an agent: it names branches, labels strategies and writes branch summaries in one-shot calls.</p>
+          <p className="why">A running agent switches only within its campaign's model family; others keep their model until their campaign ends. The formulator keeps its model for the lifetime of a charter: a change here reaches the next charter, not the one being written. The setup assistant uses the lead's tier. The housekeeper is not an agent: it names branches, labels strategies and writes branch summaries in one-shot calls.</p>
           {data.housekeeping ? <div className="row wrap small" data-testid="housekeeping-status">
             <Pill tone={data.housekeeping.last_error?.text ? 'bad' : data.housekeeping.enabled ? 'clear' : ''}>housekeeper {data.housekeeping.model ? key(data.housekeeping.model) : 'no model'}</Pill>
             <span className="faint">{data.housekeeping.waiting} job{data.housekeeping.waiting === 1 ? '' : 's'} waiting</span>

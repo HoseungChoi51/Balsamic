@@ -140,7 +140,7 @@ def test_tiers_move_following_agents_and_never_cross_an_agents_family(tmp_path, 
     def save(revision, strong, medium):
         settings = tiers.TierSettings.model_validate({"expected_revision": revision, "tiers": [
             {"id": "strong", "label": "Strong", "model": strong}, {"id": "medium", "label": "Medium", "model": medium}],
-            "roles": {"lead": "strong", "methodology_specialist": "medium", "literature_specialist": "medium", "problem_importer": "medium"}})
+            "roles": {"lead": "strong", "methodology_specialist": "medium", "literature_specialist": "medium", "formulator": "medium"}})
         saved = tiers.save(workspace.store, settings)
         return saved, workspace.pi.apply_tiers(saved)
     sol = {"provider": "openai-codex", "model": "gpt-6-sol", "effort": "xhigh"}

@@ -116,7 +116,8 @@ def view(workspace, identity, *, revision=None):
                 note["charter_id"] = record["charter_id"]
                 with workspace.lock:
                     workspace.store.put("problem_note", note, "problem_note.linked")
-            charter = {"import_id": record["id"], "status": record.get("status"), "error": record.get("error"), "charter_id": record.get("charter_id"), "reply": record.get("reply")}
+            charter = {"import_id": record["id"], "status": record.get("status"), "error": record.get("error"), "charter_id": record.get("charter_id"), "reply": record.get("reply"),
+                       "model": record.get("model"), "tier": record.get("tier"), "usage": record.get("usage")}   # which model the formulator runs on: fixed for the import's lifetime
     if note.get("charter_id"):
         try:
             charter = {**(charter or {}), "charter": workspace.charters.view(note["charter_id"])}

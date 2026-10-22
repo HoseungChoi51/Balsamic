@@ -228,8 +228,10 @@ def suggestion_context(workspace, thread, messages):
     waiting = sum(1 for d in workspace.store.list("decision", campaign["id"]) if d.get("status") == "pending")
     recent = [m for m in messages if m.get("origin") not in {"lab_event", "manager_system", "setup"} and m.get("kind") != "agents_link"][-4:]
     transcript = "\n".join(f"{'Researcher' if m.get('role') == 'user' else 'Lead'}: {(m.get('content') or '')[:1200]}" for m in recent)
-    required = (f"\nRequired before any experiment: {step['title']} ({step['page']}); one suggestion must point the researcher there"
-                f"{' now, since proposals are waiting on it' if step['blocking'] else ''}." if step else "")
+    required = (f"\nThe researcher's own next step is: {step['title'].lower()} (on the page {step['page']}; every page already shows this, "
+                f"so never suggest it as a message, such as 'review the note'). A suggestion that helps there is a request to the lead "
+                f"about it: what is missing or weak, what it would change before the researcher goes ahead"
+                f"{', and proposals are waiting on it' if step['blocking'] else ''}." if step else "")
     return (f"Campaign stage: {stage['stage']} ({stage['basis']}). Proposals: {counts['hypothesis']}; runs: {counts['trial']} ({live} live); "
             f"races: {counts['adaptive_race']}; decisions waiting for the researcher: {waiting}.{required}\nCommands: {SLASH_HELP}.\n\n{transcript}")
 

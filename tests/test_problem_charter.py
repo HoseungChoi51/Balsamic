@@ -386,7 +386,77 @@ def test_every_blocking_finding_carries_suggested_ways_out():
     safe = next(row for row in rows if row["code"] == "constraint.qualitative")
     assert "no condition the lab can evaluate" in safe["message"] and "has no test" not in safe["message"]
     assert [item["action"] for item in safe["suggestions"]] == ["waive", "request"]
-    assert "Operate safely." in safe["suggestions"][0]["reason"] and "options" in safe["suggestions"][1]["text"]
+    assert "recorded criterion" in safe["suggestions"][0]["reason"] and "Operate safely." in safe["suggestions"][1]["text"]
     missing = next(row for row in rows if row["code"] == "quantity.no_value")
     assert [item["action"] for item in missing["suggestions"]] == ["request"] and "pressure_bar" in missing["suggestions"][0]["text"]
     assert all("suggestions" not in row for row in rows if row["severity"] == "warning")
+
+
+def test_unbounded_variables_of_a_declared_problem_give_variable_findings_not_a_validation_dump():
+    """A researcher reads "needs a lower and an upper bound", once per variable, and never a pydantic error. The evaluator
+    check waits until the variables are settled; when assembling still fails, the message is plain and the raw error is detail."""
+    draft = reactor()
+    for variable in draft["variables"]:
+        variable["upper"] = None
+    rows = C.findings(draft)
+    assert all(row["code"] == "variable.bounds" for row in rows if row["severity"] == "blocking" and row["code"] != "question.open"), rows
+    assert not any("pydantic" in row["message"] or "validation error" in row["message"] for row in rows)
+    invalid = C.evaluator_findings(C.parse(draft), C.resolve(C.parse(draft))["values"], {}, {v["name"]: 1 for v in draft["variables"]}, problems)
+    bad = [row for row in invalid if row["code"] == "evaluator.declared_invalid"]
+    assert bad and "validation error" not in bad[0]["message"] and "validation error" in bad[0]["detail"]
+
+
+def test_questions_come_in_at_most_two_rounds_and_the_view_says_which(workspace):
+    """The researcher knows when the asking ends: a charter takes two rounds of questions; the third is refused with the
+    instruction to record assumptions instead, and the view carries the count."""
+    charters = workspace.charters
+    record = charters.create(reactor(), source={"kind": "test"}, by="formulator")
+    view = charters.view(record["id"])
+    assert (view["question_rounds"], view["question_rounds_max"]) == (0, 2)
+    charters.ask(record["id"], [{"id": "solvent", "question": "Which solvent?", "options": ["MeCN", "Toluene"]}])
+    charters.ask(record["id"], [{"id": "stirring", "question": "Stirred?", "options": ["Yes", "No"]}])
+    assert charters.view(record["id"])["question_rounds"] == 2
+    with pytest.raises(ValueError, match="no more can be asked.*assumptions"):
+        charters.ask(record["id"], [{"id": "more", "question": "One more?", "options": ["A", "B"]}])
+
+
+def test_mixed_discrete_values_read_as_a_limit_of_the_lab_and_one_click_writes_them_as_ranges():
+    """The researcher is told in plain words which variables take which values and that the lab, not the problem, is the
+    limit; the suggested edit turns each discrete variable into a range, keeps its grid in words for the evaluator, and clears
+    the finding without the formulator."""
+    draft = reactor()
+    draft["variables"] = [
+        {"name": "pacing", "description": "Daily release multiplier", "representation": "discrete", "values": [0.5, 1.0, 1.5]},
+        {"name": "weights", "description": "Relative weights", "representation": "discrete", "shape": [3], "values": [1, 2, 3, 4, 5, 6, 7]}]
+    draft["constraints"] = [c for c in draft["constraints"] if c["form"] != "linear"]
+    rows = C.findings(draft)
+    row = next(r for r in rows if r["code"] == "evaluator.mixed_values")
+    assert "pacing takes 0.5, 1, 1.5" in row["message"] and "weights takes 1 to 7 in 7 steps" in row["message"]
+    assert "limit of the lab" in row["message"] and row["about"] == ["pacing", "weights"]
+    assert "evaluator binding" not in " ".join(s["label"] for s in row["suggestions"])
+    fix = next(s for s in row["suggestions"] if s["action"] == "edit")
+    updated = C.apply_changes(draft, fix["changes"], origin="researcher")
+    assert [v["representation"] for v in updated["variables"]] == ["continuous", "continuous"]
+    assert (updated["variables"][0]["lower"], updated["variables"][0]["upper"]) == (0.5, 1.5)
+    assert "Permitted values: 0.5, 1, 1.5" in updated["variables"][0]["description"]
+    assert "pacing: 0.5, 1, 1.5" in updated["evaluator"]["notes"] and "weights: 1 to 7 in 7 steps" in updated["evaluator"]["notes"]
+    assert not any(r["code"].startswith("evaluator.mixed") or r["code"].startswith("variable.") for r in C.findings(updated) if r["severity"] == "blocking")
+
+
+def test_a_data_quantity_fed_to_a_declared_evaluator_compiles_and_never_breaks_the_view():
+    """A charter may feed the evaluator a table or a structure (kind "data"). The manifest types it by what it holds, and
+    whatever else fails while assembling the manifest becomes a finding, never a dead page."""
+    draft = reactor()
+    draft["quantities"]["rolling_limits"] = {"description": "Rolling windows", "kind": "data", "role": "input", "origin": "source",
+                                             "value": [{"window_hours": 5, "limit_tu": 100}], "units": "1"}
+    draft["quantities"]["workload"] = {"description": "Workload shape", "kind": "data", "role": "input", "origin": "source",
+                                       "value": {"absence_probability": 0.1}, "units": "1"}
+    draft["evaluator"]["configuration"].update(rolling_limits="rolling_limits", workload="workload")
+    draft["questions"] = []
+    rows = C.findings(draft)
+    assert not [r for r in rows if r["severity"] == "blocking"], rows
+    parsed = C.parse(draft)
+    built = C.manifest(parsed, C.resolve(parsed)["values"])
+    properties = built.configuration_schema["properties"]
+    assert properties["rolling_limits"]["type"] == "array" and properties["workload"]["type"] == "object"
+    assert built.configuration["rolling_limits"] == [{"window_hours": 5, "limit_tu": 100}]

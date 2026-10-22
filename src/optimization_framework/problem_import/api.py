@@ -1,4 +1,4 @@
-"""HTTP routes for problem examples and the problem importer."""
+"""HTTP routes for problem examples and the formulator (problem import)."""
 from __future__ import annotations
 
 from typing import Literal

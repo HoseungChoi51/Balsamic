@@ -14,6 +14,15 @@ test('the note shows its sections with math, the glossary and the revisions; Ado
   await expect(page.getByTestId('section-noise')).toContainText('not written');
   await expect(page.getByTestId('section-knobs')).not.toHaveAttribute('data-empty', '1');
   await expect(page.getByTestId('page-note')).toContainText('revision 2');
+  // The outline says which sections are still to write; written ones fold away to leave them in view.
+  await expect(page.getByTestId('outline-item').filter({ hasText: 'Noise' })).toHaveAttribute('data-state', 'missing');
+  await expect(page.getByTestId('outline-item').filter({ hasText: 'Objective' })).toHaveAttribute('data-state', 'written');
+  await expect(page.getByTestId('outline')).toContainText('still to write');
+  await page.getByRole('button', { name: 'Fold written' }).click();
+  await expect(objective).toHaveAttribute('data-folded', '1');
+  await expect(page.getByTestId('section-noise')).not.toHaveAttribute('data-folded', '1');
+  await objective.getByTestId('section-fold').click();
+  await expect(objective).not.toHaveAttribute('data-folded', '1');
   await page.getByTestId('adopt').click();
   await expect.poll(() => recorded.commands.length).toBe(1);
   expect(recorded.commands[0]).toMatchObject({ operation: 'problem_note.adopt', payload: { note_id: 'note_demo', revision: 2 }, origin: { thread_id: THREAD_ID } });
@@ -53,4 +62,25 @@ test('Define answers from the glossary without the bus; Challenge goes through n
   await page.getByTestId('annotation-menu').getByRole('button', { name: 'Ask' }).click();
   await expect.poll(() => recorded.commands.length).toBe(2);
   expect(recorded.commands[1]).toMatchObject({ operation: 'note.ask', payload: { kind: 'challenge', question: 'Why not depth?' }, origin: { thread_id: THREAD_ID } });
+});
+
+test('the draft says it can be questioned and edited before adopting; Ask needs no selection and Edit saves a revision as a command', async ({ page }) => {
+  const recorded = await mockWorkspace(page);
+  await page.goto(`/#t/${THREAD_ID}/note`);
+  const guide = page.getByTestId('note-guide');
+  await expect(guide).toContainText('not yet adopted');
+  await expect(guide).toContainText('Ask about this');
+  await expect(guide).toContainText('Edit');
+  const knobs = page.getByTestId('section-knobs');
+  await knobs.getByTestId('section-ask').click();
+  await expect(page.getByTestId('annotation-menu')).toContainText('period p');   // the section's opening words stand as the quote
+  await knobs.getByTestId('section-edit').click();
+  await expect(page.getByTestId('annotation-menu')).toHaveCount(0);
+  const editor = knobs.getByTestId('section-editor');
+  await editor.getByTestId('section-editor-text').fill('The period p and the fill factor f.');
+  await editor.getByTestId('section-editor-items').fill('period p\nfill factor f');
+  await editor.getByTestId('section-editor-save').click();
+  await expect.poll(() => recorded.commands.length).toBe(1);
+  expect(recorded.commands[0]).toMatchObject({ operation: 'problem_note.revise', payload: { note_id: 'note_demo', sections: { knobs: { text: 'The period p and the fill factor f.', items: ['period p', 'fill factor f'], latex: [] } } }, origin: { thread_id: THREAD_ID } });
+  await expect(knobs.getByTestId('section-editor')).toHaveCount(0);
 });

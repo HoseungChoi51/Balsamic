@@ -131,7 +131,10 @@ summaries, the context drawer and placeholders arrive with M1.
 ## M1: formulation and branchable chat
 
 **Housekeeping.** `balsamic/housekeeping.py` runs naming and labelling jobs on the maintenance tick, a few per tick,
-on the lightest model: the `housekeeper` role on the model tiers (Monitor → Models; default tier `fast`), or the
+on the lightest model: the `housekeeper` role on the model tiers (Monitor → Models; default tier `fast`; the roles
+table names every role as the pages do, the ones the researcher talks with first and accented, and a tier saved under
+the old role name `problem_importer` is read as `formulator`; the Charter tab names the formulator's model, tier and
+call count, fixed for the import's lifetime), or the
 profile default before tiers are saved. Jobs: a two-to-six-word title for a branch forked without one (from the forked
 message and the turns around it; `thread.title_source = housekeeper`), a two-or-three-word `short_title` for every
 hypothesis (lineage nodes and chips show it; the title stays the full statement), and the branch summary cards.
@@ -152,10 +155,23 @@ its page) stays on the page.
 (`accept-assumptions {names}`) or a new value; `quantity.no_value` / `quantity.range` → a number or an expression
 (`edit {changes: [{op: set, path: quantities.<name>.value|expression}]}`); `variable.bounds` / `variable.values` →
 bounds or values (`variables.<index>.lower|upper|values`); any finding → its `suggestions` as one-click buttons (a
-`waive` posts `waive {key, reason}`, a `request` posts `requests {text}`; "Ask the formulator" opens its box prefilled
+`waive` posts `waive {key, reason}`, a `request` posts `requests {text}`, an `edit` posts its computed `changes` with its
+`rationale` as the researcher's own edit, shown as the primary button with a line saying what it does; "Ask the formulator" opens its box prefilled
 with the suggested request) or Waive when waivable. The section is titled "Checks to pass before confirming" and says
-the findings come from the checks, not the formulator; the questions section says the opposite. Quantities and variables are editable tables (numbers typed as numbers; derived values shown computed);
-questions are answered from their options or in words (`answers`); proposals are chosen (`…/decision`). Confirm is
+the findings come from the checks, not the formulator; the questions section says the opposite. In a finding or a
+question, every quantity and variable name is set apart (`.qname`, its description on hover) and the names it is about
+are explained under it in words (`finding-meaning`); fields carry their guidance as a label above the box, never as a
+placeholder that a narrow box cuts off. Across the app, an agent pill whose words say it is at work (running, revising,
+deciding, …) carries a pulsing dot (`Pill`, `live`). Quantities and variables are editable tables (numbers typed as numbers; derived values shown computed);
+questions are answered from their options (the formulator's recommendation first, marked) or in words (`answers`), and
+none is required: "Send N answers, leave M to the formulator" (`send-answers`) sends the round as it stands, and a
+question sent without an answer is shown as "left to the formulator" (`sent` without `answer`) while the formulator
+decides it and records an assumption; the section's state reads "round r of 2 · n of m open" (`question_rounds`,
+`question_rounds_max` from the view), its lead says whether another round can follow, and an answered question leaves
+the open list and folds away under "N answered"; a proposal is shown as an answer to the request in the researcher's own words (`asked`,
+recorded by `charters.propose` beside the formulator's `request`), each option a card with its label, its reason in
+prose, the computed changes (`diff`) and the checks it leaves open folded away, never the raw changes; decided proposals
+fold under "N earlier proposals"; one option is chosen (`…/decision`). Confirm is
 enabled only with no blocking finding and no open question, and says why otherwise. The raw charter wraps.
 
 **Panels.** Pages the lead and the formulator compose from a catalog of components, validated, resolved on the server
@@ -244,7 +260,9 @@ side wrote and the lead's last line. Parking writes one; merging writes an activ
 `count` `placeholder` records, posts the request as a message with `refs`, and gives the lead a turn on the thread with
 `batch_id` in its origin; each `hypothesis.create` from that run resolves the next placeholder. `/generate N …`,
 `/evolve H01`, `/review`, `/compare`, `/probe`, `/plan`, `/note`, `/discuss`, `/fork`, `/merge into`, `/park` and `/help`
-are the composer's slash commands (`frontend/src/chat/slash.ts`).
+are the composer's slash commands (`frontend/src/chat/slash.ts`). The housekeeper's suggestions are requests to the lead;
+the researcher's own next step (adopt the note, confirm the charter) is the callout every page shows, never a suggested
+message.
 
 **The problem note.** `problem_note` (mutable head: title, current and adopted revision, charter and import ids, status
 drafting/adopted/confirmed), `problem_note_revision` (immutable: the seven sections, each `{text, items, latex}`, the
@@ -252,7 +270,12 @@ glossary, the author, the reason, the source message and run, the proposing anno
 kind, question, tier, escalation, answer, proposed edit, visual, status). The lead writes it with `problem_note_draft`
 (each call a new revision in its name) and answers questions with `problem_note_propose` (an answer and, only when the
 note should change, a proposed edit the researcher accepts with `note.resolve`; the note never changes silently). The
-researcher revises with `problem_note.revise`. Tiers (`balsamic/notes/router.py`): lookup (the glossary) and quick (one
+researcher revises with `problem_note.revise`: the page says so while the note is a draft (a callout under the tabs:
+question it, edit it, or tell the lead; adopt when it is right), an outline strip names every section with ✓ written
+or ! missing and "n of 7 still to write" (a click scrolls to it; "Fold written" leaves only the unwritten in view, each
+section folds on its own), and every section has "Ask about this" (the annotation menu with the section's opening words
+as the quote, no selection needed) and "Edit" (text, items and formulas in three fields that grow with the text, saved
+as a revision in the researcher's name); a proposed edit is shown as the note would read, the raw data folded. Tiers (`balsamic/notes/router.py`): lookup (the glossary) and quick (one
 cheap model call with the note as its only context) answer at `POST /problem-notes/{id}/ask` without the bus; with
 model calls off the quick tier escalates to the lead tier and says why; lead and visual go through `note.ask` as a turn
 of the lead (`render_visual` saves a self-contained HTML/SVG of at most 256 KiB as an `agent_artifact` of kind visual;

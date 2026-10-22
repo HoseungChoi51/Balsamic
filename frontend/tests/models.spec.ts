@@ -7,6 +7,10 @@ test('the Models page assigns a tier per role and a model per tier, saved with t
   await page.goto(`/#t/${THREAD_ID}/monitor/models`);
   await expect(page.getByTestId('page-monitor')).toContainText('deepseek (api)');
   await expect(page.getByTestId('tier-row')).toHaveCount(2);
+  // Roles are named as the pages name them; the ones the researcher talks with come first, accented.
+  await expect(page.getByTestId('roles-direct').getByTestId('role-row')).toHaveCount(2);   // the mock lists lead, proposal_reviewer, formulator
+  await expect(page.getByTestId('roles-direct').locator('[data-role="formulator"]')).toContainText('Formulator');
+  await expect(page.getByTestId('roles-behind').locator('[data-role="proposal_reviewer"]')).toContainText('Proposal reviewer');
   await page.getByLabel('tier of proposal_reviewer').selectOption('fast');
   await page.getByLabel('model of fast').selectOption('deepseek/deepseek-v4-pro');
   await page.getByLabel('thinking of fast').selectOption('low');

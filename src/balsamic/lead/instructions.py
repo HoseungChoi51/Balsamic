@@ -27,6 +27,9 @@ def lead_instructions(workspace):
                      "to set together, a curve beside a decision), compose one with panel_render from the catalog instead of asking for values in "
                      "chat; the researcher types into it, values go through the charter with a receipt, and the panel appears on its page and as a "
                      "card in this conversation. Revise it with its panel_id rather than making another.")
+        lines.append("Names. Call the agents what the researcher sees on the pages: the formulator (writes the charter after Adopt), the "
+                     "discussion moderator, the experiment operator, the implementation lead, the resource planner, the housekeeper, the "
+                     "specialists by their plain names. Never a role id such as problem_importer, and never \"problem importer\".")
         lines.append("Threads. The researcher's conversation can branch: each thread is a branch of your session, and your turn runs in the thread that "
                      "asked. A message in one thread does not change what you were asked in another. Lab events (a command another thread ran) arrive as "
                      "one-line notes; thread_pin keeps a record in this thread's context, lab_events lists what happened elsewhere.")

@@ -122,7 +122,19 @@ export const deskMessages = [
   { id: 'message_desk_1', campaign_id: CAMPAIGN_ID, role: 'user', origin: 'researcher', desk: 'discussion_moderator', content: 'Which proposal looked weakest?', created_at: '2026-10-19T08:12:00Z' },
   { id: 'message_desk_2', campaign_id: CAMPAIGN_ID, role: 'assistant', origin: 'page_agent', desk: 'discussion_moderator', content: 'The third: its mechanism is underspecified.', created_at: '2026-10-19T08:13:00Z' },
 ];
-export const charterView = { id: 'charter_1', title: 'Token sharing', status: 'draft', revision: 2, blocking: 3, proposals: [], history: [], values: { n_users: 10, n_agents: 2, n_seats: 12, working_days_per_month: 20, monthly_budget_tokens: null },
+export const charterProposal = { id: 'charter_proposal_1', charter_id: 'charter_1', base_revision: 2, status: 'open', accepted_option: null, created_at: '2026-10-19T09:00:00Z',
+  request: 'Resolve the weekly-limit request from the sources without inventing a number.', asked: 'Make the weekly limit follow from the monthly budget',
+  options: [
+    { label: 'Derive it from the monthly budget', reason: 'The monthly budget is the only sourced figure. Four weeks to the month is the working assumption the sources use.',
+      changes: [{ op: 'set', path: 'quantities.weekly_limit_per_seat.expression', value: 'monthly_budget_tokens / n_seats / 4' }, { op: 'set', path: 'quantities.weekly_limit_per_seat.role', value: 'derived' }],
+      blocking_reason: null, findings: [],
+      diff: [{ part: 'quantity', name: 'weekly_limit_per_seat', change: 'changed', before: 2400000, after: 'monthly_budget_tokens / n_seats / 4' }, { part: 'quantity', name: 'weekly_limit_per_seat', change: 'changed', before: 'input', after: 'derived' }] },
+    { label: 'Keep it as an input and ask for the figure', reason: 'If the weekly limit is a provider rule rather than a share of the budget, it should stay an input.',
+      changes: [{ op: 'set', path: 'quantities.weekly_limit_per_seat.value', value: null }],
+      blocking_reason: 'The sources give no weekly figure; the value has to come from the researcher.', findings: [{ message: 'weekly_limit_per_seat has no value. Give one, or state how it follows from others.' }],
+      diff: [{ part: 'quantity', name: 'weekly_limit_per_seat', change: 'changed', before: 2400000, after: null }] },
+  ] };
+export const charterView = { id: 'charter_1', title: 'Token sharing', status: 'draft', revision: 2, blocking: 3, question_rounds: 1, question_rounds_max: 2, proposals: [], history: [], values: { n_users: 10, n_agents: 2, n_seats: 12, working_days_per_month: 20, monthly_budget_tokens: null },
   errors: { monthly_budget_tokens: 'no value' }, rendered: { text: 'Share **120 M** tokens across 12 seats.' },
   findings: [
     { key: 'assumption.unaccepted:working_days_per_month', code: 'assumption.unaccepted', severity: 'blocking', message: 'working_days_per_month = 20 day is an assumption. Accept it, change it, or ask for a change.', about: ['working_days_per_month'], waivable: false },
@@ -140,7 +152,7 @@ export const charterView = { id: 'charter_1', title: 'Token sharing', status: 'd
     },
     variables: [{ name: 'daily_cap', description: 'Daily token cap for each seat', representation: 'continuous', shape: ['n_seats'], lower: 0, upper: null, values: [], units: 'token/day' }],
     questions: [{ id: 'value_scoring', question: 'How is the value of work quantified?', options: ['Discrete 1-5 impact score', 'Continuous value in currency'], answer: null }, { id: 'granularity', question: 'Are caps set per day or per week?', options: ['Per day', 'Per week'], answer: null }] } };
-export const adoptedNoteView = { ...noteView, note: { ...noteView.note, status: 'adopted', adopted_revision: 2, charter_id: 'charter_1' }, charter: { charter_id: 'charter_1', status: 'ready', import_id: 'import_1', error: null } };
+export const adoptedNoteView = { ...noteView, note: { ...noteView.note, status: 'adopted', adopted_revision: 2, charter_id: 'charter_1' }, charter: { charter_id: 'charter_1', status: 'ready', import_id: 'import_1', error: null, model: { provider: 'centinels', model: 'gpt-6.1-sol', effort: null }, tier: 'strong', usage: { calls: 15, cost_usd: 0 } } };
 export const panel = { id: 'panel_1', campaign_id: CAMPAIGN_ID, title: 'Seat budget', page: '#note/charter', placement: 'bottom', note: 'Type the budget; the per-user figure follows.', author: 'formulator', revision: 1, status: 'active',
   created_at: '2026-10-20T08:00:00Z', updated_at: '2026-10-20T08:00:00Z', resolved_at: '2026-10-20T08:00:00Z',
   components: [

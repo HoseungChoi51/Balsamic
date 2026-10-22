@@ -19,8 +19,8 @@ textarea { resize: vertical; }
 .btn { display: inline-flex; align-items: center; gap: 6px; padding: 5px 10px; border: 1px solid var(--line-2); border-radius: var(--radius-s); background: var(--panel); cursor: pointer; }
 .btn:hover { background: var(--panel-2); } .btn[disabled] { opacity: .55; cursor: not-allowed; }
 .btn.primary { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); } .btn.primary:hover { filter: brightness(1.05); }
-.btn.quiet { border-color: transparent; background: transparent; } .btn.quiet:hover { background: var(--panel-2); }
-.btn.small { padding: 2px 8px; font-size: 12px; }
+.btn.quiet { border-color: var(--line); background: transparent; color: var(--ink-2); } .btn.quiet:hover { background: var(--panel-2); color: var(--ink); border-color: var(--line-2); }
+.btn.small { padding: 3px 9px; font-size: 12px; }
 /* Visual language. Status (inert): .pill, flat tinted capsule, no border, default cursor. Controls: .btn, bordered, hover
    darkens, pointer; .btn.primary for the one main action; .btn.quiet for secondary chrome. Links to records and pages:
    .chip (mono, dotted underline) and plain <a>. Fields: inputs with a solid border. */
@@ -197,3 +197,23 @@ table.quantities td { vertical-align: top; }
 /* the problem-definition gate */
 .card.unwritten { border-style: dashed; }
 .pill.warn { background: var(--warn-soft); color: var(--warn); } .pill.good { background: var(--good-soft, var(--accent-soft)); color: var(--good, var(--accent)); }
+
+/* Something is running: a pulsing dot, not only a tinted word. */
+.pill.live::before { content: ''; width: 7px; height: 7px; border-radius: 50%; background: currentColor; animation: pulse 1.2s ease-in-out infinite; flex: none; }
+/* A quantity or variable name in prose: set apart, with its meaning on hover. */
+.qname { font-family: var(--mono); font-size: 12px; padding: 0 5px; border-radius: 4px; background: var(--accent-soft); color: var(--ink); border-bottom: 1px dotted var(--accent); cursor: help; white-space: nowrap; }
+.finding-meaning { margin-top: 4px; display: flex; flex-wrap: wrap; gap: 2px 14px; } .finding-meaning .qname { margin-right: 5px; }
+/* A field with its guidance above it, so the guidance is never cut off inside a narrow box. */
+.field { display: inline-flex; flex-direction: column; gap: 2px; min-width: 0; } .field > .field-label { font-size: 11.5px; color: var(--ink-2); white-space: nowrap; } .field.grow { flex: 1; }
+.field.grow input { width: 100%; }
+/* The problem note: an outline of its sections, each foldable. */
+.outline { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin-bottom: 10px; }
+.outline a { display: inline-flex; align-items: center; gap: 5px; padding: 3px 10px; border: 1px solid var(--line); border-radius: 999px; font-size: 12px; color: var(--ink-2); background: var(--panel); }
+.outline a:hover { text-decoration: none; border-color: var(--accent); color: var(--ink); }
+.outline a.done::before { content: '✓'; color: var(--good); font-weight: 700; }
+.outline a.missing { border-style: dashed; border-color: var(--warn); color: var(--warn); } .outline a.missing::before { content: '!'; font-weight: 700; }
+.section-head { display: flex; align-items: center; gap: 8px; } .section-head h2 { flex: 1; margin: 0; }
+.fold-toggle { border: 0; background: transparent; color: var(--ink-3); cursor: pointer; width: 20px; font-size: 12px; padding: 0; flex: none; } .fold-toggle:hover { color: var(--ink); }
+.card.folded { padding-bottom: 8px; }
+tr.accent td { background: var(--accent-soft); } tr.accent td:first-child { border-left: 3px solid var(--accent); }
+.editor textarea { width: 100%; font-size: 13.5px; line-height: 1.5; }

@@ -1,7 +1,11 @@
 import type { ReactNode } from 'react';
 
-export function Pill({ tone = '', children, title }: { tone?: string; children: ReactNode; title?: string }) {
-  return <span className={'pill ' + tone} title={title}>{children}</span>;
+const AT_WORK = /\b(running|working|revising|deciding|generating|starting|formulating|thinking|reviewing|writing|drafting the)\b/i;
+/** A label. An agent pill whose words say it is at work gets a pulsing dot (`live` forces it either way). */
+export function Pill({ tone = '', children, title, live }: { tone?: string; children: ReactNode; title?: string; live?: boolean }) {
+  const text = typeof children === 'string' ? children : Array.isArray(children) ? children.filter(c => typeof c === 'string').join('') : '';
+  const pulsing = live ?? (tone === 'agent' && AT_WORK.test(text));
+  return <span className={'pill ' + tone + (pulsing ? ' live' : '')} title={title} data-live={pulsing ? '1' : undefined}>{children}</span>;
 }
 /** A control that cannot be used says why, next to itself, instead of vanishing. */
 export function Disabled({ why, children }: { why: string; children: ReactNode }) {

@@ -10,17 +10,19 @@ import { Empty, Failed, Loading, Pill, Section } from '../primitives/ui';
 
 interface Quantity { description?: string; kind?: string; role: 'input' | 'derived' | string; value: number | null; expression: string | null; units?: string; range?: [number | null, number | null] | null; origin?: string; accepted?: boolean; note?: string }
 interface Variable { name: string; description?: string; representation: string; lower: number | null; upper: number | null; values: unknown[]; units?: string; shape?: unknown[] }
-interface Suggestion { label: string; action: 'waive' | 'request' | string; reason?: string; text?: string }
-interface Finding { key: string; code: string; severity: 'blocking' | 'warning' | string; message: string; about: string[]; waivable: boolean; suggestions?: Suggestion[] }
-interface Question { id: string; question: string; options?: string[]; answer: string | null }
-interface Proposal { id: string; status: string; request?: string; options?: { summary?: string; changes?: unknown[] }[] }
-interface CharterView { id: string; title?: string; status: string; revision: number; blocking: number; findings: Finding[]; values: Record<string, number | null>; errors?: Record<string, string>;
+interface Suggestion { label: string; action: 'waive' | 'request' | 'edit' | string; reason?: string; text?: string; changes?: Record<string, unknown>[]; rationale?: string }
+interface Finding { key: string; code: string; severity: 'blocking' | 'warning' | string; message: string; about: string[]; waivable: boolean; suggestions?: Suggestion[]; detail?: string }
+interface Question { id: string; question: string; options?: string[]; about?: string[]; answer: string | null; sent?: boolean }
+interface Change { part: string; name: string; change: string; before?: unknown; after?: unknown }
+interface ProposalOption { label?: string; summary?: string; reason?: string; changes?: unknown[]; blocking_reason?: string | null; diff?: Change[]; findings?: { message: string }[] }
+interface Proposal { id: string; status: string; request?: string; asked?: string | null; created_at?: string; accepted_option?: number | null; options?: ProposalOption[] }
+interface CharterView { id: string; title?: string; status: string; revision: number; blocking: number; question_rounds?: number; question_rounds_max?: number; findings: Finding[]; values: Record<string, number | null>; errors?: Record<string, string>;
   rendered?: Record<string, string>; proposals: Proposal[]; charter: { title?: string; text?: string; summary?: string; quantities: Record<string, Quantity>; variables: Variable[]; questions: Question[]; assumptions: { statement: string; accepted?: boolean }[]; waivers: { key: string; reason: string }[] } }
 
 const number = (text: string) => { const v = Number(text.replace(/[,_\s]/g, '')); return Number.isFinite(v) ? v : null; };
 const show = (v: unknown) => v == null ? '' : typeof v === 'number' ? (Math.abs(v) >= 1e4 ? v.toLocaleString('en-US') : String(v)) : String(v);
 
-export function CharterPanel({ charterId, campaignId, version, onChanged, formulator }: { charterId: string; campaignId: string; version?: number; onChanged: () => unknown; formulator?: string | null }) {
+export function CharterPanel({ charterId, campaignId, version, onChanged, formulator, formulatorModel }: { charterId: string; campaignId: string; version?: number; onChanged: () => unknown; formulator?: string | null; formulatorModel?: { name: string; tier: string | null; calls: number | null } | null }) {
   const charter = useRead<CharterView>(['charter', charterId], `/api/v1/problem-charters/${charterId}`, { refetchInterval: 8000 });
   const queryClient = useQueryClient();
   const [error, setError] = useState<string | null>(null);
@@ -48,16 +50,27 @@ export function CharterPanel({ charterId, campaignId, version, onChanged, formul
     try {
       await api(`/api/v1/problem-charters/${charterId}/confirm`, { method: 'POST', body: JSON.stringify({ expected_revision: c.revision }) });
       if (version !== undefined) await send({ operation: 'campaign.update', campaignId, expectedRevision: version, payload: { charter: { id: charterId, revision: c.revision }, rationale: 'Confirmed the charter adopted from the problem note' } });
-      await Promise.all([refresh(), queryClient.invalidateQueries({ queryKey: ['summary', campaignId] })]);
+      // The next-step callout on every page reads the campaigns list: refresh it too, so "confirm the charter" goes at once.
+      await Promise.all([refresh(), queryClient.invalidateQueries({ queryKey: ['summary', campaignId] }), queryClient.invalidateQueries({ queryKey: ['campaigns'] })]);
       onChanged();
     } catch (e) { setError(String((e as Error).message || e)); }
     finally { setBusy(false); }
   };
-  const openQuestions = doc.questions.filter(q => q.answer == null);
+  // Open: not answered and not yet sent. Left: sent without an answer, for the formulator to decide and record.
+  const openQuestions = doc.questions.filter(q => q.answer == null && !q.sent);
+  const leftQuestions = doc.questions.filter(q => q.answer == null && q.sent);
+  const unsentAnswers = doc.questions.filter(q => q.answer != null && !q.sent);
   const blocking = c.findings.filter(f => f.severity === 'blocking' && f.code !== 'question.open');
   const working = formulator === 'running';
   // Open work first, settled work last: the first open item is marked "next" so the eye lands on it.
-  const questions = [...doc.questions.filter(q => q.answer == null), ...doc.questions.filter(q => q.answer != null)];
+  const answeredQuestions = doc.questions.filter(q => q.answer != null);
+  const rounds = { done: c.question_rounds ?? 0, max: c.question_rounds_max ?? 2 };
+  const lastRound = rounds.done >= rounds.max;
+  const roundLabel = rounds.done ? `round ${Math.min(rounds.done, rounds.max)} of ${rounds.max} · ` : '';
+  const openProposals = c.proposals.filter(p => p.status === 'open');
+  const decidedProposals = c.proposals.filter(p => p.status !== 'open');
+  // A request the formulator has answered with a proposal is shown with that proposal, not as "sent".
+  const pending = asked.filter(a => a.revision === c.revision && !c.proposals.some(p => p.asked === a.text));
   const nextId = blocking.length ? blocking[0].key : openQuestions.length ? openQuestions[0].id : null;
   const warnings = c.findings.filter(f => f.severity !== 'blocking');
   const confirmed = c.status === 'confirmed';
@@ -71,6 +84,9 @@ export function CharterPanel({ charterId, campaignId, version, onChanged, formul
         {error ? <div className="pill bad" role="alert" data-testid="charter-error">{error}</div> : null}
         {why && !confirmed ? <p className="small muted" data-testid="confirm-why">{why}. Settle each item below; nothing commits until you confirm.</p> : null}
         {doc.summary ? <p className="lede">{doc.summary}</p> : null}
+        {formulatorModel ? <div className="row small faint" data-testid="formulator-model" style={{ marginTop: 4 }}><span className="finding-code">formulator</span>
+          <span>{working ? 'working on' : formulator === 'failed' ? 'failed on' : 'runs on'} <span className="mono">{formulatorModel.name}</span>{formulatorModel.tier ? <> (the "{formulatorModel.tier}" tier; the formulator row under Monitor → Models)</> : null}{formulatorModel.calls != null ? <>, {formulatorModel.calls} call{formulatorModel.calls === 1 ? '' : 's'} so far</> : null}. The model is fixed for this charter; a tier change applies to the next one.</span>
+          {working ? <Pill tone="agent">working</Pill> : null}</div> : null}
       </Section>
 
       {blocking.length ? <Section title="Checks to pass before confirming" right={<span className="small faint">found by the charter's own checks (code, no model), on every revision</span>}>
@@ -81,10 +97,19 @@ export function CharterPanel({ charterId, campaignId, version, onChanged, formul
       </Section> : null}
 
       {doc.questions.length ? <Section title="Questions from the formulator" right={<span className="small faint" data-testid="questions-state">
-          {openQuestions.length ? `${openQuestions.length} of ${doc.questions.length} to answer` : working ? 'all answered · the formulator is revising the charter' : 'all answered'}</span>}>
-        <p className="small muted">What the formulator could not decide from the sources alone. Pick an option, or answer in your own words; it revises the charter from your answers.</p>
-        {!openQuestions.length && working ? <div className="finding small" data-testid="formulator-working"><span className="finding-code">formulator</span>Working on your answers: a new revision, new findings or new questions may follow. Nothing to do here until then.<Pill tone="agent">working</Pill></div> : null}
-        {questions.map(q => <QuestionRow key={q.id} question={q} busy={busy} post={post} working={working} next={q.id === nextId} />)}
+          {roundLabel}{openQuestions.length ? `${openQuestions.length} of ${doc.questions.length} open` : working ? (leftQuestions.length ? `${leftQuestions.length} left to the formulator · it is revising the charter` : 'all answered · the formulator is revising the charter') : leftQuestions.length ? `${leftQuestions.length} left to the formulator` : 'all answered'}</span>}>
+        {openQuestions.length ? <p className="small muted" data-testid="questions-lead">What the formulator could not decide from the sources alone. Answer what you can; its recommendation comes first. You are not expected to know every answer: send the rest unanswered, and the formulator decides them from your answers and the sources and records each as an assumption you can change later, once a run has shown what it meant.
+          {lastRound ? ' This is the last round: no further questions can follow.' : ` At most ${rounds.max - rounds.done} more round${rounds.max - rounds.done === 1 ? '' : 's'} of questions can follow, only for what no answer or source can decide.`}</p> : null}
+        {!openQuestions.length && working ? <div className="finding small" data-testid="formulator-working"><span className="finding-code">formulator</span>Revising the charter from your answers{leftQuestions.length ? `, deciding the ${leftQuestions.length} you left to it` : ''}. {lastRound ? 'No further questions can follow; what stays open becomes assumptions or values for you to settle.' : 'At most one more round of questions can follow, only for what no answer or source can decide.'}<Pill tone="agent">working</Pill></div> : null}
+        {openQuestions.length ? <div className="col" data-testid="open-questions">{openQuestions.map(q => <QuestionRow key={q.id} question={q} doc={doc} busy={busy} post={post} working={working} next={q.id === nextId} />)}
+          <div className="row" style={{ marginTop: 4 }}><button className="btn small" disabled={busy || working} data-testid="questions-send" title="Sends the round now. Unanswered questions go to the formulator, which decides each from your answers and the sources and records it as an assumption you can change later."
+            onClick={() => post('send-answers', {})}>{unsentAnswers.length ? `Send ${unsentAnswers.length} answer${unsentAnswers.length === 1 ? '' : 's'}, leave ${openQuestions.length} to the formulator` : `Leave all ${openQuestions.length} to the formulator`}</button>
+            <span className="small faint">or answer the rest; the round goes by itself once nothing is open</span></div></div> : null}
+        {leftQuestions.length ? <div className="col" data-testid="left-questions">{leftQuestions.map(q => <QuestionRow key={q.id} question={q} doc={doc} busy={busy} post={post} working={working} />)}</div> : null}
+        {answeredQuestions.length ? <details className="fold" data-testid="answered-questions" style={{ marginTop: openQuestions.length ? 8 : 0, borderBottom: 'none' }}>
+          <summary><span className="fold-title small">{answeredQuestions.length} answered{working ? ' · the formulator is working on the answers' : ''}</span></summary>
+          <div className="col" style={{ marginTop: 6 }}>{answeredQuestions.map(q => <QuestionRow key={q.id} question={q} doc={doc} busy={busy} post={post} working={working} />)}</div>
+        </details> : null}
       </Section> : null}
 
       <Section title="Quantities" right={<span className="small faint">type a number and press Enter; derived values are computed</span>}>
@@ -99,11 +124,15 @@ export function CharterPanel({ charterId, campaignId, version, onChanged, formul
         </tbody></table>
       </Section> : null}
 
-      {asked.filter(a => a.revision === c.revision).length ? <Section title="Asked of the formulator" right={<span className="small faint">it answers with a proposal below, or a new revision</span>}>
-        {asked.filter(a => a.revision === c.revision).map(a => <div key={a.at} className="finding small" data-testid="asked"><span className="finding-code">sent</span>{a.text}<Pill tone="agent">{working ? 'formulator working' : 'sent'}</Pill></div>)}
+      {pending.length ? <Section title="Asked of the formulator" right={<span className="small faint">it answers with a proposal below, or a new revision</span>}>
+        <div className="col">{pending.map(a => <div key={a.at} className="finding small row" data-testid="asked"><span className="finding-code">sent</span><span className="grow">{a.text}</span><Pill tone="agent">{working ? 'formulator working' : 'sent'}</Pill></div>)}</div>
       </Section> : null}
-      {c.proposals.length ? <Section title="Proposals from the formulator">
-        {c.proposals.map(p => <ProposalRow key={p.id} proposal={p} busy={busy} charterId={charterId} refresh={refresh} setError={setError} />)}
+      {c.proposals.length ? <Section title="Proposals from the formulator" right={<span className="small faint">choose one option, or decline them all; the numbers in them are computed, not stated</span>}>
+        <div className="col">{openProposals.map(p => <ProposalRow key={p.id} proposal={p} busy={busy} refresh={refresh} setError={setError} />)}</div>
+        {decidedProposals.length ? <details className="fold" data-testid="decided-proposals" style={{ marginTop: openProposals.length ? 8 : 0, borderBottom: 'none' }}>
+          <summary><span className="fold-title small">{decidedProposals.length} earlier proposal{decidedProposals.length === 1 ? '' : 's'}</span></summary>
+          <div className="col" style={{ marginTop: 6 }}>{decidedProposals.map(p => <ProposalRow key={p.id} proposal={p} busy={busy} refresh={refresh} setError={setError} />)}</div>
+        </details> : null}
       </Section> : null}
 
       {warnings.length ? <Section title="Warnings" right={<span className="small faint">not blocking; the formulator can tidy them</span>}>
@@ -148,6 +177,27 @@ function useLocalError() {
   return { error, guard, line: error ? <div className="pill bad" role="alert" data-testid="control-error">{error}</div> : null };
 }
 
+const escapeRe = (text: string) => text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+/** What a quantity or variable means, for a name in a finding or question. */
+function meaningOf(doc: CharterView['charter'], name: string): string {
+  const q = doc.quantities[name]; const v = doc.variables.find(x => x.name === name);
+  const text = q?.description || v?.description || '';
+  const units = q?.units && q.units !== '1' ? ` (${q.units})` : v?.units && v.units !== '1' ? ` (${v.units})` : '';
+  return text ? text + units : '';
+}
+/** Prose with the charter's names set apart, each carrying its meaning on hover. */
+function Names({ text, doc }: { text: string; doc: CharterView['charter'] }) {
+  const names = [...Object.keys(doc.quantities), ...doc.variables.map(v => v.name)].filter(n => n.length > 1).sort((a, b) => b.length - a.length);
+  if (!names.length) return <>{text}</>;
+  const re = new RegExp(`(?<![\\w])(${names.map(escapeRe).join('|')})(?![\\w])`, 'g');
+  return <>{text.split(re).map((part, i) => names.includes(part) ? <span key={i} className="qname" title={meaningOf(doc, part) || 'No description in the charter'}>{part}</span> : part)}</>;
+}
+/** The meaning of each name a finding or question is about, in words, under it: the reader need not know the charter by heart. */
+function Meanings({ names, doc }: { names: string[]; doc: CharterView['charter'] }) {
+  const rows = names.map(name => [name, meaningOf(doc, name)] as const).filter(([, meaning]) => meaning);
+  return rows.length ? <div className="small muted finding-meaning" data-testid="finding-meaning">{rows.map(([name, meaning]) => <span key={name}><span className="qname">{name}</span>{meaning}</span>)}</div> : null;
+}
+
 function FindingRow({ finding, doc, values, busy, edit, post, variableIndex, next }: { finding: Finding; doc: CharterView['charter']; values: Record<string, number | null>; busy: boolean; edit: (changes: Record<string, unknown>[], rationale: string) => Promise<unknown>; post: (path: string, body: Record<string, unknown>) => Promise<unknown>; variableIndex: (name: string) => number; next?: boolean }) {
   const [mode, setMode] = useState<'value' | 'expression' | 'ask' | 'waive' | null>(null);
   const [text, setText] = useState('');
@@ -163,7 +213,9 @@ function FindingRow({ finding, doc, values, busy, edit, post, variableIndex, nex
   const suggestedRequest = suggestions.find(s => s.action === 'request')?.text || '';
   return (
     <article className={'finding blocking' + (next ? ' next' : '')} data-testid="finding" data-code={code} data-about={name || ''} data-next={next ? '1' : undefined}>
-      <div className="row">{next ? <Pill tone="you">next</Pill> : null}<span className="finding-code">{code}</span><span className="grow">{finding.message}</span></div>
+      <div className="row">{next ? <Pill tone="you">next</Pill> : null}<span className="finding-code">{code}</span><span className="grow"><Names text={finding.message} doc={doc} /></span></div>
+      <Meanings names={finding.about} doc={doc} />
+      {finding.detail ? <details className="fold" style={{ borderBottom: 'none' }} data-testid="finding-detail"><summary><span className="fold-title small">Technical detail (for the formulator or a developer)</span></summary><pre className="wrap small">{finding.detail}</pre></details> : null}
       <div className="row wrap finding-actions">
         {code === 'assumption.unaccepted' && quantity ? <>
           <button className="btn small primary" disabled={busy} onClick={() => post('accept-assumptions', { names: [name] })} data-testid="accept-assumption">Accept {show(quantity.value)}{quantity.units && quantity.units !== '1' ? ` ${quantity.units}` : ''}</button>
@@ -172,30 +224,36 @@ function FindingRow({ finding, doc, values, busy, edit, post, variableIndex, nex
         </> : null}
         {code === 'assumption.unaccepted' && !quantity ? <button className="btn small primary" disabled={busy} onClick={() => post('accept-assumptions', { names: [name] })} data-testid="accept-assumption">Accept</button> : null}
         {code === 'quantity.no_value' || code === 'quantity.range' || code === 'constraint.test' && quantity ? <>
-          <NumberField initial={quantity?.value} units={quantity?.units} placeholder={`value of ${name}`} onSet={setValue} busy={busy} testId="finding-value" />
-          <button className="btn quiet small" onClick={() => setMode(mode === 'expression' ? null : 'expression')}>or derive it from others</button>
+          <label className="field"><span className="field-label">value of {name}</span><NumberField initial={quantity?.value} units={quantity?.units} onSet={setValue} busy={busy} testId="finding-value" width={140} /></label>
+          <button className="btn small" onClick={() => setMode(mode === 'expression' ? null : 'expression')}>or derive it from others</button>
         </> : null}
         {code === 'variable.bounds' && variable ? <>
-          <span className="small faint">lower</span><NumberField initial={variable.lower} units={variable.units} onSet={v => edit([{ op: 'set', path: `variables.${variableIndex(name)}.lower`, value: v }], `Set the lower bound of ${name}`)} busy={busy} testId="finding-lower" width={120} />
-          <span className="small faint">upper</span><NumberField initial={variable.upper} units={variable.units} onSet={v => edit([{ op: 'set', path: `variables.${variableIndex(name)}.upper`, value: v }], `Set the upper bound of ${name}`)} busy={busy} testId="finding-upper" width={120} />
+          <label className="field"><span className="field-label">lowest {name} allowed</span><NumberField initial={variable.lower} units={variable.units} onSet={v => edit([{ op: 'set', path: `variables.${variableIndex(name)}.lower`, value: v }], `Set the lower bound of ${name}`)} busy={busy} testId="finding-lower" width={130} /></label>
+          <label className="field"><span className="field-label">highest {name} allowed</span><NumberField initial={variable.upper} units={variable.units} onSet={v => edit([{ op: 'set', path: `variables.${variableIndex(name)}.upper`, value: v }], `Set the upper bound of ${name}`)} busy={busy} testId="finding-upper" width={130} /></label>
         </> : null}
         {code === 'variable.values' && variable ? <>
-          <input style={{ width: 240 }} placeholder="permitted values, comma-separated" value={text} onChange={e => setText(e.target.value)} disabled={busy} data-testid="finding-values" />
+          <label className="field"><span className="field-label">permitted values of {name}, comma-separated</span><input style={{ width: 260 }} placeholder="e.g. 1, 2, 5, 10" value={text} onChange={e => setText(e.target.value)} disabled={busy} data-testid="finding-values" /></label>
           <button className="btn small primary" disabled={busy || !text.trim()} onClick={() => edit([{ op: 'set', path: `variables.${variableIndex(name)}.values`, value: text.split(',').map(s => number(s) ?? s.trim()) }], `Set the values of ${name}`)}>Set</button>
         </> : null}
         {!quantity && !variable && code !== 'assumption.unaccepted' ? <span className="small faint">{finding.about.length ? `Settled by ${finding.about.join(', ')} above.` : 'No single field settles this: take a suggestion below, or ask the formulator.'}</span> : null}
-        <button className="btn quiet small" onClick={() => { if (mode !== 'ask' && !text.trim() && suggestedRequest) setText(suggestedRequest); setMode(mode === 'ask' ? null : 'ask'); }} data-testid="finding-ask">Ask the formulator</button>
-        {finding.waivable ? <button className="btn quiet small" onClick={() => setMode(mode === 'waive' ? null : 'waive')}>Waive</button> : null}
+        <button className="btn small" onClick={() => { if (mode !== 'ask' && !text.trim() && suggestedRequest) setText(suggestedRequest); setMode(mode === 'ask' ? null : 'ask'); }} data-testid="finding-ask">Ask the formulator</button>
+        {finding.waivable ? <button className="btn small" onClick={() => setMode(mode === 'waive' ? null : 'waive')}>Waive</button> : null}
       </div>
       {suggestions.length ? <div className="row wrap finding-actions" data-testid="finding-suggestions"><span className="small faint">Suggested:</span>
-        {suggestions.map((s, i) => <button key={i} className="btn small" disabled={busy} data-testid="finding-suggestion" data-action={s.action} title={s.action === 'waive' ? `Waives it with the reason: ${s.reason}` : `Sends to the formulator: ${s.text}`}
-          onClick={() => local.guard(() => s.action === 'waive' ? post('waive', { key: finding.key, reason: s.reason || s.label }) : post('requests', { text: s.text || s.label }))}>{s.label}</button>)}</div> : null}
-      {mode === 'expression' ? <div className="row"><input style={{ flex: 1 }} placeholder={`expression in other quantities, e.g. n_seats * weekly_limit_per_seat`} value={text} onChange={e => setText(e.target.value)} disabled={busy} data-testid="finding-expression" />
-        <button className="btn small primary" disabled={busy || !text.trim()} onClick={setExpression}>Derive</button><span className="small faint">known: {Object.keys(values).slice(0, 8).join(', ')}</span></div> : null}
-      {mode === 'ask' ? <div className="row"><input style={{ flex: 1 }} placeholder="what should change, in words; the formulator answers with options" value={text} onChange={e => setText(e.target.value)} disabled={busy} data-testid="finding-request" />
+        {suggestions.map((s, i) => <button key={i} className={'btn small' + (s.action === 'edit' ? ' primary' : '')} disabled={busy} data-testid="finding-suggestion" data-action={s.action}
+          title={s.action === 'waive' ? `Waives it with the reason: ${s.reason}` : s.action === 'edit' ? `Changes the charter now: ${s.text}` : `Sends to the formulator: ${s.text}`}
+          onClick={() => local.guard(() => s.action === 'waive' ? post('waive', { key: finding.key, reason: s.reason || s.label })
+            : s.action === 'edit' ? edit(s.changes || [], s.rationale || s.label) : post('requests', { text: s.text || s.label }))}>{s.label}</button>)}
+        {suggestions.some(s => s.action === 'edit') ? <span className="small faint">{suggestions.find(s => s.action === 'edit')!.text}</span> : null}</div> : null}
+      {mode === 'expression' ? <div className="row" style={{ alignItems: 'flex-end', marginTop: 6 }}><label className="field grow"><span className="field-label">{name} as an expression in other quantities · known: {Object.keys(values).slice(0, 8).join(', ')}</span>
+        <input placeholder="e.g. n_seats * weekly_limit_per_seat" value={text} onChange={e => setText(e.target.value)} disabled={busy} data-testid="finding-expression" /></label>
+        <button className="btn small primary" disabled={busy || !text.trim()} onClick={setExpression}>Derive</button></div> : null}
+      {mode === 'ask' ? <div className="row" style={{ alignItems: 'flex-end', marginTop: 6 }}><label className="field grow"><span className="field-label">What should change, in your words; the formulator answers with options to choose from</span>
+        <input placeholder="e.g. take the bounds from the paper's table 2" value={text} onChange={e => setText(e.target.value)} disabled={busy} data-testid="finding-request" /></label>
         <button className="btn small primary" disabled={busy || !text.trim()} data-testid="finding-request-send" onClick={() => local.guard(async () => { await post('requests', { text: text.trim() === suggestedRequest ? suggestedRequest : `About "${finding.message}": ${text.trim()}` }); setText(''); setMode(null); })}>Send</button></div> : null}
       {local.line}
-      {mode === 'waive' ? <div className="row"><input style={{ flex: 1 }} placeholder="why this finding may stand" value={text} onChange={e => setText(e.target.value)} disabled={busy} />
+      {mode === 'waive' ? <div className="row" style={{ alignItems: 'flex-end', marginTop: 6 }}><label className="field grow"><span className="field-label">Why this may stand as it is; recorded with the waiver</span>
+        <input placeholder="e.g. the lab never reaches that regime" value={text} onChange={e => setText(e.target.value)} disabled={busy} /></label>
         <button className="btn small" disabled={busy || !text.trim()} onClick={() => local.guard(async () => { await post('waive', { key: finding.key, reason: text.trim() }); setText(''); setMode(null); })}>Waive</button></div> : null}
     </article>
   );
@@ -226,34 +284,61 @@ function VariableRow({ index, variable: v, busy, edit }: { index: number; variab
   </tr>;
 }
 
-function QuestionRow({ question: q, busy, post, working, next }: { question: Question; busy: boolean; post: (path: string, body: Record<string, unknown>) => Promise<unknown>; working?: boolean; next?: boolean }) {
+function QuestionRow({ question: q, doc, busy, post, working, next }: { question: Question; doc: CharterView['charter']; busy: boolean; post: (path: string, body: Record<string, unknown>) => Promise<unknown>; working?: boolean; next?: boolean }) {
   const [text, setText] = useState('');
   const local = useLocalError();
   const answer = (value: string) => local.guard(() => post('answers', { question_id: q.id, answer: value }));
   const answered = q.answer != null;
-  return <article className={'finding ' + (answered ? 'answered' : 'blocking') + (next ? ' next' : '')} data-testid="question" data-question-id={q.id} data-answered={answered ? '1' : undefined} data-next={next ? '1' : undefined}>
-    <div className="row">{next ? <Pill tone="you">next</Pill> : null}<span className="finding-code">question</span><span className={'grow' + (answered ? ' faint' : '')}>{q.question}</span>
-      {answered ? <Pill tone={working ? 'agent' : 'clear'}>{working ? 'formulator working' : 'answered'}</Pill> : null}</div>
-    {answered ? <div className="small faint" style={{ marginTop: 4 }}>Your answer: {q.answer}</div> : <>
-      {q.options?.length ? <div className="row wrap" style={{ marginTop: 6 }}>{q.options.map((o, i) => <button key={i} className="btn small" disabled={busy} onClick={() => answer(o)} data-testid="question-option">{o}</button>)}</div> : null}
-      <div className="row" style={{ marginTop: 6 }}><input style={{ flex: 1 }} placeholder="or answer in your own words" value={text} onChange={e => setText(e.target.value)} disabled={busy} data-testid="question-text" />
+  const left = !answered && !!q.sent;   // sent without an answer: the formulator decides it and records an assumption
+  return <article className={'finding ' + (answered || left ? 'answered' : 'blocking') + (next ? ' next' : '')} data-testid="question" data-question-id={q.id} data-answered={answered ? '1' : undefined} data-left={left ? '1' : undefined} data-next={next ? '1' : undefined}>
+    <div className="row">{next ? <Pill tone="you">next</Pill> : null}<span className="finding-code">question</span><span className={'grow' + (answered || left ? ' faint' : '')}><Names text={q.question} doc={doc} /></span>
+      {answered ? <Pill tone={working ? 'agent' : 'clear'}>{working ? 'formulator working' : 'answered'}</Pill> : left ? <Pill tone="agent">{working ? 'formulator deciding' : 'left to the formulator'}</Pill> : null}</div>
+    {!answered && !left ? <Meanings names={q.about || []} doc={doc} /> : null}
+    {answered ? <div className="small faint" style={{ marginTop: 4 }}>Your answer: {q.answer}</div> : left ? <div className="small faint" style={{ marginTop: 4 }}>Left to the formulator: it decides from your answers and the sources and records an assumption you can change later.</div> : <>
+      {q.options?.length ? <div className="row wrap" style={{ marginTop: 6 }}>{q.options.map((o, i) => <button key={i} className="btn small" disabled={busy} onClick={() => answer(o)} data-testid="question-option" title={i === 0 ? 'The formulator recommends this one' : undefined}>{o}{i === 0 ? <span className="faint"> · recommended</span> : null}</button>)}</div> : null}
+      <div className="row" style={{ marginTop: 6 }}><input style={{ flex: 1, minWidth: 160 }} placeholder="or answer in your own words" value={text} onChange={e => setText(e.target.value)} disabled={busy} data-testid="question-text" />
         <button className="btn small primary" disabled={busy || !text.trim()} onClick={async () => { await answer(text.trim()); setText(''); }}>Answer</button></div>
       {local.line}
     </>}
   </article>;
 }
 
-function ProposalRow({ proposal: p, busy, charterId, refresh, setError }: { proposal: Proposal; busy: boolean; charterId: string; refresh: () => Promise<unknown>; setError: (e: string | null) => void }) {
+const brief = (value: unknown, limit = 90) => { const text = value == null ? '' : typeof value === 'object' ? JSON.stringify(value) : String(value); return text.length > limit ? text.slice(0, limit - 1) + '…' : text; };
+function describeChange(d: Change): string {
+  const what = `${d.part === 'text' ? 'the ' : ''}${d.part} ${d.part === 'text' ? '' : d.name}`.trim();
+  if (d.change === 'added') return `adds ${what}${d.after != null && typeof d.after !== 'object' ? ` = ${brief(d.after)}` : ''}`;
+  if (d.change === 'removed') return `removes ${what}`;
+  if (d.before != null || d.after != null) return `changes ${what}: ${brief(d.before)} → ${brief(d.after)}`;
+  return `changes ${what}`;
+}
+
+function ProposalRow({ proposal: p, busy, refresh, setError }: { proposal: Proposal; busy: boolean; refresh: () => Promise<unknown>; setError: (e: string | null) => void }) {
   const decide = async (option: number | null) => {
     setError(null);
     try { await api(`/api/v1/problem-charter-proposals/${p.id}/decision`, { method: 'POST', body: JSON.stringify({ option }) }); await refresh(); }
     catch (e) { setError(String((e as Error).message || e)); }
   };
-  void charterId;
-  return <article className="finding" data-testid="proposal" data-status={p.status}>
-    <div className="row"><span className="finding-code">proposal</span><span className="grow">{p.request || 'A change the formulator proposes'}</span><Pill tone={p.status === 'open' ? 'attention' : ''}>{p.status}</Pill></div>
-    {(p.options || []).map((o, i) => <div key={i} className="row small" style={{ marginTop: 4 }}><span className="grow">{o.summary || JSON.stringify(o.changes)}</span>{p.status === 'open' ? <button className="btn small primary" disabled={busy} onClick={() => decide(i)}>Choose</button> : null}</div>)}
-    {p.status === 'open' ? <button className="btn quiet small" disabled={busy} onClick={() => decide(null)}>Decline all</button> : null}
+  const open = p.status === 'open';
+  const options = p.options || [];
+  return <article className={'finding ' + (open ? 'blocking' : 'answered')} data-testid="proposal" data-status={p.status}>
+    <div className="row"><span className="finding-code">formulator</span>
+      <span className={'grow' + (open ? '' : ' faint')}>{p.asked ? <><strong>Answers your request:</strong> “{p.asked}”</> : <><strong>Proposes a change.</strong>{p.request ? <span className="muted"> {p.request}</span> : null}</>}</span>
+      <Pill tone={open ? 'attention' : p.status === 'accepted' ? 'clear' : ''}>{open ? `${options.length} option${options.length === 1 ? '' : 's'}` : p.status === 'accepted' && p.accepted_option != null ? `chose “${options[p.accepted_option]?.label || p.accepted_option + 1}”` : p.status}</Pill></div>
+    {open ? <div className="col" style={{ marginTop: 8 }}>
+      {options.map((o, i) => {
+        const diff = o.diff || []; const left = o.findings || [];
+        return <div key={i} className="card" data-testid="proposal-option">
+          <div className="row"><strong className="grow">{o.label || o.summary || `Option ${i + 1}`}</strong><button className="btn small primary" disabled={busy} data-testid="proposal-choose" onClick={() => decide(i)}>Choose</button></div>
+          {o.reason ? <p className="small" style={{ margin: '4px 0 0', maxWidth: '70ch' }}>{o.reason}</p> : null}
+          {diff.length ? <details className="fold" style={{ borderBottom: 'none' }}><summary><span className="fold-title small">What changes ({diff.length})</span></summary>
+            <ul className="small" style={{ margin: '2px 0 4px' }}>{diff.map((d, j) => <li key={j}>{describeChange(d)}</li>)}</ul></details> : null}
+          {o.blocking_reason || left.length ? <details className="fold" style={{ borderBottom: 'none' }}><summary><span className="fold-title small">Leaves {left.length || 'some'} check{left.length === 1 ? '' : 's'} open</span></summary>
+            {o.blocking_reason ? <p className="small muted" style={{ margin: '2px 0', maxWidth: '70ch' }}>{o.blocking_reason}</p> : null}
+            <ul className="small" style={{ margin: '2px 0 4px' }}>{left.map((f, j) => <li key={j}>{f.message}</li>)}</ul></details> : null}
+        </div>;
+      })}
+      <div className="row"><button className="btn quiet small" disabled={busy} data-testid="proposal-decline" onClick={() => decide(null)}>Decline all</button></div>
+    </div> : null}
   </article>;
 }
 

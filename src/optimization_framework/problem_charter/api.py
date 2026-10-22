@@ -56,6 +56,10 @@ class Request(Body):
     text: str = Field(min_length=1, max_length=5000)
 
 
+class SendAnswers(Body):
+    expected_revision: int = Field(ge=1)
+
+
 class Decision(Body):
     option: int | None = Field(default=None, ge=0, le=2)
 
@@ -127,6 +131,12 @@ def install(app, workspace):
     @app.post("/api/v1/problem-charters/{charter_id}/answers")
     def answer(charter_id: str, body: Answer):
         charters.answer(charter_id, body.question_id, body.answer, expected_revision=body.expected_revision)
+        return charters.view(charter_id)
+
+    @app.post("/api/v1/problem-charters/{charter_id}/send-answers")
+    def send_answers(charter_id: str, body: SendAnswers):
+        """The round as it stands: unanswered questions go to the formulator as decisions it makes and records."""
+        charters.send_answers(charter_id, expected_revision=body.expected_revision)
         return charters.view(charter_id)
 
     @app.post("/api/v1/problem-charters/{charter_id}/requests")

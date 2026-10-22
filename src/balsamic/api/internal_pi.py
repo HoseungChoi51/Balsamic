@@ -69,7 +69,7 @@ def install(app, workspace):
 
     @app.post("/api/internal/pi/manifest", dependencies=[Depends(authenticate)])
     def manifest(body: Context):
-        # Problem importers are Pi agents without a campaign; they have their own tools.
+        # Formulators are Pi agents without a campaign; they have their own tools.
         if is_import_agent(body.agent_id):
             return workspace.problem_imports.manifest(body.agent_id, body.run_id)
         return gateway.manifest(body.agent_id, body.run_id)

@@ -83,8 +83,10 @@ revision, no model): a value missing, a bound missing, an assumption not yet acc
 that nothing can evaluate. Each has its control right there (accept, type the number, set the bounds) and suggested ways
 out made from the charter itself: a one-click waiver with its reason where waiving is allowed, and a worded request to
 the formulator that one click sends (the "Ask the formulator" box starts from the same words, for editing). **Questions
-from the formulator** are what it could not decide from the sources alone; they come with options, or take an answer in
-words. Every quantity and bound is an editable field. Confirm is enabled once nothing blocks; it compiles the tasks and
+from the formulator** are what it could not decide from the sources alone; they come with options, its recommendation
+first, or take an answer in words. Answer what you can and send the rest: the formulator decides each unanswered one from
+your answers and the sources and records it as an assumption you can change later, once a run has shown what it meant.
+Every quantity and bound is an editable field. Confirm is enabled once nothing blocks; it compiles the tasks and
 experiments can start.
 
 ### Panels the agents compose
@@ -127,9 +129,11 @@ branch layer (measured by the harness when it answers), and the records you pinn
 
 With no problem instance chosen, the campaign starts in Formulate. Describe the problem in the chat (or `/note`); the
 lead writes the **Problem note** (objective, knobs, observables, noise, constraints, confounders, open questions, with
-math). Select any text on the note to **Define**, **Explain**, **Challenge** or **Visualize** it: definitions come from
-the glossary, explanations from one cheap model call, challenges and visuals from a turn of the lead, which answers as
-a proposed edit you accept or reject; the note never changes silently. **Adopt** hands the note to the formulator, which
+math). The note is a draft until you adopt it, and the page says so: every section has **Ask about this** and **Edit**.
+Ask (or select any words in the text) to **Define**, **Explain**, **Challenge** or **Visualize** it: definitions come
+from the glossary, explanations from one cheap model call, challenges and visuals from a turn of the lead, which answers
+as a proposed edit you accept or reject; the note never changes silently. Edit changes a section in your own words,
+saved as a revision in your name; or tell the lead in the chat what to change. **Adopt** hands the note to the formulator, which
 writes the charter (quantities, relations, assumptions); you confirm it on the note's Charter tab, which sets the
 campaign's tasks and ends formulation.
 

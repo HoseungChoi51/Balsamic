@@ -307,7 +307,8 @@ def findings(charter, registry=None) -> list[dict]:
     # Objective and evaluator
     if charter.objective is None:
         out.append(finding("objective.missing", "blocking", "objective", "No objective: state the one number to improve, its direction and units.", []))
-    out.extend(evaluator_findings(charter, values, errors, sizes, registry))
+    settled = not any(row["code"].startswith("variable.") and row["severity"] == "blocking" for row in out)
+    out.extend(evaluator_findings(charter, values, errors, sizes, registry, settled=settled))
     # Instances
     if not charter.instances:
         out.append(finding("instance.missing", "blocking", "instances", "No instance: name at least one condition to optimize.", []))
@@ -326,7 +327,8 @@ def findings(charter, registry=None) -> list[dict]:
     for question in charter.questions:
         if question.answer is None:
             out.append(finding("question.open", "blocking" if question.blocking else "warning", question.id,
-                f"Open question: {question.question}", question.about))
+                (f"Left to the formulator to decide: {question.question}" if question.sent else f"Open question: {question.question}"),
+                question.about))
     waived = {waiver.key: waiver.reason for waiver in charter.waivers}
     for row in out:
         if row["key"] in waived and row["waivable"]:
@@ -340,7 +342,8 @@ def suggestions(row, charter) -> list[dict]:
     """Best-effort ways out of a blocking finding, from what the charter itself holds, so that a researcher with little
     background still has something to choose from (as the formulator's questions come with options). Each is one click on
     the Charter page: a waiver records the reason and keeps the charter as it is; a request asks the formulator in words,
-    and it answers with options. Nothing here invents a number: when a value is missing, the suggestion is to ask for it."""
+    and it answers with options; an edit applies computed changes to the charter (the researcher's own, with a rationale).
+    Nothing here invents a number: when a value is missing, the suggestion is to ask for it."""
     code, subject, about = row["code"], row["key"].split(":", 1)[1], row["about"]
     name = about[0] if about else None
     quantity = charter.quantities.get(name) if name else None
@@ -352,7 +355,7 @@ def suggestions(row, charter) -> list[dict]:
         constraint = next((c for c in charter.constraints if c.id == subject), None)
         statement = constraint.statement if constraint else subject
         out.append(keep("Keep it as a recorded criterion (not checked)",
-            f"“{statement}” is stated in words; it stays recorded as a criterion the lab does not check or enforce."))
+            "Stated in words; kept as a recorded criterion the lab does not check or enforce."))
         out.append(ask("Ask the formulator for a checkable condition",
             f"Constraint {subject} (“{statement}”) is words only. Propose conditions the lab can check and offer them as options: "
             "a true/false test on named quantities (a limit a quantity must stay within), or a linear condition on the decision "
@@ -369,29 +372,65 @@ def suggestions(row, charter) -> list[dict]:
         out.append(ask(f"Ask the formulator for the permitted values of {name}",
             f"{name} is discrete and needs its permitted values. List them from the sources, with the source for each."))
     elif code == "quantity.range" and quantity:
-        out.append(keep("Keep the value; the range was advisory", f"{row['message']} The value stands; the range was advisory."))
+        out.append(keep("Keep the value; the range was advisory", "The value stands; the range was advisory."))
         out.append(ask(f"Ask whether the value or the range of {name} is right",
             f"{row['message']} Say which is right, the value or the range, with the source, and offer both as options."))
     elif code == "constraint.violated":
         out.append(ask("Ask which to change: the values or the constraint",
             f"{row['message']} Say which input to change or whether the constraint should be relaxed, and offer the choices as options."))
-        out.append(keep("Keep both and record the violation", f"{row['message']} Recorded; the values stand for this campaign."))
+        out.append(keep("Keep both and record the violation", "Recorded; the values stand for this campaign."))
     elif code == "constraint.infeasible":
         out.append(ask("Ask which constraint to relax", f"{row['message']} Propose which constraint to relax and by how much, as options."))
-        out.append(keep("Keep them and record that no design meets all", f"{row['message']} Recorded as it stands."))
+        out.append(keep("Keep them and record that no design meets all", "Recorded as it stands."))
     elif code == "text.literal_mismatch":
         out.append(ask("Ask the formulator to fix the text", f"{row['message']} Rewrite the text so it refers to the quantity by name, "
             "or move the number to the reference results; offer the rewrites as options."))
-        out.append(keep("Keep the text as written", f"{row['message']} The number in the text is kept as written."))
+        out.append(keep("Keep the text as written", "The number in the text is kept as written."))
     elif code == "assumption.unaccepted" and not quantity:
         out.append(ask("Ask the formulator to ground or replace the assumption",
             f"{row['message']} Say what the sources support instead, or why the assumption is needed, and offer the choices as options."))
+    elif code == "evaluator.mixed_values":
+        out.append(ranges_edit(charter))
+        out.append(ask("Ask the formulator for another way to encode them",
+            f"{row['message']} Propose another encoding of the discrete variables that the lab accepts (one shared list of values, "
+            "or ranges the evaluator rounds), as options with what each implies."))
     elif code.startswith("evaluator."):
-        out.append(ask("Ask the formulator to fix the evaluator binding", f"{row['message']} Fix the binding between the charter and "
-            "the evaluator (which quantity each field takes, the objective, the decision variables) and offer the fixes as options."))
+        out.append(ask("Ask the formulator to repair how the charter feeds the evaluator", f"{row['message']} Repair how the charter "
+            "feeds the evaluator (which quantity each of its fields takes, the objective, the decision variables) and offer the fixes as options."))
     if not any(item["action"] == "request" for item in out):
         out.append(ask("Ask the formulator to resolve it", f"Resolve this finding from the sources and offer the choices as options: {row['message']}"))
     return out
+
+
+def grid(values) -> str:
+    """A list of permitted values in words: "1, 2, 3, 4, 5" or "0.5 to 1.5 in 11 steps"."""
+    shown = [f"{v:g}" for v in values]
+    return ", ".join(shown) if len(shown) <= 6 else f"{shown[0]} to {shown[-1]} in {len(shown)} steps"
+
+
+def ranges_edit(charter) -> dict:
+    """One click: every discrete variable becomes a range from its lowest to its highest permitted value, the grid is kept in
+    its description and in the evaluator's notes, and the evaluator to be built rounds to the nearest permitted value."""
+    changes, kept = [], []
+    for index, variable in enumerate(charter.variables):
+        if variable.representation != "discrete" or not variable.values:
+            continue
+        values = sorted(variable.values)
+        note = f"Permitted values: {grid(values)}; the evaluator rounds to the nearest."
+        changes += [{"op": "set", "path": f"variables.{index}.representation", "value": "continuous"},
+                    {"op": "set", "path": f"variables.{index}.lower", "value": values[0]},
+                    {"op": "set", "path": f"variables.{index}.upper", "value": values[-1] if values[-1] > values[0] else values[0] + 1},
+                    {"op": "set", "path": f"variables.{index}.values", "value": []},
+                    {"op": "set", "path": f"variables.{index}.description", "value": f"{variable.description.rstrip('.')}. {note}"[:1000]}]
+        kept.append(f"{variable.name}: {grid(values)}")
+    notes = charter.evaluator.notes.rstrip() if charter.evaluator else ""
+    rounding = "Round each of these to its nearest permitted value before evaluating: " + "; ".join(kept) + "."
+    if rounding not in notes:
+        changes.append({"op": "set", "path": "evaluator.notes", "value": (notes + "\n" + rounding).strip()[:20000]})
+    return {"label": "Write them as ranges; the evaluator rounds to each grid", "action": "edit", "changes": changes,
+            "rationale": "Discrete variables written as ranges the evaluator rounds, since the lab takes one list of values for all of them",
+            "text": "Each discrete variable becomes a range from its lowest to its highest permitted value; its grid stays in its "
+                    "description and in the evaluator's notes, so the evaluator rounds to it. Nothing about the problem changes."}
 
 
 def unused_findings(charter) -> list[dict]:
@@ -517,7 +556,7 @@ def feasibility(linear, variables, sizes, values, tables):
     return []
 
 
-def evaluator_findings(charter, values, errors, sizes, registry):
+def evaluator_findings(charter, values, errors, sizes, registry, settled=True):
     binding, out = charter.evaluator, []
     if binding is None:
         return [finding("evaluator.missing", "blocking", "evaluator", "No evaluator: name an installed problem, or declare one to be built.", [])]
@@ -536,20 +575,25 @@ def evaluator_findings(charter, values, errors, sizes, registry):
         if len(kinds) > 1:
             out.append(finding("evaluator.mixed_variables", "blocking", "variables", "A declared problem's decision variables must share "
                 "one representation (binary, discrete or continuous); encode the others, or ask for an evaluator that accepts them.", []))
-        discrete = [tuple(variable.values) for variable in charter.variables if variable.representation == "discrete"]
-        if len(set(discrete)) > 1:
-            out.append(finding("evaluator.mixed_values", "blocking", "variables", "Discrete decision variables of a declared problem must "
-                "share their permitted values.", []))
+        discrete = [variable for variable in charter.variables if variable.representation == "discrete"]
+        if len({tuple(variable.values) for variable in discrete}) > 1:
+            grids = "; ".join(f"{variable.name} takes {grid(variable.values)}" for variable in discrete)
+            out.append(finding("evaluator.mixed_values", "blocking", "variables", "The lab can give an evaluator that is still to be built "
+                f"only one list of permitted values, shared by every discrete variable, and these have different lists: {grids}. This is "
+                "a limit of the lab, not of your problem. The usual way out is to write each as a range from its lowest to its highest "
+                "value and have the evaluator round to the nearest permitted value.", [variable.name for variable in discrete]))
         if not binding.notes.strip():
             out.append(finding("evaluator.notes", "warning", "notes", "Say what the evaluator to be built must compute, and from which code.", []))
-        ready = (charter.objective is not None and charter.variables and len(sizes) == len(charter.variables)
+        ready = (settled and charter.objective is not None and charter.variables and len(sizes) == len(charter.variables)
                  and not any(row["severity"] == "blocking" for row in out)
                  and not any(name in errors or values.get(name) is None for name in {**binding.configuration, **binding.fidelity}.values()))
         if ready:
             try:
                 manifest(charter, values)
-            except (ValueError, TypeError, ExpressionError) as exc:
-                out.append(finding("evaluator.declared_invalid", "blocking", binding.problem_id, f"The declared problem is not valid: {exc}", []))
+            except Exception as exc:   # noqa: BLE001 - whatever fails here is a finding for the formulator or a developer, never a dead page
+                out.append({**finding("evaluator.declared_invalid", "blocking", binding.problem_id, "The declared problem cannot be assembled "
+                    "for an evaluator from the charter as it stands: a technical check of its variables, bounds and constraints failed. "
+                    "This is for the formulator or a developer to fix, not a scientific decision.", []), "detail": str(exc)})
         return out
     if binding.problem_id not in registry.ids():
         return [finding("evaluator.unknown_problem", "blocking", binding.problem_id, f"{binding.problem_id} is not an installed problem.", [])]
@@ -849,8 +893,15 @@ def manifest(charter, values):
         properties = {}
         for field, name in fields.items():
             quantity = charter.quantities[name]
-            rule = {"type": {"number": "number", "integer": "integer", "text": "string", "boolean": "boolean"}[quantity.kind],
-                    "description": (quantity.description + (f" ({quantity.units})" if quantity.units.strip() not in DIMENSIONLESS else ""))[:500]}
+            rule = {"description": (quantity.description + (f" ({quantity.units})" if quantity.units.strip() not in DIMENSIONLESS else ""))[:500]}
+            if quantity.kind == "data":   # a table or a structure: typed by what it holds, any JSON otherwise
+                value = values.get(name)
+                if isinstance(value, list):
+                    rule["type"] = "array"
+                elif isinstance(value, dict):
+                    rule["type"] = "object"
+            else:
+                rule["type"] = {"number": "number", "integer": "integer", "text": "string", "boolean": "boolean"}[quantity.kind]
             if quantity.kind in {"number", "integer"} and quantity.range:
                 low, high = quantity.range
                 if low is not None:

@@ -17,7 +17,9 @@ from optimization_framework.storage.sqlite import now
 from .models import LEAD, ROLES, ModelChoice
 
 RECORD_ID = "model_tiers"
-IMPORTER = "problem_importer"
+FORMULATOR = "formulator"
+IMPORTER = FORMULATOR   # the old name of the role, kept for callers
+LEGACY_ROLES = {"problem_importer": FORMULATOR}
 # Not an agent: one-shot naming, labelling and summary calls (balsamic.housekeeping) on the lightest tier.
 HOUSEKEEPER = "housekeeper"
 ASSIGNABLE = (*ROLES, IMPORTER, HOUSEKEEPER)
@@ -34,6 +36,13 @@ class TierSettings(Contract):
     tiers: list[Tier] = Field(min_length=1, max_length=12)
     roles: dict[str, str] = Field(default_factory=dict)
     expected_revision: int = Field(default=0, ge=0)
+
+    @model_validator(mode="before")
+    @classmethod
+    def modern_role_names(cls, data):
+        if isinstance(data, dict) and isinstance(data.get("roles"), dict):   # a tier saved under an old role name still applies
+            data = {**data, "roles": {LEGACY_ROLES.get(role, role): tier for role, tier in data["roles"].items()}}
+        return data
 
     @model_validator(mode="after")
     def consistent(self):
@@ -66,6 +75,8 @@ def load(store, profile_model=None) -> dict:
         return defaults(profile_model)
     # A role added after the tiers were saved follows its default tier until the researcher assigns it.
     fallback = defaults(profile_model)["roles"]
+    roles = {LEGACY_ROLES.get(role, role): tier for role, tier in saved.get("roles", {}).items()}   # tiers saved under an old role name
+    saved = {**saved, "roles": roles}
     ids = {tier["id"] for tier in saved.get("tiers", [])}
     missing = {role: tier for role, tier in fallback.items() if role not in saved.get("roles", {}) and tier in ids}
     return {**saved, "roles": {**missing, **saved.get("roles", {})}} if missing else saved

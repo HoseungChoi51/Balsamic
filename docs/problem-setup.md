@@ -113,6 +113,18 @@ confirmed problem charter revision it was made from, plus its settings.
    - Every value is stated in it once, and the texts refer to values by name.
    - Checks run on every revision. The formulator resolves each finding from the sources, or asks
      the researcher.
+   - **Questions come in rounds, all at once.** The researcher answers what they can and the round
+     goes to the formulator together: by itself once nothing is open, or on "Send answers" with
+     questions left unanswered (`send_answers`). The researcher is not expected to know every answer;
+     many are understood only after a run. An unanswered question is marked `sent` and the formulator
+     is told to decide it (from the answers, the sources, convention, its own recommendation), record
+     the decision as an assumption with a note, drop the question and say what it decided; it is
+     never asked again. A charter takes at most two rounds (`QUESTION_ROUNDS` in
+     `problem_charter/service.py`): the first asks everything the sources leave open, the second only
+     what no answer or source can decide. A third `question_ask` is refused; what is still open
+     becomes an assumption with a note, for the researcher to accept or change, or a blocking finding
+     the researcher settles on the page. The Charter tab says which round it is and whether more can
+     follow.
    - **Forking:** a confirmed charter can be copied with inputs changed, to start a campaign along
      a new axis.
      - The derived quantities follow the change.
@@ -188,10 +200,14 @@ always a worded request to the formulator; none invents a number (`charter.sugge
 
 ### Agents
 
-- **Formulator.** Today's `problem_importer`, extended. It has:
+- **Formulator.** The role `formulator` (once `problem_importer`; saved tiers under the old name still apply). It has:
   - its own Pi identity, read-only access to its material, its model tier and its spending cap;
   - the guideline as its instructions;
   - the tools `charter_check`, `charter_submit`, `charter_propose` and `question_ask`.
+
+  Saving with `charter_submit` returns the computed values and the findings, and the guideline tells the
+  formulator to save directly rather than check first; `charter_check` is for a draft it does not want to
+  save. A turn is read, save, fix, save, reply, which keeps the model calls per turn to about three or four.
 
   It works only when the researcher starts it, answers it or asks it for a change. It never
   confirms. It cannot:
@@ -340,7 +356,12 @@ with their formulators, folders and sessions; nothing was kept.
   will fail until they use the new page.
 - **Relations run one way, and units are labels.** Units are not converted or checked
   dimensionally beyond the degree check.
-- **A declared problem takes one kind of variable.** Its candidate has one representation, so the
+- **A declared problem takes one kind of variable, and one list of values for all its discrete
+  variables** (`CandidateSchema.values` is one list; `optimizers/lifecycle.py` samples from it). The
+  `evaluator.mixed_values` finding says so in plain words, names each variable's values, and offers a
+  one-click edit that writes each as a range with its grid kept in its description and in the
+  evaluator's notes, so the evaluator rounds to it. Per-variable value lists belong to the M5
+  problem-agnostic work. Its candidate has one representation, so the
   heat sink's whole-number fin count had to be written as a continuous variable that the evaluator
   rounds or rejects. This is a limit of the framework's candidate schema, not of the charter.
 - **One browser test is flaky.** `study-progress` "manual refresh…" expects exactly two reads, and

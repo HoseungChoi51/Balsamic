@@ -3,7 +3,7 @@ confirmation and forks.
 
 A charter record is mutable and points at its current revision. Every revision is kept as an
 immutable snapshot, so a campaign can name exactly the revision it was created from. The formulator
-(a problem importer agent) writes drafts and proposals; only the researcher edits values directly,
+(the formulator agent) writes drafts and proposals; only the researcher edits values directly,
 accepts proposals, waives findings and confirms.
 """
 from __future__ import annotations
@@ -21,6 +21,15 @@ def core_hash(charter: dict) -> str:
     """The charter's content apart from questions and waivers: a proposal holds while this is unchanged."""
     return content_hash({key: value for key, value in charter.items() if key not in {"questions", "waivers"}})
 
+
+
+# Questions come in rounds: all at once, sent together. The researcher answers what they can; the rest the formulator decides
+# and records as assumptions. A charter takes at most this many rounds, so the researcher knows when the asking ends.
+QUESTION_ROUNDS = 2
+
+
+def question_rounds(record) -> int:
+    return sum(1 for row in record.get("history", []) if row.get("by") == "formulator" and str(row.get("rationale", "")).startswith("Asked "))
 
 class Charters:
     def __init__(self, workspace, registry=None):
@@ -41,6 +50,7 @@ class Charters:
 
     def view(self, charter_id):
         record = self.get(charter_id)
+        rounds = question_rounds(record)
         proposals = [row for row in self.store.list(PROPOSAL) if row["charter_id"] == charter_id]
         current = core_hash(record["charter"])
         proposals = [{**row, "status": "stale"} if row["status"] == "open" and row["base_hash"] != current else row for row in proposals]
@@ -51,6 +61,7 @@ class Charters:
             lineage = {**origin, "title": base["title"], "changes": [row for row in mechanics.diff(base, record["charter"])
                                                                       if row["part"] in {"value", "relation", "quantity"}]}
         return {**record, **mechanics.describe(record["charter"], self.registry), "lineage": lineage,
+                "question_rounds": rounds, "question_rounds_max": QUESTION_ROUNDS,
                 "proposals": sorted(proposals, key=lambda row: row["created_at"], reverse=True)[:20],
                 "history": record["history"][-50:]}
 
@@ -179,7 +190,7 @@ class Charters:
                 raise ValueError("This finding cannot be waived; the charter cannot be compiled while it stands")
             charter = record["charter"]
             charter["waivers"] = [w for w in charter["waivers"] if w["key"] != key] + [{"key": key, "reason": reason, "at": now()}]
-            return self._save(record, charter, "researcher", f"Waived: {row['message'][:200]} — {reason}")
+            return self._save(record, charter, "researcher", f"Waived ({row['key']}): {reason}")
 
     def answer(self, charter_id, question_id, text, *, expected_revision=None):
         with self.workspace.lock, self.store.transaction():
@@ -188,21 +199,54 @@ class Charters:
             question = next((q for q in charter["questions"] if q["id"] == question_id), None)
             if question is None:
                 raise KeyError(question_id)
-            question.update(answer=text, answered_at=now())
+            question.update(answer=text, answered_at=now(), sent=False)
             record = self._save(record, charter, "researcher", f"Answered: {question['question'][:200]}")
-        open_questions = [q for q in record["charter"]["questions"] if q["answer"] is None]
-        if not open_questions and record.get("import_id"):
-            answered = [q for q in record["charter"]["questions"] if q.get("answered_at") and not q.get("sent")]
-            if answered:
-                self._tell_formulator(record, "The researcher answered your questions:\n" + "\n".join(
-                    f"- {q['question']}\n  Answer: {q['answer']}" for q in answered) +
-                    "\nRevise the charter with charter_submit so it follows these answers, then report briefly.")
-                with self.workspace.lock:
-                    record = self.get(charter_id)
-                    for q in record["charter"]["questions"]:
-                        if q["answer"] is not None:
-                            q["sent"] = True
-                    self.store.put(KIND, record)
+        if not [q for q in record["charter"]["questions"] if q["answer"] is None and not q.get("sent")]:
+            record = self._send_round(record)   # the last open one answered: the round goes by itself
+        return record
+
+    def send_answers(self, charter_id, *, expected_revision=None):
+        """Send the round as it stands. The researcher is not expected to know every answer: what is left unanswered goes
+        to the formulator as a decision it makes from the answers, the sources and convention, and records as an assumption
+        the researcher can change later, when a run has shown what the question meant."""
+        with self.workspace.lock:
+            record = self._current(charter_id, expected_revision)
+        return self._send_round(record)
+
+    def _send_round(self, record):
+        if not record.get("import_id"):
+            return record
+        questions = record["charter"]["questions"]
+        answered = [q for q in questions if q["answer"] is not None and not q.get("sent")]
+        left = [q for q in questions if q["answer"] is None and not q.get("sent")]
+        if not answered and not left:
+            return record
+        rounds = question_rounds(record)
+        text = f"The researcher answered your questions (round {rounds} of {QUESTION_ROUNDS}):\n"
+        if answered:
+            text += "\n".join(f"- {q['question']}\n  Answer: {q['answer']}" for q in answered) + "\n"
+        else:
+            text += "- (none answered)\n"
+        if left:
+            text += ("The researcher left these unanswered. They do not know yet, and will understand them better after a campaign "
+                     "run; do not ask them again. Decide each yourself: from the answers above and the sources where they imply "
+                     "it, otherwise by convention or the option you recommended. Record each decision as an assumption the "
+                     "researcher can change later (a quantity with origin 'assumed', or an assumption statement, with a note "
+                     "naming the question and why you chose as you did), and drop the question from the charter.\n" +
+                     "\n".join(f"- {q['question']} (options: {'; '.join(q.get('options') or []) or 'none given'})" for q in left) + "\n")
+        follow = ("Ask again only for a decision no answer, source or convention can make, in one round with every question "
+                  "together; do not ask again what the answers already cover, and prefer an assumption with a note to a question."
+                  if rounds < QUESTION_ROUNDS else
+                  "No more questions can be asked on this charter. Record what is still open as assumptions (origin 'assumed', "
+                  "with a note naming the answer each rests on) for the researcher to accept or change, or leave it as a "
+                  "blocking finding the researcher settles on the page.")
+        self._tell_formulator(record, text + "Revise the charter with charter_submit so it follows these answers and decisions, "
+                              "then report briefly: say what you decided for the researcher and why. " + follow)
+        with self.workspace.lock:
+            record = self.get(record["id"])
+            for q in record["charter"]["questions"]:
+                q["sent"] = True
+            self.store.put(KIND, record)
         return record
 
     # The formulator ----------------------------------------------------------------------------------------
@@ -220,7 +264,8 @@ class Charters:
         for assumption in proposed["assumptions"]:
             assumption["accepted"] = assumption["statement"] in accepted
         answered = {q["id"]: q for q in current["questions"] if q.get("answer") is not None}
-        proposed["questions"] = [answered.get(q["id"], {**q, "answer": None, "answered_at": None, "sent": False}) for q in proposed["questions"]] + \
+        sent = {q["id"]: bool(q.get("sent")) for q in current["questions"]}   # a question left to the formulator stays so
+        proposed["questions"] = [answered.get(q["id"], {**q, "answer": None, "answered_at": None, "sent": sent.get(q["id"], False)}) for q in proposed["questions"]] + \
             [q for q in answered.values() if q["id"] not in {p["id"] for p in proposed["questions"]}]
         return proposed
 
@@ -241,6 +286,11 @@ class Charters:
     def ask(self, charter_id, questions: list[dict]):
         with self.workspace.lock, self.store.transaction():
             record = self.get(charter_id)
+            rounds = question_rounds(record)
+            if rounds >= QUESTION_ROUNDS:
+                raise ValueError(f"The researcher has answered {rounds} rounds of questions; no more can be asked on this charter. "
+                                 "Record what is still open as assumptions (origin 'assumed', with a note naming the answer each rests on) "
+                                 "for the researcher to accept or change, or leave it as a blocking finding the researcher settles on the page.")
             charter = record["charter"]
             taken = {q["id"] for q in charter["questions"]}
             for question in questions:
@@ -249,8 +299,9 @@ class Charters:
                 charter["questions"].append({**question, "answer": None, "answered_at": None})
             return self._save(record, charter, "formulator", f"Asked {len(questions)} question{'s' if len(questions) != 1 else ''}")
 
-    def propose(self, charter_id, request: str, options: list[dict], *, run_id: str):
-        """Options of changes, each computed and checked here; the formulator's own numbers are never taken."""
+    def propose(self, charter_id, request: str, options: list[dict], *, run_id: str, asked: str | None = None):
+        """Options of changes, each computed and checked here; the formulator's own numbers are never taken.
+        `request` is the formulator's phrasing; `asked` the researcher's own words it answers, when it answers a request."""
         record = self.get(charter_id)
         built = []
         for option in options:
@@ -267,7 +318,7 @@ class Charters:
                           "findings": new_blocking})
         proposal = {"id": identifier("charter_proposal"), "charter_id": charter_id, "base_revision": record["revision"],
                     "base_hash": core_hash(record["charter"]),
-                    "request": request, "run_id": run_id, "options": built, "status": "open", "accepted_option": None,
+                    "request": request, "asked": asked or None, "run_id": run_id, "options": built, "status": "open", "accepted_option": None,
                     "created_at": now(), "decided_at": None}
         with self.workspace.lock:
             for old in self.store.list(PROPOSAL):
@@ -342,7 +393,11 @@ class Charters:
     def confirm(self, charter_id, *, expected_revision=None):
         with self.workspace.lock, self.store.transaction():
             record = self._current(charter_id, expected_revision)
-            setups = mechanics.compile_setups(record["charter"], self.registry)
+            try:
+                setups = mechanics.compile_setups(record["charter"], self.registry)
+            except Exception as exc:   # noqa: BLE001 - a plain refusal, never "record not found"
+                raise ValueError(f"The charter cannot be compiled as it stands ({type(exc).__name__}: {exc}); this is for the formulator "
+                                 "or a developer, not a scientific decision. Its findings say what fails.") from exc
             record["confirmed"] = record.get("confirmed", []) + [{"revision": record["revision"], "at": now(), "hash": content_hash(record["charter"])}]
             record.update(confirmed_revision=record["revision"], status="confirmed", updated_at=now())
             self.store.put(KIND, record)

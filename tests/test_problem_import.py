@@ -150,7 +150,7 @@ def test_import_produces_a_reviewable_charter_through_the_harness(tmp_path):
     imports.add_document(record["id"], "paper.md", b"The target angle is 75 degrees.")
     record = imports.start(record["id"])
     agent, run = pi.submitted[0]
-    assert agent["role"] == "problem_importer" and agent["id"] == record["id"] and "documents/paper.md.txt" in run["input"]
+    assert agent["role"] == "formulator" and agent["id"] == record["id"] and "documents/paper.md.txt" in run["input"]
     with pytest.raises(ValueError, match="only before the import starts"):
         imports.add_document(record["id"], "late.md", b"x")
     manifest = imports.manifest(record["id"], run["id"])
@@ -167,6 +167,7 @@ def test_import_produces_a_reviewable_charter_through_the_harness(tmp_path):
     assert "error" in imports.call(record["id"], run["id"], "c5", "charter_submit", {"charter": {"title": ""}})
     saved = imports.call(record["id"], run["id"], "c6", "charter_submit", {"charter": charter})
     assert saved["saved"] and saved["blocking"] == 1
+    assert saved["values"] == checked["values"]   # saving returns what a check would: no separate check call is needed
     charter_id = imports.get(record["id"])["charter_id"]
     asked = imports.call(record["id"], run["id"], "c7", "question_ask", {"questions": [
         {"id": "incidence", "question": "Is the incidence normal?", "options": ["Yes", "No, give the angle"], "about": ["incident_angle_deg"]}]})
@@ -181,6 +182,7 @@ def test_import_produces_a_reviewable_charter_through_the_harness(tmp_path):
     # Answering the last open question starts the formulator's next turn.
     view = workspace.charters.view(charter_id)
     workspace.charters.answer(charter_id, "incidence", "Yes, normal incidence", expected_revision=view["revision"])
+    assert "round 1 of 2" in pi.submitted[-1][1]["input"] and "do not ask again what the answers already cover" in pi.submitted[-1][1]["input"]
     assert "Yes, normal incidence" in pi.submitted[-1][1]["input"] and imports.get(record["id"])["status"] == "running"
     pi.runs[pi.submitted[-1][1]["id"]] = {"status": "completed", "result": {"text": "Revised."}}
     imports.sync(record["id"])
@@ -195,6 +197,7 @@ def test_import_produces_a_reviewable_charter_through_the_harness(tmp_path):
     angle = next(row for row in proposed["options"][0]["changes"] if row["name"] == "target_angle_deg")
     assert angle["after"] == "72.6586°"
     assert workspace.charters.view(charter_id)["proposals"][0]["request"] == "Set the period to 1100 nm"
+    assert workspace.charters.view(charter_id)["proposals"][0]["asked"] == "Set the period to 1100 nm"   # the researcher's own words, for the page
 
 
 def problems_examples():
@@ -210,7 +213,7 @@ def test_a_written_statement_alone_starts_the_formulator_and_a_charter_gets_one_
     workspace.problem_imports = imports
     tiers.save(workspace.store, tiers.TierSettings.model_validate({"tiers": [
         {"id": "strong", "label": "Strong", "model": {"provider": "deepseek", "model": "deepseek-v4-pro", "effort": "max"}}],
-        "roles": {"problem_importer": "strong"}}))
+        "roles": {"formulator": "strong"}}))
     record = imports.create(ImportCreate(provider="deepseek", model="deepseek-v4-pro",
                                          statement="Maximize the yield of a flow reaction.\nTemperature 60-120 C."))
     assert record["title"] == "Maximize the yield of a flow reaction." and record["documents"][0]["text_file"] == "documents/statement.md.txt"
@@ -272,3 +275,42 @@ def test_importer_uses_the_tier_assigned_to_its_role(tmp_path):
     assert imports.create(ImportCreate(tier="fast"))["model"]["effort"] == "off"
     with pytest.raises(ValueError, match="model tier"):
         imports.create(ImportCreate(tier="missing"))
+
+
+def test_questions_left_unanswered_go_to_the_formulator_as_decisions_to_record(tmp_path):
+    """The researcher is not expected to know every answer: a round can be sent with questions open, and the formulator is
+    told to decide each from the answers and the sources, record an assumption, and never ask it again."""
+    from optimization_framework.execution.service import Workspace
+    workspace, pi = Workspace(tmp_path), FakePi()
+    imports = ProblemImports(workspace, client=pi)
+    workspace.problem_imports = imports
+    record = imports.create(ImportCreate(provider="deepseek", model="deepseek-v4-pro"))
+    imports.add_document(record["id"], "paper.md", b"The target angle is 75 degrees.")
+    record = imports.start(record["id"])
+    run = pi.submitted[0][1]
+    charter = deepcopy(next(item for item in problems_examples() if item["id"].startswith("flrl"))["charter"])
+    imports.call(record["id"], run["id"], "c1", "charter_submit", {"charter": charter})
+    charter_id = imports.get(record["id"])["charter_id"]
+    imports.call(record["id"], run["id"], "c2", "question_ask", {"questions": [
+        {"id": "incidence", "question": "Is the incidence normal?", "options": ["Yes", "No, give the angle"]},
+        {"id": "polarization", "question": "Which polarization matters?", "options": ["Both equally", "TE only"]}]})
+    pi.runs[run["id"]] = {"status": "completed", "result": {"text": "Two open questions."}}
+    imports.sync(record["id"])
+    view = workspace.charters.view(charter_id)
+    workspace.charters.answer(charter_id, "incidence", "Yes", expected_revision=view["revision"])
+    assert len(pi.submitted) == 1   # one still open: nothing is sent by itself
+    view = workspace.charters.view(charter_id)
+    assert [row["message"] for row in view["findings"] if row["code"] == "question.open"] == ["Open question: Which polarization matters?"]
+    workspace.charters.send_answers(charter_id, expected_revision=view["revision"])
+    prompt = pi.submitted[-1][1]["input"]
+    assert "Answer: Yes" in prompt and "left these unanswered" in prompt and "Which polarization matters?" in prompt
+    assert "do not ask them again" in prompt and "Record each decision as an assumption" in prompt and "drop the question" in prompt
+    view = workspace.charters.view(charter_id)
+    left = next(q for q in view["charter"]["questions"] if q["id"] == "polarization")
+    assert left["sent"] and left["answer"] is None
+    assert [row["message"] for row in view["findings"] if row["code"] == "question.open"] == ["Left to the formulator to decide: Which polarization matters?"]
+    # The formulator's revised draft that keeps the question keeps it as left to it, not as open to the researcher again.
+    draft = deepcopy(view["charter"]); draft["questions"] = [q for q in draft["questions"] if q["id"] == "polarization"]
+    run_id = pi.submitted[-1][1]["id"]
+    imports.call(record["id"], run_id, "c3", "charter_submit", {"charter": draft})
+    assert workspace.charters.view(charter_id)["charter"]["questions"][0]["sent"] is True
