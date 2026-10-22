@@ -285,8 +285,12 @@ class Context:
                 if m.get("role") == "assistant" and m.get("agent_id") == self.lead_id and m.get("origin") in {"lead", "autopilot"}]
 
     def reply(self):
-        replies = self.lead_replies()
-        return replies[-1]["content"] if replies else ""
+        """The lead's replies to the researcher's last message, together: a notice turn after the answer may add one of its own
+        ("no change to report"), and the answer is still the answer."""
+        asked = max((m.get("created_at") or "" for m in self.store.list("message", self.campaign_id)
+                     if m.get("role") == "user" and m.get("origin") == "researcher"), default="")
+        replies = sorted(self.lead_replies(), key=lambda m: m.get("created_at") or "")
+        return "\n\n".join(m["content"] or "" for m in replies if (m.get("created_at") or "") >= asked)
 
     def agent_commands(self):
         return [c for c in self.store.list("work_command", self.campaign_id) if (c.get("origin") or {}).get("agent_id")]

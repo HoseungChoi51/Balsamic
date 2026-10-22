@@ -90,8 +90,8 @@ Later runs compare with it: `--compare evals/lead/baselines/a7e89b8.json`. Recor
 - Checks, each read from the store at the end: `commands_exactly`, `commands_at_least` (an operation or a list, optionally
   `role` for one role's agents), `no_commands`, `max_commands` (agents' accepted commands), `max_lead_turns`, `max_continue_turns` (`pi_continue_*` runs), `no_model_calls`,
   `cost_usd_max`, `no_refusal_containing` (any refused tool call of the campaign's agents), `max_tool_result_bytes`,
-  `reply_contains_any`, `reply_contains_none`, `reply_links_page`, `reply_matches` (a regular expression; the lead's last
-  reply), `last_state_contains` (the state block the lead's last turn was given), `external_receipts_at_least` and
+  `reply_contains_any`, `reply_contains_none`, `reply_links_page`, `reply_matches` (a regular expression; all of the lead's
+  replies to the last request, so a positive check passes on any and a negative one fails on any), `last_state_contains` (the state block the lead's last turn was given), `external_receipts_at_least` and
   `no_external_receipts` (receipts of extension tools), `outputs_at_least` and `structured_outputs_valid` (results specialists
   submitted), `verdicts_in` (a proposal's review verdicts), `no_researcher_question`, `request_closed`, `no_failed_runs`,
   `records_at_least`, `records_at_most`.
