@@ -70,3 +70,12 @@ def two_small_runs(ctx):
                                                       max_steps=400, wall_seconds=30, question=f"Screen · random · seed {seed}"))
         ids.append(trial["id"])
     return {"trial_ids": ", ".join(ids)}
+
+
+def flawed_proposal(ctx):
+    """A proposal with two faults a review should catch: its algorithm is not installed, and its mechanism contradicts the
+    task's representation (a continuous bounded problem treated as a binary mask)."""
+    receipt = ctx.stack.command(ctx.campaign_id, "hypothesis.create", {"title": "Quantum annealing of a binary mask",
+        "mechanism": "Encode the design as a 64-cell binary mask and anneal it on a quantum annealer, flipping one cell per step.",
+        "rationale": "Annealers find binary optima quickly.", "algorithm": "quantum_annealer"})
+    return {"hypothesis_id": receipt["outcome"]["hypothesis_id"]}

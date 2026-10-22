@@ -510,6 +510,34 @@ def check_no_external_receipts(ctx, arg):
     return not found, ", ".join(found) or "none"
 
 
+def _outputs(ctx):
+    return [(agent, agent.get("output")) for agent in ctx.agents().values() if agent.get("output") is not None]
+
+
+def check_structured_outputs_valid(ctx, arg):
+    """Every result an agent submitted matches its schema (the roles' schemas, agents/roles)."""
+    import jsonschema
+    bad = []
+    for agent, output in _outputs(ctx):
+        try:
+            jsonschema.validate(output, agent.get("output_schema") or {})
+        except jsonschema.ValidationError as exc:
+            bad.append(f"{agent['role']}: {exc.message[:120]}")
+    return not bad, "; ".join(bad) or f"{len(_outputs(ctx))} outputs valid"
+
+
+def check_outputs_at_least(ctx, arg):
+    count = sum(agent["role"] == arg["role"] for agent, _ in _outputs(ctx))
+    return count >= arg["count"], f"{count} results from the {arg['role']}"
+
+
+def check_verdicts_in(ctx, arg):
+    """The proposal's reviews: at least one verdict, and every verdict among those given."""
+    hypothesis = ctx.store.get(ctx.format(arg["hypothesis"]), "hypothesis")
+    verdicts = [review["verdict"] for review in hypothesis.get("reviews") or [] if review.get("verdict")]
+    return bool(verdicts) and set(verdicts) <= set(arg["verdicts"]), f"verdicts {verdicts}"
+
+
 def check_records_at_least(ctx, arg):
     count = len(ctx.store.list(arg["kind"], ctx.campaign_id))
     return count >= arg["count"], f"{count} {arg['kind']}"

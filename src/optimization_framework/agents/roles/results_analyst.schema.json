@@ -1,0 +1,14 @@
+{
+  "type": "object",
+  "required": ["evidence", "conclusion", "confidence"],
+  "additionalProperties": false,
+  "properties": {
+    "evidence": {"type": "array", "maxItems": 40, "items": {"type": "object", "additionalProperties": false,
+      "required": ["claim", "trial_ids", "metric", "value", "spread", "comparable", "caveat"],
+      "properties": {"claim": {"type": "string"}, "trial_ids": {"type": "array", "items": {"type": "string"}}, "metric": {"type": "string"},
+        "value": {"type": ["number", "string"]}, "spread": {"type": ["number", "string", "null"]}, "comparable": {"type": "boolean"},
+        "caveat": {"type": "string"}}}},
+    "conclusion": {"type": "string"},
+    "confidence": {"enum": ["low", "medium", "high"]}
+  }
+}

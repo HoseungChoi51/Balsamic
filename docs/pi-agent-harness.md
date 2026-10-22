@@ -293,6 +293,23 @@ read in the run (`report_write`, `problem_note_draft`, `hypothesis.create` and `
 | `rcwa-convergence-check` | A score at the searched RCWA orders checked at higher orders (draft from Part F) |
 | `meent-problem-setup` | The installed MEENT grating problems (draft from `paper-mapping.md` and `problem-setup.md`) |
 
+### Specialists
+
+The assistants the lead or the moderator asks for one assignment (the literature specialist, methodology specialist,
+cross-domain explorer, skeptical domain analyst, empirical assessor, results analyst and proposal reviewer) differ by brief,
+tools, output schema and their own context, not by name only. Each has a file in Pi's agent-definition format,
+`src/optimization_framework/agents/roles/<role>.md` (frontmatter `name`, `description`, `tools`, `model` as a tier hint; the
+brief as the body, at most 200 words), and a `<role>.schema.json` (`agents/roles.py`, `ROLE_BRIEFS`, `ROLE_OUTPUT_SCHEMAS`).
+
+- A specialist is told `SPECIALIST_CONTRACT` instead of the shared instructions: it reports to the agent that asked it,
+  starts no work of its own, cites record ids, has 40 tool calls for an assignment (enforced: past them only
+  `submit_output`, `proposal_review` and `yield_work` run), and records its result before it completes.
+- Its tools are those its file names; `delegate` gives it its role's schema, `submit_output` validates against it, and
+  `yield_work(complete)` is refused until it has submitted. The proposal reviewer's structured output stays its
+  `proposal_review`.
+- The asking agent's notice says where the result is (`/output` on the run); the Review rounds view shows it.
+- Specialists saved before the schemas keep working without one.
+
 ### Files and the agents' own analysis
 
 Agents other than the protected implementation roles can read two places outside the database:

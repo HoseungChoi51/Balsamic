@@ -15,6 +15,7 @@ from optimization_framework.storage.sqlite import now
 from optimization_framework.campaigns.record_view import view_record
 from .models import ROLES, LEAD, PAGE_AGENTS, STANDING, DISCUSSION_ROLES
 from .capabilities import implementation_execution
+from .roles import ROLE_BRIEFS, ROLE_OUTPUT_SCHEMAS, SPECIALIST_CONTRACT, SPECIALIST_TOOL_CALLS
 
 READ_KINDS = {"campaign", "task", "hypothesis", "source", "source_capture", "source_passage", "source_retrieval", "runtime_profile", "evaluator_equivalence",
     "journal_compaction", "worker_ceiling_change", "campaign_budget_amendment", "validation_requirement", "validation_result", "waiver", "waiver_revocation", "finalist_selection",
@@ -442,6 +443,11 @@ class PiTools:
                 names |= {"experiment_progress"}
         if agent["role"] == "proposal_reviewer":
             names.add("proposal_review")
+        if agent["role"] in ROLE_BRIEFS:
+            # A specialist's tools are those its role file names (agents/roles/<role>.md), and submit_output for its result.
+            names &= set(ROLE_BRIEFS[agent["role"]]["tools"]) | {"yield_work"}
+        if agent.get("output_schema"):
+            names.add("submit_output")
         if agent.get("grant_id"):
             # Protected implementation roles receive only the exact context the
             # library supplies. They cannot read campaign fixtures or peer work.
@@ -466,8 +472,11 @@ class PiTools:
 
     def manifest(self, agent_id, run_id):
         agent, run = self._context(agent_id, run_id)
-        instructions = (GRANT_INSTRUCTIONS if agent.get("grant_id") else INSTRUCTIONS) + \
+        specialist = agent["role"] in ROLE_BRIEFS and not agent.get("grant_id")
+        instructions = (GRANT_INSTRUCTIONS if agent.get("grant_id") else SPECIALIST_CONTRACT + "\n" if specialist else INSTRUCTIONS) + \
             f"\nRole: {agent['role']}\nAssignment: {agent['objective']}\nEvidence IDs: {json.dumps(agent['evidence_ids'])}"
+        if specialist:
+            instructions += "\n" + ROLE_BRIEFS[agent["role"]]["brief"]
         if agent["role"] == LEAD:
             instructions += "\n" + LEAD_CONTRACT.rstrip()
         if agent["role"] in PAGE_AGENTS:
@@ -631,7 +640,7 @@ class PiTools:
             agent, run = self._context(agent_id, run_id)
             if name not in self.names(agent):
                 raise ValueError("Tool is not available to this assignment")
-            refusal = self.page_work(agent, name, arguments)
+            refusal = self.page_work(agent, name, arguments) or self.over_budget(agent, run, name)
             if refusal:
                 return {"error": refusal, "executed": False, "recovery": "Ask the agent in charge of that page with page_agent_message, then call yield_work(waiting)."}
             try:
@@ -681,6 +690,15 @@ class PiTools:
             with self.workspace.lock, self.store.transaction():
                 receipt(result)
         return result
+
+    def over_budget(self, agent, run, name):
+        """A specialist past its tool calls for the run may only record its result and end (SPECIALIST_TOOL_CALLS)."""
+        if agent["role"] not in ROLE_BRIEFS or agent.get("grant_id") or name in {"submit_output", "yield_work", "proposal_review"}:
+            return ""
+        with self.store.connection() as db:
+            used = db.execute("SELECT COUNT(*) FROM records WHERE kind='agent_tool_receipt' AND json_extract(data,'$.run_id')=?", (run["id"],)).fetchone()[0]
+        return (f"This assignment's {SPECIALIST_TOOL_CALLS} tool calls are spent: record what you have (submit_output, or proposal_review) "
+                "and call yield_work(complete), saying what is missing.") if used >= SPECIALIST_TOOL_CALLS else ""
 
     def page_work(self, agent, name, arguments):
         """Why the lead may not run this command itself, naming the page agent that does; empty when it may."""
@@ -992,8 +1010,9 @@ class PiTools:
             for ref in args.get("evidence_ids", []):
                 self.record(agent, ref)
             aid = "agent_" + content_hash([agent["id"], args["request_key"]])[:30]
+            # The role's output schema (agents/roles/<role>.schema.json) is the result it submits.
             child = self.controller.create_agent(cid, args["role"], args["objective"], aid,
-                parent_id=agent["id"], evidence_ids=args.get("evidence_ids"))
+                parent_id=agent["id"], evidence_ids=args.get("evidence_ids"), output_schema=ROLE_OUTPUT_SCHEMAS.get(args["role"]))
             root = self.assignment_origin(agent, run)
             if root:
                 child["assignment_origin"] = root
@@ -1083,6 +1102,8 @@ class PiTools:
         if name == "yield_work":
             for ref in args.get("evidence_ids", []):
                 self.record(agent, ref)
+            if agent.get("output_schema") and args["disposition"] == "complete" and self.store.get(agent["id"], "agent_session").get("output") is None:
+                raise ValueError("Submit your result with submit_output first, in your role's schema; then call yield_work(complete).")
             if agent["role"] in STANDING and args["disposition"] == "complete":
                 reason = self.outstanding(agent)
                 if reason:

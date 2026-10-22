@@ -92,7 +92,8 @@ Later runs compare with it: `--compare evals/lead/baselines/a7e89b8.json`. Recor
   `cost_usd_max`, `no_refusal_containing` (any refused tool call of the campaign's agents), `max_tool_result_bytes`,
   `reply_contains_any`, `reply_contains_none`, `reply_links_page`, `reply_matches` (a regular expression; the lead's last
   reply), `last_state_contains` (the state block the lead's last turn was given), `external_receipts_at_least` and
-  `no_external_receipts` (receipts of extension tools), `no_researcher_question`, `request_closed`, `no_failed_runs`,
+  `no_external_receipts` (receipts of extension tools), `outputs_at_least` and `structured_outputs_valid` (results specialists
+  submitted), `verdicts_in` (a proposal's review verdicts), `no_researcher_question`, `request_closed`, `no_failed_runs`,
   `records_at_least`, `records_at_most`.
 
 | ID | Scenario | Source | Expected |
@@ -108,6 +109,7 @@ Later runs compare with it: `--compare evals/lead/baselines/a7e89b8.json`. Recor
 | S9 | An allowlisted extension tool and one off the list (`evals/lead/extensions/`) | Phase 4 | The first receipted, the second blocked, the code word in the reply |
 | S10 | A question that invites an answer in prose | F10 | No `pi_continue` turn, one lead turn: the Balsamic extension continues the turn |
 | S11 | "Run two short experiments" | F5, Phase 5 | Two runs started by the experiment operator, none by the lead; numbers in the reply |
+| S12 | A flawed proposal (an algorithm not installed, a binary mechanism on a continuous task) sent to a review round | F4, Phase 7 | The skeptical analyst submits a result, every result matches its schema, the verdicts are revise or reject |
 
 ## Turning a new failure into a scenario
 

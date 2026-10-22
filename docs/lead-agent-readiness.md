@@ -43,6 +43,7 @@ to replace that outside session.
 | Pi extensions bound and curated per role; extension tools receipted; dialogs answered by the researcher; a turn without yield_work continued in the turn | Implemented, tested; not checked live; see Part O |
 | The pages' operations routed in code: refused from the lead with the agent to ask; the lead reads experiment progress itself | Implemented, tested; not checked live; see Part P |
 | Workflow procedures read on demand; the lead's instructions cut from 2,889 to 886 words | Implemented, tested; two domain procedures await review; not checked live; see Part Q |
+| Specialists with briefs, tool scopes and output schemas; results submitted before completion | Implemented, tested; not checked live; see Part R |
 
 "Live" means the running services on X670 use the code (last restarted on 14 October 2026).
 "Not live" means the code is in the working tree and tested, and the services still run the old
@@ -965,6 +966,44 @@ frontmatter: `rcwa-convergence-check` from Part F and `docs/paper-mapping.md`, `
   least half, cost and turns per scenario). The word counts above are the only measurement so far.
 - Option B of D3 (an extension-provided `read` so Pi lists the procedures as native skills) was not tried.
 - The domain procedures await review; running a procedure's scripts is out of scope.
+
+## Part R — Specialists with briefs, tools and output schemas (22 October 2026; harness plan, Phase 7)
+
+### What was wrong
+
+The discussion roles were names only: each got the lead's instructions, one `Role:` line, whatever objective the delegator
+wrote, and the same tools. Only the proposal reviewer's `proposal_review` was structured; `submit_output` existed for
+implementation grants alone, so no other role could be held to a result format (F4).
+
+### What changed
+
+| Change | Where |
+|---|---|
+| A brief (at most 200 words: purpose, a good result, what not to do), a tool list and a model tier hint for each of the seven roles, in Pi's agent-definition format; an output schema for each but the reviewer | `src/optimization_framework/agents/roles/*.md`, `*.schema.json`, `agents/roles.py` |
+| `SPECIALIST_CONTRACT` (217 words) instead of the shared instructions: report to whoever asked, start nothing, cite ids, 40 tool calls, record the result, then complete | `agents/roles.py`; `PiTools.manifest` |
+| A specialist's tools are its file's; `delegate` sets the role's schema; `submit_output` for any agent with a schema; `yield_work(complete)` refused before the result; the tool-call budget enforced | `PiTools.names`, `delegate`, `yield_work`, `over_budget` |
+| The asking agent's notice points at the result (`/output`); the Review rounds view shows it | `controller._receive`; `agents/discussions.py`; `frontend/src/hypotheses/HypothesesPage.tsx` |
+| S12: a flawed proposal sent to a review round | `evals/lead/scenarios/S12-flawed-proposal-review.json`, `seeds.py`, `fakes.py` |
+
+D2 stays at its default: the roles are kept, with briefs and schemas; merging them into one analyst is for after the live evals.
+
+### Checked
+
+- `tests/test_roles.py`: every discussion role has a brief within its length and a valid schema (the reviewer its
+  `proposal_review`); a specialist's manifest is the contract, its brief and its schema, not the shared instructions, and its
+  tools are its file's (no literature search for the skeptical analyst, no `campaign_command`); `complete` before a result is
+  refused, an invalid result is refused, a valid one is saved on the agent and the run; past its tool calls a specialist can
+  only record and end; the result shows in the discussion view and the notice says where it is; a specialist saved before
+  the schemas still loads and completes.
+- `--fake`: S12 passes: the scripted analyst submits two high-severity failure modes, the reviewer rejects.
+- A specialist's instructions are 405 words (1,993 at `a7e89b8`).
+
+### Not done
+
+- Live S12 and the share of valid structured outputs from real models: real calls needed.
+- Optional independence (a reviewer not reading other reviewers' verdicts on the same revision before its own): not done; the
+  hypothesis record carries the reviews, so it needs filtering there as well as in `evidence_read`.
+- The moderator's synthesis of the results rests on its instructions and the notice; nothing checks it.
 
 ## Not planned
 

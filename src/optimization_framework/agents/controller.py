@@ -854,7 +854,8 @@ class PiController:
                         self.enqueue(parent, "pi_child_result_" + content_hash(rid)[:28], NOTICE +
                             f"Subagent {agent_id} ({agent['role']}) finished with status {run['status']}. "
                             f"Read agent run {rid} and its artifacts, and use them for the researcher's request that the assignment belongs to, "
-                            "or revise the assignment; a completed response is not proof of scientific completion.")
+                            "or revise the assignment; a completed response is not proof of scientific completion."
+                            + (" Its structured result is on the run (evidence_read, pointer /output)." if run.get("output") is not None else ""))
                     if run["status"] == "interrupted" and not agent.get("grant_id"):
                         self.enqueue(agent, "pi_recover_" + content_hash(rid)[:28], NOTICE +
                             f"Assignment {rid} was interrupted by a harness restart. Read saved receipts and continue from persisted history. Do not repeat committed operations.")

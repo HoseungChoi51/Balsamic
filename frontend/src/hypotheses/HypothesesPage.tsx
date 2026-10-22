@@ -64,7 +64,11 @@ function Rounds({ rounds }: { rounds: Record<string, unknown> }) {
   if (!list.length) return <Empty>No review round yet. The discussion moderator runs rounds when asked (/review H01).</Empty>;
   return <>{list.map((r, i) => <Section key={String(r.number || i)} title={`Round ${String(r.number || i + 1)}`}>
     <p className="small muted">{String((r.trigger as { text?: string })?.text || (r.trigger as { kind?: string })?.kind || '')}</p>
-    {((r.people || r.assistants || []) as Record<string, unknown>[]).map((p, j) => <div key={j} className="small row"><Pill tone="agent">{String(p.role)}</Pill><span className="grow">{String(p.verdict || p.status || '')}</span></div>)}
+    {((r.people || r.assistants || []) as Record<string, unknown>[]).map((p, j) => <div key={j}>
+      <div className="small row"><Pill tone="agent">{String(p.role)}</Pill><span className="grow">{String(p.verdict || p.status || '')}</span></div>
+      {/* The result the assistant submitted in its role's schema, which the moderator synthesizes. */}
+      {p.output ? <details className="small" data-testid="round-output"><summary>Submitted result</summary>
+        <pre style={{ whiteSpace: 'pre-wrap', margin: 0 }}>{JSON.stringify(p.output, null, 2)}</pre></details> : null}</div>)}
     <details><summary className="small">details</summary><pre>{JSON.stringify(r, null, 1).slice(0, 4000)}</pre></details>
   </Section>)}</>;
 }

@@ -129,10 +129,45 @@ def prose_answer(turn):
     return "Coordinate search changes one parameter at a time and keeps a change when the score improves."
 
 
+def review_round(turn):
+    """The lead asks the moderator for a review; the moderator asks a skeptical analyst and a reviewer, then reports."""
+    if turn.role == "skeptical_domain_analyst":
+        turn.call("campaign_inspect")
+        turn.call("submit_output", result={"failure_modes": [
+            {"mechanism": "The lane quantum_annealer", "why_it_could_fail": "It is not installed: campaign_inspect.methods does not list it",
+             "falsifying_test": "Compare the lane with campaign_inspect.methods", "cost": "none", "severity": "high"},
+            {"mechanism": "A 64-cell binary mask", "why_it_could_fail": "The task is a bounded continuous problem, not a binary one",
+             "falsifying_test": "Read the task's candidate schema", "cost": "none", "severity": "high"}]})
+        return turn.finish("Two high-severity failure modes: the lane is not installed and the representation is wrong.", summary="Two failure modes")
+    if turn.role == "proposal_reviewer":
+        hypothesis = turn.call("campaign_inspect")["hypotheses"][0]
+        turn.call("proposal_review", hypothesis_id=hypothesis["id"], hypothesis_hash=hypothesis["hypothesis_hash"], verdict="reject",
+                  rationale="The algorithm is not installed and the mechanism contradicts the continuous representation.",
+                  suggested_tests=["Restate the strategy with an installed continuous method"])
+        return turn.finish("Reject: not installed, wrong representation.", summary="Rejected")
+    if turn.role == "discussion_moderator":
+        if not turn.memory.get("asked"):
+            turn.memory["asked"] = True
+            for role in ("skeptical_domain_analyst", "proposal_reviewer"):
+                turn.call("delegate", role=role, objective="Review the proposal on Hypotheses: how could it fail here, and should it be tested?", request_key=role)
+            return turn.finish("", summary="Asked a skeptical analyst and a reviewer", disposition="waiting")
+        result = turn.call("yield_work", disposition="complete", summary="Reviewed", report="The skeptical analyst found two high-severity "
+                           "failure modes; the reviewer rejected the proposal. See [Review rounds](#hypotheses/rounds).", evidence_ids=[])
+        return "Reviewed." if result.get("saved") else turn.finish("", summary="Waiting for the other assistant", disposition="waiting")
+    match = re.search(r"agent run (\S+)", turn.text)
+    if turn.notice and match:
+        report = turn.call("evidence_read", record_id=match.group(1), pointer="/disposition/report")
+        return turn.finish(f"The review round ended: {report}")
+    if turn.notice:
+        return unrelated_notice(turn)
+    turn.call("page_agent_message", page_agent="discussion_moderator", message="Review the proposal on Hypotheses with a skeptical analyst and a reviewer.")
+    return turn.finish("", summary="Asked the discussion moderator for a review", disposition="waiting")
+
+
 def scripted(play):
     """A scenario's script for the turns it is about; other agents' notices get the plain acknowledgement."""
     def turn(t):
-        return play(t) if t.role == "lead" or play is two_short_runs else unrelated_notice(t)
+        return play(t) if t.role == "lead" or play in (two_short_runs, review_round) else unrelated_notice(t)
     return turn
 
 
@@ -147,4 +182,5 @@ FAKES = {
     "S9-extension-tools": scripted(extension_tools),
     "S10-prose-answer": scripted(prose_answer),
     "S11-experiments-through-the-operator": scripted(two_short_runs),
+    "S12-flawed-proposal-review": scripted(review_round),
 }

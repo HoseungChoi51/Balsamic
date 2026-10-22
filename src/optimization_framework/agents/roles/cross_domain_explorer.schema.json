@@ -1,0 +1,11 @@
+{
+  "type": "object",
+  "required": ["analogies"],
+  "additionalProperties": false,
+  "properties": {
+    "analogies": {"type": "array", "maxItems": 20, "items": {"type": "object", "additionalProperties": false,
+      "required": ["domain", "mechanism", "transfer_argument"],
+      "properties": {"domain": {"type": "string"}, "mechanism": {"type": "string"}, "transfer_argument": {"type": "string"},
+        "source_id": {"type": "string"}}}}
+  }
+}
