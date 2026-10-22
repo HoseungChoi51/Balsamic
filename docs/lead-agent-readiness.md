@@ -37,13 +37,14 @@ to replace that outside session.
 | Page agents: discussion moderator, experiment operator, implementation lead | Implemented, live, each checked once on a scratch campaign; see Part I |
 | Experiments: short and long runs apart, runs edited or run again, obsolete runs hidden, the operator's rules and presentation | Implemented, live, checked with the operator on a scratch campaign; see Part J |
 | The review rounds drawn as a graph | Implemented, tested; see Part K |
-| Lead-agent evals that can be run again (scripted and live), a prompt-size ratchet | Implemented, tested with the scripted harness; no live baseline yet; see Part L |
-| The campaign's state in every turn (state block); instructions fixed per role; pins reach the model | Implemented, tested; not checked live; see Part M |
-| The guidance revision pinned on the server, never taken from the model | Implemented, tested; not checked live; see Part N |
-| Pi extensions bound and curated per role; extension tools receipted; dialogs answered by the researcher; a turn without yield_work continued in the turn | Implemented, tested; not checked live; see Part O |
-| The pages' operations routed in code: refused from the lead with the agent to ask; the lead reads experiment progress itself | Implemented, tested; not checked live; see Part P |
-| Workflow procedures read on demand; the lead's instructions cut from 2,889 to 886 words | Implemented, tested; two domain procedures await review; not checked live; see Part Q |
-| Specialists with briefs, tool scopes and output schemas; results submitted before completion | Implemented, tested; not checked live; see Part R |
+| Lead-agent evals that can be run again (scripted and live), a prompt-size ratchet | Implemented; live baseline on `a7e89b8` recorded (24 of 36 runs pass); see Parts L and S |
+| Live evals of Phases 1–7 | 36 of 36 runs pass at `f851e9c`; three faults and a grader fixed on the way; see Part S |
+| The campaign's state in every turn (state block); instructions fixed per role; pins reach the model | Implemented, tested; checked live by the evals; see Parts M and S |
+| The guidance revision pinned on the server, never taken from the model | Implemented, tested; checked live by the evals; see Parts N and S |
+| Pi extensions bound and curated per role; extension tools receipted; dialogs answered by the researcher; a turn without yield_work continued in the turn | Implemented, tested; checked live by the evals; see Parts O and S |
+| The pages' operations routed in code: refused from the lead with the agent to ask; the lead reads experiment progress itself | Implemented, tested; checked live by the evals; see Parts P and S |
+| Workflow procedures read on demand; the lead's instructions cut from 2,889 to 886 words | Implemented, tested; two domain procedures await review; checked live by the evals; see Parts Q and S |
+| Specialists with briefs, tool scopes and output schemas; results submitted before completion | Implemented, tested; checked live by the evals; see Parts R and S |
 
 "Live" means the running services on X670 use the code (last restarted on 14 October 2026).
 "Not live" means the code is in the working tree and tested, and the services still run the old
@@ -1005,6 +1006,70 @@ D2 stays at its default: the roles are kept, with briefs and schemas; merging th
 - Optional independence (a reviewer not reading other reviewers' verdicts on the same revision before its own): not done; the
   hypothesis record carries the reviews, so it needs filtering there as well as in `evidence_read`.
 - The moderator's synthesis of the results rests on its instructions and the notice; nothing checks it.
+
+## Part S — The first live evals (23 October 2026; harness plan, Phases 1–7 checked live)
+
+### What was run
+
+The suite of Part L, 12 scenarios with three repeats each, on the dev profile's default model, `centinels/gpt-6.1-sol`
+(the team's LiteLLM router; it reports no cost). The baseline was taken on `a7e89b8` from a worktree and recorded in
+`evals/lead/baselines/a7e89b8.json`; the branch ran beside it, then again after the fixes below.
+
+| Commit | Runs passed | Scenarios failing | Results |
+|---|---|---|---|
+| `a7e89b8` (baseline, before the plan) | 24 of 36 | S4, S7 (0/3); S9, S12 (0/3, the features did not exist) | `runs/evals/baseline-a7e89b8/` |
+| `3f0333e` (Phases 1–7) | 30 of 36 | S4 (0/3), S7 (1/3), S8 (2/3) | `runs/evals/branch-3f0333e/` |
+| `f851e9c` (with the fixes) | 36 of 36 | none | `runs/evals/final-f851e9c/` |
+
+### What was wrong
+
+- **A message lost its thread revision to housekeeping.** After a lead's reply the housekeeper asks a model for the next
+  suggestions (and names branches, labels hypotheses, titles exchanges), then wrote the whole record back as it had read it
+  before the call. A researcher message sent in those seconds moved the thread's revision, the write put it back, and every
+  command of the turn answering the message was refused: "The researcher wrote in this conversation since this command was
+  prepared". This was S4's failure at `3f0333e` and S7's in two of three. It predates the plan; at `a7e89b8` the guidance
+  refusal of Part N came first and hid it. In use it strikes whoever writes again within seconds of a reply.
+- **Phase 6's notice example said `waiting` without its condition.** The old text waited "when the work is still running";
+  the new example ("a notice that one of two runs finished … `yield_work(waiting)`") was followed when both had finished,
+  and the request stayed open with nothing left to wake the lead (S8, once).
+- **`procedure_read` refused the body named as a file.** The models passed `file: ""`, `"none"` or `"SKILL.md"`; each was
+  refused, one or two wasted calls per workflow turn.
+- **The reply checks read the last message only.** A notice turn after the answer adds its own line, and S8 failed once on
+  "no change to report" although the answer before it had the numbers.
+
+### What changed
+
+| Change | Where |
+|---|---|
+| A housekeeping job writes its own fields onto the newest copy of the record, under the workspace lock | `src/balsamic/housekeeping.py` `_save` |
+| The notice example waits only while the other run is still going (the core instructions: 346 words) | `agents/tools.py` `INSTRUCTIONS` |
+| `procedure_read` takes an empty file, `none` or `SKILL.md` as the body; the tool description says to omit `file` | `src/balsamic/procedures/__init__.py` |
+| Reply checks read all of the lead's replies to the researcher's last message | `scripts/run_lead_evals.py` `Context.reply`; `evals/lead/README.md` |
+| The baseline | `evals/lead/baselines/a7e89b8.json` |
+
+### Checked
+
+- `tests/balsamic/test_housekeeping.py::test_what_the_researcher_wrote_while_a_job_waited_for_its_model_is_kept`: the
+  researcher writes while the suggestions are being written; the thread keeps revision 2, the turn's command is accepted.
+  Without the fix it fails as S4 did (revision 1 against 2).
+- `tests/test_procedures.py`: the three spellings return the body.
+- Live, after the fixes: S4, S7 and S8 three times each, then the whole suite: 36 of 36.
+- Tokens per pass of the suite (the sum of each scenario's mean): uncached input 358,432 → 303,406 (−15%), cache reads
+  761,429 → 572,885, all prompt tokens −22%. One answer (S2) takes 38% fewer input tokens. Model calls 92.7 → 90.7.
+
+### Not done
+
+- **A notice after the answer adds a message.** In S8 the two runs the researcher started are catalogued after the lead has
+  answered; the notices are queued while the request is open, so it stays open, and `yield_work(complete)` requires a report:
+  the lead writes "no change to report" twice (three lead messages in every repeat). Either the outcomes of runs the
+  researcher started directly stop waking the lead, or a notice turn may complete without a report when the request already
+  has one. Both change what the lead is told about; for Hoseung to decide.
+- **The continuation in the turn was not exercised.** `pi_continue` was 0 in every run of both commits: this model always
+  ended with `yield_work`. S10 passes either way.
+- **The cache gain from fixed instructions does not show across campaigns.** The router caches per session, so a new
+  campaign starts cold (S2: 2,219 cached tokens of 13,680); within a session the share stayed about two thirds.
+- **S11 passes at the baseline too.** The old lead already sent experiments to the operator; Phase 5 makes it the only way.
+- Other models (DeepSeek, the subscription's `openai-codex`) not run.
 
 ## Not planned
 
