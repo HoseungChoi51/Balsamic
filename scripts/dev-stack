@@ -25,7 +25,9 @@ case "$cmd" in
   up)
     [ -f "$token" ] || python3 -c "import secrets,sys; open(sys.argv[1],'w').write(secrets.token_hex(24))" "$token"
     [ -f "$repo/frontend/dist/index.html" ] || (cd "$repo/frontend" && npm ci && npm run build)
-    start library uv run optimization-implementations --directory "$dir/library" --port "$LIBRARY_PORT"
+    # Its builds report to the workspace's Pi routes (/api/internal/pi/implementation) with the Pi service token.
+    start library env GRATING_PI_TOKEN_FILE="$token" GRATING_PI_WORKSPACE_URL="http://127.0.0.1:$WORKSPACE_PORT" \
+      uv run optimization-implementations --directory "$dir/library" --port "$LIBRARY_PORT"
     profile="${GRATING_PI_PROFILE:-$repo/agent-harness/profiles/dev}"
     secrets="${BALSAMIC_SECRETS:-$HOME/.config/balsamic/secrets.env}"
     if [ "$real" = 1 ]; then
