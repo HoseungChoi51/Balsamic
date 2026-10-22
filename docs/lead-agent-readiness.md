@@ -1034,6 +1034,13 @@ The suite of Part L, 12 scenarios with three repeats each, on the dev profile's 
   and the request stayed open with nothing left to wake the lead (S8, once).
 - **`procedure_read` refused the body named as a file.** The models passed `file: ""`, `"none"` or `"SKILL.md"`; each was
   refused, one or two wasted calls per workflow turn.
+- **Phase 4's continuation in the turn never fired.** The Balsamic extension continued a run only when Pi's context
+  preview said it could continue; at `agent_before_settle` that preview ends on the assistant's own message, so it is false
+  exactly when a turn ended in prose. Its unit test handed the hook `canContinue: true`. Found on the dev stack (23 October):
+  the resource planner answered `/plan` in prose, never called `yield_work`, and its request stayed open.
+- **A page agent asked from the chat answered off the chat.** `/plan` sends the request to the resource planner with the
+  thread it was typed in, but its turn kept no origin, so the answer went to the planner's desk, which lists only requests
+  made on the page: the chat showed the question and nothing after it. Older than the plan (`slash.ts`, `b978aa3`).
 - **The reply checks read the last message only.** A notice turn after the answer adds its own line, and S8 failed once on
   "no change to report" although the answer before it had the numbers.
 
@@ -1044,6 +1051,8 @@ The suite of Part L, 12 scenarios with three repeats each, on the dev profile's 
 | A housekeeping job writes its own fields onto the newest copy of the record, under the workspace lock | `src/balsamic/housekeeping.py` `_save` |
 | The notice example waits only while the other run is still going (the core instructions: 346 words) | `agents/tools.py` `INSTRUCTIONS` |
 | `procedure_read` takes an empty file, `none` or `SKILL.md` as the body; the tool description says to omit `file` | `src/balsamic/procedures/__init__.py` |
+| The continuation no longer asks Pi's preview; Pi checks the context again with the reminder appended | `agent-harness/src/gateway-extension.ts`; `agent-harness/test/continuation.test.mjs` |
+| A page agent asked from a chat thread answers in that thread; only the lead's turns move a thread's session leaf | `agents/controller.py` `message`, `ask_page_agent`, `_receive` |
 | Reply checks read all of the lead's replies to the researcher's last message | `scripts/run_lead_evals.py` `Context.reply`; `evals/lead/README.md` |
 | The baseline | `evals/lead/baselines/a7e89b8.json` |
 
@@ -1053,6 +1062,10 @@ The suite of Part L, 12 scenarios with three repeats each, on the dev profile's 
   researcher writes while the suggestions are being written; the thread keeps revision 2, the turn's command is accepted.
   Without the fix it fails as S4 did (revision 1 against 2).
 - `tests/test_procedures.py`: the three spellings return the body.
+- `agent-harness/test/continuation.test.mjs`: a real Pi session with a scripted model: a turn ending in prose gets one
+  more request ending with the reminder, then yields; a model that never yields is continued once; a turn that yielded is
+  not. Both fail without the fix.
+- `tests/balsamic/test_threads.py::test_a_page_agent_asked_from_the_chat_answers_in_the_chat`: fails without the fix.
 - Live, after the fixes: S4, S7 and S8 three times each, then the whole suite: 36 of 36.
 - Tokens per pass of the suite (the sum of each scenario's mean): uncached input 358,432 → 303,406 (−15%), cache reads
   761,429 → 572,885, all prompt tokens −22%. One answer (S2) takes 38% fewer input tokens. Model calls 92.7 → 90.7.
@@ -1064,8 +1077,8 @@ The suite of Part L, 12 scenarios with three repeats each, on the dev profile's 
   the lead writes "no change to report" twice (three lead messages in every repeat). Either the outcomes of runs the
   researcher started directly stop waking the lead, or a notice turn may complete without a report when the request already
   has one. Both change what the lead is told about; for Hoseung to decide.
-- **The continuation in the turn was not exercised.** `pi_continue` was 0 in every run of both commits: this model always
-  ended with `yield_work`. S10 passes either way.
+- **The continuation in the turn was not exercised live.** `pi_continue` was 0 in every run of both commits: this model
+  always ended with `yield_work`, and the continuation could not have fired (above). It is now tested against Pi itself.
 - **The cache gain from fixed instructions does not show across campaigns.** The router caches per session, so a new
   campaign starts cold (S2: 2,219 cached tokens of 13,680); within a session the share stayed about two thirds.
 - **S11 passes at the baseline too.** The old lead already sent experiments to the operator; Phase 5 makes it the only way.
