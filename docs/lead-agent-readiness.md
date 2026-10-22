@@ -39,6 +39,7 @@ to replace that outside session.
 | The review rounds drawn as a graph | Implemented, tested; see Part K |
 | Lead-agent evals that can be run again (scripted and live), a prompt-size ratchet | Implemented, tested with the scripted harness; no live baseline yet; see Part L |
 | The campaign's state in every turn (state block); instructions fixed per role; pins reach the model | Implemented, tested; not checked live; see Part M |
+| The guidance revision pinned on the server, never taken from the model | Implemented, tested; not checked live; see Part N |
 
 "Live" means the running services on X670 use the code (last restarted on 14 October 2026).
 "Not live" means the code is in the working tree and tested, and the services still run the old
@@ -732,7 +733,7 @@ repeated, so a change to the instructions or the tools could not be compared wit
 
 - `--fake`: every scenario runs and is graded; S1–S3 and S5–S8 pass. S4 fails as expected: its scripted lead states the
   guidance revision it read in its first turn, as the models did in Parts E and G, and the handler refuses it (F3). It is
-  marked as a known failure until the fix (Part N).
+  marked as a known failure until the fix (Part N, which removed the mark).
 - Python tests: 879 pass; the 16 that fail and the 3 files that do not load need `torch` or `gymnasium`, which this
   environment does not have, and fail the same way without these changes. Harness tests: 21 pass.
 
@@ -793,6 +794,43 @@ system prompt into the leading system message, so every change costs the prompt 
   session.
 - Steering messages carry no state block; they reach a turn whose block is minutes old at most.
 - The state block accumulates in the transcript, one per turn; the cap and the ten-pin limit bound it.
+
+## Part N — The guidance revision pinned on the server (22 October 2026; harness plan, Phase 3)
+
+### What was wrong
+
+After each answer from the researcher, the lead's first command was refused once for an outdated guidance revision
+(Parts E and G). Three places disagreed: the shared instructions told the model to send "the exact current guidance
+revision", the tool description said the revision was pinned, and the handler preferred the model's value. A model that
+stated the revision it had read in an earlier turn was refused (F3).
+
+### What changed
+
+| Change | Where |
+|---|---|
+| A command is prepared against the larger of the revision its turn started from and the newest one a `campaign_inspect` of the same turn returned; a revision the model states is ignored | `agents/tools.py` `PiTools.guidance_pin`, `campaign_command` |
+| `guidance_revision` stays in the schema, described as ignored; it goes in the next release (D7, a TODO beside it) | `agents/tools.py` `TOOLS["campaign_command"]` |
+| The shared instructions no longer ask for the revision | `agents/tools.py` `INSTRUCTIONS` |
+| A refusal because the researcher acted during the turn says so and what to do: read `campaign_inspect`, check the change, retry only if it still applies. The bus's message is unchanged | `agents/tools.py` `GUIDANCE_RECOVERY` |
+| S4 is no longer a known failure | `evals/lead/scenarios/S4-guidance-after-page-command.json` |
+
+### Checked
+
+- A model-stated revision of 99 is ignored and the run's is used
+  (`tests/balsamic/test_threads.py::test_lead_commands_pin_guidance_from_their_run_and_ignore_a_stated_revision`).
+- A command after the researcher answered, without reading the campaign again, is still refused
+  (`test_specialists_cannot_grant_authority_and_answers_invalidate_stale_commands`); after `campaign_inspect` in the same
+  turn it is accepted; in a notice turn, a command stating the revision read in an earlier turn is accepted (the Part E
+  pattern) (`tests/test_pi_agents.py`).
+- `--fake`: S4 passes. Its scripted lead still states the revision of its first turn, as the models did, and is no longer refused.
+- One test resolved several approvals (each changes the guidance) inside a single turn and stated the new revision itself;
+  it now reads `campaign_inspect` before each command, which is what an agent does after a change within its turn
+  (`test_what_only_the_researcher_grants_is_asked_for_and_applied_on_approval`).
+
+### Not done
+
+- Live S4 with k=3: needs real model calls.
+- Removing `guidance_revision` from the schema: next release.
 
 ## Not planned
 

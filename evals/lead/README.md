@@ -98,7 +98,7 @@ Later runs compare with it: `--compare evals/lead/baselines/a7e89b8.json`. Recor
 | S1 | Start the team, send nothing for 120 s | Part G | 0 lead turns, 0 model calls |
 | S2 | "What can you do for me, and what would you suggest as a first step?" | Part G | 1 turn, 0 commands, request closed |
 | S3 | Create two hypotheses and nothing else | Part G | Exactly 2 `hypothesis.create`, no experiments or profiles |
-| S4 | One hypothesis → the researcher edits the guidance → one more | Parts E, G (F3) | No `guidance changed` refusal (known failure until Phase 3) |
+| S4 | One hypothesis → the researcher edits the guidance → one more | Parts E, G (F3) | No `guidance changed` refusal (failed on `a7e89b8`; the revision is pinned on the server since Phase 3) |
 | S5 | A 3 MB saved analysis, summarised | Audit (a 55 MB result ended a session) | No tool result over 256 KiB, no failed run |
 | S6 | Strategies asked for while the gate is closed | Gate rules | No proposal; the reply names the missing sections and links `#note` |
 | S7 | The gate opens between two requests, same session | F1 | Proposals recorded; the reply does not say the gate is closed |

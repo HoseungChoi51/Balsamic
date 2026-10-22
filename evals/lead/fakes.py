@@ -3,7 +3,8 @@ gateway by tests/fake_harness.py. They check the runner's plumbing and its grade
 (scripts/run_lead_evals.py): .role, .text, .notice, .memory (kept across the agent's turns), .call(tool, **args), .finish(report).
 
 Where a scenario reproduces a failure seen with real models, the script makes the same mistake (S4 states the guidance
-revision it read in an earlier turn), so the fake run shows whether the platform still lets the mistake through."""
+revision it read in an earlier turn), so the fake run shows whether the platform still lets the mistake through (on a7e89b8
+it did: S4 failed there; the revision is pinned on the server since)."""
 import re
 
 

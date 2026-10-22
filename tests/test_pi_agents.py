@@ -140,6 +140,37 @@ def test_specialists_cannot_grant_authority_and_answers_invalidate_stale_command
     assert w.store.list('trial') == []
 
 
+def test_a_command_after_reading_the_campaign_again_in_the_same_turn_is_accepted(prepared):
+    from optimization_framework.agents.tools import GUIDANCE_RECOVERY
+    w,c,a,r = prepared
+    task = w.current_tasks(c['id'])[0]
+    trial = lambda key: invoke(prepared, 'campaign_command', {'operation': 'trial.create', 'request_key': key,
+        'payload': {'task_id': task['id'], 'algorithm': 'coordinate', 'max_steps': 2, 'wall_seconds': 5}}, key)
+    # The researcher changes the guidance during the turn: the turn's commands are stale, with a recovery that says what happened.
+    w.memory.bump(c['id'])
+    refused = trial('during')
+    assert 'guidance changed' in refused['error'] and refused['recovery'] == GUIDANCE_RECOVERY and not w.store.list('trial')
+    # Having read the campaign again in this turn, the agent's command is prepared against what it read.
+    assert invoke(prepared, 'campaign_inspect', {}, 'again')['guidance_revision'] == 1
+    accepted = trial('after')
+    assert 'error' not in accepted and accepted['request']['expected_guidance_revision'] == 1 and len(w.store.list('trial')) == 1
+
+
+def test_a_notice_turn_command_stating_an_earlier_turns_revision_is_accepted(prepared):
+    """Parts E and G: after the researcher answered, the lead's first command stated the revision it had read before and was refused."""
+    from optimization_framework.agents.models import NOTICE
+    w,c,a,r = prepared
+    read_before = invoke(prepared, 'campaign_inspect', {}, 'first_read')['guidance_revision']
+    q = invoke(prepared, 'researcher_ask', {'question': 'Which objective?', 'reason': 'Two are stated'}, 'question')
+    w.pi.message(c['id'], {'message': 'Use the first.', 'question_id': q['id']}, 'answer')
+    notice = w.pi.enqueue(w.store.get(a['id'], 'agent_session'), 'pi_events_answer', NOTICE + 'The researcher answered.')
+    w.store.put('agent_run', {**notice, 'status': 'submitted'})
+    task = w.current_tasks(c['id'])[0]
+    result = PiTools(w.pi).call(a['id'], notice['id'], 'remembered', 'campaign_command', {'operation': 'trial.create', 'request_key': 'remembered',
+        'guidance_revision': read_before, 'payload': {'task_id': task['id'], 'algorithm': 'coordinate', 'max_steps': 2, 'wall_seconds': 5}})
+    assert 'error' not in result and result['request']['expected_guidance_revision'] == w.memory.state(c['id'])['guidance_revision'] == read_before + 1
+
+
 class Client:
     def __init__(self): self.runs={}; self.submissions=[]; self.fail=False
     def status(self): return {'configured':True}
@@ -484,8 +515,10 @@ open("result.txt", "w").write("kept")
 def test_what_only_the_researcher_grants_is_asked_for_and_applied_on_approval(prepared, monkeypatch):
     w, c, *_ = prepared
     cid = c['id']
-    ask = lambda key, payload: invoke(prepared, 'campaign_command', {'operation': 'approval.request', 'request_key': key,
-        'guidance_revision': w.memory.state(cid)['guidance_revision'], 'payload': payload}, key)
+    def ask(key, payload):
+        # Each approval changes the guidance; within one turn the agent reads the campaign again before its next command.
+        invoke(prepared, 'campaign_inspect', {}, key + '_inspect')
+        return invoke(prepared, 'campaign_command', {'operation': 'approval.request', 'request_key': key, 'payload': payload}, key)
     approve = lambda key, decision, choice='0': w.commands.execute(Command(id=key, campaign_id=cid, expected_revision=w.store.get(cid, 'campaign')['version'],
         operation='decision.resolve', payload={'decision_id': decision, 'choice': choice, 'comment': 'Agreed', 'expected_resolution_revision': 0}))
     # A campaign limit: the lead cannot set it, and nothing changes until the researcher approves.

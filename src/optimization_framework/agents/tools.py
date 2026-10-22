@@ -97,8 +97,8 @@ with a browser IDE and normal shell/Git tools. Use implementation_workspace_insp
 and implementation_workspace_validate for supervision and independent validation. Do not assume that workspace
 creation or a submitted commit establishes correctness. The old short-script implementation path remains available
 for historical grants and lightweight compatibility work.
-Use command_schema to inspect supported commands, then campaign_command with the exact current guidance revision
-and a stable request_key describing the intended operation. If a request timed out, inspect its receipt before retrying.
+Use command_schema to inspect supported commands, then campaign_command with a stable request_key describing the
+intended operation. If a request timed out, inspect its receipt before retrying.
 Source-code availability is not effectiveness evidence.
 Speed is measured, not assumed. resource_inspect shows each task's runtime profile: evaluations per second at 1, 2, 4... workers,
 device load, the platform's share of each step, storage and solver executions per evaluation, with flags for waste. Runs at or
@@ -150,6 +150,11 @@ A request authorizes the work it names, within campaign allocations. Old discove
 campaign compute limits, protected reserves and current guidance still apply. Model calls may be billed per call against the
 campaign's model budget: do not spend turns on work nobody asked for.
 """
+
+
+# A command refused because the researcher acted during the turn (the bus's "Researcher guidance changed ..." message).
+GUIDANCE_RECOVERY = ("The researcher changed the campaign during your turn. Read campaign_inspect, check the change against what you were doing, "
+                     "and retry only if it still applies.")
 
 
 # Every tool result joins the model's context for the rest of its session, and a provider refuses a
@@ -293,7 +298,10 @@ TOOLS = {
     "command_schema": ("Read the exact schema of an execution command before preparing it.", obj({"operation": {"enum": sorted(OPERATIONS)}}, ["operation"])),
     "campaign_command": ("Execute a campaign command within existing delegation. Returns a durable receipt with the page that shows the result; never grants new authority. "
         "The guidance and the conversation your turn started from are pinned for you; a command is refused when the researcher wrote since. rationale: why, in one line (required under autopilot).",
-        obj({"operation": {"enum": sorted(OPERATIONS)}, "payload": {"type": "object"}, "request_key": S, "guidance_revision": {"type": "integer", "minimum": 0}, "rationale": S}, ["operation", "payload", "request_key"])),
+        # TODO(next release): remove guidance_revision; it is accepted and ignored so that saved sessions keep working (harness plan, D7).
+        obj({"operation": {"enum": sorted(OPERATIONS)}, "payload": {"type": "object"}, "request_key": S,
+             "guidance_revision": {"type": "integer", "minimum": 0, "description": "Ignored. The revision is pinned from your turn and from any campaign_inspect you ran in it; omit it."},
+             "rationale": S}, ["operation", "payload", "request_key"])),
     "implementation_workspace_create": ("Start or reattach a persistent full Pi coding workspace for an active hypothesis. No numerical grant is reserved by creation.", obj({"hypothesis_id": S, "objective": S, "evidence_ids": {"type": "array", "items": S, "maxItems": 100}, "request_key": S, "cpu_budget_seconds": {"type": "number", "exclusiveMinimum": 0, "maximum": 86400}}, ["hypothesis_id", "objective", "request_key"])),
     "implementation_workspace_inspect": ("Read implementation workspace state, progress, questions, submissions, and event cursor.", obj({"workspace_id": S, "after": {"type": "integer", "minimum": 0}}, ["workspace_id"])),
     "implementation_workspace_message": ("Steer or follow up with the full Pi coding agent in the given workspace.", obj({"workspace_id": S, "message": S, "mode": {"enum": ["steer", "follow_up"]}, "request_key": S, "question_id": S}, ["workspace_id", "message", "request_key"])),
@@ -520,6 +528,8 @@ class PiTools:
                                     "and read it in pages with evidence_read, or ask for less."}
                 return result
             except (ValueError, KeyError, OSError, jsonschema.ValidationError) as exc:
+                if name == "campaign_command" and "guidance changed" in str(exc):
+                    return {"error": str(exc)[:3000], "executed": False, "recovery": GUIDANCE_RECOVERY}
                 return {"error": str(exc)[:3000], "executed": False,
                     "recovery": "Inspect the exact error and current capabilities before revising the request; do not repeat an identical denied call."}
 
@@ -539,6 +549,15 @@ class PiTools:
             with self.workspace.lock, self.store.transaction():
                 receipt(result)
         return result
+
+    def guidance_pin(self, run):
+        """The guidance revision a run's commands are prepared against: the one its turn started from, or the newest that a
+        campaign_inspect of this same run returned. A revision remembered from an earlier turn is never used."""
+        with self.store.connection() as db:
+            inspected = db.execute("SELECT MAX(CAST(json_extract(data,'$.result.guidance_revision') AS INTEGER)) FROM records "
+                "WHERE kind='agent_tool_receipt' AND json_extract(data,'$.run_id')=? AND json_extract(data,'$.tool')='campaign_inspect'",
+                (run["id"],)).fetchone()[0]
+        return max(int(run.get("guidance_revision") or 0), int(inspected or 0))
 
     def assignment_origin(self, agent, run):
         """The researcher's request an agent's work descends from: the lead's run and thread, inherited by assistants of assistants."""
@@ -871,15 +890,16 @@ class PiTools:
                 execution = implementation_execution()
                 if not execution["available"]:
                     raise ValueError("Isolated implementation execution is unavailable; no grant was reserved. " + execution["reason"])
-            # Pinned from the run, not from the model's memory: the guidance it read and the thread it answers.
+            # Pinned from the run, never from the model's memory: the guidance it read and the thread it answers.
             origin = dict(run.get("origin") or {})
             actor = "autopilot" if run.get("autopilot") else "lead" if agent["role"] == LEAD else "page_agent"
             if actor == "autopilot" and not (args.get("rationale") or "").strip():
                 raise ValueError("Under autopilot every command states its rationale")
             from optimization_framework.contracts.commands import CommandOrigin
             command = Command(id=command_id, campaign_id=cid,
-                # The campaign-wide guidance pin comes from the run unless the lead read a newer one (campaign_inspect); the thread pin is never overridden.
-                operation=args["operation"], expected_revision=campaign["version"], expected_guidance_revision=args.get("guidance_revision", run.get("guidance_revision", 0)),
+                # The campaign-wide guidance pin is the run's, or a newer one the agent read in this run (campaign_inspect); a revision the model
+                # states is ignored (D7). The thread pin is never overridden.
+                operation=args["operation"], expected_revision=campaign["version"], expected_guidance_revision=self.guidance_pin(run),
                 expected_thread_revision=run.get("thread_revision"), expected_authority_hash=self.workspace.commands.authority_hash(campaign), payload=args["payload"],
                 origin=CommandOrigin(thread_id=origin.get("thread_id"), message_id=origin.get("message_id"), actor=actor, agent_id=agent["id"], run_id=run["id"],
                                      rationale=(args.get("rationale") or None)))

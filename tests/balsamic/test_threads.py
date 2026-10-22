@@ -91,16 +91,16 @@ def test_a_message_in_one_thread_does_not_stale_commands_of_another(client, work
     assert refused["executed"] is False and "wrote in this conversation" in refused["error"]
 
 
-def test_lead_commands_pin_guidance_from_their_run(client, workspace, campaign, team):
+def test_lead_commands_pin_guidance_from_their_run_and_ignore_a_stated_revision(client, workspace, campaign, team):
     run = submitted(workspace, say(client, campaign, "Go."))
     receipt = tool_call(workspace, team, run, "campaign_command", {"operation": "hypothesis.create", "request_key": "k",
                         "payload": {"title": "T", "mechanism": "m", "rationale": "r"}})
     saved = workspace.store.get(receipt["id"], "work_command")
     assert saved["request"]["expected_guidance_revision"] == workspace.store.get(run["id"], "agent_run")["guidance_revision"]
-    # A guidance revision the lead states itself is checked, not trusted: a stale one is refused with the reason.
-    stale = tool_call(workspace, team, run, "campaign_command", {"operation": "hypothesis.create", "request_key": "k2", "guidance_revision": 99,
-                      "payload": {"title": "T2", "mechanism": "m", "rationale": "r"}}, call_id="stale")
-    assert stale["executed"] is False and "guidance changed" in stale["error"]
+    # A guidance revision the lead states itself is ignored (it is accepted for saved sessions, harness plan D7): the run's is used.
+    stated = tool_call(workspace, team, run, "campaign_command", {"operation": "hypothesis.create", "request_key": "k2", "guidance_revision": 99,
+                       "payload": {"title": "T2", "mechanism": "m", "rationale": "r"}}, call_id="stated")
+    assert "error" not in stated and workspace.store.get(stated["id"], "work_command")["request"]["expected_guidance_revision"] == saved["request"]["expected_guidance_revision"]
     assert saved["request"]["expected_thread_revision"] == workspace.store.get(MAIN, "thread")["guidance_revision"]
     assert saved["origin"] == {"schema_version": 1, "thread_id": MAIN, "message_id": "message_" + run["id"].removeprefix("pi_run_"), "actor": "lead",
                                "agent_id": team["id"], "run_id": run["id"], "rationale": None}

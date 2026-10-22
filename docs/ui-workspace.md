@@ -244,8 +244,8 @@ excluded records with their current status, which go into the next turn's state 
 thread's last lead turn (`state`: its text, size and run) and the lab events since the thread's last turn.
 
 **Guidance.** A message bumps its thread's `guidance_revision`; the lead's `campaign_command` pins
-`expected_thread_revision` from its run (never from the model) and `expected_guidance_revision` from the run unless the
-lead read a newer one with `campaign_inspect`. A message in thread A does not stale a command of a turn in thread B
+`expected_thread_revision` from its run and `expected_guidance_revision` from the run, or from a newer revision a
+`campaign_inspect` of the same run returned; a revision the model states is ignored (`PiTools.guidance_pin`). A message in thread A does not stale a command of a turn in thread B
 (`tests/balsamic/test_threads.py`).
 
 **Lab events.** When a command with an origin thread completes (runs, strategies, allocations, races, findings, adoption,
