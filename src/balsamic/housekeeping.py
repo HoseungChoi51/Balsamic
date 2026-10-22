@@ -116,6 +116,19 @@ def pending(record, job):
     return state.get("status") != "done" and (int(state.get("attempts", 0)) < ATTEMPTS or _stale(state.get("at")))
 
 
+def _save(workspace, kind, record, fields, event):
+    """A job's fields onto the newest copy of its record. The model call took seconds, and in that time the researcher may have
+    written (a thread's revision moved, and the lead's turn is pinned to it) or an agent changed the record: written whole,
+    the copy read before the call would undo that."""
+    with workspace.lock:
+        try:
+            latest = workspace.store.get(record["id"], kind)
+        except KeyError:
+            return record
+        latest.update({key: record[key] for key in ("housekeeping", *fields) if key in record})
+        return workspace.store.put(kind, latest, event)
+
+
 def thread_context(workspace, thread):
     """The forked message, the lead's reply to it and the two turns before: what the branch is about."""
     rows = []
@@ -150,7 +163,7 @@ def name_thread(workspace, thread):
         _done(thread, "title", model=reply["model"], cost_usd=reply.get("cost_usd"))
     else:
         _failed(thread, "title")
-    workspace.store.put("thread", thread, "thread.renamed" if title else None)
+    _save(workspace, "thread", thread, ("title", "name", "title_source"), "thread.renamed" if title else None)
     return title or None
 
 
@@ -168,7 +181,7 @@ def label_hypothesis(workspace, hypothesis):
         _done(hypothesis, "label", model=reply["model"], cost_usd=reply.get("cost_usd"))
     else:
         _failed(hypothesis, "label")
-    workspace.store.put("hypothesis", hypothesis, "hypothesis.labeled" if label else None)
+    _save(workspace, "hypothesis", hypothesis, ("short_title",), "hypothesis.labeled" if label else None)
     return label or None
 
 
@@ -208,7 +221,7 @@ def title_exchange(workspace, question, replies):
         _done(question, "fold", model=reply["model"], cost_usd=reply.get("cost_usd"))
     else:
         _failed(question, "fold")
-    workspace.store.put("message", question, "message.titled" if title else None)
+    _save(workspace, "message", question, ("fold_title",), "message.titled" if title else None)
     return title or None
 
 
@@ -273,7 +286,7 @@ def suggest_next(workspace, thread, messages):
         _done(thread, "suggest", model=reply["model"], cost_usd=reply.get("cost_usd"), as_of=last)
     else:
         _failed(thread, "suggest")
-    workspace.store.put("thread", thread, "thread.suggested" if items else None)
+    _save(workspace, "thread", thread, ("suggestions",), "thread.suggested" if items else None)
     return items
 
 
@@ -333,7 +346,7 @@ def tick(workspace, limit=JOBS_PER_TICK):
         if kind == "thread":
             if name_thread(workspace, record) or not pending(record, "title"):
                 record["title_pending"] = False
-                workspace.store.put("thread", record, None)
+                _save(workspace, "thread", record, ("title_pending",), None)
         elif kind == "hypothesis":
             label_hypothesis(workspace, record)
         elif kind == "suggest":
