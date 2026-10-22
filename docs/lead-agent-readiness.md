@@ -880,7 +880,8 @@ stated the revision it had read in an earlier turn was refused (F3).
 - No live run: the suite against the baseline, `pi_continue_*` counts dropping to about zero, and the cost of the extra
   continuation need real model calls. Until then F10 is fixed only as far as the scripted harness shows.
 - No third-party extension is promoted; the allowlist is empty (D8). Codemode, tool search and MCP are Phase 8's.
-- The dialog UI is type-checked; the browser tests were not extended for it.
+- The dialog UI was first only type-checked; browser tests for it came with Part R's commit
+  (`frontend/tests/extension-dialog.spec.ts`: a choice, a cancellation, yes or no, a text, each sent as `agent.ui_respond`).
 
 ## Part P — Who does what, enforced by the tools (22 October 2026; harness plan, Phase 5)
 
