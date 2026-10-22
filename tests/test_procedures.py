@@ -66,6 +66,9 @@ def test_a_procedure_is_read_by_its_roles_only_whole_or_cut_and_the_read_is_rece
     run = team.turn("Write a report on the runs.")
     read = team.tools.call(team.lead["id"], run["id"], "read", "procedure_read", {"name": "report-brief"})
     assert read["name"] == "report-brief" and read["text"].startswith("# Report brief") and read["files"] == []
+    # The body named as a file, as models do (lead evals S4 and S7, live), is the body.
+    for named in ("", "none", "SKILL.md"):
+        assert team.tools.call(team.lead["id"], run["id"], "as_" + named, "procedure_read", {"name": "report-brief", "file": named})["text"] == read["text"]
     receipt = next(r for r in team.workspace.store.list("agent_tool_receipt", "demo") if r["tool"] == "procedure_read")
     assert receipt["run_id"] == run["id"] and receipt["result"]["name"] == "report-brief"
     # Another role's procedure, an unknown one, or a file it does not bundle: refused.

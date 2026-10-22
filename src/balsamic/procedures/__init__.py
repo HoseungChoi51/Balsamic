@@ -67,7 +67,8 @@ class Procedures:
         item = self.items.get(name)
         if item is None or role not in item["roles"]:
             raise ValueError(f"No procedure {name} for this role; the catalog in your instructions lists yours")
-        if file is None:
+        # Models name the body as well: an empty file, "none" or SKILL.md itself.
+        if file is None or file.strip().lower() in {"", "none", "skill.md"}:
             text, part = item["body"], "SKILL.md"
         else:
             if file not in item["files"]:
@@ -100,4 +101,4 @@ def register(workspace):
         def procedure_read(tools, agent, run, args, identity):
             return tools.workspace.procedures.read(agent["role"], args["name"], args.get("file"))
         register_tool("procedure_read", "Read a procedure from the catalog in your instructions: the steps and rules of one workflow, to read before "
-                      "starting it. file: one of its bundled files.", obj({"name": S, "file": S}, ["name"]), procedure_read, roles=sorted(procedures.roles()))
+                      "starting it. file: omit it for the procedure itself, or name one of its bundled files.", obj({"name": S, "file": S}, ["name"]), procedure_read, roles=sorted(procedures.roles()))
