@@ -251,6 +251,7 @@ each assumption, so prefer asking when the choice matters.
 | No installed evaluator | Nothing in the catalog computes it | Declare the problem, with notes. |
 | The installed evaluator scores something else | Its primary objective differs from the wanted one | Ask: use its objective, or declare a problem. |
 | The scale is extreme | A huge design, or a very costly evaluation | Say so in a question when it affects feasibility. |
+| Generated data | Synthetic traces, random instances, tables computed from seeds | State the generator, its seeds and its draw order. How the data is kept is the implementation's: it regenerates it and checks each output's SHA-256, so do not require stored files. |
 
 **Ask or assume:**
 - **Ask** when the answer changes what is optimized, which designs are allowed, or under which
