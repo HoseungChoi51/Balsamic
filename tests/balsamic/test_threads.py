@@ -259,3 +259,18 @@ def test_a_desk_request_is_answered_on_the_desk_and_read_there(client, workspace
     assert [m["content"] for m in client.get(f"/api/v1/threads/{side['id']}/messages").json()["messages"]] == ["Run a review round.", "Round complete."]
     assert not [m for m in client.get(f"/api/v1/threads/{MAIN}/messages").json()["messages"] if m.get("desk")]
     assert client.get(f"/api/v1/campaigns/{campaign['id']}/desks/nobody").status_code == 404
+
+
+def test_a_page_agent_asked_from_the_chat_answers_in_the_chat(client, workspace, campaign, team):
+    """/plan asks the resource planner from the chat: its answer showed only on the Resources page, and the chat that asked
+    looked unanswered. The lead's branch of the thread stays where the lead's own turn left it."""
+    first = say(client, campaign, "Hello.")
+    finish_run(workspace, first, "Hello.", entry_ids={"parent": "e0", "last": "e2"}, disposition="complete")
+    asked = say(client, campaign, "Plan how this campaign uses the machine within the resource level, and report the plan.", page_agent="resource_planner")
+    finish_run(workspace, asked, "Two runs at once; no per-kind caps yet.", entry_ids={"parent": "p0", "last": "p1"}, disposition="complete")
+    chat = [(m["role"], m["content"]) for m in client.get(f"/api/v1/threads/{MAIN}/messages").json()["messages"]]
+    assert chat[-2:] == [("user", "Plan how this campaign uses the machine within the resource level, and report the plan."),
+                         ("assistant", "Two runs at once; no per-kind caps yet.")]
+    # The desk keeps the requests made on the page.
+    assert client.get(f"/api/v1/campaigns/{campaign['id']}/desks/resource_planner").json()["messages"] == []
+    assert workspace.store.get(MAIN, "thread")["agent_leaf"] == "e2", "the planner's session is not the lead's"

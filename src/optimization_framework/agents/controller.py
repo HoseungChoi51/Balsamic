@@ -232,8 +232,9 @@ class PiController:
             agent.update(status="waiting"); self.store.put("agent_session", agent)
         return agent
 
-    def ask_page_agent(self, agent, text, identity, requested_by):
-        """A request to a page agent: from the researcher, or from the lead. It answers whoever asked."""
+    def ask_page_agent(self, agent, text, identity, requested_by, origin=None):
+        """A request to a page agent: from the researcher, or from the lead. It answers whoever asked: on its page, or in the
+        researcher's thread when the researcher asked from one (origin)."""
         if agent["status"] in {"stopped", "completed", "failed"}:
             # Stopping a page agent ends its current work, not its place on the page.
             agent.update(status="waiting")
@@ -241,7 +242,7 @@ class PiController:
         if requested_by == "researcher":
             agent.pop("assignment_origin", None)   # answered on the desk, not in a lead request's side conversation
         self.store.put("agent_session", agent, "agent.request_opened")
-        return self.enqueue(agent, identity, text, mode="steer")
+        return self.enqueue(agent, identity, text, mode="steer", origin=origin)
 
     def ask_lead(self, agent, question, identity):
         """A page agent's question to the lead. It starts a lead turn whatever the researcher's request, and the lead's reply
@@ -465,7 +466,9 @@ class PiController:
             **({"edited_from_message_id": values.edit_of_message_id} if values.edit_of_message_id else {}),
             **({"desk": agent["role"]} if agent["role"] in PAGE_AGENTS else {})}, "message.created")
         if agent["role"] in PAGE_AGENTS:
-            return self.ask_page_agent(agent, values.message, "pi_run_" + command_id, "researcher")
+            # Asked from a chat thread (/plan), it answers in that thread; asked on its page, on the page.
+            origin = {"thread_id": values.thread_id, "message_id": "message_" + command_id, "actor": "researcher"} if values.thread_id else None
+            return self.ask_page_agent(agent, values.message, "pi_run_" + command_id, "researcher", origin=origin)
         placement = {}
         if thread is not None:
             # The turn continues the thread's branch of the session tree; the first turn after a fork starts the branch.
@@ -814,8 +817,8 @@ class PiController:
                         parts, text = ([*earlier, report] if earlier else []), report
                     entry_ids = (run.get("result") or {}).get("entry_ids") or {}
                     origin = run.get("origin") or {}
-                    if origin.get("thread_id") and entry_ids.get("last"):
-                        # The thread's branch now ends where this turn ended.
+                    if agent["role"] == LEAD and origin.get("thread_id") and entry_ids.get("last"):
+                        # The thread's branch of the lead's session now ends where this turn ended.
                         try:
                             thread = self.store.get(origin["thread_id"], "thread")
                             thread.update(agent_leaf=entry_ids["last"], updated_at=now())
