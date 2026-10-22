@@ -171,7 +171,13 @@ Who hears what:
   lead's "still running" check counts only what page agents did not start.
 - Page agents do not count toward the limit on assistants at work (`max_subagents`).
 
-The lead keeps all its tools; its instructions ask it to hand page work to the page agents.
+The lead's commands leave out the pages' own operations (`LEAD_PAGE_WORK` in `agents/tools.py`, harness plan D1): drafts,
+runs, continuations, extension requests, experiment rules, hiding runs, runtime profiles and fixed-design checks are the
+experiment operator's; implementations and evaluators (commissions, attachments, equivalence checks) the implementation
+lead's. They are not in the lead's `campaign_command` enum, and a call that names one is refused with the agent to ask
+(`page_agent_message`). The lead keeps `trial.control` (pausing and stopping, never enlarging), `comparison.report`, the
+proposals, findings, validations, studies and its workspace operations, and reads `experiment_progress` itself: a status
+question is a read, not work for the operator. The researcher's own commands are not affected.
 
 A page agent can ask the lead (`lead_ask`): the question starts a lead turn whatever the researcher's request,
 the lead's reply goes back to the agent that asked, and that turn neither opens nor closes the researcher's

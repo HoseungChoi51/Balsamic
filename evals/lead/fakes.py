@@ -85,20 +85,35 @@ def gate_opens(turn):
 
 
 def experiment_status(turn):
+    """Since Phase 5 a status question is the lead's own read: experiment_progress, then the answer."""
+    progress = turn.call("experiment_progress")
+    rows = progress["at_work"] + progress["recently_finished"]
+    lines = "; ".join(f"{row['name']}: {row['status']}, {row['evaluations']} evaluations, best {row['best']}" for row in rows)
+    return turn.finish(f"{len(rows)} runs: {lines}. See [Experiments](#experiments).")
+
+
+def two_short_runs(turn):
+    """The lead hands experiments to the operator; the operator starts them and reports when they have ended."""
     if turn.role == "experiment_operator":
+        if not turn.memory.get("started"):
+            task = turn.call("campaign_inspect")["tasks"][0]["id"]
+            for seed in (1, 2):
+                turn.call("campaign_command", operation="trial.create", request_key=f"short-{seed}", payload={"task_id": task, "algorithm": "random",
+                          "seed": seed, "max_steps": 300, "wall_seconds": 30, "question": f"Short · random · seed {seed}"})
+            turn.memory["started"] = True
         progress = turn.call("experiment_progress")
-        rows = progress["at_work"] + progress["recently_finished"]
-        lines = "; ".join(f"{row['name']}: {row['status']}, {row['evaluations']} evaluations, best {row['best']}" for row in rows)
-        return turn.finish(f"{len(rows)} runs: {lines}.")
+        if progress["at_work"]:
+            return turn.finish("", summary="Two runs are going", disposition="waiting")
+        rows = progress["recently_finished"]
+        return turn.finish("; ".join(f"{row['name']}: best {row['best']}" for row in rows) + ".")
     match = re.search(r"agent run (\S+)", turn.text)
-    if turn.role != "lead" or turn.notice and not match:
-        return unrelated_notice(turn)
+    if turn.notice and match:
+        report = turn.call("evidence_read", record_id=match.group(1), pointer="/disposition/report")
+        return turn.finish(f"Both runs ended. {report} See [Experiments](#experiments).")
     if turn.notice:
-        run_id = match.group(1)
-        report = turn.call("evidence_read", record_id=run_id, pointer="/disposition/report")
-        return turn.finish(f"From the experiment operator: {report} See [Experiments](#experiments).")
-    turn.call("page_agent_message", page_agent="experiment_operator", message="How are the experiments going? Give the numbers.")
-    return turn.finish("", summary="Asked the experiment operator", disposition="waiting")
+        return unrelated_notice(turn)
+    turn.call("page_agent_message", page_agent="experiment_operator", message="Run two short random-search experiments, seeds 1 and 2, and report their best scores.")
+    return turn.finish("", summary="Asked the experiment operator for two short runs", disposition="waiting")
 
 
 def extension_tools(turn):
@@ -117,7 +132,7 @@ def prose_answer(turn):
 def scripted(play):
     """A scenario's script for the turns it is about; other agents' notices get the plain acknowledgement."""
     def turn(t):
-        return play(t) if t.role == "lead" or play is experiment_status else unrelated_notice(t)
+        return play(t) if t.role == "lead" or play is two_short_runs else unrelated_notice(t)
     return turn
 
 
@@ -131,4 +146,5 @@ FAKES = {
     "S8-experiment-status": scripted(experiment_status),
     "S9-extension-tools": scripted(extension_tools),
     "S10-prose-answer": scripted(prose_answer),
+    "S11-experiments-through-the-operator": scripted(two_short_runs),
 }

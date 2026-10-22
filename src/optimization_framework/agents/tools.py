@@ -37,6 +37,13 @@ ROLE_OPERATIONS = {
                             "implementation.resolve_runtime", "evaluator.commission", "evaluator.attach", "evaluator.equivalence", "approval.request"},
     "resource_planner": {"resources.plan", "resources.estimate", "runtime.profile", "approval.request"},
 }
+# The pages' own work (harness plan, D1): the lead asks the agent in charge (page_agent_message) instead of running it, and
+# campaign_command refuses it from the lead with that agent's name. The researcher's own commands are not affected.
+LEAD_PAGE_WORK = {**{operation: "experiment_operator" for operation in ("draft.save", "draft.launch", "trial.create", "trial.continue",
+                     "trial.extension_request", "experiments.rules", "trial.hide", "runtime.profile", "fixed_mask.run")},
+                  **{operation: "implementation_lead" for operation in ("implementation.commission", "implementation.attach", "implementation.revalidate",
+                     "implementation.bind_builtin", "implementation.resolve_runtime", "evaluator.commission", "evaluator.attach", "evaluator.equivalence")}}
+LEAD_EXCLUDED_OPERATIONS = frozenset(LEAD_PAGE_WORK)
 OPERATIONS = {"hypothesis.create", "hypothesis.review", "hypothesis.status", "draft.save", "draft.launch", "trial.create",
     "trial.control", "trial.extension_request", "implementation.commission", "implementation.attach", "implementation.revalidate", "implementation.bind_builtin",
     "implementation.resolve_runtime", "evaluator.commission", "evaluator.attach", "finding.record", "comparison.report",
@@ -84,13 +91,16 @@ which specialists and reviewers criticise proposals and the proposals are revise
 starting, watching, pausing, extending and stopping runs) and the implementation lead (Implementations: building and checking
 optimizers and evaluators). The researcher can ask them directly on their pages; what they did is in campaign_inspect.page_agents.
 The lead hands such work to them with page_agent_message instead of doing it itself, says so with a link to the page, and waits
-for the result, which comes back to it. Asked how the experiments are going, the lead asks the experiment operator. The
+for the result, which comes back to it; campaign_command refuses the lead the pages' own operations (experiments, their drafts,
+continuations, extensions and rules, runtime profiles, fixed-design checks, implementations, evaluators) and names the agent to
+ask. Asked how the experiments are going, the lead reads experiment_progress itself; it asks the operator only when a decision
+about runs is needed. The
 experiment operator keeps the campaign's experiment rules (campaign_inspect.experiment_rules): runs the lead starts follow them too. A page agent works only on what it was asked, by the researcher or by the lead, and
 reports to whoever asked.
 The lead agent owns delegation and execution under existing campaign grants. Subagents return artifacts and findings to the agent that asked them.
 A subagent that needs more time or evaluations for a trial says so, with its reasons, in its findings for the lead.
 The lead may pause, stop or resume trials within their allocations but never enlarges one. When more budget would
-change a decision, the lead files trial.extension_request with that argument; only the researcher approves it.
+change a decision, the experiment operator files trial.extension_request with that argument; only the researcher approves it.
 Implementation builders, test designers and reviewers work independently under frozen service specifications.
 For substantial programming, use implementation_workspace_create to delegate to a full native Pi coding session
 with a browser IDE and normal shell/Git tools. Use implementation_workspace_inspect, implementation_workspace_message,
@@ -388,8 +398,9 @@ class PiTools:
         implementation = {"implementation_workspace_create", "implementation_workspace_inspect", "implementation_workspace_message",
                           "implementation_workspace_validate"}
         if agent["role"] == LEAD:
+            # A status read is the lead's own (experiment_progress); a decision about runs goes to the operator.
             names |= {"delegate", "agent_message", "agent_cancel", "command_schema", "campaign_command", "researcher_ask", "report_write", "report_answer",
-                      "page_agent_message", *implementation}
+                      "page_agent_message", "experiment_progress", *implementation}
         if agent["role"] in PAGE_AGENTS:
             # Each page agent runs the commands of its page (ROLE_OPERATIONS), and can ask the researcher or the lead.
             names |= {"command_schema", "campaign_command", "researcher_ask", "lead_ask"}
@@ -419,7 +430,8 @@ class PiTools:
         if name in {"campaign_command", "command_schema"}:
             # The service layer may give this workspace's lead more operations (workspace.lead_operations); the enum is read per manifest.
             extra = set(getattr(self.workspace, "lead_operations", ()) or ())
-            schema = deepcopy(schema); schema["properties"]["operation"]["enum"] = sorted(ROLE_OPERATIONS[agent["role"]] if agent["role"] in ROLE_OPERATIONS else OPERATIONS | extra)
+            schema = deepcopy(schema); schema["properties"]["operation"]["enum"] = sorted(ROLE_OPERATIONS[agent["role"]] if agent["role"] in ROLE_OPERATIONS
+                                                                                          else (OPERATIONS | extra) - LEAD_EXCLUDED_OPERATIONS)
         if name == "delegate" and agent["role"] == "discussion_moderator":
             schema = deepcopy(schema); schema["properties"]["role"]["enum"] = list(DISCUSSION_ROLES)
         return schema
@@ -585,6 +597,9 @@ class PiTools:
             agent, run = self._context(agent_id, run_id)
             if name not in self.names(agent):
                 raise ValueError("Tool is not available to this assignment")
+            refusal = self.page_work(agent, name, arguments)
+            if refusal:
+                return {"error": refusal, "executed": False, "recovery": "Ask the agent in charge of that page with page_agent_message, then call yield_work(waiting)."}
             try:
                 jsonschema.validate(arguments, self.schema(agent, name))
             except jsonschema.ValidationError as exc:
@@ -629,6 +644,15 @@ class PiTools:
             with self.workspace.lock, self.store.transaction():
                 receipt(result)
         return result
+
+    def page_work(self, agent, name, arguments):
+        """Why the lead may not run this command itself, naming the page agent that does; empty when it may."""
+        operation = arguments.get("operation") if isinstance(arguments, dict) else None
+        if agent["role"] != LEAD or name not in {"campaign_command", "command_schema"} or operation not in LEAD_PAGE_WORK:
+            return ""
+        owner = LEAD_PAGE_WORK[operation]
+        return (f"{operation} is the work of {PAGE_AGENT_NAMES[owner]}: ask it with page_agent_message (page_agent: {owner}), saying what to do "
+                f"and naming the records; its result comes back to you, and the researcher follows it on #{PAGE_AGENTS[owner]}.")
 
     def guidance_pin(self, run):
         """The guidance revision a run's commands are prepared against: the one its turn started from, or the newest that a
@@ -794,12 +818,19 @@ class PiTools:
                 for r in self.store.list("manager_command", campaign_id)[-5:]],
             "latest_researcher_messages": [{"id": r["id"], "content": r.get("content", "")[:12000]}
                 for r in self.store.list("message", campaign_id) if r.get("role") == "user"][-5:],
-            "capabilities": {"fixed_mask_diagnostics": "fixed_mask.run", "implementation": "implementation.commission",
+            "capabilities": {**self.capabilities(agent),
                 "resource_observability": "resource_inspect; live consumption and estimated future demand, without allocating compute",
                 "adaptive_testing": "study.race.decide and study.race.control; immutable protocol and fresh-seed confirmation",
                 "implementation_execution": implementation_execution(),
-                "experiment": "draft.save then draft.launch; trial.create", "memory": "evidence_search and evidence_read",
+                "memory": "evidence_search and evidence_read",
                 "guidance": "Use current implementation_readiness, not stale historical executable fields."}}
+
+    def capabilities(self, agent):
+        """How experiments, fixed-design checks and implementations are done, as this agent does them."""
+        if agent["role"] == LEAD:
+            return {"experiment": "the experiment operator (page_agent_message): drafts, runs, continuations, profiles; experiment_progress reads how runs go",
+                    "fixed_mask_diagnostics": "the experiment operator (fixed_mask.run)", "implementation": "the implementation lead (implementation.commission)"}
+        return {"fixed_mask_diagnostics": "fixed_mask.run", "implementation": "implementation.commission", "experiment": "draft.save then draft.launch; trial.create"}
 
     def _execute(self, agent, run, name, args, identity):
         cid = agent["campaign_id"]
@@ -957,6 +988,8 @@ class PiTools:
         if name == "command_schema":
             return self.workspace.commands.describe()[args["operation"]]
         if name == "campaign_command":
+            if self.page_work(agent, name, args):
+                raise ValueError(self.page_work(agent, name, args))
             campaign = self.store.get(cid, "campaign")
             command_id = "pi_command_" + content_hash([cid, args["operation"], args["request_key"]])[:32]
             try:

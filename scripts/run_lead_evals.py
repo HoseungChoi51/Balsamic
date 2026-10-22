@@ -56,7 +56,8 @@ def load_module(path, name):
 
 
 def load_scenarios(directory, selected=None):
-    scenarios = [json.loads(path.read_text()) for path in sorted(Path(directory).glob("*.json"))]
+    number = lambda path: (int(re.match(r"S(\d+)", path.name).group(1)) if re.match(r"S\d+", path.name) else 10**6, path.name)
+    scenarios = [json.loads(path.read_text()) for path in sorted(Path(directory).glob("*.json"), key=number)]
     if selected:
         wanted = [item.strip() for item in selected.split(",") if item.strip()]
         scenarios = [s for s in scenarios if any(s["id"] == w or s["id"].split("-", 1)[0] == w for w in wanted)]
@@ -389,14 +390,21 @@ def _operations(value):
     return [value] if isinstance(value, str) else list(value)
 
 
+def _count(ctx, arg):
+    """Agents' accepted commands of the given operation(s), of one role's agents when arg names a role."""
+    agents = ctx.agents()
+    return sum(c["request"]["operation"] in _operations(arg["operation"]) and (not arg.get("role") or (agents.get(c["origin"]["agent_id"]) or {}).get("role") == arg["role"])
+               for c in ctx.agent_commands())
+
+
 def check_commands_exactly(ctx, arg):
-    count = sum(c["request"]["operation"] in _operations(arg["operation"]) for c in ctx.agent_commands())
-    return count == arg["count"], f"{count} {arg['operation']}"
+    count = _count(ctx, arg)
+    return count == arg["count"], f"{count} {arg['operation']}" + (f" by the {arg['role']}" if arg.get("role") else "")
 
 
 def check_commands_at_least(ctx, arg):
-    count = sum(c["request"]["operation"] in _operations(arg["operation"]) for c in ctx.agent_commands())
-    return count >= arg["count"], f"{count} {arg['operation']}"
+    count = _count(ctx, arg)
+    return count >= arg["count"], f"{count} {arg['operation']}" + (f" by the {arg['role']}" if arg.get("role") else "")
 
 
 def check_no_commands(ctx, arg):

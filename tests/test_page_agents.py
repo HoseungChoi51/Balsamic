@@ -58,7 +58,15 @@ def test_each_page_agent_sees_only_the_commands_of_its_page_and_the_moderator_as
     lead_run = submitted(w, w.pi.message(c['id'], {'message': 'Hand the review to the moderator.'}, 'lead_request'))
     lead_tools = {tool['name']: tool for tool in tools.manifest(lead['id'], lead_run['id'])['tools']}
     assert not set(ROLE_OPERATIONS) & set(lead_tools['delegate']['input_schema']['properties']['role']['enum'])
-    assert 'page_agent_message' in lead_tools
+    assert 'page_agent_message' in lead_tools and 'experiment_progress' in lead_tools
+    # The pages' own work is routed in code: the lead's commands leave it out, and a direct call names who does it.
+    from optimization_framework.agents.tools import LEAD_EXCLUDED_OPERATIONS
+    lead_operations = set(lead_tools['campaign_command']['input_schema']['properties']['operation']['enum'])
+    assert not lead_operations & LEAD_EXCLUDED_OPERATIONS and {'trial.control', 'comparison.report', 'hypothesis.create', 'finding.record'} <= lead_operations
+    assert lead_operations == set(lead_tools['command_schema']['input_schema']['properties']['operation']['enum'])
+    for operation, page_agent in (('trial.create', 'experiment operator'), ('runtime.profile', 'experiment operator'), ('implementation.commission', 'implementation lead')):
+        refused = call(w, lead, lead_run, 'campaign_command', {'operation': operation, 'payload': {}, 'request_key': operation}, operation)
+        assert refused['executed'] is False and page_agent in refused['error'] and 'page_agent_message' in refused['error'], refused
 
 
 def test_a_request_on_a_page_is_the_page_agents_own_and_does_not_reach_the_lead(tmp_path, monkeypatch):

@@ -41,6 +41,7 @@ to replace that outside session.
 | The campaign's state in every turn (state block); instructions fixed per role; pins reach the model | Implemented, tested; not checked live; see Part M |
 | The guidance revision pinned on the server, never taken from the model | Implemented, tested; not checked live; see Part N |
 | Pi extensions bound and curated per role; extension tools receipted; dialogs answered by the researcher; a turn without yield_work continued in the turn | Implemented, tested; not checked live; see Part O |
+| The pages' operations routed in code: refused from the lead with the agent to ask; the lead reads experiment progress itself | Implemented, tested; not checked live; see Part P |
 
 "Live" means the running services on X670 use the code (last restarted on 14 October 2026).
 "Not live" means the code is in the working tree and tested, and the services still run the old
@@ -878,6 +879,47 @@ stated the revision it had read in an earlier turn was refused (F3).
   continuation need real model calls. Until then F10 is fixed only as far as the scripted harness shows.
 - No third-party extension is promoted; the allowlist is empty (D8). Codemode, tool search and MCP are Phase 8's.
 - The dialog UI is type-checked; the browser tests were not extended for it.
+
+## Part P — Who does what, enforced by the tools (22 October 2026; harness plan, Phase 5)
+
+### What was wrong
+
+The lead held all the pages' operations while its instructions told it to hand that work to the page agents, so the split
+rested on the model reading the prose. And it had no `experiment_progress`: asked how the experiments were going, it was
+told to ask the operator, so one read cost three model turns (the lead, the operator, the lead again) (F5).
+
+### What changed
+
+| Change | Where |
+|---|---|
+| The pages' operations (D1) leave the lead's `campaign_command` and `command_schema` enums: drafts, runs, continuations, extension requests, experiment rules, hiding runs, runtime profiles, fixed-design checks (the experiment operator's); implementations and evaluators (the implementation lead's) | `agents/tools.py` `LEAD_PAGE_WORK`, `schema` |
+| A call that names one is refused with the agent to ask and how (`page_agent_message`), before validation and again at execution | `PiTools.page_work`, `_call`, `_execute` |
+| The lead reads `experiment_progress`; its instructions say it reads status itself and asks the operator only for a decision about runs; extension requests are the operator's | `PiTools.names`, `INSTRUCTIONS` |
+| `campaign_inspect.capabilities` tells the lead which agent does experiments, fixed-design checks and implementations | `PiTools.capabilities` |
+| S11: "Run two short experiments" goes through the operator; S8's scripted lead reads progress itself | `evals/lead/scenarios/S11-experiments-through-the-operator.json`, `fakes.py` |
+
+Kept by the lead, as the D1 table has it: `trial.control` (pause, stop, resume; never enlarge), `comparison.report`, the
+proposals, findings, validations, studies, `journal.compaction_request`, `approval.request` and the workspace's operations
+(`hypothesis.allocate`, `intervention.batch`, `research.generate`, ...), on which autopilot and generation depend; neither
+`ROUND_PROMPT` nor the generation prompt asks for a moved operation. The lead also keeps its `implementation_workspace_*`
+tools (the table left that open). `hypothesis.allocate` starts experiments in the service layer, not through the lead's enum.
+
+### Checked
+
+- `tests/test_page_agents.py`: the lead's enum holds none of the moved operations and the same set as `command_schema`; a
+  direct call is refused naming the experiment operator or the implementation lead and `page_agent_message`; the lead has
+  `experiment_progress`. `tests/test_experiment_rules.py`: the lead reads progress, and `config_suggest` stays the operator's.
+- Tests that had the lead start runs now have the researcher or the operator start them; the extension-request test files
+  the request as the operator and checks that the researcher's answer wakes the operator, and that the lead still cannot
+  enlarge a run. Autopilot and evolution tests pass unchanged.
+- The lead's instructions are 3,138 words, inside the ratchet.
+- `--fake`: S8 (two lead turns, where the scripted operator path took three) and S11 pass.
+
+### Not done
+
+- Live S3, S8 and S11 against the baseline (fewer lead turns on S8 expected): real model calls needed.
+- Whether the lead should keep `fixed_mask.run` for diagnostics, and its `implementation_workspace_*` tools, is still open
+  (D1's notes); both follow the table's default for now (the first moved, the second kept).
 
 ## Not planned
 

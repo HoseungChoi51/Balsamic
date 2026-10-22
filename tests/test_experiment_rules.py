@@ -122,10 +122,11 @@ def test_the_operator_reads_progress_and_asks_for_settings(tmp_path, monkeypatch
     spread = call(w, operator, asked, 'config_suggest', {'space': space, 'count': 3}, 'suggest')
     assert spread['method'] == 'space-filling' and len(spread['suggestions']) == 3
     assert all(1e-3 <= item['step'] <= 1 and isinstance(item['restarts'], int) for item in spread['suggestions'])
-    # The lead has neither tool: it asks the operator.
+    # The lead reads progress itself (a status question is a read, not work for the operator); choosing settings stays the operator's.
     lead_run = submitted(w, w.pi.message(c['id'], {'message': 'How are the runs going?'}, 'lead'))
+    assert call(w, lead, lead_run, 'experiment_progress', {}, 'lead_progress')['at_work'][0]['trial_id'] == waiting['id']
     with pytest.raises(ValueError, match='not available'):
-        call(w, lead, lead_run, 'experiment_progress', {}, 'nope')
+        call(w, lead, lead_run, 'config_suggest', {'space': space}, 'nope')
 
 
 def test_suggestions_spread_first_then_follow_the_scores():
