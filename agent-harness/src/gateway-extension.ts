@@ -65,7 +65,9 @@ export function gatewayExtension(host: GatewayHost): ExtensionFactory {
     });
     pi.on('agent_before_settle', event => {
       const run = host.activeRun();
-      if (!run || event.outcome !== 'completed' || !event.context.canContinue) return;
+      // Not event.context.canContinue: it previews the context before the reminder, which ends on the assistant's own
+      // message, so it is false exactly when a turn ended in prose. Pi checks again with the reminder appended.
+      if (!run || event.outcome !== 'completed') return;
       if (host.yielded(run.id) || continued.has(run.id)) return;
       continued.add(run.id);
       host.event('turn.continued', {run_id: run.id, reason: 'The run was ending without yield_work'});

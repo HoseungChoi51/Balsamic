@@ -113,14 +113,15 @@ test('a result the workspace cannot receipt is withheld from the model', async (
 test('a run ending without yield_work gets one continuation in the turn; none when it yielded', async () => {
   const yielded = new Set();
   const {pi, events} = gatewayHost({yielded: id => yielded.has(id)});
-  const settle = (outcome = 'completed') => pi.emit('agent_before_settle', {type: 'agent_before_settle', entries: [], continue: false, outcome, context: {canContinue: true}});
+  // As Pi sends it when a turn ended in prose: the preview ends on the assistant's message and cannot continue yet.
+  const settle = (outcome = 'completed') => pi.emit('agent_before_settle', {type: 'agent_before_settle', entries: [], continue: false, outcome, context: {canContinue: false}});
   assert.equal(await settle('aborted'), undefined, 'an aborted run is not continued');
   const first = await settle();
   assert.equal(first.continue, true); assert.equal(first.entries[0].type, 'custom_message'); assert.equal(first.entries[0].content, REMINDER);
   assert.equal(await settle(), undefined, 'at most one continuation per run');
   assert.equal(events.filter(e => e.type === 'turn.continued').length, 1);
   const other = gatewayHost({yielded: () => true});
-  assert.equal(await other.pi.emit('agent_before_settle', {entries: [], continue: false, outcome: 'completed', context: {canContinue: true}}), undefined);
+  assert.equal(await other.pi.emit('agent_before_settle', {entries: [], continue: false, outcome: 'completed', context: {canContinue: false}}), undefined);
   // Context usage reaches the journal at each turn's end.
   await pi.emit('turn_end', {type: 'turn_end'});
   assert.deepEqual(events.at(-1), {type: 'context.usage', tokens: 1200, context_window: 200000, percent: 0.6});
