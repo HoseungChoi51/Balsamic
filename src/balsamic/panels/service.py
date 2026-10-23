@@ -177,7 +177,12 @@ def resolve(workspace, panel):
 
 
 def _bound(charter_view, bind):
+    """A field's value, with whether the charter's formulator listens: while it revises the charter, fields wait."""
     view = charter_view(bind["charter"])
+    return {**_bound_value(view, bind), "listening": (view.get("formulator") or {}).get("listening", True)}
+
+
+def _bound_value(view, bind):
     doc = view["charter"]
     if bind.get("question"):
         question = next((q for q in doc.get("questions", []) if q["id"] == bind["question"]), None)

@@ -17,7 +17,7 @@ from . import usage as llm_usage
 from .client import PiClient
 from .families import family_of, check_same_family
 from . import tiers
-from .models import (Activate, Configure, Message, Control, QuestionDismiss, ROLES, LEAD, STANDING_OBJECTIVE, FORMER_OBJECTIVE, NOTICE,
+from .models import (Activate, Configure, Message, Control, QuestionDismiss, UiRespond, ROLES, LEAD, STANDING_OBJECTIVE, FORMER_OBJECTIVE, NOTICE,
     PAGE_AGENTS, PAGE_OBJECTIVES, STANDING, DISCUSSION_ROLES)
 from .tools import step_label
 
@@ -232,8 +232,9 @@ class PiController:
             agent.update(status="waiting"); self.store.put("agent_session", agent)
         return agent
 
-    def ask_page_agent(self, agent, text, identity, requested_by):
-        """A request to a page agent: from the researcher, or from the lead. It answers whoever asked."""
+    def ask_page_agent(self, agent, text, identity, requested_by, origin=None):
+        """A request to a page agent: from the researcher, or from the lead. It answers whoever asked: on its page, or in the
+        researcher's thread when the researcher asked from one (origin)."""
         if agent["status"] in {"stopped", "completed", "failed"}:
             # Stopping a page agent ends its current work, not its place on the page.
             agent.update(status="waiting")
@@ -241,7 +242,7 @@ class PiController:
         if requested_by == "researcher":
             agent.pop("assignment_origin", None)   # answered on the desk, not in a lead request's side conversation
         self.store.put("agent_session", agent, "agent.request_opened")
-        return self.enqueue(agent, identity, text, mode="steer")
+        return self.enqueue(agent, identity, text, mode="steer", origin=origin)
 
     def ask_lead(self, agent, question, identity):
         """A page agent's question to the lead. It starts a lead turn whatever the researcher's request, and the lead's reply
@@ -426,6 +427,8 @@ class PiController:
         config = self.configuration(campaign_id)
         if not config or not config["enabled"]:
             raise ValueError("Activate Pi for this campaign first")
+        if values.question_id and self.store.get(values.question_id, "agent_question").get("kind") == "extension_dialog":
+            raise ValueError("An extension's dialog is answered with agent.ui_respond, not with a message")
         agent = self.page_agent(campaign_id, values.page_agent) if values.page_agent else self.store.get(values.agent_id or config["lead_id"], "agent_session")
         if agent["campaign_id"] != campaign_id:
             raise ValueError("Agent belongs to another campaign")
@@ -463,7 +466,9 @@ class PiController:
             **({"edited_from_message_id": values.edit_of_message_id} if values.edit_of_message_id else {}),
             **({"desk": agent["role"]} if agent["role"] in PAGE_AGENTS else {})}, "message.created")
         if agent["role"] in PAGE_AGENTS:
-            return self.ask_page_agent(agent, values.message, "pi_run_" + command_id, "researcher")
+            # Asked from a chat thread (/plan), it answers in that thread; asked on its page, on the page.
+            origin = {"thread_id": values.thread_id, "message_id": "message_" + command_id, "actor": "researcher"} if values.thread_id else None
+            return self.ask_page_agent(agent, values.message, "pi_run_" + command_id, "researcher", origin=origin)
         placement = {}
         if thread is not None:
             # The turn continues the thread's branch of the session tree; the first turn after a fork starts the branch.
@@ -480,6 +485,26 @@ class PiController:
             raise ValueError("Question is no longer pending in this campaign")
         question.update(status="dismissed", dismissed_at=now())
         return self.store.put("agent_question", question, "agent.question_dismissed")
+
+    def ui_respond(self, campaign_id, payload):
+        """The researcher answers an extension's dialog. The waiting extension reads it (PiTools.ui_state); no request is opened,
+        no turn is queued, and the guidance does not change."""
+        values = UiRespond.model_validate(payload)
+        question = self.store.get(values.question_id, "agent_question")
+        if question["campaign_id"] != campaign_id or question.get("kind") != "extension_dialog":
+            raise ValueError("Not an extension's dialog in this campaign")
+        if question["status"] != "pending" or time.time() >= question["deadline_at"]:
+            raise ValueError("This dialog is no longer waiting for an answer")
+        if values.cancelled:
+            question.update(status="cancelled", cancelled_at=now())
+            return self.store.put("agent_question", question, "agent.question_dismissed")
+        method, options = question["dialog"]["method"], question["dialog"].get("options") or []
+        if method == "confirm" and not isinstance(values.value, bool) or method != "confirm" and not isinstance(values.value, str):
+            raise ValueError("Answer a confirmation with yes or no, and the other dialogs with text")
+        if method == "select" and values.value not in options:
+            raise ValueError("Choose one of the dialog's options")
+        question.update(status="answered", answer_value=values.value, answer=str(values.value), answered_at=now())
+        return self.store.put("agent_question", question, "agent.question_answered")
 
     def control(self, campaign_id, payload, command_id):
         values = Control.model_validate(payload)
@@ -792,8 +817,8 @@ class PiController:
                         parts, text = ([*earlier, report] if earlier else []), report
                     entry_ids = (run.get("result") or {}).get("entry_ids") or {}
                     origin = run.get("origin") or {}
-                    if origin.get("thread_id") and entry_ids.get("last"):
-                        # The thread's branch now ends where this turn ended.
+                    if agent["role"] == LEAD and origin.get("thread_id") and entry_ids.get("last"):
+                        # The thread's branch of the lead's session now ends where this turn ended.
                         try:
                             thread = self.store.get(origin["thread_id"], "thread")
                             thread.update(agent_leaf=entry_ids["last"], updated_at=now())
@@ -832,7 +857,8 @@ class PiController:
                         self.enqueue(parent, "pi_child_result_" + content_hash(rid)[:28], NOTICE +
                             f"Subagent {agent_id} ({agent['role']}) finished with status {run['status']}. "
                             f"Read agent run {rid} and its artifacts, and use them for the researcher's request that the assignment belongs to, "
-                            "or revise the assignment; a completed response is not proof of scientific completion.")
+                            "or revise the assignment; a completed response is not proof of scientific completion."
+                            + (" Its structured result is on the run (evidence_read, pointer /output)." if run.get("output") is not None else ""))
                     if run["status"] == "interrupted" and not agent.get("grant_id"):
                         self.enqueue(agent, "pi_recover_" + content_hash(rid)[:28], NOTICE +
                             f"Assignment {rid} was interrupted by a harness restart. Read saved receipts and continue from persisted history. Do not repeat committed operations.")

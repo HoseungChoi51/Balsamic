@@ -4,7 +4,7 @@ import pytest
 
 from optimization_framework.storage.sqlite import now
 
-from support import QUADRATIC, activate_team, command
+from support import QUADRATIC, activate_team, command, state_of
 from balsamic.autopilot import rounds
 from balsamic.evolution.stages import definition, next_step
 
@@ -49,7 +49,9 @@ def test_the_gate_names_the_missing_sections_and_refuses_proposals_allocations_a
     from optimization_framework.agents.tools import PiTools
     inspected = PiTools(workspace.pi).inspect(team)
     assert inspected["definition"]["ready"] is False and inspected["definition"]["missing"][0] == "Observables"
-    assert "Gate now: closed" in workspace.lead_instructions(team) and "Observables" in workspace.lead_instructions(team)
+    # The lead's next turn is told where the gate stands, in its state block; its instructions do not change with it.
+    assert "Gate: closed. Next: complete the problem note (#note). Not written yet: Observables" in state_of(workspace, team)
+    assert "Gate now" not in workspace.lead_instructions(team) and "Gate:" not in workspace.lead_instructions(team)
 
 
 def test_the_gate_opens_after_sections_adoption_confirmation_and_tasks_and_closes_when_the_note_changes(client, workspace, formulating, team, monkeypatch):
@@ -68,7 +70,7 @@ def test_the_gate_opens_after_sections_adoption_confirmation_and_tasks_and_close
     assert next_step(workspace, campaign())["kind"] == "tasks"
     command(client, "campaign.update", "demo", {"tasks": [QUADRATIC]}, campaign()["version"])
     assert definition(workspace, campaign()) == {"ready": True, "step": None, "missing": []}
-    assert "Gate now: open" in workspace.lead_instructions(team)
+    assert "Gate: open; the problem is defined." in state_of(workspace, team)
     settings = command(client, "autopilot.set", "demo", {"enabled": True, "compute_cap_seconds": 600, "rationale": "overnight"}, campaign()["version"])["outcome"]["autopilot"]
     assert settings["enabled"] is True and rounds.round_state(workspace, "demo")["can_start"] is True
     # A revision after adoption closes the gate again: no round starts until the note is adopted again and the charter follows.
@@ -91,7 +93,8 @@ def test_an_evaluator_that_cannot_start_here_is_the_next_step_and_what_the_lead_
     missing = "ModuleNotFoundError: The 2D MEENT solver runs on PyTorch, which is not installed; install it with scripts/install-meent"
     monkeypatch.setattr(preflight, "_probe", lambda problem, device: {"ok": False, "error": missing})
     team = activate_team(client, workspace, campaign, monkeypatch)
-    assert "Evaluator now: cannot start in this lab" in workspace.lead_instructions(team) and missing in workspace.lead_instructions(team)
+    assert "Evaluator: cannot start in this lab" in state_of(workspace, team) and missing in state_of(workspace, team)
+    assert "cannot start in this lab" not in workspace.lead_instructions(team), "the lead's instructions stay fixed; the state block says it"
     step = next_step(workspace, workspace.store.get("demo", "campaign"))
     assert step["kind"] == "evaluator" and step["error"] == missing and step["page"] == "" and "No experiment or runtime probe" in step["text"]
     assert client.get("/api/v1/campaigns").json()["campaigns"][0]["next_step"]["kind"] == "evaluator"

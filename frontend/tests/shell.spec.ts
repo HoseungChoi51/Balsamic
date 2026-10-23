@@ -4,7 +4,7 @@ import { THREAD_ID } from './mocks/fixtures';
 
 test('the shell opens the newest campaign on its main thread with the rail, the stage badge and the monitor pill', async ({ page }) => {
   await mockWorkspace(page);
-  await page.goto('/');
+  await page.goto('/#monitor');
   await expect(page).toHaveURL(new RegExp(`#t/${THREAD_ID}/monitor$`));
   await expect(page.getByTestId('stage')).toHaveText('generate');
   await expect(page.getByTestId('monitor-pill')).toHaveText('1 waiting for you');

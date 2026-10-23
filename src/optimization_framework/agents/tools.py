@@ -15,6 +15,7 @@ from optimization_framework.storage.sqlite import now
 from optimization_framework.campaigns.record_view import view_record
 from .models import ROLES, LEAD, PAGE_AGENTS, STANDING, DISCUSSION_ROLES
 from .capabilities import implementation_execution
+from .roles import ROLE_BRIEFS, ROLE_OUTPUT_SCHEMAS, SPECIALIST_CONTRACT, SPECIALIST_TOOL_CALLS
 
 READ_KINDS = {"campaign", "task", "hypothesis", "source", "source_capture", "source_passage", "source_retrieval", "runtime_profile", "evaluator_equivalence",
     "journal_compaction", "worker_ceiling_change", "campaign_budget_amendment", "validation_requirement", "validation_result", "waiver", "waiver_revocation", "finalist_selection",
@@ -37,13 +38,51 @@ ROLE_OPERATIONS = {
                             "implementation.resolve_runtime", "evaluator.commission", "evaluator.attach", "evaluator.equivalence", "approval.request"},
     "resource_planner": {"resources.plan", "resources.estimate", "runtime.profile", "approval.request"},
 }
+# The pages' own work (harness plan, D1): the lead asks the agent in charge (page_agent_message) instead of running it, and
+# campaign_command refuses it from the lead with that agent's name. The researcher's own commands are not affected.
+LEAD_PAGE_WORK = {**{operation: "experiment_operator" for operation in ("draft.save", "draft.launch", "trial.create", "trial.continue",
+                     "trial.extension_request", "experiments.rules", "trial.hide", "runtime.profile", "fixed_mask.run")},
+                  **{operation: "implementation_lead" for operation in ("implementation.commission", "implementation.attach", "implementation.revalidate",
+                     "implementation.bind_builtin", "implementation.resolve_runtime", "evaluator.commission", "evaluator.attach", "evaluator.equivalence")}}
+LEAD_EXCLUDED_OPERATIONS = frozenset(LEAD_PAGE_WORK)
 OPERATIONS = {"hypothesis.create", "hypothesis.review", "hypothesis.status", "draft.save", "draft.launch", "trial.create",
     "trial.control", "trial.extension_request", "implementation.commission", "implementation.attach", "implementation.revalidate", "implementation.bind_builtin",
     "implementation.resolve_runtime", "evaluator.commission", "evaluator.attach", "finding.record", "comparison.report",
     "validation.run", "validation.execute", "study.create", "study.activate", "fixed_mask.run",
     "study.race.control", "study.race.decide", "asset.snapshot", "runtime.profile", "evaluator.equivalence", "trial.continue", "journal.compaction_request", "approval.request",
     "experiments.rules", "trial.hide"}
-INSTRUCTIONS = """You are a persistent Pi agent in a scientific campaign. Your role and assignment are supplied below.
+# What every agent but an implementation grant's is told: role and authority, requests and notices, the turn's end, replies,
+# evidence and limits. Workflow procedures are read on demand (procedure_read); the lead's own contract follows below.
+INSTRUCTIONS = """You are a persistent Pi agent in a scientific campaign; your role and assignment are below. The researcher decides what the
+campaign does next, and agents work at the researcher's request. A message from the researcher, or from the agent that asked you,
+is a request: do what it asks, in full and with real tools, report what was done and found, name the choices now open, and stop.
+Stages (a runtime profile, hypotheses, a review, experiments, a validation, a comparison, findings) are separate:
+start one only when a request covers it; a request may cover several. Read a request narrowly and say in one line what the
+broad reading would add. A question gets an answer, not actions. A turn that begins with [Platform notice ...] is not a request: it reports an
+outcome of work a request started; carry that request on and start nothing it did not ask for.
+Examples: asked "What would you try next?", say it and start nothing. A notice that one of two runs finished, the other still
+running: write no message; yield_work(waiting), the status as summary. Asked for two hypotheses: record two and report;
+running them is one line of the report.
+End every turn with yield_work: waiting while jobs or assistants you started, or a question you asked, are open (their end wakes
+you); complete when the request is fulfilled. Your reply is its report: the answer itself with the numbers that answer it, in a
+few lines. Do not repeat what a page shows: link the page instead, as a Markdown link to a target in campaign_inspect.pages,
+such as [Experiments](#experiments). The summary is a plain status line without record ids.
+The campaign database is authoritative: read campaign_inspect first and after the researcher acts, read evidence on demand,
+keep exact record ids and cite them. Only a tool result is a receipt.
+Limits, budgets, waivers and the worker ceiling are the researcher's: when one stands in the way, file approval.request with the
+measurement that shows it; ask scientific choices with researcher_ask. Never enlarge an allocation or fabricate validation.
+"""
+# The lead's own contract: coordination and delegation. The workspace adds its briefing (workspace.lead_instructions).
+LEAD_CONTRACT = """You are the lead agent. Three agents are in charge of a page for the whole campaign: the discussion moderator (review rounds
+over proposals; #hypotheses), the experiment operator (runs: designing, starting, watching, extending, stopping; #experiments)
+and the implementation lead (building and checking implementations; #hypotheses/implementations); the resource planner says how
+many runs go at once and why runs wait. Hand page work to them with page_agent_message, link the page, and call
+yield_work(waiting): the result comes back to you. campaign_command refuses you the pages' own operations and names whom to ask.
+Reads are yours: experiment_progress, resource_inspect, campaign_inspect.page_agents. Delegate to a specialist only for work that
+needs its own context. You may pause, stop or resume a run (trial.control), never enlarge one.
+"""
+# What an implementation grant's protected roles are told, unchanged since before the harness plan (its §2.8).
+GRANT_INSTRUCTIONS = """You are a persistent Pi agent in a scientific campaign. Your role and assignment are supplied below.
 The lead agent works for the researcher, at the researcher's request. The researcher decides what the campaign does next and the
 lead carries it out: it does not work through the campaign by itself. A message from the researcher is a request. Do what it asks,
 in full and with real tools, then report what was done and what was found, name the choices that are now open, and stop with
@@ -155,6 +194,17 @@ campaign's model budget: do not spend turns on work nobody asked for.
 """
 
 
+# Extension calls: the arguments and the part of a result a receipt keeps; how long an extension's dialog waits by default (D9).
+EXTERNAL_ARGUMENT_BYTES = 8 * 1024
+EXTERNAL_EXCERPT_BYTES = 24 * 1024
+DIALOG_SECONDS = 15 * 60
+
+
+# A command refused because the researcher acted during the turn (the bus's "Researcher guidance changed ..." message).
+GUIDANCE_RECOVERY = ("The researcher changed the campaign during your turn. Read campaign_inspect, check the change against what you were doing, "
+                     "and retry only if it still applies.")
+
+
 # Every tool result joins the model's context for the rest of its session, and a provider refuses a
 # request above its size limit: one 55 MB comparison report ended a lead agent's session for good.
 COMMAND_RESULT_BYTES = 48 * 1024
@@ -200,12 +250,10 @@ RECORD_NAMES = (("hypothesis", "hypothesis"), ("trial", "experiment"), ("artifac
 
 
 def planner_instructions(workspace):
-    """The resource planner's standing rules, with the researcher's current level."""
-    from optimization_framework.execution.admission import LEVELS, MARGIN, SETTLING_EVALUATIONS
-    admission = getattr(workspace, "admission", None)
-    level = admission.level() if admission else {"level": "balanced", **LEVELS["balanced"]}
-    return ("\nThe researcher chose the " + level["label"].lower() + " resource level: " + level["summary"] + " The level, the launcher's "
-        f"maximum of {workspace.max_workers} runs at once, budgets and campaign limits are the researcher's; ask with approval.request "
+    """The resource planner's standing rules. The researcher's current level comes in the state block (agents/turn_state.py)."""
+    from optimization_framework.execution.admission import MARGIN, SETTLING_EVALUATIONS
+    return ("\nThe researcher's resource level and the launcher's maximum of runs at once are in the state block at the top of each turn. "
+        "The level, that maximum, budgets and campaign limits are the researcher's; ask with approval.request "
         "(worker_ceiling) when the maximum is what holds the campaign back. Within them the scheduler starts a queued run only when what it is "
         "expected to use fits: a kind of run (the problem as configured, the method and its settings; not the seed) is expected to use "
         f"the most any of its runs used, plus {MARGIN - 1:.0%}. A kind never measured starts while no other such run is still in its first "
@@ -299,7 +347,10 @@ TOOLS = {
     "command_schema": ("Read the exact schema of an execution command before preparing it.", obj({"operation": {"enum": sorted(OPERATIONS)}}, ["operation"])),
     "campaign_command": ("Execute a campaign command within existing delegation. Returns a durable receipt with the page that shows the result; never grants new authority. "
         "The guidance and the conversation your turn started from are pinned for you; a command is refused when the researcher wrote since. rationale: why, in one line (required under autopilot).",
-        obj({"operation": {"enum": sorted(OPERATIONS)}, "payload": {"type": "object"}, "request_key": S, "guidance_revision": {"type": "integer", "minimum": 0}, "rationale": S}, ["operation", "payload", "request_key"])),
+        # TODO(next release): remove guidance_revision; it is accepted and ignored so that saved sessions keep working (harness plan, D7).
+        obj({"operation": {"enum": sorted(OPERATIONS)}, "payload": {"type": "object"}, "request_key": S,
+             "guidance_revision": {"type": "integer", "minimum": 0, "description": "Ignored. The revision is pinned from your turn and from any campaign_inspect you ran in it; omit it."},
+             "rationale": S}, ["operation", "payload", "request_key"])),
     "implementation_workspace_create": ("Start or reattach a persistent full Pi coding workspace for an active hypothesis. No numerical grant is reserved by creation.", obj({"hypothesis_id": S, "objective": S, "evidence_ids": {"type": "array", "items": S, "maxItems": 100}, "request_key": S, "cpu_budget_seconds": {"type": "number", "exclusiveMinimum": 0, "maximum": 86400}}, ["hypothesis_id", "objective", "request_key"])),
     "implementation_workspace_inspect": ("Read implementation workspace state, progress, questions, submissions, and event cursor.", obj({"workspace_id": S, "after": {"type": "integer", "minimum": 0}}, ["workspace_id"])),
     "implementation_workspace_message": ("Steer or follow up with the full Pi coding agent in the given workspace.", obj({"workspace_id": S, "message": S, "mode": {"enum": ["steer", "follow_up"]}, "request_key": S, "question_id": S}, ["workspace_id", "message", "request_key"])),
@@ -326,7 +377,9 @@ TOOLS = {
         "what the researcher meant. Its answer comes back to you as a notice; call yield_work(waiting) until then.",
         obj({"question": S}, ["question"])),
     "researcher_ask": ("Save a concrete researcher question and stop for its answer only when required. The researcher sees question, "
-        "suggestion and options in the Inbox and answers in a click or a line.",
+        "suggestion and options in the Inbox and answers in a click or a line. Ask only for what the researcher can do (the words to send, "
+        "the approval to grant, an Inbox button), never for a \"platform owner\" or an interface you do not know exists; when nothing the "
+        "researcher can do would help, say so in your reply instead.",
         obj({"question": S, "reason": S,
              "suggestion": {"type": "string", "minLength": 1, "maxLength": 2000,
                             "description": "What you recommend the researcher do, as they would do it: the words to send, the approval to grant or the button to press"},
@@ -387,8 +440,9 @@ class PiTools:
         implementation = {"implementation_workspace_create", "implementation_workspace_inspect", "implementation_workspace_message",
                           "implementation_workspace_validate"}
         if agent["role"] == LEAD:
+            # A status read is the lead's own (experiment_progress); a decision about runs goes to the operator.
             names |= {"delegate", "agent_message", "agent_cancel", "command_schema", "campaign_command", "researcher_ask", "report_write", "report_answer",
-                      "page_agent_message", *implementation}
+                      "page_agent_message", "experiment_progress", *implementation}
         if agent["role"] in PAGE_AGENTS:
             # Each page agent runs the commands of its page (ROLE_OPERATIONS), and can ask the researcher or the lead.
             names |= {"command_schema", "campaign_command", "researcher_ask", "lead_ask"}
@@ -402,6 +456,11 @@ class PiTools:
                 names |= {"experiment_progress"}
         if agent["role"] == "proposal_reviewer":
             names.add("proposal_review")
+        if agent["role"] in ROLE_BRIEFS:
+            # A specialist's tools are those its role file names (agents/roles/<role>.md), and submit_output for its result.
+            names &= set(ROLE_BRIEFS[agent["role"]]["tools"]) | {"yield_work"}
+        if agent.get("output_schema"):
+            names.add("submit_output")
         if agent.get("grant_id"):
             # Protected implementation roles receive only the exact context the
             # library supplies. They cannot read campaign fixtures or peer work.
@@ -418,33 +477,30 @@ class PiTools:
         if name in {"campaign_command", "command_schema"}:
             # The service layer may give this workspace's lead more operations (workspace.lead_operations); the enum is read per manifest.
             extra = set(getattr(self.workspace, "lead_operations", ()) or ())
-            schema = deepcopy(schema); schema["properties"]["operation"]["enum"] = sorted(ROLE_OPERATIONS[agent["role"]] if agent["role"] in ROLE_OPERATIONS else OPERATIONS | extra)
+            schema = deepcopy(schema); schema["properties"]["operation"]["enum"] = sorted(ROLE_OPERATIONS[agent["role"]] if agent["role"] in ROLE_OPERATIONS
+                                                                                          else (OPERATIONS | extra) - LEAD_EXCLUDED_OPERATIONS)
         if name == "delegate" and agent["role"] == "discussion_moderator":
             schema = deepcopy(schema); schema["properties"]["role"]["enum"] = list(DISCUSSION_ROLES)
         return schema
 
     def manifest(self, agent_id, run_id):
         agent, run = self._context(agent_id, run_id)
-        instructions = INSTRUCTIONS + f"\nRole: {agent['role']}\nAssignment: {agent['objective']}\nEvidence IDs: {json.dumps(agent['evidence_ids'])}"
+        specialist = agent["role"] in ROLE_BRIEFS and not agent.get("grant_id")
+        instructions = (GRANT_INSTRUCTIONS if agent.get("grant_id") else SPECIALIST_CONTRACT + "\n" if specialist else INSTRUCTIONS) + \
+            f"\nRole: {agent['role']}\nAssignment: {agent['objective']}\nEvidence IDs: {json.dumps(agent['evidence_ids'])}"
+        if specialist:
+            instructions += "\n" + ROLE_BRIEFS[agent["role"]]["brief"]
+        if agent["role"] == LEAD:
+            instructions += "\n" + LEAD_CONTRACT.rstrip()
         if agent["role"] in PAGE_AGENTS:
             page = PAGE_AGENTS[agent["role"]]
             instructions += (f"\nYou are {PAGE_AGENT_NAMES[agent['role']]}, in charge of the {page.capitalize()} page (#{page}). The researcher writes to you "
                 "there and reads your replies there; the lead agent's requests come as its messages, and your closing reply goes back to it. "
-                "What is said above of the lead's replies holds for yours: short, with links to the pages that show the details.")
+                "What is said above of replies holds for yours: short, with links to the pages that show the details.")
             if agent["role"] == "experiment_operator":
-                from optimization_framework.campaigns.experiment_rules import current as experiment_rules
-                rules = experiment_rules(self.store, agent["campaign_id"])
-                instructions += ("\nThe campaign's experiment rules (revision " + str(rules["revision"]) + ", kept with experiments.rules; the researcher "
-                    "may change them on the Experiments page):\n- Name each run in the first line of its question: " + rules["naming"] +
-                    "\n- Short runs are allotted less than " + f"{rules['short_run_seconds']:g}" + " seconds; long runs at least that."
-                    "\n- Runs of this campaign at once: " + (f"at most {rules['max_concurrent']} (the scheduler holds the rest in the queue)" if rules["max_concurrent"]
-                        else "no limit of the campaign's own") + f"; the workspace runs at most {self.workspace.max_workers} in all. "
-                        + self.workspace.devices.guidance() +
-                    "\n- How runs are chosen and ordered:\n" + rules["strategy"] +
-                    "\n- How runs are presented on the Experiments page (" + ("chosen: " + (rules["presentation"].get("rationale") or "no reason given")
-                        if rules.get("presentation_chosen") else "not chosen yet; a default drawn from the problem's description is shown") + "): list columns "
-                        + ", ".join(rules["presentation"]["list_columns"]) + "; entry sections " + ", ".join(rules["presentation"]["entry_sections"])
-                        + "; design drawn as " + rules["presentation"]["design"]["render"] + "."
+                instructions += ("\nThe campaign's experiment rules, kept with experiments.rules (the researcher may change them on the Experiments "
+                    "page), are in the state block at the top of each turn: how runs are named, where short runs end, how many may go at once, how "
+                    "runs are chosen and ordered, and how runs are presented.\n" + self.workspace.devices.guidance() +
                     "\nYou decide how runs are presented, for this problem: what the list of runs shows and what a run's entry shows, chosen "
                     "from what the page can draw (experiments.rules, presentation; command_schema lists the choices). Before the campaign's "
                     "first runs if it is not chosen, or when asked: ask the lead agent (lead_ask) what the researcher needs to see in a run of "
@@ -464,8 +520,96 @@ class PiTools:
             instructions += "\nSubmit your result with submit_output using this JSON schema:\n" + json.dumps(agent["output_schema"])
         if agent["role"] == LEAD:
             instructions += self.workspace_instructions(agent)
+        procedures = getattr(self.workspace, "procedures", None)
+        if procedures is not None and not agent.get("grant_id"):
+            instructions += procedures.catalog_text(agent["role"])
+        from .extensions import for_agent, hosts_extensions
         return {"instructions": instructions, "tools": [{"name": name, "description": EXTRA_TOOLS[name]["description"] if name in EXTRA_TOOLS else TOOLS[name][0],
-                                                          "input_schema": self.schema(agent, name)} for name in sorted(self.names(agent))]}
+                                                          "input_schema": self.schema(agent, name)} for name in sorted(self.names(agent))],
+                # The session's extensions: the Balsamic one unless this is an implementation grant's role, then the role's curated set.
+                "extension_host": hosts_extensions(agent), "extensions": for_agent(agent)}
+
+    def turn_state(self, agent_id, run_id):
+        """This turn's state block (agents/turn_state.py), saved on the run: what the model was told the campaign is now."""
+        from .turn_state import build
+        agent, run = self._context(agent_id, run_id)
+        state = build(self, agent, run)
+        with self.workspace.lock, self.store.transaction():
+            current = self.store.get(run_id, "agent_run")
+            current["turn_state"] = {**state, "at": now()}
+            self.store.put("agent_run", current)
+        return state
+
+    def external_receipt(self, agent_id, run_id, call_id, tool, extension, arguments, result_excerpt, result_bytes, is_error=False, annotations=None):
+        """The receipt of an extension tool's call, posted by the Balsamic extension after the tool ran in the harness.
+
+        Same identity as a gateway call's (agent, run, call id), so a repeated post is the same receipt; immutable; readable
+        with evidence_read in the campaign. Refused for a tool the role's allowlist does not name, or a run that is not active."""
+        from .extensions import tool_extension
+        if not isinstance(call_id, str) or not 0 < len(call_id) <= 500:
+            raise ValueError("Invalid tool call identity")
+        identity = "pi_tool_" + content_hash([agent_id, run_id, call_id])[:32]
+        arguments = arguments if serialized_bytes(arguments) <= EXTERNAL_ARGUMENT_BYTES else {"omitted": f"{serialized_bytes(arguments)} bytes of arguments"}
+        request_hash = content_hash([tool, arguments])
+        with self.workspace.lock, self.store.transaction():
+            try:
+                old = self.store.get(identity, "agent_tool_receipt")
+            except KeyError:
+                old = None
+            if old:
+                if not old.get("external") or old["request_hash"] != request_hash:
+                    raise ValueError("Tool identity belongs to another request")
+                return {"receipt_id": identity}
+            agent, run = self._context(agent_id, run_id)
+            if tool in self.names(agent):
+                raise ValueError("A workspace tool is receipted by the workspace itself")
+            provider = tool_extension(agent, tool)
+            if provider is None:
+                raise ValueError(f"{tool} is not an extension tool allowlisted for the {agent['role'].replace('_', ' ')}")
+            self.store.put_immutable("agent_tool_receipt", {"id": identity, "campaign_id": agent["campaign_id"], "agent_id": agent_id, "run_id": run_id,
+                "tool": tool, "request_hash": request_hash, "external": True, "extension": provider, "reported_extension": str(extension)[:200],
+                "arguments": arguments, "result": {"external": True, "excerpt": str(result_excerpt or "")[:EXTERNAL_EXCERPT_BYTES],
+                "bytes": int(result_bytes or 0), "is_error": bool(is_error), "annotations": annotations if isinstance(annotations, dict) else None},
+                "created_at": now()}, "agent.tool_completed")
+        return {"receipt_id": identity}
+
+    def ui_request(self, agent_id, run_id, request_id, method, title, message=None, options=None, placeholder=None, prefill=None, timeout_ms=None):
+        """An extension's dialog (select, confirm, input, editor) as a question to the researcher; the extension waits for it.
+
+        Its deadline is the extension's own timeout, else DIALOG_SECONDS. A run under autopilot has nobody to ask: the
+        dialog is cancelled at once. Answered with agent.ui_respond, which opens no request and starts no turn."""
+        agent, run = self._context(agent_id, run_id)
+        if run.get("autopilot"):
+            return {"status": "cancelled", "reason": "Autopilot runs without the researcher; an extension's dialog is cancelled at once."}
+        if method not in {"select", "confirm", "input", "editor"}:
+            raise ValueError("Unknown dialog")
+        identity = "question_ui_" + content_hash([agent_id, run_id, request_id])[:28]
+        seconds = min(max(float(timeout_ms) / 1000, 1.0), DIALOG_SECONDS * 4) if timeout_ms else DIALOG_SECONDS
+        dialog = {"method": method, "title": str(title)[:500], **({"message": str(message)[:4000]} if message else {}),
+                  **({"options": [str(option)[:300] for option in options][:40]} if options else {}),
+                  **({"placeholder": str(placeholder)[:300]} if placeholder else {}), **({"prefill": str(prefill)[:20000]} if prefill else {})}
+        with self.workspace.lock, self.store.transaction():
+            try:
+                question = self.store.get(identity, "agent_question")
+            except KeyError:
+                question = self.store.put("agent_question", {"id": identity, "campaign_id": agent["campaign_id"], "agent_id": agent_id, "run_id": run_id,
+                    "kind": "extension_dialog", "status": "pending", "dialog": dialog, "question": dialog["title"] + (": " + dialog["message"] if dialog.get("message") else ""),
+                    "reason": "An extension of the agent's session asks; the agent waits for the answer.", "deadline_at": time.time() + seconds,
+                    "created_at": now()}, "agent.question_created")
+        return self.ui_state(agent_id, question["id"])
+
+    def ui_state(self, agent_id, question_id):
+        """Where an extension's dialog stands: pending, answered (with its value), cancelled, or expired past its deadline."""
+        with self.workspace.lock, self.store.transaction():
+            question = self.store.get(question_id, "agent_question")
+            if question.get("agent_id") != agent_id or question.get("kind") != "extension_dialog":
+                raise ValueError("Not this agent's extension dialog")
+            if question["status"] == "pending" and time.time() >= question["deadline_at"]:
+                question.update(status="expired", expired_at=now())
+                self.store.put("agent_question", question, "agent.question_expired")
+        status = {"pending": "pending", "answered": "answered", "expired": "expired"}.get(question["status"], "cancelled")
+        return {"question_id": question_id, "status": status, "deadline_at": question["deadline_at"],
+                **({"value": question.get("answer_value")} if status == "answered" else {})}
 
     def workspace_instructions(self, agent):
         """What the lead needs to know about the researcher's workspace: set by the service layer (threads, the problem note)."""
@@ -509,6 +653,9 @@ class PiTools:
             agent, run = self._context(agent_id, run_id)
             if name not in self.names(agent):
                 raise ValueError("Tool is not available to this assignment")
+            refusal = self.page_work(agent, name, arguments) or self.over_budget(agent, run, name)
+            if refusal:
+                return {"error": refusal, "executed": False, "recovery": "Ask the agent in charge of that page with page_agent_message, then call yield_work(waiting)."}
             try:
                 jsonschema.validate(arguments, self.schema(agent, name))
             except jsonschema.ValidationError as exc:
@@ -530,8 +677,13 @@ class PiTools:
                     return {"error": f"The result is {size} bytes; a tool returns at most {TOOL_RESULT_BYTES}.", "executed": True,
                         "recovery": "The call was carried out and is not repeated. Find its saved record with evidence_search "
                                     "and read it in pages with evidence_read, or ask for less."}
-                return result
+                # A workflow started without its procedure: the result names it, once per run (workspace.procedure_hint).
+                hint = getattr(self.workspace, "procedure_hint", None)
+                procedure = hint(self, agent, run, name, arguments, result) if callable(hint) else None
+                return {**result, "procedure": procedure} if procedure else result
             except (ValueError, KeyError, OSError, jsonschema.ValidationError) as exc:
+                if name == "campaign_command" and "guidance changed" in str(exc):
+                    return {"error": str(exc)[:3000], "executed": False, "recovery": GUIDANCE_RECOVERY}
                 return {"error": str(exc)[:3000], "executed": False,
                     "recovery": "Inspect the exact error and current capabilities before revising the request; do not repeat an identical denied call."}
 
@@ -551,6 +703,33 @@ class PiTools:
             with self.workspace.lock, self.store.transaction():
                 receipt(result)
         return result
+
+    def over_budget(self, agent, run, name):
+        """A specialist past its tool calls for the run may only record its result and end (SPECIALIST_TOOL_CALLS)."""
+        if agent["role"] not in ROLE_BRIEFS or agent.get("grant_id") or name in {"submit_output", "yield_work", "proposal_review"}:
+            return ""
+        with self.store.connection() as db:
+            used = db.execute("SELECT COUNT(*) FROM records WHERE kind='agent_tool_receipt' AND json_extract(data,'$.run_id')=?", (run["id"],)).fetchone()[0]
+        return (f"This assignment's {SPECIALIST_TOOL_CALLS} tool calls are spent: record what you have (submit_output, or proposal_review) "
+                "and call yield_work(complete), saying what is missing.") if used >= SPECIALIST_TOOL_CALLS else ""
+
+    def page_work(self, agent, name, arguments):
+        """Why the lead may not run this command itself, naming the page agent that does; empty when it may."""
+        operation = arguments.get("operation") if isinstance(arguments, dict) else None
+        if agent["role"] != LEAD or name not in {"campaign_command", "command_schema"} or operation not in LEAD_PAGE_WORK:
+            return ""
+        owner = LEAD_PAGE_WORK[operation]
+        return (f"{operation} is the work of {PAGE_AGENT_NAMES[owner]}: ask it with page_agent_message (page_agent: {owner}), saying what to do "
+                f"and naming the records; its result comes back to you, and the researcher follows it on #{PAGE_AGENTS[owner]}.")
+
+    def guidance_pin(self, run):
+        """The guidance revision a run's commands are prepared against: the one its turn started from, or the newest that a
+        campaign_inspect of this same run returned. A revision remembered from an earlier turn is never used."""
+        with self.store.connection() as db:
+            inspected = db.execute("SELECT MAX(CAST(json_extract(data,'$.result.guidance_revision') AS INTEGER)) FROM records "
+                "WHERE kind='agent_tool_receipt' AND json_extract(data,'$.run_id')=? AND json_extract(data,'$.tool')='campaign_inspect'",
+                (run["id"],)).fetchone()[0]
+        return max(int(run.get("guidance_revision") or 0), int(inspected or 0))
 
     def assignment_origin(self, agent, run):
         """The researcher's request an agent's work descends from: the lead's run and thread, inherited by assistants of assistants."""
@@ -599,7 +778,7 @@ class PiTools:
             return question.get("agent_id") == agent["id"] or agent["role"] == LEAD and not (owner and owner["role"] in PAGE_AGENTS)
         if any(g["status"] in {"reserved", "queued", "submitted", "running", "building", "validating", "reviewing", "repairing", "stopping"} and started_here(g["id"])
                for g in self.store.list("implementation_grant", cid)) \
-                or any(q["status"] == "pending" and asked_here(q) for q in self.store.list("agent_question", cid)) \
+                or any(q["status"] == "pending" and q.get("kind") != "extension_dialog" and asked_here(q) for q in self.store.list("agent_question", cid)) \
                 or any(j["status"] in {"queued", "running"} and started_here(j["id"]) for j in self.store.list("fixed_mask_job", cid)):
             return "Unresolved questions or numerical/implementation jobs remain"
         if agent["role"] == LEAD and any(j["status"] in {"running", "awaiting_focus"} and j.get("requested_by") == LEAD
@@ -707,12 +886,19 @@ class PiTools:
                 for r in self.store.list("manager_command", campaign_id)[-5:]],
             "latest_researcher_messages": [{"id": r["id"], "content": r.get("content", "")[:12000]}
                 for r in self.store.list("message", campaign_id) if r.get("role") == "user"][-5:],
-            "capabilities": {"fixed_mask_diagnostics": "fixed_mask.run", "implementation": "implementation.commission",
+            "capabilities": {**self.capabilities(agent),
                 "resource_observability": "resource_inspect; live consumption and estimated future demand, without allocating compute",
                 "adaptive_testing": "study.race.decide and study.race.control; immutable protocol and fresh-seed confirmation",
                 "implementation_execution": implementation_execution(),
-                "experiment": "draft.save then draft.launch; trial.create", "memory": "evidence_search and evidence_read",
+                "memory": "evidence_search and evidence_read",
                 "guidance": "Use current implementation_readiness, not stale historical executable fields."}}
+
+    def capabilities(self, agent):
+        """How experiments, fixed-design checks and implementations are done, as this agent does them."""
+        if agent["role"] == LEAD:
+            return {"experiment": "the experiment operator (page_agent_message): drafts, runs, continuations, profiles; experiment_progress reads how runs go",
+                    "fixed_mask_diagnostics": "the experiment operator (fixed_mask.run)", "implementation": "the implementation lead (implementation.commission)"}
+        return {"fixed_mask_diagnostics": "fixed_mask.run", "implementation": "implementation.commission", "experiment": "draft.save then draft.launch; trial.create"}
 
     def _execute(self, agent, run, name, args, identity):
         cid = agent["campaign_id"]
@@ -837,8 +1023,9 @@ class PiTools:
             for ref in args.get("evidence_ids", []):
                 self.record(agent, ref)
             aid = "agent_" + content_hash([agent["id"], args["request_key"]])[:30]
+            # The role's output schema (agents/roles/<role>.schema.json) is the result it submits.
             child = self.controller.create_agent(cid, args["role"], args["objective"], aid,
-                parent_id=agent["id"], evidence_ids=args.get("evidence_ids"))
+                parent_id=agent["id"], evidence_ids=args.get("evidence_ids"), output_schema=ROLE_OUTPUT_SCHEMAS.get(args["role"]))
             root = self.assignment_origin(agent, run)
             if root:
                 child["assignment_origin"] = root
@@ -870,6 +1057,8 @@ class PiTools:
         if name == "command_schema":
             return self.workspace.commands.describe()[args["operation"]]
         if name == "campaign_command":
+            if self.page_work(agent, name, args):
+                raise ValueError(self.page_work(agent, name, args))
             campaign = self.store.get(cid, "campaign")
             command_id = "pi_command_" + content_hash([cid, args["operation"], args["request_key"]])[:32]
             try:
@@ -883,15 +1072,16 @@ class PiTools:
                 execution = implementation_execution()
                 if not execution["available"]:
                     raise ValueError("Isolated implementation execution is unavailable; no grant was reserved. " + execution["reason"])
-            # Pinned from the run, not from the model's memory: the guidance it read and the thread it answers.
+            # Pinned from the run, never from the model's memory: the guidance it read and the thread it answers.
             origin = dict(run.get("origin") or {})
             actor = "autopilot" if run.get("autopilot") else "lead" if agent["role"] == LEAD else "page_agent"
             if actor == "autopilot" and not (args.get("rationale") or "").strip():
                 raise ValueError("Under autopilot every command states its rationale")
             from optimization_framework.contracts.commands import CommandOrigin
             command = Command(id=command_id, campaign_id=cid,
-                # The campaign-wide guidance pin comes from the run unless the lead read a newer one (campaign_inspect); the thread pin is never overridden.
-                operation=args["operation"], expected_revision=campaign["version"], expected_guidance_revision=args.get("guidance_revision", run.get("guidance_revision", 0)),
+                # The campaign-wide guidance pin is the run's, or a newer one the agent read in this run (campaign_inspect); a revision the model
+                # states is ignored (D7). The thread pin is never overridden.
+                operation=args["operation"], expected_revision=campaign["version"], expected_guidance_revision=self.guidance_pin(run),
                 expected_thread_revision=run.get("thread_revision"), expected_authority_hash=self.workspace.commands.authority_hash(campaign), payload=args["payload"],
                 origin=CommandOrigin(thread_id=origin.get("thread_id"), message_id=origin.get("message_id"), actor=actor, agent_id=agent["id"], run_id=run["id"],
                                      rationale=(args.get("rationale") or None)))
@@ -925,6 +1115,8 @@ class PiTools:
         if name == "yield_work":
             for ref in args.get("evidence_ids", []):
                 self.record(agent, ref)
+            if agent.get("output_schema") and args["disposition"] == "complete" and self.store.get(agent["id"], "agent_session").get("output") is None:
+                raise ValueError("Submit your result with submit_output first, in your role's schema; then call yield_work(complete).")
             if agent["role"] in STANDING and args["disposition"] == "complete":
                 reason = self.outstanding(agent)
                 if reason:

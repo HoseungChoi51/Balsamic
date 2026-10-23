@@ -1,0 +1,11 @@
+{
+  "type": "object",
+  "required": ["failure_modes"],
+  "additionalProperties": false,
+  "properties": {
+    "failure_modes": {"type": "array", "maxItems": 20, "items": {"type": "object", "additionalProperties": false,
+      "required": ["mechanism", "why_it_could_fail", "falsifying_test", "cost", "severity"],
+      "properties": {"mechanism": {"type": "string"}, "why_it_could_fail": {"type": "string"}, "falsifying_test": {"type": "string"},
+        "cost": {"type": "string"}, "severity": {"enum": ["low", "medium", "high"]}}}}
+  }
+}

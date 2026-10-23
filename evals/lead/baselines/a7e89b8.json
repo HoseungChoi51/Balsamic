@@ -1,0 +1,188 @@
+{
+  "commit": "a7e89b8",
+  "mode": "real",
+  "model": null,
+  "recorded_at": "2026-10-22T23:03:48+0900",
+  "scenarios": {
+    "S1-idle-team": {
+      "passes": 3,
+      "repeats": 3,
+      "passed": true,
+      "status": "pass",
+      "metrics_mean": {
+        "lead_turns": 0.0,
+        "continue_turns": 0.0,
+        "model_calls": 0.0,
+        "cost_usd": 0.0,
+        "cache_read_tokens": 0.0,
+        "input_tokens": 0.0,
+        "seconds": 120.0
+      }
+    },
+    "S2-capabilities-question": {
+      "passes": 3,
+      "repeats": 3,
+      "passed": true,
+      "status": "pass",
+      "metrics_mean": {
+        "lead_turns": 1.0,
+        "continue_turns": 0.0,
+        "model_calls": 2.0,
+        "cost_usd": 0.0,
+        "cache_read_tokens": 0.0,
+        "input_tokens": 18450.0,
+        "seconds": 16.7667
+      }
+    },
+    "S3-narrow-request": {
+      "passes": 3,
+      "repeats": 3,
+      "passed": true,
+      "status": "pass",
+      "metrics_mean": {
+        "lead_turns": 1.0,
+        "continue_turns": 0.0,
+        "model_calls": 5.0,
+        "cost_usd": 0.0,
+        "cache_read_tokens": 33792.0,
+        "input_tokens": 24089.6667,
+        "seconds": 44.6333
+      }
+    },
+    "S4-guidance-after-page-command": {
+      "passes": 0,
+      "repeats": 3,
+      "passed": false,
+      "status": "fail",
+      "metrics_mean": {
+        "lead_turns": 2.0,
+        "continue_turns": 0.0,
+        "model_calls": 8.3333,
+        "cost_usd": 0.0,
+        "cache_read_tokens": 85034.6667,
+        "input_tokens": 35517.3333,
+        "seconds": 60.7
+      }
+    },
+    "S5-large-record": {
+      "passes": 3,
+      "repeats": 3,
+      "passed": true,
+      "status": "pass",
+      "metrics_mean": {
+        "lead_turns": 1.0,
+        "continue_turns": 0.0,
+        "model_calls": 5.0,
+        "cost_usd": 0.0,
+        "cache_read_tokens": 27477.3333,
+        "input_tokens": 28293.0,
+        "seconds": 26.3
+      }
+    },
+    "S6-gate-closed": {
+      "passes": 3,
+      "repeats": 3,
+      "passed": true,
+      "status": "pass",
+      "metrics_mean": {
+        "lead_turns": 1.0,
+        "continue_turns": 0.0,
+        "model_calls": 2.0,
+        "cost_usd": 0.0,
+        "cache_read_tokens": 4693.3333,
+        "input_tokens": 13476.0,
+        "seconds": 14.5
+      }
+    },
+    "S7-gate-opens-mid-session": {
+      "passes": 0,
+      "repeats": 3,
+      "passed": false,
+      "status": "fail",
+      "metrics_mean": {
+        "lead_turns": 2.0,
+        "continue_turns": 0.0,
+        "model_calls": 7.0,
+        "cost_usd": 0.0,
+        "cache_read_tokens": 63573.3333,
+        "input_tokens": 32083.0,
+        "seconds": 45.8
+      }
+    },
+    "S8-experiment-status": {
+      "passes": 3,
+      "repeats": 3,
+      "passed": true,
+      "status": "pass",
+      "metrics_mean": {
+        "lead_turns": 4.0,
+        "continue_turns": 0.0,
+        "model_calls": 11.6667,
+        "cost_usd": 0.0,
+        "cache_read_tokens": 68906.6667,
+        "input_tokens": 53808.0,
+        "seconds": 54.0667
+      }
+    },
+    "S9-extension-tools": {
+      "passes": 0,
+      "repeats": 3,
+      "passed": false,
+      "status": "fail",
+      "metrics_mean": {
+        "lead_turns": 1.0,
+        "continue_turns": 0.0,
+        "model_calls": 1.0,
+        "cost_usd": 0.0,
+        "cache_read_tokens": 4693.3333,
+        "input_tokens": 2576.3333,
+        "seconds": 14.6
+      }
+    },
+    "S10-prose-answer": {
+      "passes": 3,
+      "repeats": 3,
+      "passed": true,
+      "status": "pass",
+      "metrics_mean": {
+        "lead_turns": 1.0,
+        "continue_turns": 0.0,
+        "model_calls": 1.0,
+        "cost_usd": 0.0,
+        "cache_read_tokens": 2346.6667,
+        "input_tokens": 4905.6667,
+        "seconds": 13.2667
+      }
+    },
+    "S11-experiments-through-the-operator": {
+      "passes": 3,
+      "repeats": 3,
+      "passed": true,
+      "status": "pass",
+      "metrics_mean": {
+        "lead_turns": 2.6667,
+        "continue_turns": 0.0,
+        "model_calls": 23.3333,
+        "cost_usd": 0.0,
+        "cache_read_tokens": 266709.3333,
+        "input_tokens": 74361.3333,
+        "seconds": 108.6
+      }
+    },
+    "S12-flawed-proposal-review": {
+      "passes": 0,
+      "repeats": 3,
+      "passed": false,
+      "status": "fail",
+      "metrics_mean": {
+        "lead_turns": 2.0,
+        "continue_turns": 0.0,
+        "model_calls": 26.3333,
+        "cost_usd": 0.0,
+        "cache_read_tokens": 204202.6667,
+        "input_tokens": 70871.3333,
+        "seconds": 117.6333
+      }
+    }
+  }
+}

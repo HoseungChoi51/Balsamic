@@ -107,7 +107,9 @@ def view(workspace, campaign_id):
                 else:
                     documents.append({"id": row["id"], "kind": row["kind"], "title": row["title"], "created_at": row["created_at"]})
             people.append({"agent_id": agent["id"], "role": agent["role"], "model": agent.get("model"), "status": agent["status"],
-                "created_at": agent["created_at"], "assignment": cut(agent["objective"]), "turns": turns, "verdicts": verdicts, "documents": documents})
+                "created_at": agent["created_at"], "assignment": cut(agent["objective"]), "turns": turns, "verdicts": verdicts, "documents": documents,
+                # The result it submitted in its role's schema (agents/roles), which whoever asked reads and synthesizes.
+                "output": agent.get("output"), "output_schema": bool(agent.get("output_schema"))})
         round_of_turn.update({identity: number for identity in owner_turns})
         rounds.append({"number": number, "run_id": run_id if turn else None, "started_at": members[0]["created_at"], "trigger": trigger,
             "owner": owner["role"], "active": any(agent["status"] in {"queued", "running"} for agent in members), "assistants": people,

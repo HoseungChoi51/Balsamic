@@ -133,11 +133,39 @@ def test_specialists_cannot_grant_authority_and_answers_invalidate_stale_command
     w.pi.message(c['id'],{'message':'Use the current objective','question_id':q['id']},'answer')
     assert w.memory.state(c['id'])['guidance_revision'] == 1
     assert w.store.get(q['id'],'agent_question')['status'] == 'answered'
-    task = w.current_tasks(c['id'])[0]
-    rejected = invoke(prepared,'campaign_command',{'operation':'trial.create','guidance_revision':0,'request_key':'stale',
-        'payload':{'task_id':task['id'],'algorithm':'coordinate','max_steps':2,'wall_seconds':5}},'stale')
+    rejected = invoke(prepared,'campaign_command',{'operation':'hypothesis.create','guidance_revision':0,'request_key':'stale',
+        'payload':{'title':'Stale','mechanism':'m','rationale':'r'}},'stale')
     assert 'guidance changed' in rejected['error']
-    assert w.store.list('trial') == []
+    assert w.store.list('hypothesis') == []
+
+
+def test_a_command_after_reading_the_campaign_again_in_the_same_turn_is_accepted(prepared):
+    from optimization_framework.agents.tools import GUIDANCE_RECOVERY
+    w,c,a,r = prepared
+    propose = lambda key: invoke(prepared, 'campaign_command', {'operation': 'hypothesis.create', 'request_key': key,
+        'payload': {'title': 'Strategy ' + key, 'mechanism': 'm', 'rationale': 'r'}}, key)
+    # The researcher changes the guidance during the turn: the turn's commands are stale, with a recovery that says what happened.
+    w.memory.bump(c['id'])
+    refused = propose('during')
+    assert 'guidance changed' in refused['error'] and refused['recovery'] == GUIDANCE_RECOVERY and not w.store.list('hypothesis')
+    # Having read the campaign again in this turn, the agent's command is prepared against what it read.
+    assert invoke(prepared, 'campaign_inspect', {}, 'again')['guidance_revision'] == 1
+    accepted = propose('after')
+    assert 'error' not in accepted and accepted['request']['expected_guidance_revision'] == 1 and len(w.store.list('hypothesis')) == 1
+
+
+def test_a_notice_turn_command_stating_an_earlier_turns_revision_is_accepted(prepared):
+    """Parts E and G: after the researcher answered, the lead's first command stated the revision it had read before and was refused."""
+    from optimization_framework.agents.models import NOTICE
+    w,c,a,r = prepared
+    read_before = invoke(prepared, 'campaign_inspect', {}, 'first_read')['guidance_revision']
+    q = invoke(prepared, 'researcher_ask', {'question': 'Which objective?', 'reason': 'Two are stated', 'suggestion': 'Use the first.'}, 'question')
+    w.pi.message(c['id'], {'message': 'Use the first.', 'question_id': q['id']}, 'answer')
+    notice = w.pi.enqueue(w.store.get(a['id'], 'agent_session'), 'pi_events_answer', NOTICE + 'The researcher answered.')
+    w.store.put('agent_run', {**notice, 'status': 'submitted'})
+    result = PiTools(w.pi).call(a['id'], notice['id'], 'remembered', 'campaign_command', {'operation': 'hypothesis.create', 'request_key': 'remembered',
+        'guidance_revision': read_before, 'payload': {'title': 'After the answer', 'mechanism': 'm', 'rationale': 'r'}})
+    assert 'error' not in result and result['request']['expected_guidance_revision'] == w.memory.state(c['id'])['guidance_revision'] == read_before + 1
 
 
 class Client:
@@ -310,25 +338,31 @@ def test_agents_are_inspected_on_notice_or_sweep_not_on_every_pass(prepared):
     assert inspected == [child['id']]
 
 
-def test_lead_extension_needs_researcher_approval_and_the_answer_wakes_the_lead(prepared):
+def test_a_longer_run_needs_researcher_approval_and_the_answer_wakes_who_filed_it(prepared):
     w, c, a, r = prepared
     task = w.current_tasks(c['id'])[0]
-    created = invoke(prepared, 'campaign_command', {'operation': 'trial.create', 'guidance_revision': 0, 'request_key': 'trial',
+    asked = w.pi.message(c['id'], {'message': 'Run one short coordinate search.', 'page_agent': 'experiment_operator'}, 'ask_operator')
+    w.store.put('agent_run', {**w.store.get(asked['id'], 'agent_run'), 'status': 'submitted'})
+    operator = w.store.get(asked['agent_id'], 'agent_session')
+    by_operator = lambda name, args, key: PiTools(w.pi).call(operator['id'], asked['id'], key, name, args)
+    created = by_operator('campaign_command', {'operation': 'trial.create', 'request_key': 'trial',
         'payload': {'task_id': task['id'], 'algorithm': 'coordinate', 'max_steps': 2, 'wall_seconds': 5}}, 'trial')
     trial = w.store.get(created['outcome']['trial_id'], 'trial')
-    refused = invoke(prepared, 'campaign_command', {'operation': 'trial.control', 'guidance_revision': 0, 'request_key': 'extend',
+    # The lead may pause, stop or resume a run, but never enlarge one. (Writing to the operator changed the guidance: it reads it again.)
+    invoke(prepared, 'campaign_inspect', {}, 'reread')
+    refused = invoke(prepared, 'campaign_command', {'operation': 'trial.control', 'request_key': 'extend',
         'payload': {'trial_id': trial['id'], 'action': 'extend', 'expected_control_revision': 0, 'wall_seconds': 9}}, 'extend')
     assert 'researcher approval' in refused['error']
-    filed = invoke(prepared, 'campaign_command', {'operation': 'trial.extension_request', 'guidance_revision': 0, 'request_key': 'more_time',
+    filed = by_operator('campaign_command', {'operation': 'trial.extension_request', 'request_key': 'more_time',
         'payload': {'trial_id': trial['id'], 'additional_seconds': 4, 'rationale': 'The curve is still improving'}}, 'more_time')
     decision = w.store.get(filed['outcome']['decision_id'], 'decision')
-    assert decision['requested_by'] == 'lead' and w.store.get(trial['id'], 'trial')['wall_seconds'] == 5
+    assert w.store.get(trial['id'], 'trial')['wall_seconds'] == 5
     w.commands.execute(Command(id='approve', campaign_id=c['id'], expected_revision=w.store.get(c['id'], 'campaign')['version'],
         operation='decision.resolve', payload={'decision_id': decision['id'], 'choice': '0', 'comment': 'Go ahead',
         'expected_resolution_revision': 0}))
     assert w.store.get(trial['id'], 'trial')['wall_seconds'] == 9
     w.pi._campaign_events(c['id'])
-    woken = [run for run in w.store.list('agent_run') if run['id'].startswith('pi_events_')]
+    woken = [run for run in w.store.list('agent_run') if run['id'].startswith('pi_events_') and run['agent_id'] == operator['id']]
     assert woken and 'decision.resolved' in woken[-1]['input']
 
 
@@ -433,8 +467,7 @@ def test_agents_read_committed_repository_files_and_their_own_experiments_only(p
     assert invoke(prepared, 'file_search', {'root': 'repository', 'query': 'value', 'glob': '*.md'}, 'glob')['matches'] == []
     # An experiment's directory: its own campaign's only, without saved states.
     task = w.current_tasks(c['id'])[0]
-    trial = invoke(prepared, 'campaign_command', {'operation': 'trial.create', 'guidance_revision': 0, 'request_key': 'trial',
-        'payload': {'task_id': task['id'], 'algorithm': 'coordinate', 'max_steps': 2, 'wall_seconds': 5}}, 'trial')['outcome']['trial_id']
+    trial = w.create_trial(TrialInput(campaign_id=c['id'], task_id=task['id'], algorithm='coordinate', max_steps=2, wall_seconds=5))['id']
     directory = w.job_dir(trial)
     (directory / 'checkpoints').mkdir(exist_ok=True)
     (directory / 'checkpoints' / 'state.pkl').write_bytes(b'\x80')
@@ -453,8 +486,7 @@ def test_an_agent_analyses_its_experiments_with_its_own_script_in_a_sandbox(prep
         pytest.skip('This host cannot establish the sandbox namespaces')
     w, c, agent, _ = prepared
     task = w.current_tasks(c['id'])[0]
-    trial = invoke(prepared, 'campaign_command', {'operation': 'trial.create', 'guidance_revision': 0, 'request_key': 'trial',
-        'payload': {'task_id': task['id'], 'algorithm': 'coordinate', 'max_steps': 2, 'wall_seconds': 5}}, 'trial')['outcome']['trial_id']
+    trial = w.create_trial(TrialInput(campaign_id=c['id'], task_id=task['id'], algorithm='coordinate', max_steps=2, wall_seconds=5))['id']
     script = f'''import json, os, numpy
 from optimization_framework.execution.metrics import scalar_rows
 print("algorithm", json.load(open("/data/{trial}/spec.json"))["algorithm"], "| numpy", numpy.zeros(2).sum())
@@ -484,8 +516,10 @@ open("result.txt", "w").write("kept")
 def test_what_only_the_researcher_grants_is_asked_for_and_applied_on_approval(prepared, monkeypatch):
     w, c, *_ = prepared
     cid = c['id']
-    ask = lambda key, payload: invoke(prepared, 'campaign_command', {'operation': 'approval.request', 'request_key': key,
-        'guidance_revision': w.memory.state(cid)['guidance_revision'], 'payload': payload}, key)
+    def ask(key, payload):
+        # Each approval changes the guidance; within one turn the agent reads the campaign again before its next command.
+        invoke(prepared, 'campaign_inspect', {}, key + '_inspect')
+        return invoke(prepared, 'campaign_command', {'operation': 'approval.request', 'request_key': key, 'payload': payload}, key)
     approve = lambda key, decision, choice='0': w.commands.execute(Command(id=key, campaign_id=cid, expected_revision=w.store.get(cid, 'campaign')['version'],
         operation='decision.resolve', payload={'decision_id': decision, 'choice': choice, 'comment': 'Agreed', 'expected_resolution_revision': 0}))
     # A campaign limit: the lead cannot set it, and nothing changes until the researcher approves.
@@ -748,7 +782,7 @@ def test_resource_events_wake_the_resource_planner_which_plans_but_starts_nothin
     manifest = tools.manifest(planner['id'], run['id'])
     names = {tool['name'] for tool in manifest['tools']}
     assert {'resource_inspect', 'campaign_command', 'experiment_progress', 'lead_ask'} <= names and 'page_agent_message' not in names
-    assert 'balanced resource level' in manifest['instructions'] and 'resources.estimate' in manifest['instructions']
+    assert 'balanced resource level' in tools.turn_state(planner['id'], run['id'])['text'] and 'resources.estimate' in manifest['instructions']
     assert tools.schema(planner, 'campaign_command')['properties']['operation']['enum'] == ['approval.request', 'resources.estimate', 'resources.plan', 'runtime.profile']
     # It reads each running run's memory and the GPU's processes, and records an estimate and a plan through its own commands.
     inspected = tools.call(planner['id'], run['id'], 'inspect', 'resource_inspect', {})

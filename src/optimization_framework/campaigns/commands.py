@@ -121,12 +121,12 @@ class CommandService:
         """Use the application's schemas in prompts instead of a second tool model."""
         from .experiment_rules import ExperimentRulesInput, TrialHideInput
         from optimization_framework.execution.admission import ResourcePlanInput, UsageEstimateInput
-        from optimization_framework.agents.models import Activate, Configure, Message, Control, QuestionDismiss, Rollback
+        from optimization_framework.agents.models import Activate, Configure, Message, Control, QuestionDismiss, Rollback, UiRespond
         from optimization_framework.agents.diagnostics import FixedMaskInput
         from optimization_framework.implementations.references import ReferenceInput
         from optimization_framework.implementations.builtin import BuiltinBindingInput
         models = {"agent.activate": Activate, "agent.message": Message, "agent.control": Control, "agent.rollback": Rollback,
-            "agent.configure": Configure, "agent.question_dismiss": QuestionDismiss,
+            "agent.configure": Configure, "agent.question_dismiss": QuestionDismiss, "agent.ui_respond": UiRespond,
             "fixed_mask.run": FixedMaskInput, "comparison.report": ComparisonReportInput, "campaign.create": CampaignInput, "campaign.update": CampaignUpdateInput,
             "context.edit": ContextEditInput, "issue.resolve": IssueResolveInput,
             "hypothesis.create": HypothesisInput, "hypothesis.review": HypothesisReviewInput,
@@ -328,6 +328,8 @@ class CommandService:
             return self.workspace.pi.configure(command.campaign_id, payload, command.id)
         if command.operation == "agent.question_dismiss":
             return self.workspace.pi.dismiss_question(command.campaign_id, payload)
+        if command.operation == "agent.ui_respond":
+            return self.workspace.pi.ui_respond(command.campaign_id, payload)
         if command.operation == "fixed_mask.run":
             from optimization_framework.agents.diagnostics import reserve
             return reserve(self.workspace, command.campaign_id, payload, command.id)

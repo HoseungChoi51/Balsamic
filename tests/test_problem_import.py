@@ -314,3 +314,78 @@ def test_questions_left_unanswered_go_to_the_formulator_as_decisions_to_record(t
     run_id = pi.submitted[-1][1]["id"]
     imports.call(record["id"], run_id, "c3", "charter_submit", {"charter": draft})
     assert workspace.charters.view(charter_id)["charter"]["questions"][0]["sent"] is True
+
+
+def formulator_at_work(tmp_path):
+    """A formulator that has saved a charter with one open question and is still working in the same run."""
+    from optimization_framework.execution.service import Workspace
+    workspace, pi = Workspace(tmp_path), FakePi()
+    imports = ProblemImports(workspace, client=pi)
+    workspace.problem_imports = imports
+    record = imports.create(ImportCreate(provider="deepseek", model="deepseek-v4-pro"))
+    imports.add_document(record["id"], "paper.md", b"The target angle is 75 degrees.")
+    record = imports.start(record["id"])
+    run_id = pi.submitted[0][1]["id"]
+    charter = deepcopy(next(item for item in problems_examples() if item["id"].startswith("flrl"))["charter"])
+    imports.call(record["id"], run_id, "c1", "charter_submit", {"charter": charter})
+    imports.call(record["id"], run_id, "c2", "question_ask", {"questions": [
+        {"id": "incidence", "question": "Is the incidence normal?", "options": ["Yes", "No, give the angle"], "about": ["incident_angle_deg"]}]})
+    return workspace, pi, imports, record, run_id, imports.get(record["id"])["charter_id"]
+
+
+def test_the_researchers_input_waits_while_the_formulator_works(tmp_path):
+    """What the page showed while the formulator was revising (an old question, an old suggestion, an old proposal) could be
+    acted on, and the formulator then went on from a charter that had drifted. Now every input waits until it is done."""
+    from balsamic.panels.service import _bound
+    from optimization_framework.problem_charter.service import NOT_LISTENING
+    workspace, pi, imports, record, run_id, charter_id = formulator_at_work(tmp_path)
+    charters = workspace.charters
+    proposed = imports.call(record["id"], run_id, "c3", "charter_propose", {"request": "Tidy", "options": [
+        {"label": "Change the angle", "reason": "r", "changes": [{"op": "solve", "input": "target_angle_deg", "target": "period_x_nm", "value": 1100}]}]})
+    view = charters.view(charter_id)
+    assert view["formulator"] == {"status": "running", "listening": False}
+    assert _bound(lambda _: view, {"charter": charter_id, "question": "incidence"})["listening"] is False, "a panel field waits too"
+    revision, attempts = view["revision"], [
+        lambda: charters.answer(charter_id, "incidence", "Yes", expected_revision=revision),
+        lambda: charters.edit(charter_id, [{"op": "set", "path": "quantities.wavelength_nm.value", "value": 1100}], expected_revision=revision),
+        lambda: charters.accept_assumptions(charter_id, expected_revision=revision),
+        lambda: charters.waive(charter_id, "any", "a reason", expected_revision=revision),
+        lambda: charters.send_answers(charter_id, expected_revision=revision),
+        lambda: charters.request(charter_id, "Set the period to 1100 nm"),
+        lambda: charters.decide(proposed["proposed"], 0),
+        lambda: charters.confirm(charter_id, expected_revision=revision)]
+    for attempt in attempts:
+        with pytest.raises(ValueError, match="revising this charter"):
+            attempt()
+    assert charters.get(charter_id)["revision"] == revision and len(pi.submitted) == 1, "nothing changed, nothing was sent"
+    assert NOT_LISTENING.endswith("nothing was changed.")
+    # Its turn ends: the next input brings its status up to date and is taken.
+    pi.runs[run_id] = {"status": "completed", "result": {"text": "Saved; one question."}}
+    charters.answer(charter_id, "incidence", "Yes", expected_revision=revision)
+    assert charters.view(charter_id)["formulator"] == {"status": "running", "listening": False}, "the answer started its next turn"
+    assert "Answer: Yes" in pi.submitted[-1][1]["input"]
+
+
+def test_the_formulator_recommends_only_what_can_run(tmp_path):
+    """token-sharing: the formulator recommended keeping exact grids "and leave execution blocked", and the researcher took it."""
+    workspace, pi, imports, record, run_id, charter_id = formulator_at_work(tmp_path)
+    ask = lambda options, unrunnable, key: imports.call(record["id"], run_id, key, "question_ask", {"questions": [
+        {"id": "grids_" + key, "question": "The lab cannot pass a different grid per variable. How should the grids be handled?",
+         "options": options, "unrunnable_options": unrunnable}]})
+    wait, rounding = "Keep the exact grids and leave execution blocked until the lab supports them", "The evaluator rounds each variable to its grid"
+    assert "first option, shown as recommended" in ask([wait, rounding], [0], "k1")["error"]
+    assert "never recommended" in ask([rounding, wait + " (recommended)"], [1], "k2")["error"]
+    assert "does not have" in ask([rounding, wait], [2], "k3")["error"]
+    # A runnable option first; and when every option leaves nothing able to run, none is recommended and the question may stand.
+    asked = imports.call(record["id"], run_id, "k4", "question_ask", {"questions": [
+        {"id": "grids", "question": "How should the grids be handled?", "options": [rounding, wait], "unrunnable_options": [1]},
+        {"id": "evaluator", "question": "Who supplies the evaluator?", "options": [wait, "Wait for the vendor's code"], "unrunnable_options": [0, 1]}]})
+    assert asked["asked"] == 2, asked
+    saved = {q["id"]: q for q in workspace.charters.get(charter_id)["charter"]["questions"]}
+    assert saved["grids"]["unrunnable_options"] == [1] and saved["evaluator"]["unrunnable_options"] == [0, 1]
+    # A proposal's option that leaves checks open is shown after one that leaves none.
+    proposed = imports.call(record["id"], run_id, "c9", "charter_propose", {"request": "Grids", "options": [
+        {"label": "Wait for the lab", "reason": "Exact grids", "blocking_reason": "Nothing runs until the lab passes grids",
+         "changes": [{"op": "set", "path": "quantities.wavelength_nm.value", "value": 1100}]},
+        {"label": "Round in the evaluator", "reason": "Runs now", "changes": [{"op": "set", "path": "quantities.wavelength_nm.value", "value": 1050}]}]})
+    assert [option["label"] for option in proposed["options"]] == ["Round in the evaluator", "Wait for the lab"]

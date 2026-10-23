@@ -1,0 +1,18 @@
+{
+  "id": "S8-experiment-status",
+  "source": "F5: asked how the experiments go, the lead asks the operator; one read costs three model turns",
+  "note": "The runs finish before the question: while a run the researcher started is going, yield_work(complete) refuses the lead (outstanding work).",
+  "setup": {"preset": "quadratic", "llm_budget_usd": 0.3},
+  "steps": [
+    {"seed": "two_small_runs"},
+    {"wait": "trials_settled", "timeout_s": 300},
+    {"say": "How are the experiments going?"},
+    {"wait": "request_closed", "timeout_s": 900}
+  ],
+  "checks": [
+    {"reply_matches": "\\d"},
+    {"request_closed": true},
+    {"no_failed_runs": true}
+  ],
+  "repeats": 1
+}

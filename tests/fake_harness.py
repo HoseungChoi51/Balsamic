@@ -1,10 +1,18 @@
 """A scripted stand-in for the Pi agent harness, speaking its HTTP protocol, with a session tree.
 
 For tests and for a local stack without a model: ``uv run python tests/fake_harness.py --port 8768`` beside
-``GRATING_PI_URL=http://127.0.0.1:8768 optimization-lab ...``. Each run it receives plays a script: it fetches the
-agent's manifest from the workspace, calls a few tools through the gateway (campaign_inspect, then yield_work with a
-reply that echoes the request), and reports the run completed with the entry ids its session tree grew by. Threads
-work as on the real harness: a run with ``branch_from_entry_id`` or ``leaf_entry_id`` positions the leaf first.
+``GRATING_PI_URL=http://127.0.0.1:8768 optimization-lab ...``. Each run it receives plays a script: it calls a few tools
+through the gateway (campaign_inspect, then yield_work with a reply that echoes the request), and reports the run completed
+with the entry ids its session tree grew by. As on the real harness, the agent's manifest is fetched once, when its runtime
+is made (``restart()`` forgets every runtime, as a harness restart does), and every turn asks the workspace for its state
+block and puts it before the message. Threads work as on the real harness too: a run with ``branch_from_entry_id`` or
+``leaf_entry_id`` positions the leaf first.
+
+What the harness's Balsamic extension does is played too, so end-to-end tests can script it: ``tools.external(tool, args,
+text)`` runs an extension tool (blocked unless the manifest allowlists it for the role, receipted through
+``external_receipt`` otherwise), ``tools.dialog(method, title, ...)`` asks the researcher through ``ui_request`` and waits for
+the answer, and a turn that ends without a saved yield_work is given one continuation in the same run (the script is played
+again with ``run["continuation"]`` set and the reminder as its text).
 """
 from __future__ import annotations
 
@@ -16,6 +24,7 @@ import time
 import uuid
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
+from urllib.error import HTTPError
 from urllib.request import Request, urlopen
 
 STATUS = {"configured": True, "mode": "dev", "provider": "openai-codex", "providers": {"openai-codex": {"auth": "oauth", "billing": "subscription"}},
@@ -57,6 +66,50 @@ class SessionTree:
         return walk(None)
 
 
+GRANT_ROLES = {"implementation_builder", "implementation_test_designer", "implementation_validator"}
+REMINDER = "End the turn with yield_work: complete with the answer in report, or waiting if work you started is still running."
+
+
+class Tools:
+    """The tools a scripted turn calls: the gateway's, and an extension's through the Balsamic extension's rules."""
+    def __init__(self, harness, agent, run):
+        self.harness, self.agent, self.run = harness, agent, run
+        self.yielded = False
+
+    def __call__(self, name, arguments):
+        live = self.harness.live[self.agent["id"]]
+        live["steps"].append({"label": name, "done": False, "failed": False})
+        result = self.harness.gateway("tool", {"agent_id": self.agent["id"], "run_id": self.run["id"], "call_id": name + "_" + uuid.uuid4().hex[:6], "name": name, "arguments": arguments})
+        live["steps"][-1]["done"] = True
+        self.harness._event(self.agent, "tool_execution_end", tool=name, summary=name)
+        if name == "yield_work" and isinstance(result, dict) and result.get("saved") is True:
+            self.yielded = True
+        return result
+
+    def external(self, tool, arguments, text):
+        manifest = self.agent.get("manifest") or {}
+        allowed = {name: entry["name"] for entry in manifest.get("extensions") or [] for name in entry.get("tools") or []}
+        call_id = tool + "_" + uuid.uuid4().hex[:6]
+        if tool not in allowed:
+            self.harness._event(self.agent, "extension.tool_blocked", tool=tool, call_id=call_id)
+            return {"blocked": True, "reason": f"{tool} is not allowed for the {self.agent['spec']['role'].replace('_', ' ')}"}
+        receipt = self.harness.gateway("external_receipt", {"agent_id": self.agent["id"], "run_id": self.run["id"], "call_id": call_id, "tool": tool,
+            "extension": allowed[tool], "arguments": arguments, "result_excerpt": text[:24 * 1024], "result_bytes": len(text.encode()), "is_error": False, "annotations": None})
+        return {"content": text, **receipt}
+
+    def dialog(self, method, title, *, timeout=None, poll=0.05, **fields):
+        scope = {"agent_id": self.agent["id"], "run_id": self.run["id"]}
+        state = self.harness.gateway("ui_request", {**scope, "request_id": uuid.uuid4().hex, "method": method, "title": title,
+                                                   "timeout_ms": timeout * 1000 if timeout else None, **fields})
+        deadline = time.time() + timeout if timeout else None
+        while state.get("status") == "pending" and (deadline is None or time.time() < deadline):
+            time.sleep(poll)
+            state = self.harness.gateway("ui_request/" + state["question_id"], scope)
+        if state.get("status") == "answered":
+            return state.get("value")
+        return False if method == "confirm" else None
+
+
 class FakeHarness:
     def __init__(self, gateway, *, script=None):
         self.gateway = gateway          # gateway(operation, body) -> dict, like the real harness's callbacks
@@ -77,7 +130,8 @@ class FakeHarness:
 
     def _agent(self, agent_id, spec=None):
         with self.lock:
-            agent = self.agents.setdefault(agent_id, {"id": agent_id, "spec": spec, "runs": {}, "events": [], "seq": 0, "tree": SessionTree(), "control": None})
+            agent = self.agents.setdefault(agent_id, {"id": agent_id, "spec": spec, "runs": {}, "events": [], "seq": 0, "tree": SessionTree(), "control": None,
+                                                      "manifest": None})
             if spec:
                 agent["spec"] = spec
             return agent
@@ -115,15 +169,20 @@ class FakeHarness:
             elif run["leaf_entry_id"] and run["leaf_entry_id"] != tree.leaf:
                 tree.branch(run["leaf_entry_id"])
             parent = tree.leaf
-            tree.append("message", run["text"], role="user")
-            self.gateway("manifest", {"agent_id": agent["id"], "run_id": run["id"]})
-            def tools(name, arguments):
-                self.live[agent["id"]]["steps"].append({"label": name, "done": False, "failed": False})
-                result = self.gateway("tool", {"agent_id": agent["id"], "run_id": run["id"], "call_id": name + "_" + uuid.uuid4().hex[:6], "name": name, "arguments": arguments})
-                self.live[agent["id"]]["steps"][-1]["done"] = True
-                self._event(agent, "tool_execution_end", tool=name, summary=name)
-                return result
+            if agent.get("manifest") is None:
+                agent["manifest"] = self.gateway("manifest", {"agent_id": agent["id"], "run_id": run["id"]})
+            state = self._turn_state(agent, run)
+            run["prompt"] = f"[Assignment {run['id']}]\n" + (state + "\n\n" if state else "") + run["text"]
+            tree.append("message", run["prompt"], role="user")
+            tools = Tools(self, agent, run)
             reply = self.script(agent, run, tools)
+            host = (agent.get("manifest") or {}).get("extension_host", (agent.get("spec") or {}).get("role") not in GRANT_ROLES)
+            if not tools.yielded and host:
+                # The Balsamic extension's agent_before_settle: one continuation in the same run.
+                self._event(agent, "turn.continued", run_id=run["id"], summary="The run was ending without yield_work")
+                tree.append("custom", REMINDER, role="custom")
+                more = self.script(agent, {**run, "text": REMINDER, "continuation": True}, tools)
+                reply = "\n\n".join(part for part in (reply, more) if part)
             last = tree.append("message", reply, role="assistant")
             self._event(agent, "assistant.message", text=reply, usage={"input": 10, "output": 5, "cacheRead": 0, "cacheWrite": 0, "reasoning": 0, "totalTokens": 15, "cost_usd": 0},
                         stop_reason="stop", provider="openai-codex", model="gpt-6-astra", billing="subscription")
@@ -139,6 +198,21 @@ class FakeHarness:
                     notify([agent["id"]])
                 except Exception:
                     pass
+
+    def _turn_state(self, agent, run):
+        """The workspace's state block for this turn; empty from a workspace without the route."""
+        try:
+            return (self.gateway("turn_state", {"agent_id": agent["id"], "run_id": run["id"]}) or {}).get("text") or ""
+        except HTTPError as exc:
+            if exc.code == 404:
+                return ""
+            raise
+
+    def restart(self):
+        """What a harness restart does to the runtimes: each agent's next turn fetches its manifest again."""
+        with self.lock:
+            for agent in self.agents.values():
+                agent["manifest"] = None
 
     def control(self, agent_id, action):
         agent = self._agent(agent_id)

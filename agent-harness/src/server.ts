@@ -24,7 +24,7 @@ const supervisor = new Supervisor(directory, createRuntime, async (operation, da
       const body: any = await response.json();
       if (response.ok) return body;
       const error:any = new Error(body.detail || `Gateway error ${response.status}`);
-      error.definitive = response.status < 500 && response.status !== 429; throw error;
+      error.status = response.status; error.definitive = response.status < 500 && response.status !== 429; throw error;
     } catch (error:any) {
       if (signal?.aborted || error.definitive || attempt >= 2) throw error;
       // Stable tool identity reconciles mutations even if their reply was lost.

@@ -39,6 +39,9 @@ export function PanelView({ panel, threadId, compact = false }: { panel: Panel; 
   const render = (component: PanelComponent, index: number): React.ReactNode => {
     const id = component.id || `c${index}`;
     const data = component.id ? panel.data[component.id] || {} : {};
+    // A field bound to a charter waits while its formulator revises it: the value would meet a charter being rewritten.
+    const waiting = data.listening === false;
+    const waitNote = waiting ? <span className="small faint" data-testid="panel-waiting">waits for the formulator to finish revising the charter</span> : null;
     switch (component.type) {
       case 'markdown': return <Markdown key={id} text={String(component.text)} thread={threadId} />;
       case 'kv': return <div key={id} data-testid="panel-kv">{component.title ? <h4>{String(component.title)}</h4> : null}
@@ -51,13 +54,13 @@ export function PanelView({ panel, threadId, compact = false }: { panel: Panel; 
       }
       case 'number': return <div key={id} className="panel-field" data-testid="panel-number" data-component={id}>
         <label>{String(component.label)}{data.origin === 'assumed' && !data.accepted ? <Pill tone="attention">assumed</Pill> : null}</label>
-        <NumberField key={String(data.revision ?? '')} initial={data.value as number | null} units={(component.units as string) || (data.units as string)} onSet={v => set(id, v)} busy={busy} testId={`panel-${id}`} />
-        {component.help ? <span className="small faint">{String(component.help)}</span> : null}</div>;
+        <NumberField key={String(data.revision ?? '')} initial={data.value as number | null} units={(component.units as string) || (data.units as string)} onSet={v => set(id, v)} busy={busy || waiting} testId={`panel-${id}`} />
+        {waitNote || (component.help ? <span className="small faint">{String(component.help)}</span> : null)}</div>;
       case 'select': return <div key={id} className="panel-field" data-testid="panel-select" data-component={id}>
         <label>{String(component.label)}</label>
-        <select value={data.value == null ? '' : String(data.value)} disabled={busy} data-testid={`panel-${id}`} onChange={e => { const option = (component.options as { value: string | number; label?: string }[]).find(o => String(o.value) === e.target.value); if (option) void set(id, option.value).catch(() => undefined); }}>
+        <select value={data.value == null ? '' : String(data.value)} disabled={busy || waiting} data-testid={`panel-${id}`} onChange={e => { const option = (component.options as { value: string | number; label?: string }[]).find(o => String(o.value) === e.target.value); if (option) void set(id, option.value).catch(() => undefined); }}>
           <option value="">choose…</option>{(component.options as { value: string | number; label?: string }[]).map(o => <option key={String(o.value)} value={String(o.value)}>{o.label || String(o.value)}</option>)}</select>
-        {component.help ? <span className="small faint">{String(component.help)}</span> : null}</div>;
+        {waitNote || (component.help ? <span className="small faint">{String(component.help)}</span> : null)}</div>;
       case 'chart': { const points = (data.points as { x: number; y: number }[]) || (component.points as { x: number; y: number }[]) || [];
         return <div key={id} data-testid="panel-chart">{component.title ? <h4>{String(component.title)}</h4> : null}<Curve points={points} label={String(component.title || 'curve')} /></div>; }
       case 'button': return <button key={id} type="button" className={'btn small' + (component.tone === 'primary' ? ' primary' : '')} disabled={busy} onClick={() => press(component)} data-testid={`panel-${id}`}>{String(component.label)}</button>;

@@ -130,6 +130,29 @@ test('while the formulator works on the answers, the questions say so and nothin
   await expect(panel.locator('[data-next="1"]')).toHaveCount(0);
 });
 
+test('while the formulator revises the charter nothing takes input, and the page opens again when its revision is saved', async ({ page }) => {
+  await mockWorkspace(page, { [`/api/v1/campaigns/${CAMPAIGN_ID}/problem-note`]: f.adoptedNoteView });
+  const questions = [{ id: 'grids', question: 'The lab cannot pass a different grid per variable. How should the grids be handled?',
+    options: ['The evaluator rounds each variable to its grid', 'Keep the exact grids; nothing runs until the lab supports them'], unrunnable_options: [1], answer: null }];
+  let view = { ...f.charterView, formulator: { status: 'running', listening: false }, charter: { ...f.charterView.charter, questions } };
+  await page.route('**/api/v1/problem-charters/charter_1', route => route.fulfill({ json: view }));
+  await page.goto(`/#t/${THREAD_ID}/note/charter`);
+  const panel = page.getByTestId('charter-panel');
+  await expect(panel.getByTestId('formulator-busy')).toContainText('answers, values and choices wait until it has saved its revision');
+  for (const control of [panel.getByTestId('question-option').first(), panel.getByTestId('value-n_users'), panel.getByTestId('confirm-charter'),
+                         panel.getByTestId('charter-request'), panel.getByTestId('accept-assumption'), panel.getByTestId('finding-suggestion'), panel.getByTestId('finding-ask').first()])
+    await expect(control).toBeDisabled();
+  // Its turn ends: the page reads again by itself and everything opens.
+  view = { ...view, revision: view.revision + 1, formulator: { status: 'ready', listening: true } };
+  await expect(panel.getByTestId('formulator-busy')).toHaveCount(0, { timeout: 6000 });
+  await expect(panel.getByTestId('question-option').first()).toBeEnabled();
+  await expect(panel.getByTestId('value-n_users')).toBeEnabled();
+  // The first option is the recommendation; the one under which nothing can run is never called that.
+  await expect(panel.getByTestId('question-option').first()).toContainText('· recommended');
+  await expect(panel.locator('[data-unrunnable="1"]')).toContainText('· nothing can run');
+  await expect(panel.locator('[data-unrunnable="1"]')).not.toContainText('recommended');
+});
+
 test('a finding offers suggested ways out: one click sends the worded request, and the ask box starts from it', async ({ page }) => {
   await mockWorkspace(page, { [`/api/v1/campaigns/${CAMPAIGN_ID}/problem-note`]: f.adoptedNoteView });
   const posts = await charterRoutes(page);

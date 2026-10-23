@@ -91,16 +91,16 @@ def test_a_message_in_one_thread_does_not_stale_commands_of_another(client, work
     assert refused["executed"] is False and "wrote in this conversation" in refused["error"]
 
 
-def test_lead_commands_pin_guidance_from_their_run(client, workspace, campaign, team):
+def test_lead_commands_pin_guidance_from_their_run_and_ignore_a_stated_revision(client, workspace, campaign, team):
     run = submitted(workspace, say(client, campaign, "Go."))
     receipt = tool_call(workspace, team, run, "campaign_command", {"operation": "hypothesis.create", "request_key": "k",
                         "payload": {"title": "T", "mechanism": "m", "rationale": "r"}})
     saved = workspace.store.get(receipt["id"], "work_command")
     assert saved["request"]["expected_guidance_revision"] == workspace.store.get(run["id"], "agent_run")["guidance_revision"]
-    # A guidance revision the lead states itself is checked, not trusted: a stale one is refused with the reason.
-    stale = tool_call(workspace, team, run, "campaign_command", {"operation": "hypothesis.create", "request_key": "k2", "guidance_revision": 99,
-                      "payload": {"title": "T2", "mechanism": "m", "rationale": "r"}}, call_id="stale")
-    assert stale["executed"] is False and "guidance changed" in stale["error"]
+    # A guidance revision the lead states itself is ignored (it is accepted for saved sessions, harness plan D7): the run's is used.
+    stated = tool_call(workspace, team, run, "campaign_command", {"operation": "hypothesis.create", "request_key": "k2", "guidance_revision": 99,
+                       "payload": {"title": "T2", "mechanism": "m", "rationale": "r"}}, call_id="stated")
+    assert "error" not in stated and workspace.store.get(stated["id"], "work_command")["request"]["expected_guidance_revision"] == saved["request"]["expected_guidance_revision"]
     assert saved["request"]["expected_thread_revision"] == workspace.store.get(MAIN, "thread")["guidance_revision"]
     assert saved["origin"] == {"schema_version": 1, "thread_id": MAIN, "message_id": "message_" + run["id"].removeprefix("pi_run_"), "actor": "lead",
                                "agent_id": team["id"], "run_id": run["id"], "rationale": None}
@@ -259,3 +259,18 @@ def test_a_desk_request_is_answered_on_the_desk_and_read_there(client, workspace
     assert [m["content"] for m in client.get(f"/api/v1/threads/{side['id']}/messages").json()["messages"]] == ["Run a review round.", "Round complete."]
     assert not [m for m in client.get(f"/api/v1/threads/{MAIN}/messages").json()["messages"] if m.get("desk")]
     assert client.get(f"/api/v1/campaigns/{campaign['id']}/desks/nobody").status_code == 404
+
+
+def test_a_page_agent_asked_from_the_chat_answers_in_the_chat(client, workspace, campaign, team):
+    """/plan asks the resource planner from the chat: its answer showed only on the Resources page, and the chat that asked
+    looked unanswered. The lead's branch of the thread stays where the lead's own turn left it."""
+    first = say(client, campaign, "Hello.")
+    finish_run(workspace, first, "Hello.", entry_ids={"parent": "e0", "last": "e2"}, disposition="complete")
+    asked = say(client, campaign, "Plan how this campaign uses the machine within the resource level, and report the plan.", page_agent="resource_planner")
+    finish_run(workspace, asked, "Two runs at once; no per-kind caps yet.", entry_ids={"parent": "p0", "last": "p1"}, disposition="complete")
+    chat = [(m["role"], m["content"]) for m in client.get(f"/api/v1/threads/{MAIN}/messages").json()["messages"]]
+    assert chat[-2:] == [("user", "Plan how this campaign uses the machine within the resource level, and report the plan."),
+                         ("assistant", "Two runs at once; no per-kind caps yet.")]
+    # The desk keeps the requests made on the page.
+    assert client.get(f"/api/v1/campaigns/{campaign['id']}/desks/resource_planner").json()["messages"] == []
+    assert workspace.store.get(MAIN, "thread")["agent_leaf"] == "e2", "the planner's session is not the lead's"

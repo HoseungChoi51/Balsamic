@@ -5,7 +5,7 @@ import pytest
 from optimization_framework.problem_charter.service import KIND as CHARTER_KIND, REVISION
 from optimization_framework.storage.sqlite import now
 
-from support import QUADRATIC, activate_team, command, submitted, tool_call
+from support import QUADRATIC, activate_team, command, state_of, submitted, tool_call
 from balsamic.evolution.stages import definition, next_step
 from balsamic.notes import service as notes, skips
 
@@ -82,10 +82,10 @@ def test_the_lead_proposes_skips_the_researcher_agrees_and_the_gate_opens_withou
     assert len(workspace.store.list(skips.KIND, "demo")) == 1
     card = [m for m in client.get(f"/api/v1/threads/{MAIN}/messages").json()["messages"] if m.get("kind") == "note_skip"]
     assert len(card) == 1 and card[0]["skip_id"] == proposed["skip_id"] and "Knobs, Observables, Noise, Constraints" in card[0]["content"]
-    # Nothing is skipped yet; the step says a proposal waits, and the lead's briefing says so too.
+    # Nothing is skipped yet; the step says a proposal waits, and the lead's state block says so too.
     step = next_step(workspace, campaign())
     assert step["kind"] == "sections" and step["proposed_skips"] == ["Knobs", "Observables", "Noise", "Constraints"] and "agree or decline" in step["text"]
-    assert "Your skip proposal waits for the researcher" in workspace.lead_instructions(team)
+    assert "Your skip proposal waits for the researcher" in state_of(workspace, team)
     with pytest.raises(ValueError, match="Only the researcher"):
         skips.decide(workspace, "demo", skips.DecideInput(skip_id=proposed["skip_id"], agree=["knobs"]), actor="lead")
     decided = command(client, "problem_note.skip", "demo", {"skip_id": proposed["skip_id"], "agree": ["knobs", "observables", "noise"], "decline": ["constraints"]}, campaign()["version"])["outcome"]
@@ -106,7 +106,7 @@ def test_the_lead_proposes_skips_the_researcher_agrees_and_the_gate_opens_withou
         skip("open_questions", "charter", ["questions"], reason="The charter's one question is answered.", confirm="Nothing about the problem is still open.")]}, call_id="s5")
     command(client, "problem_note.skip", "demo", {"skip_id": second["skip_id"], "agree": ["constraints", "confounders", "open_questions"]}, campaign()["version"])
     assert definition(workspace, campaign()) == {"ready": True, "step": None, "missing": []}
-    assert "Gate now: open" in workspace.lead_instructions(team)
+    assert "Gate: open" in state_of(workspace, team)
 
 
 def test_a_skip_on_the_charter_lapses_when_the_charter_stops_stating_it_and_the_researcher_can_take_one_back(client, workspace, team, adopted):

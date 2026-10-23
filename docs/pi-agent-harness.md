@@ -171,7 +171,13 @@ Who hears what:
   lead's "still running" check counts only what page agents did not start.
 - Page agents do not count toward the limit on assistants at work (`max_subagents`).
 
-The lead keeps all its tools; its instructions ask it to hand page work to the page agents.
+The lead's commands leave out the pages' own operations (`LEAD_PAGE_WORK` in `agents/tools.py`, harness plan D1): drafts,
+runs, continuations, extension requests, experiment rules, hiding runs, runtime profiles and fixed-design checks are the
+experiment operator's; implementations and evaluators (commissions, attachments, equivalence checks) the implementation
+lead's. They are not in the lead's `campaign_command` enum, and a call that names one is refused with the agent to ask
+(`page_agent_message`). The lead keeps `trial.control` (pausing and stopping, never enlarging), `comparison.report`, the
+proposals, findings, validations, studies and its workspace operations, and reads `experiment_progress` itself: a status
+question is a read, not work for the operator. The researcher's own commands are not affected.
 
 A page agent can ask the lead (`lead_ask`): the question starts a lead turn whatever the researcher's request,
 the lead's reply goes back to the agent that asked, and that turn neither opens nor closes the researcher's
@@ -180,7 +186,7 @@ request. The chat shows both, marked as an exchange between agents.
 The experiment operator keeps the campaign's experiment rules (`campaigns/experiment_rules.py`): naming, the
 threshold between short and long runs, how many of the campaign's runs may go at once (the scheduler enforces
 it), how runs are chosen and ordered, and how runs are presented on the Experiments page. It is given them in
-every turn's instructions, and has `experiment_progress` and `config_suggest` (`agents/experiments.py`).
+every turn's state block (below), and has `experiment_progress` and `config_suggest` (`agents/experiments.py`).
 
 ## Reports
 
@@ -207,6 +213,31 @@ job's card on the Reports page, under the stage it belongs to, through the same 
 
 [Lead agent readiness](lead-agent-readiness.md) keeps apart what of this is implemented and what is only proposed.
 
+### Instructions and the state block
+
+An agent's instructions and tools (the manifest, `POST /api/internal/pi/manifest`) are fetched once, when the harness
+makes the agent's runtime, and serve every later turn of that runtime. They are the same for a role whatever the
+campaign's state (`tests/test_turn_state.py`, `tests/test_harness_contract.py`): a change to the system prompt or the
+tool set would alter the start of every request and cost the provider's prompt cache for the whole session (Pi folds
+system-prompt changes into the leading system message for these providers).
+
+What changes comes in the state block instead. Right before each prompt the harness asks the workspace for it
+(`POST /api/internal/pi/turn_state`) and sends `[Assignment <run>]`, the block, a blank line, and the run's text; the
+run's identity stays its text alone, so a run submitted again is the same run. The workspace builds the block from its
+records at that moment (`agents/turn_state.py`, and `balsamic/lead/state.py` for the lead's part), in a fixed order,
+at most 3,000 characters, with no wall-clock time, and saves it on the run (`agent_run.turn_state`):
+
+| Who | Items |
+|---|---|
+| Every standing agent | Whether the turn is a request or a platform notice; its thread; the researcher's open questions it answers for (up to five) |
+| Lead | The problem-definition gate (open, or the next step, its page and the unwritten sections); autopilot (on with its cap and what is left, chosen at setup and waiting, or off); up to three library strategies that match; up to ten records pinned in this thread and the ones set aside; the page agents with an open request |
+| Experiment operator | Who asked; the experiment rules (naming, short/long threshold, runs at once, how runs are chosen, how they are presented) |
+| Resource planner | Who asked; the researcher's resource level and the launcher's maximum |
+| Other assistants, import agents, implementation roles | Nothing |
+
+A workspace without the route answers 404 and the harness sends the prompt as before; any other error fails the run, as
+a manifest error does. Steering messages go to the turn in progress unchanged.
+
 `campaign_inspect` returns, besides the campaign, its tasks and hypotheses:
 
 - `methods`: every installed optimizer that can run on a current task, with the parameters its
@@ -228,6 +259,56 @@ only the named experiments, and a run continued with `trial.continue` is one row
 The lead agent files `journal.compaction_request` when the researcher asks for the clean-up, after
 results are analysed and recorded; the researcher approves it in the decision inbox, and only then are evaluated designs removed from
 the finished experiments' journals.
+
+### The contract and the procedures
+
+The system prompt is a short contract: what every agent but an implementation grant's is told (`INSTRUCTIONS` in
+`agents/tools.py`, at most 350 words: the researcher decides, requests and notices, the narrow reading with three short
+examples, the `yield_work` protocol, replies and links, evidence ids, the researcher's limits), the role and assignment
+lines, the lead's contract (`LEAD_CONTRACT`: the page agents and delegation), the workspace briefing
+(`balsamic/lead/instructions.py`: links, threads, the state block, the gate in two lines, proposals, names) and the role's
+procedure catalog. The lead's comes to under 900 words (2,889 at `a7e89b8`); a test pins both limits and a ratchet
+(`tests/test_harness_contract.py`). An implementation grant's roles keep the instructions they had before (`GRANT_INSTRUCTIONS`).
+
+Workflow procedures are files in the Agent Skills format, `src/balsamic/procedures/<name>/SKILL.md` (frontmatter `name`,
+`description`, `metadata.roles`; bundled files under `references/`), usable from the Pi CLI or Claude Code too. The service
+layer scans them at start-up (`workspace.procedures`); each role's catalog (name and description, sorted) is in its static
+instructions, and `procedure_read(name, file?)` returns a body (at most 24 kB) and its bundled files, refused for a procedure
+outside the agent's roles; its receipt records which run read which. When a workflow starts without its procedure having been
+read in the run (`report_write`, `problem_note_draft`, `hypothesis.create` and `hypothesis.edit`, `journal.compaction_request`,
+`finding.record`, `runtime.profile`, `implementation_workspace_create`, `panel_render`), the result carries
+`"procedure": "<name>"`, once per run (`workspace.procedure_hint`).
+
+| Procedure | For |
+|---|---|
+| `report-brief` | Starting the report writer and waiting for it |
+| `problem-formulation` | The problem note and the problem-definition gate |
+| `proposal-fields` | What each field of a proposal says; correcting one |
+| `journal-cleanup` | Asking for journal compaction after findings are recorded |
+| `recording-findings` | Earlier campaigns' findings; `finding.record` and publishing |
+| `runtime-profiling` | Profiles, flags, waivers, worker ceilings; optimizing a slow evaluator |
+| `implementation-supervision` | Coding workspaces up to an independent validation |
+| `panels` | `panel_render` |
+| `analysis-scripts` | Repository and experiment files; `analysis_run` |
+| `rcwa-convergence-check` | A score at the searched RCWA orders checked at higher orders (draft from Part F) |
+| `meent-problem-setup` | The installed MEENT grating problems (draft from `paper-mapping.md` and `problem-setup.md`) |
+
+### Specialists
+
+The assistants the lead or the moderator asks for one assignment (the literature specialist, methodology specialist,
+cross-domain explorer, skeptical domain analyst, empirical assessor, results analyst and proposal reviewer) differ by brief,
+tools, output schema and their own context, not by name only. Each has a file in Pi's agent-definition format,
+`src/optimization_framework/agents/roles/<role>.md` (frontmatter `name`, `description`, `tools`, `model` as a tier hint; the
+brief as the body, at most 200 words), and a `<role>.schema.json` (`agents/roles.py`, `ROLE_BRIEFS`, `ROLE_OUTPUT_SCHEMAS`).
+
+- A specialist is told `SPECIALIST_CONTRACT` instead of the shared instructions: it reports to the agent that asked it,
+  starts no work of its own, cites record ids, has 40 tool calls for an assignment (enforced: past them only
+  `submit_output`, `proposal_review` and `yield_work` run), and records its result before it completes.
+- Its tools are those its file names; `delegate` gives it its role's schema, `submit_output` validates against it, and
+  `yield_work(complete)` is refused until it has submitted. The proposal reviewer's structured output stays its
+  `proposal_review`.
+- The asking agent's notice says where the result is (`/output` on the run); the Review rounds view shows it.
+- Specialists saved before the schemas keep working without one.
 
 ### Files and the agents' own analysis
 
@@ -258,6 +339,63 @@ of them and its reason; it appears in the decision inbox, and approval applies i
 researcher's own command (`campaign.update`, `validation.waive` or `workers.set`). Declining
 changes nothing. A changed worker ceiling holds until the services restart, when the launcher
 configuration's `workers` applies again. The per-experiment limit may be set up to 86,400 s.
+
+## Extensions
+
+Pi extensions run inside the harness process with its permissions, and can see prompts, tool calls, credentials and
+session history. In Balsamic they may change how an agent thinks; anything that acts goes through the gateway or reports
+to it (harness plan, §2.5).
+
+**Binding.** After `createAgentSession` the harness calls `session.bindExtensions` (mode `rpc`), as Pi's own RPC and
+interactive modes do: `session_start` fires (extensions start connections and rebuild their state there), the UI context
+below is attached, and extension errors are written to the agent's journal as `extension.error` (extension, event, error).
+Ending a runtime (`forget`, shutdown) emits `session_shutdown` before the session is disposed (`runtime.ts` `shutdown`).
+
+**The curated set.** The manifest names each role's extensions (`extensions: [{name, path, tools}]`) from the versioned
+allowlist `agent-harness/extensions/allowlist.json` (`GRATING_PI_EXTENSIONS` names another, as the evals do;
+`agents/extensions.py`). Being part of the manifest, the set is fixed for a runtime's life. Locked mode discovers nothing:
+an empty agent directory of the session's own, no `~/.pi`, no working-directory resources, no skills, prompts or context
+files; only the allowlisted paths load. Dev mode keeps loading the profile's extensions for experiments. In both modes the
+Balsamic extension loads first, and an implementation grant's roles (builder, test designer, validator) load nothing
+(`extension_host: false`). The allowlist is empty for now (D8): every session loads the Balsamic extension only.
+
+**The Balsamic extension** (`agent-harness/src/gateway-extension.ts`, one per session):
+
+| Hook | What it does |
+|---|---|
+| `tool_call` | The gateway's tools pass; another tool runs only if the role's allowlist names it, else it is blocked with a reason naming the role |
+| `tool_result` | Every other tool's result is receipted (`POST /api/internal/pi/external_receipt`): an immutable `agent_tool_receipt` with `external: true`, the same identity as a gateway call's (agent, run, call id), bounded arguments, the first 24 kB of the result, its size and the tool's annotations, readable with `evidence_read` in the campaign. A result over 256 kB is cut for the model. A result the workspace cannot receipt is withheld |
+| `agent_before_settle` | A run about to end without a saved `yield_work` gets one continuation in the same turn, with a reminder; the controller's `pi_continue_*` notice stays the fallback when that ends without one too |
+| `turn_end` | The session's context usage (tokens, window) goes to the journal as `context.usage` |
+
+A web page an agent wants to cite is still captured with `source_ingest`, so findings cite `source` records; an extension's
+result is evidence only through its receipt.
+
+**Dialogs.** `select`, `confirm`, `input` and `editor` become a question to the researcher (`POST
+/api/internal/pi/ui_request`, an `agent_question` with `kind: "extension_dialog"`), shown above the chat for the lead and on
+the agent's desk for a page agent (`frontend/src/chat/ExtensionDialog.tsx`). The answer (`agent.ui_respond {question_id,
+value | cancelled}`) goes back to the waiting extension, which polls `/api/internal/pi/ui_request/{id}`; it opens no
+request, queues no turn and changes no guidance. Dismissing the question cancels the dialog. Deadlines (D9): the
+extension's own timeout, otherwise 15 minutes; in an autopilot round a dialog is cancelled at once. A cancelled or
+expired dialog resolves as in RPC mode (undefined, or false for `confirm`). `notify` and `setStatus` become the agent's
+activity line and journal events; widgets, titles, themes and terminal components do nothing. Extension dialogs hold no
+request open (`yield_work`'s outstanding check) and are not listed in the state block.
+
+**Codemode, tool search and MCP** are not loaded. When they are (harness plan, Phase 8), they go into
+`extensionFactories` (`createCodemodeExtension()`, `createToolSearchExtension()`, `createMcpExtension()`), and the binding
+above is what lets MCP connect.
+
+**Trying a third-party extension** (the way onto the allowlist):
+
+1. Try it in the dev profile with `scripts/pi-dev`, then in a scratch campaign on `scripts/dev-stack up --real`.
+2. Read its code and list what it touches: files, network, processes, the prompt, messages.
+3. If it acts, its tools must be allowlisted per role and receipted by the Balsamic extension. If it spawns processes or
+   agents, do not promote it.
+4. Add or extend an eval scenario, run the suite and compare with the baseline, `cacheRead` included: `context`
+   transforms and prompt changes can cost the cache on every request.
+5. Pin its exact version in `agent-harness/package.json` (installed with `npm ci --ignore-scripts`), add a folder under
+   `agent-harness/extensions/session/` whose `index.ts` loads it, and list it in the allowlist for the roles that need it.
+   A changed list applies to sessions made afterwards and resets running sessions' prompt cache once.
 
 ## Numerical diagnostics
 

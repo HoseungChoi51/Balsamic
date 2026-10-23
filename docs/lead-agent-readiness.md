@@ -37,6 +37,14 @@ to replace that outside session.
 | Page agents: discussion moderator, experiment operator, implementation lead | Implemented, live, each checked once on a scratch campaign; see Part I |
 | Experiments: short and long runs apart, runs edited or run again, obsolete runs hidden, the operator's rules and presentation | Implemented, live, checked with the operator on a scratch campaign; see Part J |
 | The review rounds drawn as a graph | Implemented, tested; see Part K |
+| Lead-agent evals that can be run again (scripted and live), a prompt-size ratchet | Implemented; live baseline on `a7e89b8` recorded (24 of 36 runs pass); see Parts L and S |
+| Live evals of Phases 1–7 | 36 of 36 runs pass at `f851e9c`; three faults and a grader fixed on the way; see Part S |
+| The campaign's state in every turn (state block); instructions fixed per role; pins reach the model | Implemented, tested; checked live by the evals; see Parts M and S |
+| The guidance revision pinned on the server, never taken from the model | Implemented, tested; checked live by the evals; see Parts N and S |
+| Pi extensions bound and curated per role; extension tools receipted; dialogs answered by the researcher; a turn without yield_work continued in the turn | Implemented, tested; checked live by the evals; see Parts O and S |
+| The pages' operations routed in code: refused from the lead with the agent to ask; the lead reads experiment progress itself | Implemented, tested; checked live by the evals; see Parts P and S |
+| Workflow procedures read on demand; the lead's instructions cut from 2,889 to 886 words | Implemented, tested; two domain procedures await review; checked live by the evals; see Parts Q and S |
+| Specialists with briefs, tool scopes and output schemas; results submitted before completion | Implemented, tested; checked live by the evals; see Parts R and S |
 
 "Live" means the running services on X670 use the code (last restarted on 14 October 2026).
 "Not live" means the code is in the working tree and tested, and the services still run the old
@@ -707,6 +715,374 @@ the records the Review rounds list already reads.
 
 The layout is computed again only when nodes appear or go, so a live update does not move the picture.
 Nothing is written and no model is called: the graph reads what the list reads.
+
+## Part L — Evals that can be run again (22 October 2026; harness plan, Phase 1)
+
+### What was wrong
+
+Parts E and G–K were checked by hand: a rehearsal, a service check, a scratch campaign. None of it could be
+repeated, so a change to the instructions or the tools could not be compared with what came before
+(`docs/harness-update-plan.md`, F8).
+
+### What changed
+
+| Change | Where |
+|---|---|
+| A runner that starts a workspace and a harness of its own (the real one, or the scripted one with `--fake`), plays a scenario's requests through the bus, grades from the store, and writes `results.json`, `summary.md` and a transcript per run; repeats with pass^k, a per-campaign model budget and a suite cap, baselines and comparison | `scripts/run_lead_evals.py` |
+| Eight scenarios from the audits and the plan's findings (S1–S8), with seeds that build their state and scripted turns for `--fake` | `evals/lead/scenarios/`, `seeds.py`, `fakes.py` |
+| How to run them, what each step and check means, how to record a baseline of an older commit, and how a new failure becomes a scenario | `evals/lead/README.md` |
+| A prompt-size ratchet: the lead's instructions (2,889 words) and a specialist's (1,993) may not grow more than 10% | `tests/test_harness_contract.py` |
+| The scripted suite runs with the tests | `tests/test_lead_evals.py` |
+
+### Checked
+
+- `--fake`: every scenario runs and is graded; S1–S3 and S5–S8 pass. S4 fails as expected: its scripted lead states the
+  guidance revision it read in its first turn, as the models did in Parts E and G, and the handler refuses it (F3). It is
+  marked as a known failure until the fix (Part N, which removed the mark).
+- Python tests: 879 pass; the 16 that fail and the 3 files that do not load need `torch` or `gymnasium`, which this
+  environment does not have, and fail the same way without these changes. Harness tests: 21 pass.
+
+### Seen while writing the scenarios
+
+- A status question cannot be closed while a run the researcher started is still going: `outstanding()` counts every
+  run no page agent started as the lead's, so `yield_work(complete)` is refused and the lead must wait for the runs to end.
+  S8 lets its runs finish before it asks. Not changed.
+
+### Not done
+
+- No real-model baseline yet: real runs cost money and were not approved in this session. The command to record it on
+  `a7e89b8` is in `evals/lead/README.md`; until then the later Parts are checked with `--fake` and the tests only.
+- No LLM rubric; every check reads records or the reply's text.
+
+## Part M — The state of the campaign in every turn, the instructions fixed (22 October 2026; harness plan, Phase 2)
+
+### What was wrong
+
+- The harness fetched an agent's instructions only when it made the agent's runtime, and kept them for every later
+  turn. The parts that described the campaign were therefore a snapshot of the first turn after a harness restart: the
+  lead's "Gate now" line, its library matches and autopilot paragraphs, the experiment operator's rules (which the docs
+  said it got every turn) and the resource planner's level (F1).
+- `thread_pin` saved a record id on the thread, and the context drawer showed pins as "what the lead sees", but nothing
+  put them into a turn (F2).
+- The scripted harness fetched the manifest on every run, so no test could have caught this (F7).
+
+Making the instructions follow the campaign would not have helped: for the providers in use, Pi folds a change of the
+system prompt into the leading system message, so every change costs the prompt cache of the whole session.
+
+### What changed
+
+| Change | Where |
+|---|---|
+| Each turn starts with a state block built from the records at that moment and put before the message: the kind of turn, the thread, the researcher's open questions; for the lead the gate, autopilot, up to three library matches, up to ten pins of the thread and what it sets aside, the page agents at work; for the operator its rules; for the planner the level. Fixed order, at most 3,000 characters, no wall-clock time; saved on the run | `agents/turn_state.py`, `balsamic/lead/state.py` (`workspace.lead_state`), `PiTools.turn_state` |
+| `POST /api/internal/pi/turn_state`; the harness calls it right before `prompt()`. The run's identity stays its text; a 404 (an older workspace) leaves the prompt as it was, any other error fails the run | `balsamic/api/internal_pi.py`, `agent-harness/src/supervisor.ts`, `server.ts` |
+| The instructions no longer describe the campaign: the lead's briefing says where to read the state, the problem-note paragraph is always there, the operator's and the planner's instructions keep only their standing rules | `balsamic/lead/instructions.py`, `agents/tools.py` (`manifest`, `planner_instructions`) |
+| The scripted harness fetches the manifest once per runtime (`restart()` forgets them) and puts the state block in the user entry | `tests/fake_harness.py` |
+| The context drawer shows the state block the thread's last turn was given; the live layer says pins go into the next turn's block | `balsamic/threads/context.py`, `frontend/src/chat/ContextDrawer.tsx` |
+| S7 checks the block its last turn was given (`last_state_contains`) | `evals/lead/scenarios/S7-gate-opens-mid-session.json` |
+
+### Checked
+
+- `tests/test_turn_state.py`: the lead's, operator's and planner's instructions and tools are byte-identical before and
+  after the gate opens, autopilot is switched on, a library entry is added, the experiment rules change and the resource
+  level changes; each change shows in the next state block; a pin reaches the next turn of its thread only; the block is
+  saved on the run and capped; the route needs the token. `tests/test_harness_contract.py`: every role's manifest is the
+  same in two campaigns in different states. The end-to-end test over the scripted harness: the gate changes between two
+  turns of one runtime and the second turn's prompt says so; the manifest is fetched once, and again after `restart()`.
+- Harness: `turn_state` is called on every run and the manifest once per runtime; the prompt carries the block; a 404 is
+  tolerated; the same run submitted again while the state differs is the same run.
+- The lead's instructions are 3,105 words (the problem-note paragraph is no longer conditional), inside the ratchet.
+- `--fake`: S7 passes, with the gate closed in its first turn's block and open in its second.
+
+### Not done
+
+- Live S7 and the `cacheRead` comparison over a five-turn conversation: they need real model calls, not approved in this
+  session.
+- Steering messages carry no state block; they reach a turn whose block is minutes old at most.
+- The state block accumulates in the transcript, one per turn; the cap and the ten-pin limit bound it.
+
+## Part N — The guidance revision pinned on the server (22 October 2026; harness plan, Phase 3)
+
+### What was wrong
+
+After each answer from the researcher, the lead's first command was refused once for an outdated guidance revision
+(Parts E and G). Three places disagreed: the shared instructions told the model to send "the exact current guidance
+revision", the tool description said the revision was pinned, and the handler preferred the model's value. A model that
+stated the revision it had read in an earlier turn was refused (F3).
+
+### What changed
+
+| Change | Where |
+|---|---|
+| A command is prepared against the larger of the revision its turn started from and the newest one a `campaign_inspect` of the same turn returned; a revision the model states is ignored | `agents/tools.py` `PiTools.guidance_pin`, `campaign_command` |
+| `guidance_revision` stays in the schema, described as ignored; it goes in the next release (D7, a TODO beside it) | `agents/tools.py` `TOOLS["campaign_command"]` |
+| The shared instructions no longer ask for the revision | `agents/tools.py` `INSTRUCTIONS` |
+| A refusal because the researcher acted during the turn says so and what to do: read `campaign_inspect`, check the change, retry only if it still applies. The bus's message is unchanged | `agents/tools.py` `GUIDANCE_RECOVERY` |
+| S4 is no longer a known failure | `evals/lead/scenarios/S4-guidance-after-page-command.json` |
+
+### Checked
+
+- A model-stated revision of 99 is ignored and the run's is used
+  (`tests/balsamic/test_threads.py::test_lead_commands_pin_guidance_from_their_run_and_ignore_a_stated_revision`).
+- A command after the researcher answered, without reading the campaign again, is still refused
+  (`test_specialists_cannot_grant_authority_and_answers_invalidate_stale_commands`); after `campaign_inspect` in the same
+  turn it is accepted; in a notice turn, a command stating the revision read in an earlier turn is accepted (the Part E
+  pattern) (`tests/test_pi_agents.py`).
+- `--fake`: S4 passes. Its scripted lead still states the revision of its first turn, as the models did, and is no longer refused.
+- One test resolved several approvals (each changes the guidance) inside a single turn and stated the new revision itself;
+  it now reads `campaign_inspect` before each command, which is what an agent does after a change within its turn
+  (`test_what_only_the_researcher_grants_is_asked_for_and_applied_on_approval`).
+
+### Not done
+
+- Live S4 with k=3: needs real model calls.
+- Removing `guidance_revision` from the schema: next release.
+
+## Part O — Pi extensions inside Balsamic (22 October 2026; harness plan, Phase 4)
+
+### What was wrong
+
+- Pi extensions could not be used safely (F9): locked mode loaded none; dev mode gave every role, implementation grants
+  included, the profile's extensions; the harness never called `bindExtensions`, so `session_start` never fired (nothing an
+  extension starts there, such as an MCP connection, ever started), `ctx.ui` had nothing behind it and extension errors
+  went unreported; and an extension's tool would have run without a receipt, an authority check or a size limit.
+- A turn that ended without `yield_work` cost a whole extra controller turn (`pi_continue_*`) (F10).
+
+### What changed
+
+| Change | Where |
+|---|---|
+| The harness binds extensions after creating a session (mode `rpc`); extension errors go to the journal as `extension.error`; ending a runtime emits `session_shutdown` | `agent-harness/src/runtime.ts`, `supervisor.ts` |
+| A UI bridge like RPC mode's: dialogs become questions to the researcher, answered with `agent.ui_respond` without a turn; 15-minute default, the extension's timeout if it gives one, cancelled at once under autopilot; notices become the activity line | `agent-harness/src/ui-bridge.ts`; `PiTools.ui_request`, `ui_state`; `controller.ui_respond`; `frontend/src/chat/ExtensionDialog.tsx` (chat, inbox, desks) |
+| A curated set per role in both modes, from a versioned allowlist in the manifest; locked mode discovers nothing; grant roles load nothing; empty for now (D8) | `agent-harness/extensions/allowlist.json`, `agents/extensions.py`, `PiTools.manifest` |
+| The Balsamic extension, loaded first: blocks tools off the allowlist, receipts the others (`external_receipt`, same identity scheme as gateway calls, immutable, readable in the campaign), cuts results over 256 kB, continues a run once in the same turn when it would end without `yield_work`, journals context usage | `agent-harness/src/gateway-extension.ts`; `PiTools.external_receipt` |
+| The scripted harness plays the extension's rules: allowlisted calls receipted, others blocked, dialogs through the workspace, the one continuation | `tests/fake_harness.py` |
+| S9 (an allowlisted extension tool receipted, another blocked) and S10 (an answer in prose, without `yield_work`) | `evals/lead/scenarios/`, `evals/lead/extensions/` |
+
+### Checked
+
+- Harness (`agent-harness/test/extensions.test.mjs`, real Pi sessions with test extensions): `session_start` runs once per
+  runtime, the Balsamic extension's first; nothing in `~/.pi` or the working directory loads in locked mode; a grant's
+  runtime loads nothing; `session_shutdown` runs on release; an extension error is reported. The extension blocks a tool off
+  the list with a reason, receipts an allowlisted one with the active run, cuts a large result, withholds a result it
+  cannot receipt, continues at most once and never after a saved `yield_work`. The UI bridge: an answer resolves a dialog,
+  a timeout gives the default, a cancellation resolves as RPC mode does. 30 harness tests pass.
+- Python (`tests/test_extensions.py`): the manifest names the role's extensions and a grant has none; an allowlist path
+  outside its folder is refused; receipts are idempotent, immutable, refused for a tool off the list, for a gateway tool,
+  for another agent's run and for a finished run, and readable only in their campaign; a dialog is answered without a
+  run or a request and without a guidance change, dismissed or expired, refused when answered by message, cancelled at
+  once in an autopilot round; the controller's `pi_continue_*` fallback still counts stalls and asks the researcher after
+  three. The manifest's extension set is the same for a role across campaigns (`tests/test_harness_contract.py`). End to
+  end over the scripted harness: a receipted call, a blocked call and a dialog answered from the chat in one turn, which
+  the in-turn continuation closes without a notice turn.
+- `--fake`: S9 and S10 pass.
+
+### Not done
+
+- No live run: the suite against the baseline, `pi_continue_*` counts dropping to about zero, and the cost of the extra
+  continuation need real model calls. Until then F10 is fixed only as far as the scripted harness shows.
+- No third-party extension is promoted; the allowlist is empty (D8). Codemode, tool search and MCP are Phase 8's.
+- The dialog UI was first only type-checked; browser tests for it came with Part R's commit
+  (`frontend/tests/extension-dialog.spec.ts`: a choice, a cancellation, yes or no, a text, each sent as `agent.ui_respond`).
+
+## Part P — Who does what, enforced by the tools (22 October 2026; harness plan, Phase 5)
+
+### What was wrong
+
+The lead held all the pages' operations while its instructions told it to hand that work to the page agents, so the split
+rested on the model reading the prose. And it had no `experiment_progress`: asked how the experiments were going, it was
+told to ask the operator, so one read cost three model turns (the lead, the operator, the lead again) (F5).
+
+### What changed
+
+| Change | Where |
+|---|---|
+| The pages' operations (D1) leave the lead's `campaign_command` and `command_schema` enums: drafts, runs, continuations, extension requests, experiment rules, hiding runs, runtime profiles, fixed-design checks (the experiment operator's); implementations and evaluators (the implementation lead's) | `agents/tools.py` `LEAD_PAGE_WORK`, `schema` |
+| A call that names one is refused with the agent to ask and how (`page_agent_message`), before validation and again at execution | `PiTools.page_work`, `_call`, `_execute` |
+| The lead reads `experiment_progress`; its instructions say it reads status itself and asks the operator only for a decision about runs; extension requests are the operator's | `PiTools.names`, `INSTRUCTIONS` |
+| `campaign_inspect.capabilities` tells the lead which agent does experiments, fixed-design checks and implementations | `PiTools.capabilities` |
+| S11: "Run two short experiments" goes through the operator; S8's scripted lead reads progress itself | `evals/lead/scenarios/S11-experiments-through-the-operator.json`, `fakes.py` |
+
+Kept by the lead, as the D1 table has it: `trial.control` (pause, stop, resume; never enlarge), `comparison.report`, the
+proposals, findings, validations, studies, `journal.compaction_request`, `approval.request` and the workspace's operations
+(`hypothesis.allocate`, `intervention.batch`, `research.generate`, ...), on which autopilot and generation depend; neither
+`ROUND_PROMPT` nor the generation prompt asks for a moved operation. The lead also keeps its `implementation_workspace_*`
+tools (the table left that open). `hypothesis.allocate` starts experiments in the service layer, not through the lead's enum.
+
+### Checked
+
+- `tests/test_page_agents.py`: the lead's enum holds none of the moved operations and the same set as `command_schema`; a
+  direct call is refused naming the experiment operator or the implementation lead and `page_agent_message`; the lead has
+  `experiment_progress`. `tests/test_experiment_rules.py`: the lead reads progress, and `config_suggest` stays the operator's.
+- Tests that had the lead start runs now have the researcher or the operator start them; the extension-request test files
+  the request as the operator and checks that the researcher's answer wakes the operator, and that the lead still cannot
+  enlarge a run. Autopilot and evolution tests pass unchanged.
+- The lead's instructions are 3,138 words, inside the ratchet.
+- `--fake`: S8 (two lead turns, where the scripted operator path took three) and S11 pass.
+
+### Not done
+
+- Live S3, S8 and S11 against the baseline (fewer lead turns on S8 expected): real model calls needed.
+- Whether the lead should keep `fixed_mask.run` for diagnostics, and its `implementation_workspace_*` tools, is still open
+  (D1's notes); both follow the table's default for now (the first moved, the second kept).
+
+## Part Q — Procedures read when needed, a short contract (22 October 2026; harness plan, Phase 6)
+
+### What was wrong
+
+The procedures of particular workflows (writing a report, cleaning journals, supervising a coding workspace, runtime
+profiles and waivers, proposal fields, panels, writing the problem note) were in the system prompt of every turn of every
+agent: the lead's instructions were 2,889 words at `a7e89b8`, a specialist's 1,993, most of it the lead's workflows (F6).
+
+### What changed
+
+| Change | Where |
+|---|---|
+| Eleven procedures in the Agent Skills format, from the instructions they replace, plus two domain procedures | `src/balsamic/procedures/*/SKILL.md` |
+| A loader that gives each role its catalog in its static instructions; `procedure_read` (role-scoped, 24 kB, receipted); a hint in the result of a workflow-starting call without its procedure, once per run | `balsamic/procedures/__init__.py` (`workspace.procedures`, `workspace.procedure_hint`); `PiTools.manifest`, `_call` |
+| The shared core rewritten: 349 words, with three short examples instead of rule lists (a question gets an answer; a notice with nothing new gets no message; the narrow reading in one line) | `agents/tools.py` `INSTRUCTIONS` |
+| The lead's own contract (the page agents and delegation, 119 words) and a briefing cut to links, threads, the state block, the gate in two lines, proposals and names | `LEAD_CONTRACT`; `balsamic/lead/instructions.py` |
+| An implementation grant's roles keep the instructions they had (§2.8) | `GRANT_INSTRUCTIONS` |
+| The ratchet reset to the new sizes; limits of 900 words for the lead and 350 for the core | `tests/test_harness_contract.py` |
+
+Sizes: the lead 886 words (−69% from `a7e89b8`), a specialist 389 (−80%).
+
+The two domain procedures were drafted from the repository's documents only and are marked as drafts in their
+frontmatter: `rcwa-convergence-check` from Part F and `docs/paper-mapping.md`, `meent-problem-setup` from
+`docs/paper-mapping.md` and `docs/problem-setup.md`. **They need the researcher's review before they are relied on.**
+
+### Checked
+
+- `tests/test_procedures.py`: every procedure parses, names its folder, serves real roles, and every hint names one; the
+  lead's manifest carries its catalog and none of the moved texts; a grant's instructions are byte-identical to the branch
+  base (pinned by hash) and carry no catalog or `procedure_read`; a procedure is refused to a role it does not serve, an
+  unknown file is refused, a long body is cut, a bundled file is read, the read is receipted with its run; a hint comes once
+  per run, not after a failed call or after the procedure was read, and again in a new run.
+- The catalog is the same for a role across campaigns (`tests/test_harness_contract.py`, which compares whole manifests).
+- Tests that checked moved sentences check them in the procedure (`test_housekeeping.py`); the sentences other tests pin
+  stayed in the core ("at the researcher's request", "start one only when a request covers it", `campaign_inspect.pages`,
+  "link the page instead").
+
+### Not done
+
+- No live run: the plan judges this phase by the suite against the baseline (no regression, instruction tokens down by at
+  least half, cost and turns per scenario). The word counts above are the only measurement so far.
+- Option B of D3 (an extension-provided `read` so Pi lists the procedures as native skills) was not tried.
+- The domain procedures await review; running a procedure's scripts is out of scope.
+
+## Part R — Specialists with briefs, tools and output schemas (22 October 2026; harness plan, Phase 7)
+
+### What was wrong
+
+The discussion roles were names only: each got the lead's instructions, one `Role:` line, whatever objective the delegator
+wrote, and the same tools. Only the proposal reviewer's `proposal_review` was structured; `submit_output` existed for
+implementation grants alone, so no other role could be held to a result format (F4).
+
+### What changed
+
+| Change | Where |
+|---|---|
+| A brief (at most 200 words: purpose, a good result, what not to do), a tool list and a model tier hint for each of the seven roles, in Pi's agent-definition format; an output schema for each but the reviewer | `src/optimization_framework/agents/roles/*.md`, `*.schema.json`, `agents/roles.py` |
+| `SPECIALIST_CONTRACT` (217 words) instead of the shared instructions: report to whoever asked, start nothing, cite ids, 40 tool calls, record the result, then complete | `agents/roles.py`; `PiTools.manifest` |
+| A specialist's tools are its file's; `delegate` sets the role's schema; `submit_output` for any agent with a schema; `yield_work(complete)` refused before the result; the tool-call budget enforced | `PiTools.names`, `delegate`, `yield_work`, `over_budget` |
+| The asking agent's notice points at the result (`/output`); the Review rounds view shows it | `controller._receive`; `agents/discussions.py`; `frontend/src/hypotheses/HypothesesPage.tsx` |
+| S12: a flawed proposal sent to a review round | `evals/lead/scenarios/S12-flawed-proposal-review.json`, `seeds.py`, `fakes.py` |
+
+D2 stays at its default: the roles are kept, with briefs and schemas; merging them into one analyst is for after the live evals.
+
+### Checked
+
+- `tests/test_roles.py`: every discussion role has a brief within its length and a valid schema (the reviewer its
+  `proposal_review`); a specialist's manifest is the contract, its brief and its schema, not the shared instructions, and its
+  tools are its file's (no literature search for the skeptical analyst, no `campaign_command`); `complete` before a result is
+  refused, an invalid result is refused, a valid one is saved on the agent and the run; past its tool calls a specialist can
+  only record and end; the result shows in the discussion view and the notice says where it is; a specialist saved before
+  the schemas still loads and completes.
+- `--fake`: S12 passes: the scripted analyst submits two high-severity failure modes, the reviewer rejects.
+- A specialist's instructions are 405 words (1,993 at `a7e89b8`).
+
+### Not done
+
+- Live S12 and the share of valid structured outputs from real models: real calls needed.
+- Optional independence (a reviewer not reading other reviewers' verdicts on the same revision before its own): not done; the
+  hypothesis record carries the reviews, so it needs filtering there as well as in `evidence_read`.
+- The moderator's synthesis of the results rests on its instructions and the notice; nothing checks it.
+
+## Part S — The first live evals (23 October 2026; harness plan, Phases 1–7 checked live)
+
+### What was run
+
+The suite of Part L, 12 scenarios with three repeats each, on the dev profile's default model, `centinels/gpt-6.1-sol`
+(the team's LiteLLM router; it reports no cost). The baseline was taken on `a7e89b8` from a worktree and recorded in
+`evals/lead/baselines/a7e89b8.json`; the branch ran beside it, then again after the fixes below.
+
+| Commit | Runs passed | Scenarios failing | Results |
+|---|---|---|---|
+| `a7e89b8` (baseline, before the plan) | 24 of 36 | S4, S7 (0/3); S9, S12 (0/3, the features did not exist) | `runs/evals/baseline-a7e89b8/` |
+| `3f0333e` (Phases 1–7) | 30 of 36 | S4 (0/3), S7 (1/3), S8 (2/3) | `runs/evals/branch-3f0333e/` |
+| `f851e9c` (with the fixes) | 36 of 36 | none | `runs/evals/final-f851e9c/` |
+
+### What was wrong
+
+- **A message lost its thread revision to housekeeping.** After a lead's reply the housekeeper asks a model for the next
+  suggestions (and names branches, labels hypotheses, titles exchanges), then wrote the whole record back as it had read it
+  before the call. A researcher message sent in those seconds moved the thread's revision, the write put it back, and every
+  command of the turn answering the message was refused: "The researcher wrote in this conversation since this command was
+  prepared". This was S4's failure at `3f0333e` and S7's in two of three. It predates the plan; at `a7e89b8` the guidance
+  refusal of Part N came first and hid it. In use it strikes whoever writes again within seconds of a reply.
+- **Phase 6's notice example said `waiting` without its condition.** The old text waited "when the work is still running";
+  the new example ("a notice that one of two runs finished … `yield_work(waiting)`") was followed when both had finished,
+  and the request stayed open with nothing left to wake the lead (S8, once).
+- **`procedure_read` refused the body named as a file.** The models passed `file: ""`, `"none"` or `"SKILL.md"`; each was
+  refused, one or two wasted calls per workflow turn.
+- **Phase 4's continuation in the turn never fired.** The Balsamic extension continued a run only when Pi's context
+  preview said it could continue; at `agent_before_settle` that preview ends on the assistant's own message, so it is false
+  exactly when a turn ended in prose. Its unit test handed the hook `canContinue: true`. Found on the dev stack (23 October):
+  the resource planner answered `/plan` in prose, never called `yield_work`, and its request stayed open.
+- **A page agent asked from the chat answered off the chat.** `/plan` sends the request to the resource planner with the
+  thread it was typed in, but its turn kept no origin, so the answer went to the planner's desk, which lists only requests
+  made on the page: the chat showed the question and nothing after it. Older than the plan (`slash.ts`, `b978aa3`).
+- **The reply checks read the last message only.** A notice turn after the answer adds its own line, and S8 failed once on
+  "no change to report" although the answer before it had the numbers.
+
+### What changed
+
+| Change | Where |
+|---|---|
+| A housekeeping job writes its own fields onto the newest copy of the record, under the workspace lock | `src/balsamic/housekeeping.py` `_save` |
+| The notice example waits only while the other run is still going (the core instructions: 346 words) | `agents/tools.py` `INSTRUCTIONS` |
+| `procedure_read` takes an empty file, `none` or `SKILL.md` as the body; the tool description says to omit `file` | `src/balsamic/procedures/__init__.py` |
+| The continuation no longer asks Pi's preview; Pi checks the context again with the reminder appended | `agent-harness/src/gateway-extension.ts`; `agent-harness/test/continuation.test.mjs` |
+| A page agent asked from a chat thread answers in that thread; only the lead's turns move a thread's session leaf | `agents/controller.py` `message`, `ask_page_agent`, `_receive` |
+| Reply checks read all of the lead's replies to the researcher's last message | `scripts/run_lead_evals.py` `Context.reply`; `evals/lead/README.md` |
+| The baseline | `evals/lead/baselines/a7e89b8.json` |
+
+### Checked
+
+- `tests/balsamic/test_housekeeping.py::test_what_the_researcher_wrote_while_a_job_waited_for_its_model_is_kept`: the
+  researcher writes while the suggestions are being written; the thread keeps revision 2, the turn's command is accepted.
+  Without the fix it fails as S4 did (revision 1 against 2).
+- `tests/test_procedures.py`: the three spellings return the body.
+- `agent-harness/test/continuation.test.mjs`: a real Pi session with a scripted model: a turn ending in prose gets one
+  more request ending with the reminder, then yields; a model that never yields is continued once; a turn that yielded is
+  not. Both fail without the fix.
+- `tests/balsamic/test_threads.py::test_a_page_agent_asked_from_the_chat_answers_in_the_chat`: fails without the fix.
+- Live, after the fixes: S4, S7 and S8 three times each, then the whole suite: 36 of 36.
+- Tokens per pass of the suite (the sum of each scenario's mean): uncached input 358,432 → 303,406 (−15%), cache reads
+  761,429 → 572,885, all prompt tokens −22%. One answer (S2) takes 38% fewer input tokens. Model calls 92.7 → 90.7.
+
+### Not done
+
+- **A notice after the answer adds a message.** In S8 the two runs the researcher started are catalogued after the lead has
+  answered; the notices are queued while the request is open, so it stays open, and `yield_work(complete)` requires a report:
+  the lead writes "no change to report" twice (three lead messages in every repeat). Either the outcomes of runs the
+  researcher started directly stop waking the lead, or a notice turn may complete without a report when the request already
+  has one. Both change what the lead is told about; for Hoseung to decide.
+- **The continuation in the turn was not exercised live.** `pi_continue` was 0 in every run of both commits: this model
+  always ended with `yield_work`, and the continuation could not have fired (above). It is now tested against Pi itself.
+- **The cache gain from fixed instructions does not show across campaigns.** The router caches per session, so a new
+  campaign starts cold (S2: 2,219 cached tokens of 13,680); within a session the share stayed about two thirds.
+- **S11 passes at the baseline too.** The old lead already sent experiments to the operator; Phase 5 makes it the only way.
+- Other models (DeepSeek, the subscription's `openai-codex`) not run.
 
 ## Not planned
 

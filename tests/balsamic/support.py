@@ -50,6 +50,13 @@ def lead_run_for(workspace, command_id):
     return workspace.store.get("pi_run_" + command_id, "agent_run")
 
 
+def state_of(workspace, agent, run=None):
+    """The state block the agent's next turn would begin with (agents/turn_state.py), read without a run of its own."""
+    from optimization_framework.agents.tools import PiTools
+    from optimization_framework.agents.turn_state import build
+    return build(PiTools(workspace.pi), agent, run or {"id": "probe", "input": "", "origin": None})["text"]
+
+
 def tool_call(workspace, agent, run, name, args, call_id="call"):
     from optimization_framework.agents.tools import PiTools
     return PiTools(workspace.pi).call(agent["id"], run["id"], call_id, name, args)

@@ -60,7 +60,9 @@ so `scripts/labctl` and `deploy/*.json` keep working.
 | `branches` | | |
 
 Addresses are `#t/<thread>/<page>[/<sub>][/<id>]?sel=<id>&tab=`. A thread-less address (what the lead writes, e.g.
-`#experiments/trial_x`) opens in the current thread. `#new` starts a campaign. Every old address still works: the
+`#experiments/trial_x`) opens in the current thread. `#new` starts a campaign. The bare address (and `#home`, which the
+Balsamic name in the top bar links to) is the home page: the logo, the name, the version (`frontend/package.json`), what
+Balsamic is, and a link into the workspace, which opens the last thread. Every old address still works: the
 `aliases` block of `pages.json` maps `#overview`, `#decisions`, `#problem`, `#implementations`, `#comparison`, `#studies`,
 `#validation`, `#assets`, `#notebook`, `#reports`, `#resources`, `#agents[/usage|/log|/models|/guidance]`, `#discussions`,
 `#drafts`, `#models`, `#llm-usage`, `#memory` and `#problem-import` to their current pages, and `/reports/<id>` stays a
@@ -163,7 +165,9 @@ question, every quantity and variable name is set apart (`.qname`, its descripti
 are explained under it in words (`finding-meaning`); fields carry their guidance as a label above the box, never as a
 placeholder that a narrow box cuts off. Across the app, an agent pill whose words say it is at work (running, revising,
 deciding, …) carries a pulsing dot (`Pill`, `live`). Quantities and variables are editable tables (numbers typed as numbers; derived values shown computed);
-questions are answered from their options (the formulator's recommendation first, marked) or in words (`answers`), and
+questions are answered from their options (the formulator's recommendation first, marked; an option under which nothing
+can run, listed in the question's `unrunnable_options`, is marked "nothing can run" and never recommended, and the service
+refuses a question that puts one first while another option runs) or in words (`answers`), and
 none is required: "Send N answers, leave M to the formulator" (`send-answers`) sends the round as it stands, and a
 question sent without an answer is shown as "left to the formulator" (`sent` without `answer`) while the formulator
 decides it and records an assumption; the section's state reads "round r of 2 · n of m open" (`question_rounds`,
@@ -173,6 +177,13 @@ recorded by `charters.propose` beside the formulator's `request`), each option a
 prose, the computed changes (`diff`) and the checks it leaves open folded away, never the raw changes; decided proposals
 fold under "N earlier proposals"; one option is chosen (`…/decision`). Confirm is
 enabled only with no blocking finding and no open question, and says why otherwise. The raw charter wraps.
+While the formulator works on the charter (`formulator.listening` false in the charter's view, read with the revision it
+applies to) nothing on the page takes input: a banner says why (`formulator-busy`), every field and button is disabled,
+panel fields bound to the charter wait (`listening` in their data), and the page reads every 2 s until the revision is
+saved. The service holds the same rule: every researcher action on a charter (`edit`, `accept-assumptions`, `waive`,
+`answers`, `send-answers`, `requests`, a proposal's decision, `confirm`) first brings the formulator's status up to date
+with the harness and is refused while it works, with nothing changed, so no answer, value or choice made on what the page
+showed meets a charter the formulator is rewriting.
 
 **Panels.** Pages the lead and the formulator compose from a catalog of components, validated, resolved on the server
 and rendered by our components: `docs/panels.md`. The to-do for A2UI adoption, with its review date, is there.
@@ -268,11 +279,12 @@ pending `placeholders`, the thread's `status`, `merged_into` and `summary`. The 
 an activity `strip` (glyphs from records: message, strategy, run, decision, note, merge). `GET /threads/{id}/context`
 reports the three layers: project (campaign, tasks, charter, guidance, with byte counts), branch (measured from the
 harness's context at the thread's leaf when it answers, otherwise estimated and labelled so) and live (pinned and
-excluded records with their current status), plus the lab events since the thread's last turn.
+excluded records with their current status, which go into the next turn's state block), plus the state block of the
+thread's last lead turn (`state`: its text, size and run) and the lab events since the thread's last turn.
 
 **Guidance.** A message bumps its thread's `guidance_revision`; the lead's `campaign_command` pins
-`expected_thread_revision` from its run (never from the model) and `expected_guidance_revision` from the run unless the
-lead read a newer one with `campaign_inspect`. A message in thread A does not stale a command of a turn in thread B
+`expected_thread_revision` from its run and `expected_guidance_revision` from the run, or from a newer revision a
+`campaign_inspect` of the same run returned; a revision the model states is ignored (`PiTools.guidance_pin`). A message in thread A does not stale a command of a turn in thread B
 (`tests/balsamic/test_threads.py`).
 
 **Lab events.** When a command with an origin thread completes (runs, strategies, allocations, races, findings, adoption,

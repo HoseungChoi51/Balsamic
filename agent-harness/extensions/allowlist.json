@@ -1,0 +1,5 @@
+{
+  "about": "The curated Pi extensions each role's session loads (docs/pi-agent-harness.md, Extensions). The Balsamic extension is not listed: the harness loads it first in every session but an implementation grant's, whose roles load nothing. An extension is a folder under session/ with an index.ts, its third-party code pinned to an exact version in agent-harness/package.json; tools names the extension tools a role may run, each receipted by the workspace. Changing a role's list applies to sessions made after it, and resets the prompt cache of running ones once.",
+  "extensions": {},
+  "roles": {}
+}

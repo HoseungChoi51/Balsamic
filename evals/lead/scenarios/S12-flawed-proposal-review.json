@@ -1,0 +1,17 @@
+{
+  "id": "S12-flawed-proposal-review",
+  "source": "Harness plan Phase 7 (F4): a review round with specialists that have briefs and output schemas catches a flawed proposal",
+  "setup": {"preset": "quadratic", "llm_budget_usd": 0.5, "seeds": ["flawed_proposal"]},
+  "steps": [
+    {"say": "Have the discussion moderator review proposal {hypothesis_id} with a skeptical domain analyst and a proposal reviewer, and tell me the verdict. Nothing else."},
+    {"wait": "request_closed", "timeout_s": 1500}
+  ],
+  "checks": [
+    {"outputs_at_least": {"role": "skeptical_domain_analyst", "count": 1}},
+    {"structured_outputs_valid": true},
+    {"verdicts_in": {"hypothesis": "{hypothesis_id}", "verdicts": ["revise", "reject"]}},
+    {"no_commands": ["trial.create", "draft.launch"]},
+    {"request_closed": true}
+  ],
+  "repeats": 1
+}

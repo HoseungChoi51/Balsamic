@@ -1,0 +1,17 @@
+{
+  "id": "S11-experiments-through-the-operator",
+  "source": "F5 and harness plan Phase 5: experiments are the operator's work; the lead hands them over and reports the result",
+  "setup": {"preset": "quadratic", "llm_budget_usd": 0.3},
+  "steps": [
+    {"say": "Run two short experiments with an installed method and tell me how they did. Nothing else."},
+    {"wait": "request_closed", "timeout_s": 1200}
+  ],
+  "checks": [
+    {"commands_exactly": {"operation": ["trial.create", "draft.launch"], "count": 2, "role": "experiment_operator"}},
+    {"commands_exactly": {"operation": ["trial.create", "draft.launch", "runtime.profile"], "count": 0, "role": "lead"}},
+    {"no_failed_runs": true},
+    {"reply_matches": "\\d"},
+    {"request_closed": true}
+  ],
+  "repeats": 1
+}

@@ -33,14 +33,15 @@ def test_the_rules_start_from_the_runtime_gate_and_change_by_revision(tmp_path, 
     with pytest.raises(ValueError, match='changed'):
         command(w, c, 'experiments.rules', {'max_concurrent': 3, 'expected_revision': 0, 'rationale': 'stale'}, 'r2')
     assert command(w, c, 'experiments.rules', {'max_concurrent': 0, 'expected_revision': 1, 'rationale': 'No limit'}, 'r3')['max_concurrent'] is None
-    # The lead reads them; the operator is told them in its instructions, and changes them under its own name.
+    # The lead reads them; the operator is told them in each turn's state block, and changes them under its own name.
     lead_run = submitted(w, w.pi.message(c['id'], {'message': 'What are the rules?'}, 'ask'))
     assert call(w, lead, lead_run, 'campaign_inspect', {}, 'inspect')['experiment_rules']['short_run_seconds'] == 900
     asked = submitted(w, w.pi.message(c['id'], {'message': 'Allow two runs at once.', 'page_agent': 'experiment_operator'}, 'op'))
     operator = w.store.get(asked['agent_id'], 'agent_session')
     from optimization_framework.agents.tools import PiTools
-    instructions = PiTools(w.pi).manifest(operator['id'], asked['id'])['instructions']
-    assert 'revision 2' in instructions and 'Short runs are allotted less than 900 seconds' in instructions and 'expected improvement' not in instructions
+    state = PiTools(w.pi).turn_state(operator['id'], asked['id'])['text']
+    assert 'revision 2' in state and 'Short runs are allotted less than 900 seconds' in state and 'expected improvement' not in state
+    assert 'experiment rules' in PiTools(w.pi).manifest(operator['id'], asked['id'])['instructions'] and '900' not in PiTools(w.pi).manifest(operator['id'], asked['id'])['instructions']
     changed = call(w, operator, asked, 'campaign_command', {'operation': 'experiments.rules', 'request_key': 'two', 'guidance_revision': w.memory.state(c['id'])['guidance_revision'],
         'payload': {'max_concurrent': 2, 'expected_revision': 2, 'rationale': 'The researcher asked for two at once'}}, 'rules')
     assert changed['outcome']['max_concurrent'] == 2 and current(w.store, c['id'])['updated_by'] == 'manager' and changed['page'] == '#experiments/rules'
@@ -121,10 +122,11 @@ def test_the_operator_reads_progress_and_asks_for_settings(tmp_path, monkeypatch
     spread = call(w, operator, asked, 'config_suggest', {'space': space, 'count': 3}, 'suggest')
     assert spread['method'] == 'space-filling' and len(spread['suggestions']) == 3
     assert all(1e-3 <= item['step'] <= 1 and isinstance(item['restarts'], int) for item in spread['suggestions'])
-    # The lead has neither tool: it asks the operator.
+    # The lead reads progress itself (a status question is a read, not work for the operator); choosing settings stays the operator's.
     lead_run = submitted(w, w.pi.message(c['id'], {'message': 'How are the runs going?'}, 'lead'))
+    assert call(w, lead, lead_run, 'experiment_progress', {}, 'lead_progress')['at_work'][0]['trial_id'] == waiting['id']
     with pytest.raises(ValueError, match='not available'):
-        call(w, lead, lead_run, 'experiment_progress', {}, 'nope')
+        call(w, lead, lead_run, 'config_suggest', {'space': space}, 'nope')
 
 
 def test_suggestions_spread_first_then_follow_the_scores():

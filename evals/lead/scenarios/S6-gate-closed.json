@@ -1,0 +1,17 @@
+{
+  "id": "S6-gate-closed",
+  "source": "The problem-definition gate (a7e89b8): proposals wait until the problem is defined",
+  "setup": {"preset": "formulating", "llm_budget_usd": 0.3, "seeds": ["partial_note"]},
+  "steps": [
+    {"say": "Propose two strategies for this problem."},
+    {"wait": "request_closed", "timeout_s": 600}
+  ],
+  "checks": [
+    {"records_at_most": {"kind": "hypothesis", "count": 0}},
+    {"no_commands": ["hypothesis.create", "research.generate"]},
+    {"reply_links_page": "#note"},
+    {"reply_contains_any": ["observables", "noise", "constraints", "confounders", "open questions"]},
+    {"request_closed": true}
+  ],
+  "repeats": 3
+}

@@ -251,6 +251,7 @@ each assumption, so prefer asking when the choice matters.
 | No installed evaluator | Nothing in the catalog computes it | Declare the problem, with notes. |
 | The installed evaluator scores something else | Its primary objective differs from the wanted one | Ask: use its objective, or declare a problem. |
 | The scale is extreme | A huge design, or a very costly evaluation | Say so in a question when it affects feasibility. |
+| Generated data | Synthetic traces, random instances, tables computed from seeds | State the generator, its seeds and its draw order. How the data is kept is the implementation's: it regenerates it and checks each output's SHA-256, so do not require stored files. |
 
 **Ask or assume:**
 - **Ask** when the answer changes what is optimized, which designs are allowed, or under which
@@ -276,6 +277,14 @@ each assumption, so prefer asking when the choice matters.
 - One decision per question.
 - Two to four concrete options. Each option is a complete choice, with what it implies.
 - The option you recommend first, with the reason.
+- **Recommend what can run.** The page shows the first option as recommended, so it must be one under
+  which the lab can run. When the platform cannot express a requirement exactly, recommend the
+  faithful encoding that runs (for example, the evaluator rounds each variable to its permitted
+  grid, so every design it executes is on the grid) and say in the option what, if anything, it
+  changes. An option under which nothing can run until something outside the charter changes (the
+  platform, an evaluator nobody has agreed to supply) goes last, says what stays blocked and until
+  when, is listed in `unrunnable_options`, and is never called recommended. Offer it only when the
+  researcher could reasonably prefer to wait.
 - `about` names the affected quantities.
 - `blocking: false` only for minor points.
 
@@ -313,7 +322,8 @@ The researcher types inputs directly and asks for everything else in words.
    - Never drop a relation silently. If an option replaces a derived quantity with a typed input,
      say so in its reason.
 5. **Check each option.** Each option must pass the checks, or carry `blocking_reason` explaining
-   why the researcher should still see it.
+   why the researcher should still see it. Such an option is shown after those that pass; never
+   make it your first choice when another option passes.
 
 ### Changes
 

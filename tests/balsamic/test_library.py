@@ -73,7 +73,8 @@ def test_lead_first_reply_mentions_library_matches(client, workspace, campaign, 
     run = submitted(workspace, "pi_run_" + command(client, "agent.message", "second", {"message": "Hello", "thread_id": "thread_main_second"}, second["version"], origin={"thread_id": "thread_main_second"})["id"])
     from optimization_framework.agents.tools import PiTools
     manifest = PiTools(workspace.pi).manifest(lead["id"], run["id"])
-    assert "Library. Strategies that won earlier campaigns of this problem exist: Winner" in manifest["instructions"]
+    assert "Library (strategies that won earlier campaigns of this problem): Winner" in PiTools(workspace.pi).turn_state(lead["id"], run["id"])["text"]
+    assert "Winner" not in manifest["instructions"]
     assert "library_search" in {tool["name"] for tool in manifest["tools"]}
     found = tool_call(workspace, lead, run, "library_search", {"query": ""})
     assert found["entries"][0]["title"] == "Winner" and found["entries"][0]["match"]["score"] >= 6

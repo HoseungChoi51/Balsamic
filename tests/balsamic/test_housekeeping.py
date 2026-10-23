@@ -155,8 +155,10 @@ def test_the_lead_corrects_proposal_fields_and_the_page_says_when_the_lane_was_n
     workspace.store.put("trial", {"id": "trial_x", "campaign_id": campaign["id"], "hypothesis_id": created["id"], "status": "completed", "algorithm": "annealing", "created_at": "2026-10-20T00:00:00Z"})
     assert "bound to 1 trial" in str(attempt("fix-4", {"hypothesis_id": created["id"], "algorithm": "population"}))
     assert attempt("fix-5", {"hypothesis_id": created["id"], "rationale": "better stated"})["outcome"]["fields"] == ["rationale"]
-    briefing = workspace.lead_instructions(team)
-    assert "Proposal fields." in briefing and "hypothesis.edit" in briefing and "not chosen" in briefing
+    # What each field must say is a procedure the lead reads before recording proposals; its catalog names it.
+    procedure = workspace.procedures.read("lead", "proposal-fields")["text"]
+    assert "# Proposal fields" in procedure and "hypothesis.edit" in procedure and "not chosen" in procedure
+    assert "proposal-fields" in workspace.procedures.catalog_text("lead")
 
 
 def test_finished_exchanges_get_a_one_sentence_fold_title(client, workspace, campaign, team, light_model):
@@ -199,3 +201,28 @@ def test_live_suggestions_follow_the_leads_latest_reply(client, workspace, campa
     assert housekeeping.tick(workspace) == 1
     assert workspace.store.get(MAIN, "thread")["suggestions"]["as_of_message_id"] == "message_" + run2
     assert housekeeping.parse_suggestions("no json here") == [] and housekeeping.parse_suggestions('[{"text": " /probe ", "label": ""}]') == [{"label": "/probe", "text": "/probe"}]
+
+
+def test_what_the_researcher_wrote_while_a_job_waited_for_its_model_is_kept(client, workspace, campaign, team, light_model, monkeypatch):
+    """Lead evals S4, live: the suggestions after the lead's reply were written back over the thread as it was before the call,
+    and the researcher's next message, sent meanwhile, lost its revision; every command of the turn answering it was refused."""
+    run1 = say(client, campaign, "Create one hypothesis.")
+    finish_run(workspace, run1, "Created one.", entry_ids={"parent": "e0", "last": "e2"}, disposition="complete")
+    scripted, sent = workspace.pi.client.complete, []
+
+    def researcher_writes_meanwhile(call_id, body, timeout=60):
+        if body["label"] == "next suggestions" and not sent:
+            sent.append(say(client, campaign, "Create one more."))
+        return scripted(call_id, body, timeout)
+    monkeypatch.setattr(workspace.pi.client, "complete", researcher_writes_meanwhile)
+    assert housekeeping.tick(workspace) == 1
+    thread, run2 = workspace.store.get(MAIN, "thread"), workspace.store.get(sent[0], "agent_run")
+    assert thread["guidance_revision"] == run2["thread_revision"] == 2 and thread["agent_leaf"] == "e2"
+    assert thread["suggestions"]["as_of_message_id"] == "message_" + run1, "the job's own result is saved too"
+    # The lead's command in the turn answering the new message is accepted.
+    from optimization_framework.agents.tools import PiTools
+    submitted_run = workspace.store.get(sent[0], "agent_run")
+    workspace.store.put("agent_run", {**submitted_run, "status": "submitted"})
+    created = PiTools(workspace.pi).call(team["id"], sent[0], "create", "campaign_command", {"operation": "hypothesis.create", "request_key": "h2",
+        "payload": {"title": "Strategy two", "mechanism": "m", "rationale": "r"}})
+    assert created["status"] == "completed", created

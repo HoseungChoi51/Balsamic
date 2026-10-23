@@ -6,6 +6,7 @@ import { useInbox, useSummary } from '../api/queries';
 import { send } from '../commands/bus';
 import { Empty, Failed, Loading, Pill, Section, when } from '../primitives/ui';
 import type { Decision, Issue, Question } from '../api/types';
+import { ExtensionDialog, isExtensionDialog } from '../chat/ExtensionDialog';
 import { Composer } from '../chat/Composer';
 
 export default function InboxPage({ campaignId, route }: PageProps) {
@@ -87,6 +88,11 @@ function IssueCard({ issue, version, campaignId, onDone }: { issue: Issue; versi
 }
 
 function QuestionCard({ question, version, campaignId, threadId, onDone }: { question: Question; version?: number; campaignId: string; threadId: string | null; onDone: () => unknown }) {
+  if (isExtensionDialog(question)) return <ExtensionDialog question={question} campaignId={campaignId} version={version} who="An agent" onDone={onDone} />;
+  return <AnswerCard question={question} version={version} campaignId={campaignId} threadId={threadId} onDone={onDone} />;
+}
+
+function AnswerCard({ question, version, campaignId, threadId, onDone }: { question: Question; version?: number; campaignId: string; threadId: string | null; onDone: () => unknown }) {
   const answer = async (text: string) => {
     if (version === undefined) throw new Error('The campaign is still loading');
     await send({ operation: 'agent.message', campaignId, expectedRevision: version, payload: { message: text, question_id: question.id, thread_id: threadId }, origin: { thread_id: threadId } });
