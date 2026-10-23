@@ -231,8 +231,14 @@ class ResourceObservability:
             del device["address"]
         return {"status": "available" if devices else "none_detected", "devices": devices}
 
+    def host(self):
+        """The host reading on this observer's own clock, for callers outside a snapshot."""
+        with self.lock:
+            return self._host(self.monotonic())
+
     def _host(self, sampled):
-        if self._host_cache is not None and sampled - self._host_at < self.cache_seconds:
+        # A reading from another clock is never fresh: one caller stamping wall time froze the snapshot's reading for an hour.
+        if self._host_cache is not None and 0 <= sampled - self._host_at < self.cache_seconds:
             return self._host_cache
         memory = {}
         for line in (_read(self.proc_root / "meminfo") or "").splitlines():
@@ -273,7 +279,12 @@ class ResourceObservability:
             process = self._process(int(path.name), sampled)
             if process and process["rss_bytes"]:
                 command = _read(self.proc_root / path.name / "cmdline") or ""
-                role = "workspace" if process["pid"] == os.getpid() else "service" if any(name in (process["name"] + command).lower() for name in ("llama", "uvicorn", "pi-service", "tensorboard", "optimization_framework", "grating-lab")) else "other"
+                text = (process["name"] + command).lower()
+                role = ("workspace" if process["pid"] == os.getpid()
+                        else "worker" if any(name in text for name in ("execution.worker", "workspace.worker", "agents.diagnostics"))
+                        else "check" if "evaluation.preflight" in text
+                        else "service" if any(name in text for name in ("llama", "uvicorn", "pi-service", "tensorboard", "optimization_framework", "grating-lab"))
+                        else "other")
                 processes.append({key: process[key] for key in ("pid", "name", "rss_bytes", "threads")} | {"role": role})
         processes.sort(key=lambda process: process["rss_bytes"], reverse=True)
         result = {"cpu": {"logical_count": logical, "capacity_cores": capacity, "utilization_percent": utilization,
@@ -359,7 +370,7 @@ class ResourceObservability:
     def _workers(self, campaign_id, costs, sampled, wall_clock):
         fields = {"status": "status", "pid": "pid", "process_identity": "process_identity", "attempt": "attempt",
                   "attempt_started_at": "attempt_started_at", "started_epoch": "started_epoch", "prior_execution_seconds": "prior_execution_seconds",
-                  "algorithm": "algorithm", "seed": "seed"}
+                  "algorithm": "algorithm", "seed": "seed", "device": "device"}
         rows = self._rows("trial", fields, campaign_id, active=True) + self._rows("fixed_mask_job", fields, campaign_id, active=True)
         index = {row["id"]: row for row in costs}
         jobs, warnings = [], []
@@ -397,13 +408,15 @@ class ResourceObservability:
             elapsed = max(0., wall_clock - _number(row["attempt_started_at"] or row["started_epoch"], wall_clock)) if measured else None
             spent = max(cost["spent_seconds"], _number(row["prior_execution_seconds"]) + elapsed) if elapsed is not None and cost["kind"] == "trial" else max(cost["spent_seconds"], elapsed or 0.)
             jobs.append({"id": row["id"], "campaign_id": row["campaign_id"], "kind": cost["kind"], "status": row["status"], "pid": row["pid"],
-                         "algorithm": row["algorithm"], "seed": row["seed"],
+                         "algorithm": row["algorithm"], "seed": row["seed"], "device": row["device"] or ("cpu" if cost["kind"] == "fixed_mask_job" else None),
                          "process_state": state, "rss_bytes": measured["rss_bytes"] if measured else None,
                          "peak_rss_bytes": measured["peak_rss_bytes"] if measured else None, "cpu_percent": measured["cpu_percent"] if measured else None,
                          "threads": measured["threads"] if measured else None, "wall_seconds": cost["wall_seconds"],
                          "spent_seconds": spent, "remaining_seconds": max(0., _number(cost["wall_seconds"]) - spent),
                          "measurement_scope": "Verified owner process only; descendant memory is not included"})
-        return {"configured_limit": self.workspace.max_workers, "running_count": sum(job["process_state"] == "alive" for job in jobs),
+        pools = getattr(self.workspace, "devices", None)
+        return {"configured_limit": self.workspace.max_workers, "device_slots": pools.sizes() if pools else None,
+                "running_count": sum(job["process_state"] == "alive" for job in jobs),
                 "queued_count": sum(job["status"] == "queued" for job in jobs), "jobs": jobs}, warnings
 
     def _manifest(self, race, sampled):

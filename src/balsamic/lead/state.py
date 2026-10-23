@@ -1,6 +1,6 @@
 """The lead's part of the state block (optimization_framework/agents/turn_state.py): where the problem-definition gate stands,
-autopilot, the library strategies that match, what this thread pins or sets aside, and the page agents at work. Read from the
-records at the start of each turn; the lead's instructions only say that it is there."""
+an evaluator that cannot start, autopilot, the library strategies that match, what this thread pins or sets aside, and the page
+agents at work. Read from the records at the start of each turn; the lead's instructions only say that it is there."""
 from optimization_framework.agents.models import PAGE_AGENTS
 from optimization_framework.agents.turn_state import one_line
 
@@ -17,7 +17,19 @@ def gate_line(workspace, campaign):
     if gate["ready"]:
         return ["Gate: open; the problem is defined."]
     step = gate["step"]
-    return [f"Gate: closed. Next: {step['title'].lower()} ({step['page']})." + (" Not written yet: " + ", ".join(step["missing"]) + "." if step.get("missing") else "")]
+    return [f"Gate: closed. Next: {step['title'].lower()} ({step['page']})." + (" Not written yet: " + ", ".join(step["missing"]) + "." if step.get("missing") else "")
+            + (" Skipped with the researcher's agreement: " + ", ".join(step["skipped"]) + "." if step.get("skipped") else "")
+            + (" Your skip proposal waits for the researcher: " + ", ".join(step["proposed_skips"]) + "." if step.get("proposed_skips") else "")]
+
+
+def evaluator_line(workspace, campaign):
+    from balsamic.evolution.stages import evaluator
+    blocked = evaluator(workspace, campaign, wait=True)
+    if not blocked:
+        return []
+    return [f"Evaluator: cannot start in this lab, checked before any run. {blocked['text']} Runs, runtime profiles and screening on it "
+            "are refused until it starts, so do not queue them. Tell the researcher this error as it stands and the fix it names, never "
+            "another cause you guess at; campaign_inspect's tasks[].evaluator_readiness says when it starts."]
 
 
 def autopilot_line(workspace, campaign):
@@ -86,6 +98,6 @@ def page_agent_line(workspace, campaign):
 def lead_state(workspace):
     def lines(agent, run):
         campaign = workspace.store.get(agent["campaign_id"], "campaign")
-        return [*gate_line(workspace, campaign), *autopilot_line(workspace, campaign), *library_line(workspace, campaign),
-                *pin_lines(workspace, run), *page_agent_line(workspace, campaign)]
+        return [*gate_line(workspace, campaign), *evaluator_line(workspace, campaign), *autopilot_line(workspace, campaign),
+                *library_line(workspace, campaign), *pin_lines(workspace, run), *page_agent_line(workspace, campaign)]
     return lines

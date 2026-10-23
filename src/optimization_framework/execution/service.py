@@ -44,8 +44,14 @@ def alive(trial):
     return bool(pid and identity and process_identity(pid) == identity)
 
 
+DEPENDENCY_ACTIONS = [
+    {"id": "start_anyway", "label": "Start them anyway",
+     "description": "Each waiting run starts once the run before it has ended, completed or not; the order stays."},
+    {"id": "stop", "label": "Stop them", "description": "The waiting runs are stopped; nothing else changes."}]
+
+
 class Workspace:
-    def __init__(self, directory, max_workers=2, stop_grace_seconds=5, implementation_client=None, guidance=None):
+    def __init__(self, directory, max_workers=2, stop_grace_seconds=5, implementation_client=None, guidance=None, gpu_workers=0):
         self.store = Store(directory)
         self.directory = self.store.directory
         from optimization_framework.research.log import AgentLog
@@ -53,6 +59,7 @@ class Workspace:
         self.store.event_observer = self.agent_log.observe
         self.agent_log_thread = None
         self.max_workers = max(1, min(int(max_workers), 16))
+        self.gpu_workers = max(0, int(gpu_workers))   # of the max_workers slots, how many run on the GPU (execution/devices.py)
         self.stop_grace_seconds = stop_grace_seconds
         self.lock = threading.RLock()
         self.outbox_lock = threading.Lock()
@@ -102,6 +109,8 @@ class Workspace:
         self.runtime = RuntimeProfiles(self)
         from optimization_framework.execution.admission import Admission
         self.admission = Admission(self)
+        from optimization_framework.execution.devices import Pools
+        self.devices = Pools(self)
         from optimization_framework.execution.equivalence import Equivalences
         self.equivalence = Equivalences(self)
         from optimization_framework.execution.compaction import JournalCompaction
@@ -697,6 +706,7 @@ class Workspace:
             record.update(execution)
             if selected_isolation:
                 record["isolation_policy"] = selected_isolation.model_dump(mode="json")
+            self.devices.check({**record, "evaluator_version_id": record.get("evaluator_version_id") or (evaluator_bundle or {}).get("version", {}).get("id")})
             if reproduction is not None:
                 record["reproduction"] = reproduction
             if prototype:
@@ -865,7 +875,7 @@ class Workspace:
         return self.create_trial(TrialInput(campaign_id=predecessor["campaign_id"], task_id=predecessor["task_id"],
             algorithm="" if version else predecessor["algorithm"], implementation_version_id=version,
             algorithm_config=predecessor["algorithm_config"], seed=predecessor["seed"], max_steps=request.max_steps or predecessor["max_steps"],
-            wall_seconds=request.wall_seconds, numerical_threads=predecessor.get("numerical_threads", 1),
+            wall_seconds=request.wall_seconds, numerical_threads=predecessor.get("numerical_threads", 1), device=predecessor.get("device"),
             schedule_steps=predecessor["schedule_steps"], hypothesis_id=predecessor.get("hypothesis_id"),
             training=predecessor.get("training") or {}, initial_assets=predecessor.get("initial_assets", []),
             reuse_decision_ids=predecessor.get("reuse_decision_ids", []), recovery=predecessor["recovery"],
@@ -1187,19 +1197,57 @@ class Workspace:
             self.outbox_lock.release()
 
     def dependencies_ready(self, trial):
+        """Whether the runs a queued run depends on have completed. A dependency waits for scientific completion, which a
+        run stopped at its time limit never reaches; the researcher may then keep only the order (dependency_completion)."""
         waiting = []
         failed = []
+        order_only = trial.get("dependency_completion") == "finished"
         for dependency_id in trial.get("dependencies", []):
             parent = self.store.get(dependency_id, "trial")
             if parent["status"] in {"queued", "running", "pausing", "stopping", "paused", "interrupted"}:
                 waiting.append(dependency_id)
-            elif parent["status"] != "completed" or not (parent.get("result") or parent.get("progress", {})).get("scientific_complete"):
-                failed.append(dependency_id)
+            elif not order_only and (parent["status"] != "completed" or not (parent.get("result") or parent.get("progress", {})).get("scientific_complete")):
+                failed.append(parent)
         if failed:
+            parent = failed[0]
+            ended = parent.get("reason") or (parent.get("result") or {}).get("allocation_stop") or parent["status"]
+            chain = self.waiting_after(trial["id"])
             self.memory.issue(trial["campaign_id"], "dependency_incomplete",
-                "An experiment dependency did not satisfy its scientific completion condition. Resolve or replace it before launching dependent work.",
-                affected=trial["id"], evidence=failed)
+                f"{trial['id']} is to start after {parent['id']}, which ended without completing ({str(ended).replace('_', ' ')}), so "
+                + (f"it and {len(chain) - 1} run(s) queued after it cannot start." if len(chain) > 1 else "it cannot start.")
+                + " Start them anyway in their order, or stop them.",
+                affected=trial["id"], evidence=[row["id"] for row in failed], actions=DEPENDENCY_ACTIONS)
         return not waiting and not failed
+
+    def waiting_after(self, trial_id):
+        """A queued or paused run and every queued or paused run that depends on it, directly or through others."""
+        first = self.store.get(trial_id, "trial")
+        pending = [row for row in self.store.list_trials_in_status({"queued", "paused"}, first["campaign_id"])]
+        chain, ids = [first], {trial_id}
+        while True:
+            more = [row for row in pending if row["id"] not in ids and ids & set(row.get("dependencies", []))]
+            if not more:
+                return chain
+            chain.extend(more)
+            ids.update(row["id"] for row in more)
+
+    def act_on_issue(self, issue, action):
+        """What a researcher's choice on an issue does; an issue without actions is only marked."""
+        if issue["code"] != "dependency_incomplete" or action not in {item["id"] for item in DEPENDENCY_ACTIONS}:
+            raise ValueError("This issue has no such action")
+        done = []
+        for trial in self.waiting_after(issue["affected"]):
+            if action == "start_anyway":
+                with self.lock:
+                    record = self.store.get(trial["id"], "trial")
+                    record["dependency_completion"] = "finished"
+                    self.store.put("trial", record, "trial.dependencies_order_only")
+                if record["status"] == "paused":
+                    self.control(record["id"], ControlInput(action="resume", rationale="The researcher started runs waiting on an incomplete dependency"))
+            else:
+                self.control(trial["id"], ControlInput(action="stop", rationale="The researcher stopped runs waiting on an incomplete dependency"))
+            done.append(trial["id"])
+        return done
 
     def _write_control(self, trial):
         command = "stop" if trial["status"] in {"stopping", "stopped"} else "pause" if trial["status"] in {"pausing", "paused"} else "run"
@@ -1264,8 +1312,9 @@ class Workspace:
                 if key.startswith("GRATING_LLM_") or key in {"OPENAI_API_KEY", "ANTHROPIC_API_KEY", "GOOGLE_API_KEY"}:
                     env.pop(key)
             threads = str(trial.get("numerical_threads", 1))
+            from optimization_framework.execution.devices import environment
             env.update(PYTHONPATH=str(code), PYTHONUNBUFFERED="1", OPENBLAS_NUM_THREADS=threads,
-                       OMP_NUM_THREADS=threads, MKL_NUM_THREADS=threads, MPLBACKEND="Agg")
+                       OMP_NUM_THREADS=threads, MKL_NUM_THREADS=threads, MPLBACKEND="Agg", **environment(trial.get("device") or "cpu"))
             with (directory / "worker.log").open("ab") as log:
                 module = "optimization_framework.execution.worker" if trial.get("execution_contract") == 1 else "dqn_meent.workspace.worker"
                 process = subprocess.Popen([sys.executable, "-m", module, "--directory", str(directory)],
@@ -1443,12 +1492,13 @@ class Workspace:
                 with self.lock:
                     trials = self.store.list_trials_in_status(LIVE | {"queued"})
                     self.admission.observe(trials, LIVE)
-                    free = self.max_workers - sum(t["status"] in LIVE for t in trials) - sum(j["status"] in {"starting", "running"} for j in self.store.list("fixed_mask_job"))
+                    masks = sum(j["status"] in {"starting", "running"} for j in self.store.list("fixed_mask_job"))
+                    used = self.devices.used([t for t in trials if t["status"] in LIVE], masks)
                     queued = sorted((t for t in trials if t["status"] == "queued" and self.dependencies_ready(t)), key=lambda t: (-t["priority"], t["created_at"]))
                     limits = {}
                     waiting_campaigns = {t["campaign_id"] for t in queued if not t.get("race_id")}
                     for trial in queued:
-                        if free <= 0:
+                        if sum(used.values()) >= self.max_workers:
                             break
                         if self._over_campaign_limit(trial, trials, limits):
                             continue
@@ -1461,16 +1511,20 @@ class Workspace:
                             occupied = sum(t["status"] in LIVE and t.get("execution_grant_id") == grant["id"] for t in self.store.list_trials_in_status(LIVE))
                             if occupied >= grant["max_workers"]:
                                 continue
-                        # Within the researcher's worker maximum, memory decides; a race keeps its own memory admission.
-                        if not trial.get("race_id") and self.admission.fits(trial, [row for row in trials if row["status"] in LIVE], waiting_campaigns):
+                        # A free slot of a device it can use, then memory, decides; a race keeps its own memory admission.
+                        device, held = self.devices.place(trial, used)
+                        if not trial.get("race_id") and self.admission.fits(trial, [row for row in trials if row["status"] in LIVE], waiting_campaigns,
+                                                                            device=device, held=held):
+                            continue
+                        if device is None:
                             continue
                         try:
+                            self.devices.started(trial, device, used)
                             self._start_trial(trial)
                             self.admission.started(trial)
                             # Include this launch in resource admission for the next
                             # queued member of the same scheduler pass.
                             trial["status"] = "running"
-                            free -= 1
                         except Exception as exc:
                             trial.update(status="failed", reason=str(exc), finished_at=now())
                             self.store.put("trial", trial, "trial.failed")

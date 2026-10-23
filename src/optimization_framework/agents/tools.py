@@ -139,7 +139,7 @@ for historical grants and lightweight compatibility work.
 Use command_schema to inspect supported commands, then campaign_command with the exact current guidance revision
 and a stable request_key describing the intended operation. If a request timed out, inspect its receipt before retrying.
 Source-code availability is not effectiveness evidence.
-Speed is measured, not assumed. resource_inspect shows each task's runtime profile: evaluations per second at 1, 2, 4... workers,
+Speed is measured, not assumed. resource_inspect shows each task's runtime profile: evaluations per second at 1, 2, 4... workers on each device,
 device load, the platform's share of each step, storage and solver executions per evaluation, with flags for waste. Runs at or
 above the gate length are refused until the evaluator's current source has a profile on this host with every flag fixed or waived,
 except notes (note_flags, such as unsaturated: speed still rising at the worker ceiling), which hold nothing and need no waiver: go on
@@ -184,6 +184,9 @@ to leave out. Say that it is being written and that its progress shows on [Repor
 many minutes and its end wakes you. Then give the link to the draft in a line or two. If the writer asks about the focus, answer with
 report_answer when the request settles it, and otherwise pass the question to the researcher. Do not write the report in the chat.
 Use researcher_ask only for a real scientific choice, missing credential, or a campaign resource increase; expose a concrete question.
+Ask the researcher only for what the researcher can do, and say how: the words to send, the approval to grant, or the Inbox button
+(an issue's actions, such as starting or stopping runs that wait on an incomplete dependency), with your recommendation in suggestion.
+Never ask for a "platform owner" or for an interface you do not know exists; when nothing the researcher can do would help, say so in your reply instead.
 Never increase campaign budgets, fabricate validation, edit protected checks as a builder, or modify the running app.
 A request authorizes the work it names, within campaign allocations. Old discovery per-task quotas are historical;
 campaign compute limits, protected reserves and current guidance still apply. Model calls may be billed per call against the
@@ -258,7 +261,8 @@ def planner_instructions(workspace):
         "You plan; you start and stop nothing. resources.estimate gives a kind never measured an expected use (host memory of one run's "
         "process tree, and GPU memory if it uses a GPU), with how you reached it; a measured run replaces it. resources.plan sets how many of "
         "this campaign's runs go at once, and of each kind, below the maximum. runtime.profile measures speed at 1, 2, 4... workers on an "
-        "idle workspace: more runs at once than its recommended workers adds memory but little speed.\n"
+        "idle workspace, for each device on its own: more runs at once than its recommended workers adds memory but little speed. "
+        + workspace.devices.guidance() + " Only a run on the GPU is held for GPU memory.\n"
         "resource_inspect shows the host, each GPU's memory and load, the largest processes, and under admission: the kinds with what "
         "they are expected to use and why, each running run's own memory now and at its peak, the GPU's processes, and why queued runs "
         "wait. GPU memory per run is reported only by runs whose array library counts it; otherwise infer it: under CUDA MPS this "
@@ -372,7 +376,16 @@ TOOLS = {
     "lead_ask": ("Ask the lead agent something your work needs and the records do not answer, such as the reasoning behind a proposal or "
         "what the researcher meant. Its answer comes back to you as a notice; call yield_work(waiting) until then.",
         obj({"question": S}, ["question"])),
-    "researcher_ask": ("Save a concrete researcher question and stop for its answer only when required.", obj({"question": S, "reason": S}, ["question", "reason"])),
+    "researcher_ask": ("Save a concrete researcher question and stop for its answer only when required. The researcher sees question, "
+        "suggestion and options in the Inbox and answers in a click or a line. Ask only for what the researcher can do (the words to send, "
+        "the approval to grant, an Inbox button), never for a \"platform owner\" or an interface you do not know exists; when nothing the "
+        "researcher can do would help, say so in your reply instead.",
+        obj({"question": S, "reason": S,
+             "suggestion": {"type": "string", "minLength": 1, "maxLength": 2000,
+                            "description": "What you recommend the researcher do, as they would do it: the words to send, the approval to grant or the button to press"},
+             "options": {"type": "array", "items": {"type": "string", "minLength": 1, "maxLength": 300}, "maxItems": 4,
+                         "description": "Up to four answers the researcher can choose with one click, your recommendation first"}},
+            ["question", "reason", "suggestion"])),
     "report_write": ("Start the report writer on this campaign's saved evidence. It investigates, drafts, has the draft reviewed twice and edits it, "
         "in up to 14 model calls billed to the campaign's model budget. It returns at once with the job; the draft takes many minutes, its progress "
         "shows on the Reports page, and its end wakes you. One report is written at a time. reference_ids: the records the report starts from. "
@@ -487,7 +500,7 @@ class PiTools:
             if agent["role"] == "experiment_operator":
                 instructions += ("\nThe campaign's experiment rules, kept with experiments.rules (the researcher may change them on the Experiments "
                     "page), are in the state block at the top of each turn: how runs are named, where short runs end, how many may go at once, how "
-                    "runs are chosen and ordered, and how runs are presented."
+                    "runs are chosen and ordered, and how runs are presented.\n" + self.workspace.devices.guidance() +
                     "\nYou decide how runs are presented, for this problem: what the list of runs shows and what a run's entry shows, chosen "
                     "from what the page can draw (experiments.rules, presentation; command_schema lists the choices). Before the campaign's "
                     "first runs if it is not chosen, or when asked: ask the lead agent (lead_ask) what the researcher needs to see in a run of "

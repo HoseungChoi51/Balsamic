@@ -1,7 +1,8 @@
 /** The conversation with the lead in one thread: inherited turns (collapsed), saved turns, placeholders, the live turn, the composer with slash commands. */
 import { useEffect, useMemo, useReducer, useRef, useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
-import { useHypotheses, useMessages, useSummary, useThreads } from '../api/queries';
+import { useHypotheses, useMessages, useMonitor, useSummary, useThreads } from '../api/queries';
+import { NowPanel, nowLabel, useAgents } from './NowPanel';
 import type { Message } from '../api/types';
 import { send } from '../commands/bus';
 import { initial, reduce } from './stream';
@@ -27,6 +28,11 @@ export function ThreadChat({ campaignId, threadId, route, onDetach }: { campaign
   const [inheritedOpen, setInheritedOpen] = useState(false);
   const [editing, setEditing] = useState<Message | null>(null);
   const [help, setHelp] = useState(false);
+  const [now, setNow] = useState(false);
+  const agents = useAgents(campaignId);
+  const monitor = useMonitor(campaignId);
+  const pools = (monitor.data?.rows.compute as { pools?: Record<string, { taken: number }> } | undefined)?.pools;
+  const running = Object.values(pools || {}).reduce((n, pool) => n + pool.taken, 0);
   const scroller = useRef<HTMLDivElement>(null);
   const aliases = useMemo(() => Object.fromEntries((hypotheses.data?.aliases || []).map(a => [a.label, a.record_id])), [hypotheses.data]);
 
@@ -119,8 +125,12 @@ export function ThreadChat({ campaignId, threadId, route, onDetach }: { campaign
         <span className="grow" />
         <ContextChip threadId={threadId} onOpen={() => setDrawer(d => !d)} />
         {onDetach ? <button className="btn quiet small" onClick={onDetach} title="Open this chat in its own window; the page fills this one" data-testid="toggle-detach">Detach</button> : null}
-        {lead ? <Pill tone={busy ? 'agent' : 'clear'} title="The lead agent's state">{busy ? 'Lead working' : lead.status === 'waiting' ? 'Lead waiting' : `Lead ${lead.status}`}</Pill> : <Pill title="No agent team yet; your first message starts it">No lead yet</Pill>}
+        {lead ? null : <Pill title="No agent team yet; your first message starts it">No lead yet</Pill>}
       </div>
+      {lead ? <button className={`now-bar ${busy ? 'agent' : ''}`} aria-expanded={now} data-testid="now-toggle" onClick={() => setNow(open => !open)}
+        title="What is happening: which agent is at work, what the others last said, the runs and why queued ones wait">
+        <span className="dot" aria-hidden />{nowLabel(lead, busy, agents.data?.agents, running)}<span className="grow" /><span className="faint">{now ? 'hide ▴' : 'what is happening ▾'}</span></button> : null}
+      {now && lead ? <NowPanel campaignId={campaignId} threadId={threadId} route={route} /> : null}
       <div className="turns" ref={scroller}>
         {messages.isPending ? <Loading what="Loading the conversation" /> : messages.error ? <Failed error={messages.error} /> : null}
         {data?.inherited.length ? <div className="turn lab" data-testid="inherited">
@@ -135,7 +145,8 @@ export function ThreadChat({ campaignId, threadId, route, onDetach }: { campaign
         {data?.questions.length ? data.questions.map(q => isExtensionDialog(q)
           // A page agent's dialog shows on its desk; the lead's here, where the researcher is.
           ? (q.agent_id === lead?.id ? <ExtensionDialog key={q.id} question={q} campaignId={campaignId} version={campaign?.version} who="The lead" onDone={refresh} /> : null)
-          : <div key={q.id} className="turn lab" data-testid="question">The lead asks: {q.question}</div>) : null}
+          : <div key={q.id} className="turn lab" data-testid="question">The lead asks: {q.question}
+            {q.suggestion ? <div className="small"><strong>It suggests:</strong> {String(q.suggestion)} <a href={formatHash({ page: 'inbox' }, threadId)}>Answer in the Inbox</a></div> : null}</div>) : null}
         <LiveTurn live={stream.live} thread={threadId} />
         {merged ? <div className="turn lab">This branch was merged into another thread. <a href={formatHash({ page: route.page }, data!.merged_into)}>Open it</a>.</div> : null}
       </div>

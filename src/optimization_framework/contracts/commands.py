@@ -14,7 +14,7 @@ Operation = Literal["agent.activate", "agent.message", "agent.control", "agent.r
     "runtime.profile", "evaluator.equivalence", "trial.continue", "journal.compact", "journal.compaction_request", "approval.request", "workers.set", "experiments.rules", "trial.hide", "resources.plan", "resources.estimate",
     # The chat-centred workspace (docs/ui-workspace.md): threads, the problem note, graph interventions, autopilot, the library.
     "thread.fork", "thread.rename", "thread.park", "thread.unpark", "thread.pin", "thread.merge_draft", "thread.merge",
-    "hypothesis.allocate", "hypothesis.edit", "intervention.batch", "research.generate", "problem_note.revise", "problem_note.adopt", "note.ask", "note.resolve",
+    "hypothesis.allocate", "hypothesis.edit", "intervention.batch", "research.generate", "problem_note.revise", "problem_note.adopt", "problem_note.skip", "problem_note.unskip", "note.ask", "note.resolve",
     "autopilot.set", "library.publish", "library.apply", "campaign.stage_pin"]
 
 
@@ -185,8 +185,15 @@ class ContextEditInput(Contract):
 class IssueResolveInput(Contract):
     issue_id: str
     expected_revision: int = Field(ge=1)
-    choice: Literal["resolved", "deferred"]
+    choice: Literal["resolved", "deferred", "action"] = Field(description="resolved and deferred only mark the issue; action carries out one the issue offers")
+    action: str | None = Field(default=None, max_length=100, description="action: the id of one of the issue's actions")
     comment: str = Field(default="", max_length=20000)
+
+    @model_validator(mode="after")
+    def action_named(self):
+        if (self.choice == "action") != (self.action is not None):
+            raise ValueError("Name an action exactly when choosing action")
+        return self
 
 
 class ReuseInput(Contract):

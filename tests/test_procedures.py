@@ -53,8 +53,9 @@ def test_the_lead_is_given_a_short_contract_and_its_catalog_and_a_grant_its_old_
     assert "- report-brief: " in manifest["instructions"] and "procedure_read" in {tool["name"] for tool in manifest["tools"]}
     # The workflow texts are no longer in every turn.
     assert "Proposal fields." not in manifest["instructions"] and "journal.compaction_request" not in manifest["instructions"]
-    # An implementation grant's protected roles are told exactly what they were told before the plan (§2.8).
-    assert content_hash(GRANT_INSTRUCTIONS)[:16] == "135dbc831270efa3"
+    # An implementation grant's protected roles are told exactly what they were told before the plan (§2.8), with the lab's own
+    # later edits to that text (what to ask the researcher for, speed per device) and nothing from the harness work.
+    assert content_hash(GRANT_INSTRUCTIONS)[:16] == "420aad5a94f2718d"
     builder = team.workspace.pi.create_agent("demo", "implementation_builder", "Build", "builder_x", parent_id=team.lead["id"], grant_id="grant_x")
     built = submitted(team.workspace, team.workspace.pi.enqueue(builder, "builder_run", "Build it")["id"])
     grant = team.tools.manifest(builder["id"], built["id"])

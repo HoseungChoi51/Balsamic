@@ -120,6 +120,9 @@ class TrialInput(Model):
     max_steps: int = Field(default=512, ge=1, le=10000000)
     wall_seconds: float = Field(default=60, gt=0, le=86400)
     numerical_threads: int = Field(default=1, ge=1, le=4, strict=True)
+    device: Literal["cpu", "cuda"] | None = Field(default=None, description=(
+        "Where the evaluator computes. Omit to let the scheduler place the run when it starts: on the GPU when its evaluator "
+        "can use one and a GPU slot is free, else on CPU. A run's race or confirmation protocol keeps one device."))
     race_id: str | None = None
     race_phase: Literal["preflight", "calibration", "development", "confirmation", "validation"] | None = None
     schedule_steps: int | None = Field(default=None, ge=1, le=10000000)
@@ -133,7 +136,9 @@ class TrialInput(Model):
     completion: dict[str, Any] | None = None
     initial_assets: list[str] = Field(default_factory=list)
     reuse_decision_ids: list[str] = Field(default_factory=list)
-    dependencies: list[str] = Field(default_factory=list)
+    dependencies: list[str] = Field(default_factory=list, description=(
+        "Runs that must complete scientifically first, because this run uses what they produce. A run stopped at its time "
+        "limit is not complete, so do not use dependencies only to order runs: runs on one device wait for its slots by themselves."))
     diagnostics: list[DiagnosticSchedule] = Field(default_factory=list, max_length=20)
     recovery: RecoveryPolicy = Field(default_factory=RecoveryPolicy)
 
