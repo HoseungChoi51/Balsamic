@@ -1,6 +1,8 @@
 """The platform's own cost per evaluation stays within a few candidates, whatever the problem."""
 import json
 
+import pytest
+
 from optimization_framework.execution import worker
 from optimization_framework.execution.worker import read_journal, run
 from test_framework_worker import prepare
@@ -50,6 +52,7 @@ def test_bytes_written_per_evaluation_stay_within_a_few_candidates(tmp_path, mon
     assert json.loads((tmp_path / "progress.json").read_text())["archive"] == result["archive"]
 
 
+@pytest.mark.meent
 def test_a_recorded_design_is_found_without_reading_the_others_whole(tmp_path, monkeypatch):
     from types import SimpleNamespace
     from optimization_framework.evaluation import jobs
@@ -109,6 +112,7 @@ def test_publishing_an_output_reads_its_dependencies_not_the_catalog(tmp_path, m
         raise AssertionError("An output with an unpublished dependency was accepted")
 
 
+@pytest.mark.meent
 def test_a_long_binary_design_costs_a_fraction_of_its_list_in_the_journals(tmp_path):
     prepare(tmp_path, problem_id="meent_grating", algorithm="random", max_steps=8, config={"n_cells": 1024, "fourier_order": 1})
     assert run(tmp_path)["step"] == 8

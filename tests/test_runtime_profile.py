@@ -104,6 +104,7 @@ def campaign(workspace):
     return created, workspace.current_tasks(created["id"])[0]
 
 
+@pytest.mark.meent
 def test_a_profile_runs_probes_level_by_level_and_gates_long_runs(workspace, monkeypatch):
     monkeypatch.setenv("GRATING_RUNTIME_GATE_SECONDS", "100")
     created, task = campaign(workspace)
@@ -183,6 +184,7 @@ def measured(workspace, task, *raised, verdict=None):
     return profile
 
 
+@pytest.mark.meent
 def test_a_note_holds_no_run_even_on_a_profile_judged_before_it_was_one(workspace, monkeypatch):
     monkeypatch.setenv("GRATING_RUNTIME_GATE_SECONDS", "100")
     created, task = campaign(workspace)

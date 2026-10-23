@@ -6,13 +6,16 @@ from pathlib import Path
 
 import numpy as np
 import pytest
-import torch
+
 from threadpoolctl import threadpool_limits
+
+torch = pytest.importorskip("torch", reason="needs PyTorch, which scripts/install-meent installs; MEENT is optional")
 
 from dqn_meent.config import PhysicsConfig
 from dqn_meent.physics import ForwardSolver
 from optimization_framework.optimizers.binary import make_optimizer
 
+pytestmark = pytest.mark.meent   # what scripts/install-meent installs; skipped where it is not installed
 
 REFERENCE = json.loads((Path(__file__).parent / "fixtures/consolidation-numerical-reference.json").read_text())
 # The references were captured with the PyPI MEENT release's NumPy solver. The lab's MEENT, the meent-private fork on Torch,

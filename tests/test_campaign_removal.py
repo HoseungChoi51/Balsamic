@@ -90,6 +90,7 @@ def rows_of(workspace, campaign_id):
     return counts
 
 
+@pytest.mark.meent
 def test_removal_deletes_everything_of_the_campaign_and_nothing_of_another(workspace):
     gone, trial, _ = campaign_with_a_run(workspace, "To be removed", identity="campaign_gone")
     stays, other, _ = campaign_with_a_run(workspace, "To stay")
@@ -134,6 +135,7 @@ def test_removal_deletes_everything_of_the_campaign_and_nothing_of_another(works
     assert workspace.store.get(gone, "campaign")["name"] == "Second life" and len(workspace.current_tasks(gone)) == 1
 
 
+@pytest.mark.meent
 def test_a_summary_or_most_records_stay_when_asked_for(workspace):
     first, trial, _ = campaign_with_a_run(workspace, "Summary only", steps=90)
     recorded = workspace.metrics(trial["id"], fields=("best_objective", "evaluations"))
@@ -177,6 +179,7 @@ def test_a_summary_or_most_records_stay_when_asked_for(workspace):
     assert [json.loads(line)["keep"] for line in (workspace.directory / "removed" / "index.jsonl").read_text().splitlines()] == ["summary", "records"]
 
 
+@pytest.mark.meent
 def test_a_campaign_with_work_in_progress_or_evidence_in_use_is_not_removed(workspace):
     source, trial, finding = campaign_with_a_run(workspace, "Source of a finding")
     user, _, _ = campaign_with_a_run(workspace, "Reader of the finding")
@@ -208,6 +211,7 @@ def test_a_campaign_with_work_in_progress_or_evidence_in_use_is_not_removed(work
     assert workspace.store.list("campaign") == [] and workspace.store.list("asset") == [] and not list((workspace.directory / "trials").iterdir())
 
 
+@pytest.mark.meent
 def test_files_that_could_not_be_cleared_are_cleared_when_the_service_starts_again(workspace):
     cid, trial, _ = campaign_with_a_run(workspace, "Interrupted removal")
     command(workspace, cid, "start-team", "agent.activate", {})

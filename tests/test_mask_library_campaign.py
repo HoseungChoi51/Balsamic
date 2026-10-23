@@ -28,6 +28,7 @@ def observed(proposal, instance, value):
         objectives={instance.primary_objective.name: value}, evaluator_identity=instance.evaluation_identity)
 
 
+@pytest.mark.meent
 @pytest.mark.parametrize("method", ["motif_surgery", "nested_fourier", "phenotype_de"])
 def test_campaign_mask_order_and_checkpoint_replay(method):
     instance = problem()
@@ -45,6 +46,7 @@ def test_campaign_mask_order_and_checkpoint_replay(method):
     assert resumed.propose()[0].model_dump() == expected.model_dump()
 
 
+@pytest.mark.meent
 @pytest.mark.parametrize("method", ["motif_surgery", "nested_fourier", "phenotype_de"])
 def test_full_size_mask_is_accepted_by_meent_adapter(method):
     instance = problem(256, 128)

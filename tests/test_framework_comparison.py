@@ -1,10 +1,13 @@
 """General comparisons retain raw minimization scores and incomplete runs."""
+import pytest
+
 from optimization_framework.analysis.general import report
 from optimization_framework.contracts.requests import CampaignInput, TaskInput, TrialInput
 from optimization_framework.execution.service import Workspace
 from optimization_framework.execution.worker import run
 
 
+@pytest.mark.meent
 def test_general_report_separates_problem_identities_and_clean_incomplete_exits(tmp_path):
     workspace = Workspace(tmp_path)
     campaign = workspace.create_campaign(CampaignInput(name="Two problems", compute_budget_seconds=200, validation_reserve_seconds=0,

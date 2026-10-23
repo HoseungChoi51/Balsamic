@@ -42,6 +42,7 @@ def test_cli_reports_a_stale_export_delivery_instead_of_waiting_forever(tmp_path
         assert not list(workspace.directory.glob("bundles/*.zip"))
 
 
+@pytest.mark.meent
 def test_local_cli_records_actual_numerics_and_projects_legacy_outputs(tmp_path, monkeypatch):
     monkeypatch.setenv("GRATING_LLM_DISABLED", "true")
     output = tmp_path / "baseline"
@@ -87,6 +88,7 @@ def test_cli_dqn_and_policy_reevaluation_use_separate_costed_jobs(tmp_path, monk
     assert not store.list("research_run")
 
 
+@pytest.mark.meent
 def test_old_standalone_run_is_imported_as_history_before_new_measurements(tmp_path, monkeypatch):
     import numpy as np
     from optimization_framework.storage.artifacts import atomic_json

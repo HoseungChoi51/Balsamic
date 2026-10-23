@@ -57,6 +57,7 @@ def test_rosenbrock_and_explicit_constraint_validation():
     assert CandidateSchema(representation="discrete", dimensions=2, values=[-2, 3, 7]).canonicalize([7, -2]) == [7, -2]
 
 
+@pytest.mark.meent
 def test_meent_fidelity_does_not_manufacture_new_scientific_instance():
     from dqn_meent.config import PhysicsConfig
     from dqn_meent.physics import ForwardSolver

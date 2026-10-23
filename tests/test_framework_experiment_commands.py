@@ -170,6 +170,7 @@ def test_http_create_control_and_study_keep_original_replies_after_newer_edits(t
     ("trial.validate", {"orders": [1, 2], "max_designs": 1, "wall_seconds": 10}),
     ("validation.run", {"recipe_id": "fourier_convergence:v1", "parameters": {"orders": [1, 2], "tolerance": .005}, "wall_seconds": 10}),
 ])
+@pytest.mark.meent
 def test_validation_commands_pin_captured_compiler_and_replay_original_subjects(tmp_path, monkeypatch, operation, payload):
     from optimization_framework.execution.worker import run
     from optimization_framework.evaluation import recipes

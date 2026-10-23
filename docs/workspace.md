@@ -12,7 +12,7 @@ Grating Lab helps a researcher choose useful experiments and improve optimizatio
 The local pilot uses Linux, Python 3.12 or 3.13, `uv`, and Node.js/npm. Run from the repository root:
 
 ```bash
-uv sync --frozen --all-extras
+uv sync --frozen --all-extras --no-extra cpu
 cd frontend
 npm ci
 npm run build

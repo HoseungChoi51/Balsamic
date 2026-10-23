@@ -101,6 +101,7 @@ def test_invalid_reference_binding_cannot_freeze_or_allocate(tmp_path):
     assert workspace.allocated_seconds(campaign["id"]) == 0
 
 
+@pytest.mark.meent
 def test_production_freezes_full_roster_and_priorities_without_running_a_research_campaign(tmp_path):
     from dqn_meent.replication import profile_config
     from dqn_meent.study_rules import conditional_design

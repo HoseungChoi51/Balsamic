@@ -13,6 +13,8 @@ from dqn_meent.recorded import execute
 from dqn_meent.tracking import JournalFollower, RunLogger
 from dqn_meent.training import train
 
+pytestmark = pytest.mark.meent   # what scripts/install-meent installs; skipped where it is not installed
+
 BEST = "efficiency/best_discovered_percent"
 
 

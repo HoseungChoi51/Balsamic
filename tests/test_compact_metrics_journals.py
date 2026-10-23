@@ -3,9 +3,13 @@ import importlib.util
 import json
 from pathlib import Path
 
+import pytest
+
 from optimization_framework.execution.worker import read_journal, run
 from optimization_framework.storage.artifacts import atomic_json
 from test_framework_worker import prepare
+
+pytestmark = pytest.mark.meent   # what scripts/install-meent installs; skipped where it is not installed
 
 spec = importlib.util.spec_from_file_location("compact_metrics_journals", Path(__file__).parents[1] / "scripts/compact_metrics_journals.py")
 tool = importlib.util.module_from_spec(spec)

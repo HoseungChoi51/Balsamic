@@ -65,6 +65,7 @@ class FakeAdapter:
         return ReviewResult(passed=True, criteria=payload["spec"]["acceptance_criteria"], findings=["Checked each criterion against source and report"])
 
 
+@pytest.mark.meent
 def test_submitted_package_charges_execution_separately_from_model_wait(tmp_path):
     class SlowReviewAdapter(FakeAdapter):
         def call(self, *args, **kwargs):
@@ -96,6 +97,7 @@ def test_submitted_package_failure_returns_to_coding_workspace_without_rebuild(t
     assert result["attempts"][0]["report"]["passed"] is False
 
 
+@pytest.mark.meent
 def test_pre_review_transport_failure_resumes_same_protected_report(tmp_path):
     class LostReviewAdapter(FakeAdapter):
         first = True
@@ -141,6 +143,7 @@ def test_service_auth_idempotency_and_capabilities(tmp_path):
         assert not result["usage"]
 
 
+@pytest.mark.meent
 def test_full_repair_validation_and_immutable_artifact(tmp_path):
     class RepairAdapter(FakeAdapter):
         sources = [REFERENCE.replace("efficiency > self.score", "True"), REFERENCE]
@@ -209,6 +212,7 @@ def test_package_isolation_and_checkpoint(tmp_path):
         optimizer.close()
 
 
+@pytest.mark.meent
 def test_validation_profile_change_requires_revalidation(tmp_path, monkeypatch):
     service = ImplementationService(tmp_path, adapter_factory=FakeAdapter)
     result = service.run_job(service.submit(request(package=package().model_dump()))["id"])
@@ -277,6 +281,7 @@ def test_cancel_during_provider_call_retains_uncertain_usage(tmp_path):
     assert not service.store.list("implementation_version")
 
 
+@pytest.mark.meent
 def test_revalidation_retains_version_and_history_without_rebuilding(tmp_path):
     service = ImplementationService(tmp_path, adapter_factory=FakeAdapter)
     first = service.run_job(service.submit(request(package=package().model_dump()))["id"])
@@ -288,6 +293,7 @@ def test_revalidation_retains_version_and_history_without_rebuilding(tmp_path):
     assert version["validation_history"][0]["id"] != version["validation_report"]["id"]
 
 
+@pytest.mark.meent
 def test_service_designs_and_freezes_checks_before_building(tmp_path):
     from dqn_meent.implementations.service import ValidationPlan
     roles = []

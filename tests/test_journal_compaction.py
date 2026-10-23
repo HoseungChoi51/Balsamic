@@ -13,6 +13,8 @@ from optimization_framework.execution.service import ACTIVE, Workspace, alive
 from optimization_framework.execution.worker import read_journal, run
 from test_framework_worker import prepare
 
+pytestmark = pytest.mark.meent   # what scripts/install-meent installs; skipped where it is not installed
+
 
 def numbers(rows):
     return [{key: value for key, value in row.items() if key != "candidate"} for row in rows]

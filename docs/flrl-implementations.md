@@ -87,8 +87,8 @@ requires version `0.1.0`; if that version is absent, method readiness reports
 the missing installation rather than treating a proposal as runnable.
 
 The library is published at [kc-ml2/mask-optimizers](https://github.com/kc-ml2/mask-optimizers),
-tag `v0.1.0` (the same source commit). It is the optional `masks` extra, so
-`uv sync --frozen --all-extras` installs the locked commit. The adapter registers
+tag `v0.1.0` (the same source commit). It is the optional `masks` extra, which
+`scripts/install-meent` installs at the locked commit. The adapter registers
 these methods as an optimizer plug-in; see [optimizer plug-ins](optimizer-plugins.md)
 for the design and for releasing a new library version.
 

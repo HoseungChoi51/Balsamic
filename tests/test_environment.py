@@ -1,8 +1,11 @@
 import numpy as np
 import pytest
 
+pytest.importorskip("gymnasium", reason="needs gymnasium, which scripts/install-meent installs; MEENT is optional")
 from dqn_meent.config import PhysicsConfig
 from dqn_meent.environment import MetagratingEnv
+
+pytestmark = pytest.mark.meent   # what scripts/install-meent installs; skipped where it is not installed
 
 
 @pytest.fixture

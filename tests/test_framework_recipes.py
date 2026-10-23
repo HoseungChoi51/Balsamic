@@ -21,6 +21,7 @@ def prepare(path, recipe_id, parameters):
     return spec
 
 
+@pytest.mark.meent
 def test_convergence_uses_common_runner_and_restores_per_fidelity_evaluators(tmp_path):
     prepare(tmp_path, "fourier_convergence:v1", {"orders": [1, 2], "tolerance": .005})
     first = ExperimentWorker(tmp_path)
@@ -45,6 +46,7 @@ def test_high_order_support_is_declared_before_costly_execution():
         compile_recipe(instance, "fourier_convergence:v1", {"orders": [320, 481], "tolerance": .001}, [[0, 1, 0, 1]])
 
 
+@pytest.mark.meent
 def test_field_artifact_uses_verified_blob_and_one_solver_charge(tmp_path):
     prepare(tmp_path, "fields:v1", {"nx": 16, "nz_pattern": 4, "air_nm": 100, "glass_nm": 50})
     result = run(tmp_path)
@@ -62,6 +64,7 @@ def test_field_artifact_uses_verified_blob_and_one_solver_charge(tmp_path):
     assert [item["kind"] for item in outputs["outputs"]] == ["validation_evidence"]
 
 
+@pytest.mark.meent
 def test_sensitivity_preserves_distinct_scientific_identities(tmp_path):
     spec = prepare(tmp_path, "sensitivity:v1", {"parameter": "thickness_nm", "values": [300, 325, 350]})
     assert len({case["problem"]["scientific_identity"] for case in spec["recipe"]["cases"]}) == 3

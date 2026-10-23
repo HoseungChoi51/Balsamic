@@ -21,7 +21,7 @@ def prepare(directory, *, problem_id="bounded_continuous", algorithm="coordinate
     return spec
 
 
-@pytest.mark.parametrize("problem,algorithm", [("bounded_continuous", "coordinate"), ("meent_grating", "hillclimb")])
+@pytest.mark.parametrize("problem,algorithm", [("bounded_continuous", "coordinate"), pytest.param("meent_grating", "hillclimb", marks=pytest.mark.meent)])
 def test_common_lifecycle_and_cooperative_continuation(tmp_path, problem, algorithm):
     full, split = tmp_path / "full", tmp_path / "split"
     prepare(full, problem_id=problem, algorithm=algorithm)
@@ -40,6 +40,7 @@ def test_common_lifecycle_and_cooperative_continuation(tmp_path, problem, algori
     assert second["elapsed_seconds"] > first["elapsed_seconds"]
 
 
+@pytest.mark.meent
 def test_metrics_journal_gives_the_best_design_only_where_it_changed(tmp_path):
     prepare(tmp_path, problem_id="meent_grating", algorithm="hillclimb")
     result = run(tmp_path)
@@ -136,6 +137,7 @@ def test_nonfinite_proposal_retains_invalid_request_evidence(tmp_path):
     assert "invalid_representation" in observation["candidate"]
 
 
+@pytest.mark.meent
 def test_result_gives_every_objective_of_the_best_design(tmp_path):
     prepare(tmp_path, problem_id="meent_grating", algorithm="random", max_steps=6)
     result = run(tmp_path)
@@ -144,6 +146,7 @@ def test_result_gives_every_objective_of_the_best_design(tmp_path):
     assert result["best_objectives"][result["objective_definition"]["name"]] == result["best_objective"]
 
 
+@pytest.mark.meent
 def test_journals_pack_a_long_binary_design_and_read_either_form(tmp_path):
     from optimization_framework.execution.metrics import PACK_FROM, full_row, scalar_rows
     prepare(tmp_path, problem_id="meent_grating", algorithm="random", max_steps=4, config={"n_cells": 160, "fourier_order": 1})

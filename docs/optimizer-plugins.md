@@ -241,7 +241,7 @@ editing the captured adapter changes the scientific digest.
 | Resolved commit `9b38b8cd…` | `uv.lock` | A re-pointed tag; makes `uv sync --frozen` exact on every machine |
 | `LIBRARY_VERSION` check in adapter and checkpoints | `mask_library_adapter.py` | Resuming a checkpoint written by a different library version |
 
-The extra keeps the library **optional**. `uv sync --frozen --all-extras` installs it, and a core install without
+The extra keeps the library **optional**. `scripts/install-meent` installs it with MEENT, and a core install without
 `masks` still works and reports the methods as unavailable.
 
 ## Working on a library
@@ -251,8 +251,8 @@ The extra keeps the library **optional**. `uv sync --frozen --all-extras` instal
 1. In `mask-optimizers`: make the change, run its tests, update its validation report if behavior changed, bump
    `version` and `__version__`, commit, `git tag -a v0.2.0 -m "..."`, `git push origin main v0.2.0`.
 2. In Balsamic: change the tag in `[tool.uv.sources]`, the pin in the `masks` extra and `LIBRARY_VERSION`, then run
-   `uv lock && uv sync --frozen --all-extras` and the test suite. Commit `pyproject.toml`, `uv.lock` and the adapter
-   together.
+   `uv lock && uv sync --frozen --all-extras --no-extra cpu` and the test suite (`cpu` and `cuda` choose the PyTorch build;
+   only one can be installed). Commit `pyproject.toml`, `uv.lock` and the adapter together.
 3. Old checkpoints keep their recorded version. Start new trials for the new release instead of resuming old ones.
 
 **Co-developing** before a release: `uv pip install -e ../mask-optimizers` points the environment at your
@@ -266,7 +266,7 @@ library, because other machines do not have your checkout.
 3. In the project, add an adapter module that imports the library **lazily** and a plug-in class with the four
    contract methods.
 4. Declare the entry point and an optional extra; for a git dependency, add a `[tool.uv.sources]` entry.
-5. Run `uv lock && uv sync --all-extras`, confirm the methods appear in `registry.methods()`, and add tests for
+5. Run `uv lock && uv sync --all-extras --no-extra cpu`, confirm the methods appear in `registry.methods()`, and add tests for
    translation, validation, checkpoint replay and one real evaluation.
 6. Add a row to the README's optional-components table.
 

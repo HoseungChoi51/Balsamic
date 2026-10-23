@@ -75,6 +75,7 @@ def candidates(workspace, trial_id):
     return [row["candidate"] for row in read_journal(workspace.job_dir(trial_id) / "observations.jsonl")]
 
 
+@pytest.mark.meent
 def test_a_finished_run_goes_on_as_a_new_experiment_and_a_changed_source_needs_equivalence_first(workspace):
     created = workspace.create_campaign(CampaignInput(name="Continuation", compute_budget_seconds=600, validation_reserve_seconds=30, llm_budget_usd=0,
         tasks=[TaskInput(name="Small grating", physics={"n_cells": 6, "fourier_order": 1})]))
@@ -118,6 +119,7 @@ def test_a_finished_run_goes_on_as_a_new_experiment_and_a_changed_source_needs_e
         workspace.continue_trial(TrialContinueInput(trial_id=check["replay_trial_id"], wall_seconds=30))
 
 
+@pytest.mark.meent
 def test_a_comparison_reads_a_continued_run_as_one_and_compares_the_runs_it_is_given(workspace):
     from optimization_framework.analysis.general import report
     created = workspace.create_campaign(CampaignInput(name="Compared", compute_budget_seconds=600, validation_reserve_seconds=30, llm_budget_usd=0,

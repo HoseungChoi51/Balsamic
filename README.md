@@ -20,12 +20,13 @@ Linux, Python 3.12 or 3.13, `uv`, Node.js 22.
 
 ```bash
 uv sync --extra dev
-scripts/install-meent           # MEENT (the meent-private fork, Torch on CPU or CUDA), PyTorch and mask-optimizers (see below)
 (cd agent-harness && npm ci && npm run build)
 (cd frontend && npm ci && npm run build)
 scripts/start                   # the real Pi harness with your model provider (see "Models and keys")
 scripts/start --fake            # a scripted fake lead answers: no model, no keys needed
 ```
+
+That is all Balsamic needs. MEENT, the solver of the grating problems, is optional: see [MEENT (optional)](#meent-optional).
 
 `scripts/start` brings up the three services (the workspace on 8765, the implementation service on 8767, the harness
 on 8768), adds a tailnet-only HTTPS route to the workspace when Tailscale is installed (see "Remote access"), and
@@ -54,6 +55,32 @@ Underneath, `scripts/start` calls `scripts/dev-stack up [--real]`, which starts 
 (`uv run optimization-lab --directory DIR --port 8765 --workers 2`,
 `uv run optimization-implementations --directory DIR --port 8767`, `npm --prefix agent-harness start`) or from a
 launcher configuration with `scripts/labctl` ([server control](docs/server-control.md)).
+
+## MEENT (optional)
+
+MEENT is the RCWA solver of the two grating problems (`meent_grating`, the 1D metagrating deflector, and
+`meent_2d_dual_polarization_deflector`); the mask methods (`motif_surgery`, `nested_fourier`, `phenotype_de`) and the
+learning-based optimizers are installed with it. Everything else, `bounded_continuous` and the problems you import
+included, runs without it. Where it is missing, a grating task's runs are refused with what to install, and every page
+says so.
+
+```bash
+scripts/install-meent           # PyTorch's CUDA build when nvidia-smi finds a GPU, else its CPU-only build
+scripts/install-meent --cpu     # or choose: --cpu (about 0.2 GB to download) or --cuda (about 2.3 GB)
+```
+
+Then restart (`scripts/stop --keep-tailnet && scripts/start`). The script installs the `meent`, `learners` and `masks`
+extras with the chosen PyTorch build (the `cpu` or `cuda` extra) and checks that both solvers start, the 2D one on each
+device the build has.
+
+- Access: MEENT is the meent-private fork, a private repository. Ask its owner for read access and let git sign in to
+  GitHub (for example `gh auth login && gh auth setup-git`); the script checks access before it installs anything.
+- GPU: the CUDA build needs an NVIDIA driver that supports CUDA 13 (`nvidia-smi` shows the highest version the driver
+  supports). On the CPU build the 2D solver runs on CPU: about 2.2 s per FLRL design on one core, 0.3 s on an RTX 3060.
+- Keeping it: a plain `uv sync` removes what it was not asked for, MEENT included; use `uv sync --inexact`, or run
+  `scripts/install-meent` again afterwards. `uv sync --all-extras` needs `--no-extra cpu` (or `cuda`): the two PyTorch
+  builds cannot both be installed.
+- Tests that need MEENT are marked `meent` and skipped, with the reason, where it is not installed.
 
 ## How to use it
 
@@ -229,9 +256,9 @@ localhost and use their token files.
 | Pi agent harness | The lead and its assistants, `scripts/pi-dev` | `(cd agent-harness && npm ci && npm run build)`; a signed-in provider ("Models and keys") |
 | bubblewrap (`bwrap`) | Executing generated and custom optimizer packages | Distribution package; Ubuntu also needs `deploy/grating-bwrap.apparmor` ([Pi runtime](docs/pi-agent-harness.md#host-prerequisite-found-during-rollout)) |
 | Docker | Full development workspaces with a browser IDE | `docker build -t grating-implementation-workspace:pi-0.87.1 deploy/implementation-workspace`, then set `development_enabled` |
-| MEENT: the meent-private fork, branch `feature/cuda-acceleration` | Both grating problems. The fork is Torch-only: the 1D solver runs it on CPU, the 2D solver on the GPU or on CPU, wherever the scheduler places each run (about 0.3 s per FLRL design on an RTX 3060, 2.2 s on one CPU core) | The `meent` extra, which `pyproject.toml` points at the fork (a private repository: installing needs read access) and `uv.lock` pins to a commit; `scripts/install-meent --update` moves it to the branch tip. The PyPI release with the same version number is refused. `scripts/start` runs one GPU slot when PyTorch sees a CUDA device, beside one CPU slot per physical core less one for the system and less the GPU slot (`BALSAMIC_GPU_WORKERS` and `BALSAMIC_WORKERS` change them) |
+| MEENT: the meent-private fork, branch `feature/cuda-acceleration` | Both grating problems. The fork is Torch-only: the 1D solver runs it on CPU, the 2D solver on the GPU or on CPU, wherever the scheduler places each run (about 0.3 s per FLRL design on an RTX 3060, 2.2 s on one CPU core) | `scripts/install-meent`; see [MEENT (optional)](#meent-optional). The `meent` extra, which `pyproject.toml` points at the fork (a private repository) and `uv.lock` pins to a commit; `scripts/install-meent --update` moves it to the branch tip. The PyPI release with the same version number is refused. `scripts/start` runs one GPU slot when PyTorch sees a CUDA device, beside one CPU slot per physical core less one for the system and less the GPU slot (`BALSAMIC_GPU_WORKERS` and `BALSAMIC_WORKERS` change them) |
 | `mask-optimizers` 0.1.0 | The `motif_surgery`, `nested_fourier` and `phenotype_de` methods | The `masks` extra from [kc-ml2/mask-optimizers](https://github.com/kc-ml2/mask-optimizers), which `scripts/install-meent` installs; see [optimizer plug-ins](docs/optimizer-plugins.md) |
-| `torch`, `gymnasium` | The learning-based optimizers, the original DQN loop, and MEENT | The `learners` extra; `scripts/install-meent` installs it with the `meent` extra |
+| `torch`, `gymnasium` | The learning-based optimizers, the original DQN loop, and MEENT | The `learners` extra, with PyTorch's CUDA build from PyPI or its CPU-only build (the `cpu` extra); `scripts/install-meent` installs it with the `meent` extra |
 | Paper and FLRL references | `/references` inside development workspaces | `paper_reference` in the launcher JSON or `GRATING_PAPER_REFERENCE`; `jLabKAIST/flrl` beside this repository or `GRATING_FLRL_REFERENCE` |
 | Chrome or Playwright Chromium | Browser tests | `npx playwright install chromium` |
 
@@ -251,7 +278,8 @@ GRATING_LLM_DISABLED=true uv run pytest -q          # the core and tests/balsami
 (cd frontend && npx tsc -b && npx playwright test)  # the workspace, against a mocked backend
 ```
 
-`tests/fake_harness.py` is a scripted stand-in for the Pi harness with a session tree; `scripts/start --fake` (and
+Tests that need MEENT carry the `meent` marker and are skipped where it is not installed; `uv run pytest -m meent` runs
+only them. `tests/fake_harness.py` is a scripted stand-in for the Pi harness with a session tree; `scripts/start --fake` (and
 `scripts/dev-stack up` without `--real`) uses it.
 
 ## Code map

@@ -416,7 +416,8 @@ interventions per kind and the override rate (which controls stay?); the median 
 ## Running it
 
 ```bash
-uv sync --extra dev --extra meent
+uv sync --extra dev
+scripts/install-meent           # optional: MEENT for the grating problems (README, "MEENT (optional)")
 (cd agent-harness && npm ci && npm run build)
 (cd frontend && npm ci && npm run build)
 uv run optimization-implementations --directory runs/dev/library --port 8767      # the implementation service

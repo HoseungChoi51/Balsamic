@@ -1,10 +1,13 @@
 import csv
 
 import numpy as np
+import pytest
 
 from dqn_meent.config import ExperimentConfig, PhysicsConfig
 from dqn_meent.experiments import baseline
 from optimization_framework.execution.worker import read_journal
+
+pytestmark = pytest.mark.meent   # what scripts/install-meent installs; skipped where it is not installed
 
 
 def test_recorded_prefix_matches_standalone_shorter_search(tmp_path):

@@ -96,6 +96,7 @@ def test_worker_cost_and_artifact_ingestion_survives_repeat_reconciliation(tmp_p
     assert len(catalog.store.list("execution_attempt")) == 1
 
 
+@pytest.mark.meent
 def test_refinement_requires_explicit_asset_use_and_attributes_its_source_work(tmp_path):
     from optimization_framework.contracts.requests import CampaignInput, TaskInput, TrialInput
     from optimization_framework.execution.service import Workspace

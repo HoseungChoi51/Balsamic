@@ -4,6 +4,8 @@ import pytest
 from optimization_framework.contracts.requests import CampaignInput, TaskInput, TrialInput, StudyInput, ControlInput
 from optimization_framework.execution.service import Workspace
 
+pytestmark = pytest.mark.meent   # what scripts/install-meent installs; skipped where it is not installed
+
 
 def prepare(tmp_path):
     workspace = Workspace(tmp_path)

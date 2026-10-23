@@ -125,6 +125,7 @@ def test_malformed_plugins_fail_loudly(module, entries, message):
         registry.methods()
 
 
+@pytest.mark.meent
 def test_frozen_execution_records_plugin_source_and_library_version(tmp_path):
     original = tmp_path / "original"
     original.mkdir()
