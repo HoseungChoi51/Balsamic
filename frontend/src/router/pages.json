@@ -20,7 +20,8 @@
     "library": {"title": "Library", "description": "strategies that won earlier campaigns of the same problem, ready to apply"},
     "branches": {"title": "Branches", "description": "the map of this campaign's conversation branches with their summaries"},
     "chat": {"title": "Chat", "description": ""},
-    "new": {"title": "New campaign", "description": "start a campaign"}
+    "new": {"title": "New campaign", "description": "start a campaign"},
+    "home": {"title": "Home", "description": "the landing page: the logo, the name, the version and what Balsamic is"}
   },
   "agents": {"discussion_moderator": "hypotheses", "experiment_operator": "experiments", "implementation_lead": "hypotheses/implementations", "resource_planner": "monitor/resources"},
   "commands": {

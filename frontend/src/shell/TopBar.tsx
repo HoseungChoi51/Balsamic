@@ -10,7 +10,7 @@ export function TopBar({ route, campaigns, campaignId, monitor, workspace, onMon
   const pill = monitor?.pill;
   return (
     <header className="topbar">
-      <span className="brand">Balsamic</span>
+      <a className="brand" href="#home" title="Home" data-testid="brand">Balsamic</a>
       <select aria-label="Campaign" value={campaignId || ''} data-testid="campaign-switch" onChange={e => {
         const value = e.target.value;
         if (value === '__new') navigate('#new');

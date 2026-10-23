@@ -1,7 +1,8 @@
-/** Resolves the route to a campaign and a thread, keeps the SSE connection and telemetry context, and renders the shell. */
+/** Resolves the route to a campaign and a thread (the bare address is the home page), keeps the SSE connection and telemetry context, and renders the shell. */
 import { useEffect, useSyncExternalStore } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { Shell } from './shell/Shell';
+import { HomePage } from './home/HomePage';
 import { parseHash, formatHash, lastThread, navigate, rememberThread } from './router/routes';
 import { useCampaigns, useThread, useWorkspace } from './api/queries';
 import { connectEvents } from './api/sse';
@@ -25,7 +26,7 @@ export default function App() {
   useEffect(() => { if (hash && route.raw !== hash && !route.thread) { const canonical = route.raw; if (canonical !== hash) navigate(canonical); } }, [hash, route.raw, route.thread]);
   // A thread-less address opens the last thread, or the newest campaign's main thread.
   useEffect(() => {
-    if (route.page === 'new' || route.thread || !campaigns.data) return;
+    if (route.page === 'new' || route.page === 'home' || route.thread || !campaigns.data) return;
     const remembered = lastThread();
     const rows = campaigns.data;
     const target = (remembered && rows.some(c => c.active_thread_id === remembered || remembered.endsWith('_' + c.id)) ? remembered : null) || rows.at(-1)?.active_thread_id || null;
@@ -41,6 +42,7 @@ export default function App() {
     track('page.open', { page: route.page, sub: route.sub, has_id: !!route.id });
   }, [campaignId, route.thread, route.page, route.sub, route.id]);
 
+  if (route.page === 'home') return <HomePage />;
   return (
     <SelectionProvider route={route}>
       <Shell route={route} campaignId={route.page === 'new' ? null : campaignId} threadId={route.page === 'new' ? null : route.thread} />

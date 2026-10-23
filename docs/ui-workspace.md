@@ -60,7 +60,9 @@ so `scripts/labctl` and `deploy/*.json` keep working.
 | `branches` | | |
 
 Addresses are `#t/<thread>/<page>[/<sub>][/<id>]?sel=<id>&tab=`. A thread-less address (what the lead writes, e.g.
-`#experiments/trial_x`) opens in the current thread. `#new` starts a campaign. Every old address still works: the
+`#experiments/trial_x`) opens in the current thread. `#new` starts a campaign. The bare address (and `#home`, which the
+Balsamic name in the top bar links to) is the home page: the logo, the name, the version (`frontend/package.json`), what
+Balsamic is, and a link into the workspace, which opens the last thread. Every old address still works: the
 `aliases` block of `pages.json` maps `#overview`, `#decisions`, `#problem`, `#implementations`, `#comparison`, `#studies`,
 `#validation`, `#assets`, `#notebook`, `#reports`, `#resources`, `#agents[/usage|/log|/models|/guidance]`, `#discussions`,
 `#drafts`, `#models`, `#llm-usage`, `#memory` and `#problem-import` to their current pages, and `/reports/<id>` stays a
