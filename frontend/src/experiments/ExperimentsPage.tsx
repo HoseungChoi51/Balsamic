@@ -11,6 +11,9 @@ import { Markdown } from '../chat/render/Markdown';
 import { PlanCard } from './PlanCard';
 import type { ExperimentPlan } from '../api/types';
 import { useState } from 'react';
+import { useQueryClient } from '@tanstack/react-query';
+import { useSummary } from '../api/queries';
+import { send } from '../commands/bus';
 
 const STATUS_WORDS: Record<string, string> = { stopped: 'stopped (by request, not failed)', failed: 'failed', completed: 'completed', running: 'running', queued: 'queued', paused: 'paused' };
 
@@ -73,7 +76,7 @@ function ExperimentLog({ trialId, campaignId, back }: { trialId: string; campaig
         <button className="btn small" onClick={() => setTrace(true)} data-testid="trace-origin-button">Trace origin</button>
         {trial.hypothesis_id ? <a className="btn small" href={`#evolution/lineage?sel=${trial.hypothesis_id}`}>Open in graph</a> : null}</div>
       {trace ? <TraceOrigin recordId={trialId} thread={null} onClose={() => setTrace(false)} /> : null}
-      <Section title="Run"><Kv rows={[['Algorithm', trial.algorithm], ['Kind', record.data.chain_trial_ids.length > 1 ? 'one run continued over ' + record.data.chain_trial_ids.length + ' parts' : 'single run'], ['Task', String(trial.task_id)], ['Seed', String(trial.seed ?? '')], ['Budget', <>{num(trial.max_steps, 0)} evaluations, {duration(trial.wall_seconds)}</>],
+      <Section title="Run"><Kv rows={[['Algorithm', trial.algorithm], ['Device', <DevicePlace trial={trial} campaignId={campaignId} />], ['Kind', record.data.chain_trial_ids.length > 1 ? 'one run continued over ' + record.data.chain_trial_ids.length + ' parts' : 'single run'], ['Task', String(trial.task_id)], ['Seed', String(trial.seed ?? '')], ['Budget', <>{num(trial.max_steps, 0)} evaluations, {duration(trial.wall_seconds)}</>],
         ['Best (measured)', num(score(trial), 5)], ['Chain', record.data.chain_trial_ids.length > 1 ? record.data.chain_trial_ids.join(' → ') : 'single run'], ['Race', record.data.race ? record.data.race.race_id : 'not in a race'],
         ['Hypothesis', trial.hypothesis_id ? String(trial.hypothesis_id) : <span className="faint">none</span>], ['Campaign', campaignId]]} /></Section>
       <Section title="Score curve" right={<span className="small faint">{points.length} points, measured</span>}><Curve points={points} label="best score over evaluations" /></Section>
@@ -100,5 +103,34 @@ function DraftView({ draftId, thread, back }: { draftId: string; thread: string 
           <ul className="small">{readiness.blockers.map(blocker => <li key={blocker.code}>{blocker.message}</li>)}</ul></div>)}
       <PlanCard plan={plan} />
     </article>
+  );
+}
+
+const DEVICE: Record<string, string> = { cuda: 'GPU', cpu: 'CPU' };
+
+/** Where a run computes: the researcher chooses it until the run starts (trial.control place); a started run keeps it. */
+function DevicePlace({ trial, campaignId }: { trial: Trial; campaignId: string }) {
+  const summary = useSummary(campaignId);
+  const queryClient = useQueryClient();
+  const [error, setError] = useState<string | null>(null);
+  const device = trial.device ? String(trial.device) : '';
+  if (trial.status !== 'queued') return <>{device ? DEVICE[device] || device : <span className="faint">not recorded</span>}</>;
+  const place = async (value: string) => {
+    if (!value || summary.data === undefined) return;
+    setError(null);
+    try {
+      await send({ operation: 'trial.control', campaignId, expectedRevision: summary.data.campaign.version,
+        payload: { trial_id: trial.id, action: 'place', device: value, expected_control_revision: Number(trial.control_revision ?? 0) } });
+      await queryClient.invalidateQueries({ queryKey: ['experiment', trial.id] });
+    } catch (e) { setError(String((e as Error).message || e)); }
+  };
+  return (
+    <span className="row" style={{ gap: 6 }}>
+      <select value={device} onChange={e => void place(e.target.value)} data-testid="place-device" aria-label="Where this run computes">
+        {device ? null : <option value="">chosen when it starts (the GPU when a slot is free)</option>}
+        <option value="cuda">GPU</option><option value="cpu">CPU</option>
+      </select>
+      {error ? <span className="pill bad">{error}</span> : null}
+    </span>
   );
 }

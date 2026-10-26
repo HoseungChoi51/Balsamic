@@ -61,6 +61,13 @@ class Workspace:
         self.agent_log_thread = None
         self.max_workers = max(1, min(int(max_workers), 16))
         self.gpu_workers = max(0, int(gpu_workers))   # of the max_workers slots, how many run on the GPU (execution/devices.py)
+        # The launcher's settings are defaults; slots the researcher chose in Balsamic (set_slots) hold across restarts.
+        self.launcher_slots = {"workers": self.max_workers, "gpu_workers": self.gpu_workers}
+        try:
+            chosen = self.store.get("lab_slots", "lab_slots")
+            self.max_workers, self.gpu_workers = max(1, int(chosen["workers"])), max(0, int(chosen["gpu_workers"]))
+        except KeyError:
+            pass
         self.stop_grace_seconds = stop_grace_seconds
         self._progress_announced = {}   # trial id -> when its last progress event went out
         self.lock = threading.RLock()
@@ -877,7 +884,7 @@ class Workspace:
         return self.create_trial(TrialInput(campaign_id=predecessor["campaign_id"], task_id=predecessor["task_id"],
             algorithm="" if version else predecessor["algorithm"], implementation_version_id=version,
             algorithm_config=predecessor["algorithm_config"], seed=predecessor["seed"], max_steps=request.max_steps or predecessor["max_steps"],
-            wall_seconds=request.wall_seconds, numerical_threads=predecessor.get("numerical_threads", 1), device=predecessor.get("device"),
+            wall_seconds=request.wall_seconds, numerical_threads=predecessor.get("numerical_threads", 1), device=request.device or predecessor.get("device"),
             schedule_steps=predecessor["schedule_steps"], hypothesis_id=predecessor.get("hypothesis_id"),
             training=predecessor.get("training") or {}, initial_assets=predecessor.get("initial_assets", []),
             reuse_decision_ids=predecessor.get("reuse_decision_ids", []), recovery=predecessor["recovery"],
@@ -1036,6 +1043,29 @@ class Workspace:
                 **({"independent_countercheck": True} if trial.get("study_execution_id") else {}),
                 **({"source_trial_id": trial["id"]} if trial.get("execution_manifest") else {})})
 
+    def set_slots(self, workers, gpu_workers, *, authority, reason=""):
+        """How many runs go at once on this server, and how many of them on the GPU. The scheduler reads them on every pass, so
+        they hold from the next one; runs already going keep their device. Kept across restarts: the launcher's settings are
+        only the defaults."""
+        workers, gpu_workers = int(workers), int(gpu_workers)
+        if not 1 <= workers <= 64 or gpu_workers < 0:
+            raise ValueError("Give from 1 to 64 slots, and no negative number of GPU slots")
+        if gpu_workers and gpu_workers > workers - 1:
+            raise ValueError("Keep at least one slot on CPU, where every kind of run can go: GPU slots are at most all slots less one")
+        with self.lock:
+            previous = {"workers": self.max_workers, "gpu_workers": self.gpu_workers}
+            self.max_workers, self.gpu_workers = workers, gpu_workers
+            return self.store.put("lab_slots", {"id": "lab_slots", "campaign_id": None, "workers": workers, "gpu_workers": gpu_workers,
+                "previous": previous, "authority": authority, "reason": reason, "updated_at": now()}, "resources.slots_changed")
+
+    def slots_view(self):
+        try:
+            chosen = self.store.get("lab_slots", "lab_slots")
+        except KeyError:
+            chosen = {}
+        return {"workers": self.max_workers, "gpu_workers": self.gpu_workers, "sizes": self.devices.sizes(), "launcher": self.launcher_slots,
+                "chosen_by": chosen.get("authority"), "updated_at": chosen.get("updated_at"), "reason": chosen.get("reason")}
+
     def control(self, trial_id, command: ControlInput, *, authority="researcher", reason=None):
         """authority is who acted: researcher, manager, or a budget/deadline rule that stopped the trial."""
         with self.lock, self.store.transaction():
@@ -1051,7 +1081,15 @@ class Workspace:
                 (command.wall_seconds is not None and command.wall_seconds != trial["wall_seconds"])
             ):
                 raise ValueError("A confirmatory allocation is frozen; fork a new exploratory trial instead of extending it")
-            if command.action == "prioritize":
+            if command.action == "place":
+                # Where a run computes is chosen until it starts; a started run keeps its device (continue it to move it).
+                if status != "queued":
+                    raise ValueError("Only a queued run is placed; continue a stopped run on another device instead")
+                if command.device is None:
+                    raise ValueError("Name the device: cuda or cpu")
+                self.devices.check({**trial, "device": command.device})
+                trial["device"] = command.device
+            elif command.action == "prioritize":
                 if status != "queued":
                     raise ValueError("Only queued trials can be reprioritized")
                 trial["priority"] = command.priority if command.priority is not None else trial["priority"] + 1

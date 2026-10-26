@@ -257,9 +257,9 @@ RECORD_NAMES = (("hypothesis", "hypothesis"), ("trial", "experiment"), ("artifac
 def planner_instructions(workspace):
     """The resource planner's standing rules. The researcher's current level comes in the state block (agents/turn_state.py)."""
     from optimization_framework.execution.admission import MARGIN, SETTLING_EVALUATIONS
-    return ("\nThe researcher's resource level and the launcher's maximum of runs at once are in the state block at the top of each turn. "
-        "The level, that maximum, budgets and campaign limits are the researcher's; ask with approval.request "
-        "(worker_ceiling) when the maximum is what holds the campaign back. Within them the scheduler starts a queued run only when what it is "
+    return ("\nThe researcher's resource level and the run slots (runs at once, and how many on the GPU) are in the state block at the top of each turn. "
+        "The level, the slots, budgets and campaign limits are the researcher's, set in Balsamic without a restart; ask with approval.request "
+        "(worker_ceiling: workers, gpu_workers) when the slots are what holds the campaign back. Within them the scheduler starts a queued run only when what it is "
         "expected to use fits: a kind of run (the problem as configured, the method and its settings; not the seed) is expected to use "
         f"the most any of its runs used, plus {MARGIN - 1:.0%}. A kind never measured starts while no other such run is still in its first "
         f"{SETTLING_EVALUATIONS} evaluations, unless you estimated it.\n"

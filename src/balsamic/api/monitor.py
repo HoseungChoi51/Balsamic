@@ -16,6 +16,12 @@ class ResourceLevelInput(Model):
     reason: str = Field(default="", max_length=2000)
 
 
+class SlotsInput(Model):
+    workers: int = Field(ge=1, le=64)
+    gpu_workers: int = Field(ge=0, le=63)
+    reason: str = Field(default="", max_length=2000)
+
+
 class InboxAcknowledgeInput(Model):
     keys: list[str] = Field(min_length=1, max_length=500)
 
@@ -59,7 +65,16 @@ def install(app, workspace):
     @app.get("/api/v1/resources")
     def resource_observations(campaign_id: str | None = None):
         from optimization_framework.execution.observability import get_observer
-        return get_observer(workspace).snapshot(campaign_id)
+        return {**get_observer(workspace).snapshot(campaign_id), "slots": workspace.slots_view()}
+
+    @app.put("/api/v1/resources/slots")
+    def resource_slots(body: SlotsInput):
+        # HTTP is the researcher's boundary: an agent asks with approval.request (worker_ceiling).
+        try:
+            workspace.set_slots(body.workers, body.gpu_workers, authority="researcher", reason=body.reason)
+        except ValueError as error:
+            raise HTTPException(422, str(error))
+        return workspace.slots_view()
 
     @app.put("/api/v1/resources/level")
     def resource_level(body: ResourceLevelInput):

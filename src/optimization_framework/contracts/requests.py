@@ -144,7 +144,8 @@ class TrialInput(Model):
 
 
 class ControlInput(Model):
-    action: Literal["pause", "resume", "stop", "extend", "prioritize"]
+    action: Literal["pause", "resume", "stop", "extend", "prioritize", "place"]
+    device: Literal["cuda", "cpu"] | None = Field(default=None, description="place: where a queued run computes")
     max_steps: int | None = Field(default=None, ge=1, le=10000000)
     wall_seconds: float | None = Field(default=None, gt=0, le=86400)
     priority: int | None = Field(default=None, ge=-100, le=100)

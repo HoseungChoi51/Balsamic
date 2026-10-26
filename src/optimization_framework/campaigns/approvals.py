@@ -67,7 +67,7 @@ def resolve(workspace, command):
         operation, payload = {
             "campaign_limits": lambda: ("campaign.update", {**request["limits"], "rationale": reason[:5000]}),
             "waiver": lambda: ("validation.waive", {"requirement_id": request["requirement_id"], "rationale": reason, "evidence_ids": request["evidence_ids"]}),
-            "worker_ceiling": lambda: ("workers.set", {"workers": request["workers"], "rationale": reason[:5000]}),
+            "worker_ceiling": lambda: ("workers.set", {"workers": request["workers"], "gpu_workers": request.get("gpu_workers"), "rationale": reason[:5000]}),
         }[request["kind"]]()
         effect = {"child_command": _child(workspace, command, campaign, operation, payload).model_dump(mode="json")}
     elif values.choice == "0" and decision.get("journal_compaction"):

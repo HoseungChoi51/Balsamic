@@ -70,7 +70,8 @@ def resource_level(tools):
     admission = getattr(tools.workspace, "admission", None)
     level = admission.level() if admission else {"level": "balanced", **LEVELS["balanced"]}
     return ["The researcher chose the " + level["label"].lower() + " resource level: " + level["summary"],
-            f"The launcher's maximum: {tools.workspace.max_workers} runs at once."]
+            f"Run slots: {tools.workspace.max_workers} runs at once, {tools.workspace.devices.sizes()['cuda']} of them on the GPU "
+            "(the researcher's, on the Resources page; ask with approval.request worker_ceiling, workers and gpu_workers)."]
 
 
 def page_agent(tools, agent):

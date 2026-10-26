@@ -436,6 +436,15 @@ devices are listed but not measured); agents; autopilot (state, spent of cap, ro
 "All clear" unless a row needs attention (something waits for you, the team is paused, stopped or failed, a budget is
 exhausted or unaccounted), or "Away digest" while an unseen digest exists. The drawer polls resources only while open.
 
+**Run slots and devices.** How many runs go at once on this server, and how many of them on the GPU, are the researcher's,
+set in Balsamic at any time. The Resources page has a *Run slots* section (`PUT /api/v1/resources/slots`,
+`Workspace.set_slots`). The scheduler reads the slots on every pass, so a change holds from the next one, and the choice is
+kept across restarts (`lab_slots` record). The launcher's `workers` and `gpu_workers` are only the defaults. At least one slot
+stays on CPU. An agent asks with `approval.request` kind `worker_ceiling` (`workers`, `gpu_workers`), and approving it changes
+the same setting. A run's device is chosen until it starts: a queued run's page has a device choice (`trial.control` action
+`place`), and `trial.continue` takes a `device`, so a stopped run moves to the GPU by continuing it there. A run already going
+keeps its device.
+
 **Stalls** (`balsamic/monitor/stalls.py`). Work that stops without anyone saying so is noticed inside Balsamic, on the
 manager tick. When the researcher's request is open, nothing waits for them, and no agent turn, run, implementation job or
 coding agent is queued or working for 5 minutes, the lead gets one platform notice to continue or close the request; if

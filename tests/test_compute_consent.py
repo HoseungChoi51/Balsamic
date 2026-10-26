@@ -95,3 +95,26 @@ def test_a_compute_request_for_experiments_shows_their_plan_measured_on_earlier_
     unmeasured = plan(workspace, cid, [{"task_id": task["id"], "algorithm": "coordinate", "seeds": [0], "wall_seconds": 600}])
     assert unmeasured["runs"][0]["speed"]["seconds_per_evaluation"] is None and unmeasured["runs"][0]["disk_bytes"] is None
     assert "not measured on this problem" in unmeasured["warnings"][0]
+
+
+def test_the_researcher_sets_the_run_slots_in_balsamic_and_they_hold_across_restarts(tmp_path):
+    workspace = Workspace(tmp_path, max_workers=4, gpu_workers=1)
+    with pytest.raises(ValueError, match="at least one slot on CPU"):
+        workspace.set_slots(4, 4, authority="researcher")
+    workspace.set_slots(6, 2, authority="researcher", reason="H13 joins H12 on the GPU")
+    assert workspace.devices.sizes() == {"cuda": 2, "cpu": 4}
+    restarted = Workspace(tmp_path, max_workers=4, gpu_workers=1)   # the launcher's settings are only defaults
+    view = restarted.slots_view()
+    assert (restarted.max_workers, restarted.gpu_workers) == (6, 2) and view["launcher"] == {"workers": 4, "gpu_workers": 1}
+    assert view["chosen_by"] == "researcher" and view["reason"] == "H13 joins H12 on the GPU"
+
+
+def test_a_queued_run_is_placed_on_a_device_until_it_starts(lab):
+    from optimization_framework.contracts.requests import ControlInput
+    workspace, campaign, task = lab
+    trial = send(workspace, campaign["id"], "queued_run", "trial.create", run(task, 30), actor="researcher")["outcome"]["trial"]
+    assert workspace.control(trial["id"], ControlInput(action="place", device="cpu"))["device"] == "cpu"
+    with pytest.raises(ValueError):   # this problem's evaluator computes on CPU only
+        workspace.control(trial["id"], ControlInput(action="place", device="cuda"))
+    with pytest.raises(ValueError, match="Name the device"):
+        workspace.control(trial["id"], ControlInput(action="place"))

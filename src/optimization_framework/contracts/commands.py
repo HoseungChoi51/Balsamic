@@ -238,6 +238,7 @@ class TrialContinueInput(Contract):
     wall_seconds: float = Field(gt=0, le=86400)
     max_steps: int | None = Field(default=None, ge=1, le=10000000)
     accept_unverified: bool = False
+    device: Literal["cuda", "cpu"] | None = Field(default=None, description="where the new experiment computes; the stopped one's device when omitted")
 
 
 class JournalCompactInput(Contract):
@@ -275,6 +276,7 @@ class ApprovalRequestInput(Contract):
     requirement_id: str | None = Field(default=None, description="waiver: the validation requirement to waive")
     evidence_ids: list[str] = Field(default_factory=list, max_length=50, description="waiver: the measurements the researcher should judge it by")
     workers: int | None = Field(default=None, ge=1, le=64, description="worker_ceiling: experiments that may run at once on this server")
+    gpu_workers: int | None = Field(default=None, ge=0, le=63, description="worker_ceiling: how many of them run on the GPU (unchanged when omitted)")
     plan: str | None = Field(default=None, min_length=1, max_length=5000, description="compute: what will run (each run, profile, job or coding workspace) and why")
     wall_seconds: float | None = Field(default=None, gt=0, le=604800, description="compute: how long until the researcher has the results")
     worker_seconds: float | None = Field(default=None, gt=0, le=2419200, description="compute: the worker time the plan may use in all")
@@ -301,8 +303,10 @@ class ApprovalRequestInput(Contract):
 
 
 class WorkerCeilingInput(Contract):
-    """How many experiments run at once on this server. In effect until the services restart; the launcher configuration sets it then."""
+    """How many experiments run at once on this server, and how many of them on the GPU (unchanged when omitted). Kept across
+    restarts; the launcher's settings are only the defaults."""
     workers: int = Field(ge=1, le=64)
+    gpu_workers: int | None = Field(default=None, ge=0, le=63)
     rationale: str = Field(min_length=1, max_length=5000)
 
 

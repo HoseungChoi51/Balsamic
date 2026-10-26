@@ -677,13 +677,14 @@ class CommandService:
                 raise ValueError("Only the researcher changes the worker ceiling; file approval.request")
             values = WorkerCeilingInput(**payload)
             previous = self.workspace.max_workers
-            # The scheduler reads the ceiling on every pass, so the change holds from the next one. A runtime
-            # profile measured under the old ceiling is no longer current, and a new one measures up to this one.
-            self.workspace.max_workers = values.workers
+            gpu = self.workspace.gpu_workers if values.gpu_workers is None else values.gpu_workers
+            # The scheduler reads the slots on every pass, so the change holds from the next one, and it is kept across
+            # restarts. A runtime profile measured under the old ceiling is no longer current, and a new one measures up to this one.
+            self.workspace.set_slots(values.workers, min(gpu, values.workers - 1), authority=actor, reason=values.rationale)
             self.store.put_immutable("worker_ceiling_change", {"id": "worker_ceiling_" + command.id, "campaign_id": command.campaign_id,
-                "previous": previous, "workers": values.workers, "rationale": values.rationale, "authority": actor, "created_at": now(),
-                "lasts": "Until the services restart; the launcher configuration's workers setting applies then."}, "workers.changed")
-            return {"previous": previous, "workers": values.workers}
+                "previous": previous, "workers": values.workers, "gpu_workers": self.workspace.gpu_workers, "rationale": values.rationale,
+                "authority": actor, "created_at": now(), "lasts": "Until changed again; kept across restarts."}, "workers.changed")
+            return {"previous": previous, "workers": values.workers, "gpu_workers": self.workspace.gpu_workers}
         if command.operation == "approval.request":
             # The researcher approves it in the decision inbox, which issues the change
             # under researcher authority (approvals.resolve).
@@ -725,13 +726,16 @@ class CommandService:
                 proposal = (f"{asker} asks to start: {values.plan}\nIt takes about {_minutes(values.wall_seconds)} until results and uses up to "
                     f"{_minutes(values.worker_seconds)} of worker time{coding}.\nMeanwhile: {values.meanwhile}")
             else:
-                if values.workers == self.workspace.max_workers:
-                    raise ValueError(f"The worker ceiling is already {values.workers}")
-                request["workers"] = values.workers
-                title, approve = f"Change the worker ceiling from {self.workspace.max_workers} to {values.workers}?", "Change the ceiling"
-                proposal = (f"{asker} asks for {values.workers} experiments to run at once instead of {self.workspace.max_workers}. It applies at once, to every "
-                    "campaign on this server, until the services restart; to keep it, set workers in the launcher configuration. "
-                    "A runtime profile measured under the old ceiling is no longer current.")
+                gpu = self.workspace.gpu_workers if values.gpu_workers is None else values.gpu_workers
+                if values.workers == self.workspace.max_workers and gpu == self.workspace.gpu_workers:
+                    raise ValueError(f"The lab already runs {values.workers} at once, {gpu} on the GPU")
+                request.update(workers=values.workers, gpu_workers=gpu)
+                title, approve = (f"Run {values.workers} experiments at once, {gpu} on the GPU (now {self.workspace.max_workers}, "
+                                  f"{self.workspace.gpu_workers} on the GPU)?"), "Change the slots"
+                proposal = (f"{asker} asks for {values.workers} experiments to run at once, {gpu} of them on the GPU, instead of "
+                    f"{self.workspace.max_workers} with {self.workspace.gpu_workers} on the GPU. It applies from the next scheduling pass, to every "
+                    "campaign on this server, and is kept across restarts; runs already going keep their device. "
+                    "A runtime profile measured under the old slots is no longer current.")
             decision = {"id": "approval_" + command.id, "campaign_id": command.campaign_id, "charter_version": campaign["version"],
                 "guidance_revision": self.workspace.memory.state(command.campaign_id)["guidance_revision"],
                 "question": title, "title": title, "rationale": values.rationale, "context": values.rationale, "proposal": proposal,

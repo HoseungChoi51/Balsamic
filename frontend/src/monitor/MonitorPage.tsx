@@ -67,6 +67,7 @@ function Resources({ campaignId }: { campaignId: string }) {
         <Kv rows={[['CPU busy', num(cpuPercent, 0, ' %')], ['Memory', memUsed != null ? `${num(Number(memUsed) / 1e9, 1, ' GB')} of ${num(Number(memTotal) / 1e9, 1, ' GB')}` : <span className="faint">unknown</span>],
           ['GPU', gpus.length ? gpus.map(([name, g]) => `${name}: ${String(g.utilization_percent)} %`).join(' · ') : <span className="faint">not reported</span>], ['Workers', `${String(busy ?? '?')} running of ${String(limit ?? '?')}`]]} />
       </Section>
+      {data.slots ? <SlotSettings slots={data.slots as SlotsView} gpuReported={gpus.length > 0} /> : null}
       <Section title="Resource level" right={<span className="small faint">yours alone; agents plan within it{admission.set_by ? ` · set by ${String(admission.set_by)} ${when(admission.updated_at)}` : ''}</span>}>
         <div className="level-grid" data-testid="resource-levels" data-level={level}>
           {levels.map(option => <button key={option.id} type="button" className={'level' + (level === option.id ? ' chosen' : '')} aria-pressed={level === option.id} onClick={() => setLevel(option.id)} data-testid={`level-${option.id}`}>
@@ -208,5 +209,41 @@ function Guidance({ campaignId }: { campaignId: string }) {
       </Section>
       <Section title="Notes">{guidance.data.notes.length ? guidance.data.notes.slice().reverse().map(n => <div key={String(n.id)} className="small" style={{ marginBottom: 6 }}><Pill>{String(n.kind)}</Pill> {String(n.content).slice(0, 300)} <span className="faint">{when(n.created_at)}</span></div>) : <Empty>No note yet.</Empty>}</Section>
     </>
+  );
+}
+
+type SlotsView = { workers: number; gpu_workers: number; sizes: { cuda: number; cpu: number }; launcher: { workers: number; gpu_workers: number };
+  chosen_by?: string | null; updated_at?: string | null; reason?: string | null };
+
+/** How many runs go at once on this server and how many of them on the GPU: the researcher's, here, at any time; it holds from
+ * the next scheduling pass and across restarts (the launcher's settings are only the defaults). Runs already going keep their device. */
+function SlotSettings({ slots, gpuReported }: { slots: SlotsView; gpuReported: boolean }) {
+  const queryClient = useQueryClient();
+  const [workers, setWorkers] = useState(slots.workers);
+  const [gpu, setGpu] = useState(slots.gpu_workers);
+  const [error, setError] = useState<string | null>(null);
+  const changed = workers !== slots.workers || gpu !== slots.gpu_workers;
+  const apply = async () => {
+    setError(null);
+    try {
+      const response = await fetch('/api/v1/resources/slots', { method: 'PUT', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ workers, gpu_workers: gpu, reason: 'set on the Resources page' }) });
+      if (!response.ok) throw new Error(((await response.json().catch(() => ({}))) as { detail?: string }).detail || 'Could not set the slots');
+      await queryClient.invalidateQueries({ queryKey: ['resources'] });
+    } catch (e) { setError(String((e as Error).message || e)); }
+  };
+  return (
+    <Section title="Run slots" right={<span className="small faint">yours; applies from the next scheduling pass and is kept across restarts</span>}>
+      <p className="small" data-testid="slots-now">Now {slots.workers} runs at once: {slots.sizes.cuda} on the GPU, {slots.sizes.cpu} on CPU.
+        <span className="faint"> Launcher default: {slots.launcher.workers}, {slots.launcher.gpu_workers} on the GPU{slots.chosen_by ? `; set by the ${slots.chosen_by} ${when(slots.updated_at)}` : ''}.</span></p>
+      <div className="row wrap" style={{ gap: 12 }}>
+        <label className="small">Runs at once <input type="number" min={1} max={64} value={workers} onChange={e => setWorkers(Number(e.target.value))} style={{ width: 70 }} data-testid="slots-workers" /></label>
+        <label className="small">of them on the GPU <input type="number" min={0} max={Math.max(0, workers - 1)} value={gpu} onChange={e => setGpu(Number(e.target.value))} style={{ width: 70 }} data-testid="slots-gpu" /></label>
+        <button className="btn small primary" disabled={!changed} onClick={() => void apply()} data-testid="slots-apply">Apply</button>
+      </div>
+      <p className="why">At least one slot stays on CPU, where every kind of run can go. A run already going keeps its device: continue a stopped run to move it.
+        {gpu > 0 && !gpuReported ? ' This machine reports no GPU, so GPU slots may stay empty.' : ''}</p>
+      {error ? <div className="pill bad">{error}</div> : null}
+    </Section>
   );
 }
