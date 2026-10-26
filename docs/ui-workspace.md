@@ -300,6 +300,12 @@ highlighted, and new cards are marked. Opening the inbox does not acknowledge an
 posts the keys to `POST /api/v1/campaigns/{id}/inbox/acknowledge`. That is an HTTP route, the researcher's boundary, so no
 agent can acknowledge for them. Only keys of items still in the inbox are kept (`monitor/rows.py`).
 
+**Readable text.** `chat/render/Markdown.tsx` renders every agent's text, the lead's, and the inbox's. A paragraph of more
+than four sentences and 280 characters is split after every three sentences. A single line break is kept as one. Code, math,
+links, bold, lists, tables and headings are left alone, and so is a sentence that ends in an abbreviation. The tools the
+agents write into (`delegate`, `agent_message`, `page_agent_message`, `yield_work`'s report) also ask for plain sentences
+in short paragraphs, because the researcher reads that text.
+
 **What is happening.** A bar under the chat header says what the lead is doing in a line (`Lead waiting · experiment
 operator working · 5 runs`); clicked, it opens a panel with each agent at work or active in the last ten minutes (what
 it is doing now, else what it last said, from its disposition summary), the runs going and queued with their device,

@@ -36,7 +36,7 @@ export function Turn({ message, thread, aliases, onFork, onEdit }: { message: Me
         {onFork && !lab ? <button className="btn quiet small" onClick={() => onFork(message)} title="Start a branch of the conversation from this message" data-testid="fork-here">Fork here</button> : null}
         {onEdit && user ? <button className="btn quiet small" onClick={() => onEdit(message)} title="Edit and resend as a new branch" data-testid="edit-resend">Edit</button> : null}
       </div>
-      {lab ? <div>{message.content}</div> : <Markdown text={message.content} thread={thread} aliases={aliases} />}
+      <Markdown text={message.content} thread={thread} aliases={aliases} />
     </article>
   );
 }

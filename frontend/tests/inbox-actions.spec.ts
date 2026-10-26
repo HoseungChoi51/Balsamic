@@ -54,3 +54,19 @@ test('what waits in the inbox stays in front of the researcher on every page unt
   await page.getByTestId('acknowledge-all').click();
   await expect.poll(() => recorded.commands.find(c => c.acknowledge)?.acknowledge).toEqual({ keys: ['issue_dep:1', 'question_1'] });
 });
+
+test('a dense paragraph from an agent reads as short paragraphs; code and lists are left alone', async ({ page }) => {
+  const dense = 'Researcher explicitly requests long experiments H12 and H13. Execute this scope, not screening. Prepare one long run each of the installed methods. '
+    + 'Recommend 1499 s wall each, e.g. on the GPU in sequence. Do not silently allocate longer than that. Record the success criterion, not a promised outcome. '
+    + 'Report the learning curves when both runs end.';
+  const messages = { ...f.messages, messages: [{ id: 'message_d', campaign_id: CAMPAIGN_ID, role: 'assistant', origin: 'lead', content: dense + '\n\n- one `a. B` item\n- two', created_at: '2026-10-19T08:05:00Z' }] };
+  await mockWorkspace(page, { [`/api/v1/threads/${THREAD_ID}/messages`]: messages });
+  await page.goto(`/#t/${THREAD_ID}/hypotheses`);
+  const turn = page.locator('[data-message-id="message_d"] .md');
+  await expect(turn.locator('p')).toHaveCount(2);   // three sentences, then the rest: a short last sentence is not left alone
+  await expect(turn.locator('p').first()).toHaveText('Researcher explicitly requests long experiments H12 and H13. Execute this scope, not screening. Prepare one long run each of the installed methods.');
+  await expect(turn.locator('p').nth(1)).toContainText('e.g. on the GPU in sequence');
+  await expect(turn.locator('p').nth(1)).toContainText('Report the learning curves when both runs end.');
+  await expect(turn.locator('li')).toHaveCount(2);
+  await expect(turn.locator('li code')).toHaveText('a. B');
+});

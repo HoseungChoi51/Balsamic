@@ -335,6 +335,9 @@ def obj(properties=None, required=None):
 
 
 S = {"type": "string"}
+# What agents write for each other is read by the researcher too (side conversations, pages), and it came as dense shorthand.
+READABLE = ("The researcher reads it: plain sentences in short paragraphs, a list for parallel items, whole words with normal spacing, "
+            "no shorthand or capitals for emphasis.")
 TOOLS = {
     "campaign_inspect": ("Read current problem, runnable evaluators, methods, budgets, aliases and assignments.", obj()),
     "resource_inspect": ("Read live CPU/RAM, worker measurements, resource forecasts and blockers for this campaign. Does not start jobs or change budgets.", obj()),
@@ -346,8 +349,9 @@ TOOLS = {
     "artifact_save": ("Save an immutable finding, implementation handoff, analysis, or fixed binary mask with evidence links.", obj({"title": S, "kind": {"enum": ["finding", "handoff", "analysis", "mask", "assessment", "review", "checkpoint"]}, "content": {}, "evidence_ids": {"type": "array", "items": S, "maxItems": 100}}, ["title", "kind", "content"])),
     "mask_create": ("Create a reproducible full-sized binary diagnostic mask without putting every cell in model context.", obj({"task_id": S, "pattern": {"enum": ["zeros", "ones", "stripes_x", "stripes_y", "seeded_random"]}, "seed": {"type": "integer", "minimum": 0}, "fill_fraction": {"type": "number", "minimum": 0, "maximum": 1}}, ["task_id", "pattern"])),
     "proposal_review": ("Record an independent conceptual review of the exact hypothesis revision. Test means plausible, not effective.", obj({"hypothesis_id": S, "hypothesis_hash": S, "verdict": {"enum": ["test", "revise", "reject"]}, "rationale": S, "required_changes": {"type": "array", "items": S}, "suggested_tests": {"type": "array", "items": S, "minItems": 1}}, ["hypothesis_id", "hypothesis_hash", "verdict", "rationale", "suggested_tests"])),
-    "delegate": ("Create a persistent specialist child with a focused objective and exact evidence IDs. You receive its result automatically.", obj({"role": {"enum": [r for r in ROLES if r not in STANDING]}, "objective": S, "evidence_ids": {"type": "array", "items": S, "maxItems": 100}, "request_key": S}, ["role", "objective", "request_key"])),
-    "agent_message": ("Send a follow-up or steering message to one of your own assistants.", obj({"agent_id": S, "message": S}, ["agent_id", "message"])),
+    "delegate": ("Create a persistent specialist child with a focused objective and exact evidence IDs. You receive its result automatically. "
+        "The objective: " + READABLE, obj({"role": {"enum": [r for r in ROLES if r not in STANDING]}, "objective": S, "evidence_ids": {"type": "array", "items": S, "maxItems": 100}, "request_key": S}, ["role", "objective", "request_key"])),
+    "agent_message": ("Send a follow-up or steering message to one of your own assistants. " + READABLE, obj({"agent_id": S, "message": S}, ["agent_id", "message"])),
     "agent_cancel": ("Cancel a child assignment while retaining its artifacts and costs.", obj({"agent_id": S}, ["agent_id"])),
     "command_schema": ("Read the exact schema of an execution command before preparing it.", obj({"operation": {"enum": sorted(OPERATIONS)}}, ["operation"])),
     "campaign_command": ("Execute a campaign command within existing delegation. Returns a durable receipt with the page that shows the result; never grants new authority. "
@@ -364,7 +368,7 @@ TOOLS = {
         "Hypotheses), experiment_operator (designing, starting, watching and stopping runs; Experiments), implementation_lead (building and "
         "checking implementations; Implementations) or resource_planner (how many runs go at once, what kinds of runs use, why runs wait; "
         "Resources). Say what to do and name the records. Its result comes back to you; the researcher sees "
-        "the exchange on its page.", obj({"page_agent": {"enum": sorted(PAGE_AGENTS)}, "message": S, "evidence_ids": {"type": "array", "items": S, "maxItems": 100}},
+        "the exchange on its page. " + READABLE, obj({"page_agent": {"enum": sorted(PAGE_AGENTS)}, "message": S, "evidence_ids": {"type": "array", "items": S, "maxItems": 100}},
         ["page_agent", "message"])),
     "experiment_progress": ("The campaign's runs at work in queue order and the latest finished ones: name, short or long, status, time and "
         "evaluations used and allotted, best score, whether a running run still improves, the most time left; with the worker ceiling and the "
@@ -400,7 +404,7 @@ TOOLS = {
     "report_answer": ("Answer the report writer's question about the focus of a report you started, so that it continues.",
         obj({"job_id": S, "answer": S}, ["job_id", "answer"])),
     "yield_work": ("End this turn and say how it ends; the turn stops when it returns. report: your reply to whoever asked, shown as "
-        "your message (the answer with its numbers, short, linking the pages); required with complete while the request is open. "
+        "your message (the answer with its numbers, short, linking the pages; " + READABLE.rstrip(".") + "); required with complete while the request is open. "
         "The summary is shown to the researcher as a status line: plain words, no record ids. waiting: jobs or subagents started for the researcher's request are still running, or a question to the researcher is open; "
         "their completion or the answer wakes the lead agent. complete: the request is fulfilled or answered, and nothing wakes the lead until the researcher writes again; "
         "completion must cite actual evidence.", obj({"disposition": {"enum": ["waiting", "complete", "handoff"]}, "summary": S, "report": S,
