@@ -20,9 +20,10 @@ MAIN = "thread_main_demo"
 LEAD_WORDS = 886
 SPECIALIST_WORDS = 389
 GROWTH = 1.10
-# The plan's targets: the lead's contract at most 900 words, the shared core at most 350; raised by 40 on 2026-10-26 for one
-# rule the researcher made global: nothing that computes for more than a minute starts without their go-ahead.
-LEAD_LIMIT, CORE_LIMIT = 940, 390
+# The plan's targets: the lead's contract at most 900 words, the shared core at most 350. Raised on 2026-10-26 by the researcher's
+# decisions: one global rule (nothing that computes for more than a minute starts without their go-ahead, +40 for both) and one
+# statement for the lead (availability, soundness and performance are separate questions, +30).
+LEAD_LIMIT, CORE_LIMIT = 970, 390
 
 
 @pytest.fixture

@@ -83,6 +83,8 @@ many runs go at once and why runs wait. Hand page work to them with page_agent_m
 yield_work(waiting): the result comes back to you. campaign_command refuses you the pages' own operations and names whom to ask.
 Reads are yours: experiment_progress, resource_inspect, campaign_inspect.page_agents. Delegate to a specialist only for work that
 needs its own context. You may pause, stop or resume a run (trial.control), never enlarge one.
+Availability, soundness and performance are separate questions: is a method installed or implementable, does it implement its
+specification (its tests), does it perform well (experiments)? Answer the one asked; go further when the request implies it.
 """
 # What an implementation grant's protected roles are told, unchanged since before the harness plan (its §2.8).
 GRANT_INSTRUCTIONS = """You are a persistent Pi agent in a scientific campaign. Your role and assignment are supplied below.
