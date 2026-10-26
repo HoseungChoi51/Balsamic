@@ -6,6 +6,7 @@ import { ThreadChat } from '../chat/ThreadChat';
 import { SetupChat } from '../setup/SetupChat';
 import { MonitorDrawer } from '../monitor/MonitorDrawer';
 import { IterationProgress } from '../evolution/IterationProgress';
+import { InboxNotice } from './InboxNotice';
 import { SearchPalette } from './SearchPalette';
 import { DeskPanel, deskRole } from '../desks/AgentDesk';
 import { CHAT_WINDOW, RAIL, chatChannel, formatHash, isDetachedWindow, navigate, withThread } from '../router/routes';
@@ -111,7 +112,10 @@ export function Shell({ route, campaignId, threadId }: { route: Route; campaignI
     <div className="shell" data-testid="shell" style={{ '--rail-w': `${railWidth}px`, '--chat-w': `${Math.round(layout.chat * 100)}%` } as React.CSSProperties}>
       <TopBar route={route} campaigns={campaigns.data || []} campaignId={campaignId} monitor={monitor.data} workspace={workspace.data}
         onSearch={() => setPalette(true)} onMonitor={() => setDrawer(open => !open)} wide={wide} onWide={() => setWide(w => !w)} version={summary.data?.campaign.version} />
-      {campaignId && summary.data?.stage.stage === 'optimize' ? <IterationProgress campaignId={campaignId} /> : null}
+      <div className="notices">
+        <InboxNotice campaignId={campaignId} route={route} />
+        {campaignId && summary.data?.stage.stage === 'optimize' ? <IterationProgress campaignId={campaignId} /> : null}
+      </div>
       <div className="body">
         <Rail route={route} summary={summary.data} monitor={monitor.data} collapsed={layout.railCollapsed} onToggle={() => setLayout(l => ({ ...l, railCollapsed: !l.railCollapsed }))} />
         <Gutter onDrag={dragRail} label="rail" />

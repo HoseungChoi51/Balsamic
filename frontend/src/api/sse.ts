@@ -7,7 +7,7 @@ const ROUTES: [RegExp, string[]][] = [
   [/^(message|thread|agent)\./, ['threads', 'messages', 'agents']],
   [/^(trial|experiment|draft|validation|runtime|worker|effect)\./, ['experiments', 'monitor']],
   [/^(hypothesis|finding|review|discussion|intervention)\./, ['hypotheses', 'evolution']],
-  [/^(decision|manager\.issue|agent\.question|approval)/, ['inbox', 'monitor']],
+  [/^(decision|manager\.issue|agent\.question|approval|inbox)/, ['inbox', 'monitor']],
   [/^(asset|report|bundle|source|artifact)\./, ['files']],
   [/^(study|race|confirmation|nomination|finalist)\./, ['evolution', 'experiments']],
   [/^(campaign|charter|problem_note|note)\./, ['summary', 'note', 'campaigns']],

@@ -10,10 +10,49 @@ def inbox_view(workspace, campaign_id):
     issues = [row for row in store.list("manager_issue", campaign_id) if row.get("status") == "pending"]
     questions = [row for row in store.list("agent_question", campaign_id) if row.get("status") == "pending"]
     # What the lead closed as no longer holding stays in view with its reason (the latest 30); the researcher can reopen it.
-    closed = [row for row in store.list("manager_issue", campaign_id) if row.get("status") == "resolved" and row.get("resolved_by") == "lead"]
+    closed = sorted((row for row in store.list("manager_issue", campaign_id) if row.get("status") == "resolved" and row.get("resolved_by") == "lead"),
+                    key=lambda row: row.get("resolved_at") or "")[-30:]
+    items = inbox_items(decisions, issues, questions, closed)
+    seen = set(acknowledged(workspace, campaign_id))
     return {"decisions": decisions, "issues": issues, "questions": questions,
             "resolved": [row for row in store.list("decision", campaign_id) if row.get("status") == "resolved"][-20:],
-            "closed_by_lead": sorted(closed, key=lambda row: row.get("resolved_at") or "")[-30:]}
+            "closed_by_lead": closed, "unacknowledged": [item for item in items if item["key"] not in seen]}
+
+
+def _first_line(text, limit=160):
+    line = next((part.strip() for part in str(text or "").splitlines() if part.strip()), "")
+    return line if len(line) <= limit else line[:limit].rsplit(" ", 1)[0] + "…"
+
+
+def inbox_items(decisions, issues, questions, closed):
+    """Everything in the inbox, newest first, each under a key that changes when the item changes: what the researcher
+    acknowledged once comes back when it is raised again or revised."""
+    items = [{"key": f"{row['id']}:{row.get('resolution_revision', 0)}", "kind": "decision", "id": row["id"], "title": _first_line(row.get("title")),
+              "at": row.get("created_at")} for row in decisions]
+    items += [{"key": f"{row['id']}:{row.get('revision', 1)}", "kind": "issue", "id": row["id"], "title": _first_line(row.get("message")),
+               "at": row.get("updated_at") or row.get("created_at")} for row in issues]
+    items += [{"key": row["id"], "kind": "question", "id": row["id"], "title": _first_line(row.get("question") or row.get("title")),
+               "at": row.get("created_at")} for row in questions]
+    items += [{"key": f"{row['id']}:{row.get('revision', 1)}", "kind": "closed", "id": row["id"], "title": _first_line(row.get("comment")),
+               "at": row.get("resolved_at")} for row in closed]
+    return sorted(items, key=lambda item: item["at"] or "", reverse=True)
+
+
+def acknowledged(workspace, campaign_id):
+    try:
+        return workspace.store.get(f"inbox_seen_{campaign_id}", "inbox_seen")["keys"]
+    except KeyError:
+        return []
+
+
+def acknowledge(workspace, campaign_id, keys):
+    """Record that the researcher saw these inbox items; only keys of items still in the inbox are kept."""
+    from optimization_framework.storage.sqlite import now
+    view = inbox_view(workspace, campaign_id)
+    live = {item["key"] for item in inbox_items(view["decisions"], view["issues"], view["questions"], view["closed_by_lead"])}
+    keys = sorted(live & (set(acknowledged(workspace, campaign_id)) | set(keys)))
+    return workspace.store.put("inbox_seen", {"id": f"inbox_seen_{campaign_id}", "campaign_id": campaign_id, "keys": keys[-500:],
+                                              "updated_at": now()}, "inbox.acknowledged")
 
 
 def gpu_row(host):

@@ -35,3 +35,22 @@ test('issues the lead closed as no longer holding are listed with its reason, an
   await row.getByTestId('reopen-issue').click();
   await expect.poll(() => recorded.commands.find(c => c.operation === 'issue.reopen')?.payload).toEqual({ issue_id: 'issue_old' });
 });
+
+test('what waits in the inbox stays in front of the researcher on every page until they acknowledge it', async ({ page }) => {
+  const unacknowledged = [{ key: 'issue_dep:1', kind: 'issue', id: 'issue_dep', title: 'trial_b is to start after trial_a, which ended without completing', at: '2026-10-22T20:18:34Z' },
+    { key: 'question_1', kind: 'question', id: 'question_1', title: 'Two GPU runs no longer fit before 22:04. Which pair?', at: '2026-10-22T21:04:58Z' }];
+  const recorded = await mockWorkspace(page, { [`/api/v1/campaigns/${CAMPAIGN_ID}/inbox`]: { ...f.inbox, issues: [stuck], questions: [asked], unacknowledged } });
+  await page.goto(`/#t/${THREAD_ID}/hypotheses`);
+  const notice = page.getByTestId('inbox-notice');
+  await expect(notice).toContainText('2 new in your inbox');
+  await expect(notice).toContainText('Issue: trial_b is to start after trial_a');
+  await expect(notice).toContainText('and 1 more');
+  await expect(page).toHaveTitle(/^\(2\) /);
+  await expect(page.getByTestId('rail-inbox').locator('.count.waiting')).toBeVisible();   // the rail's count is the monitor's
+  // Opening the inbox is not acknowledging: the notice stays, and the new items are marked.
+  await notice.getByTestId('open-inbox').click();
+  await expect(page.getByTestId('issue')).toContainText('new');
+  await expect(page.getByTestId('inbox-notice')).toBeVisible();
+  await page.getByTestId('acknowledge-all').click();
+  await expect.poll(() => recorded.commands.find(c => c.acknowledge)?.acknowledge).toEqual({ keys: ['issue_dep:1', 'question_1'] });
+});

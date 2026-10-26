@@ -12,7 +12,7 @@ export function Rail({ route, summary, monitor, collapsed = false, onToggle }: {
     <nav className={'rail' + (collapsed ? ' collapsed' : '')} aria-label="Pages" data-collapsed={collapsed ? '1' : undefined}>
       {RAIL.map(page => (
         <a key={page} href={formatHash({ page }, route.thread)} className={route.page === page ? 'active' : ''} data-testid={`rail-${page}`} title={collapsed ? `${PAGES[page].title}: ${PAGES[page].description}` : PAGES[page].description}>
-          <span>{collapsed ? SHORT[page] || PAGES[page].title.slice(0, 2) : PAGES[page].title}</span>{counts[page] ? <span className="count">{counts[page]}</span> : null}
+          <span>{collapsed ? SHORT[page] || PAGES[page].title.slice(0, 2) : PAGES[page].title}</span>{counts[page] ? <span className={'count' + (page === 'inbox' ? ' waiting' : '')} title={page === 'inbox' ? `${counts[page]} waiting for you` : undefined}>{counts[page]}</span> : null}
         </a>
       ))}
       <span className="grow" />

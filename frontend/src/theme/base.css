@@ -246,3 +246,13 @@ table.quantities td { vertical-align: top; }
 .card.folded { padding-bottom: 8px; }
 tr.accent td { background: var(--accent-soft); } tr.accent td:first-child { border-left: 3px solid var(--accent); }
 .editor textarea { width: 100%; font-size: 13.5px; line-height: 1.5; }
+
+/* What waits in the inbox stays in front of the researcher on every page until acknowledged (shell/InboxNotice.tsx). */
+.notices { min-width: 0; }
+.inbox-notice { display: flex; align-items: center; gap: 10px; padding: 8px 12px; background: var(--warn-soft); color: var(--ink);
+  border-bottom: 1px solid var(--line); border-left: 4px solid var(--warn); font-size: 13.5px; }
+.inbox-notice .notice-text { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.nowrap { white-space: nowrap; }
+.rail .count.waiting { background: var(--warn); color: var(--bg); border-radius: 999px; padding: 0 6px; font-weight: 600; }
+.rail.collapsed .count.waiting { display: inline; }
+@media (max-width: 600px) { .inbox-notice { flex-wrap: wrap; } .inbox-notice .notice-text { white-space: normal; } }

@@ -8,6 +8,10 @@ import { Empty, Failed, Loading, Pill, Section, when } from '../primitives/ui';
 import type { Decision, Issue, Question } from '../api/types';
 import { ExtensionDialog, isExtensionDialog } from '../chat/ExtensionDialog';
 import { Composer } from '../chat/Composer';
+import { Markdown } from '../chat/render/Markdown';
+import { acknowledge } from '../shell/InboxNotice';
+
+const NEW = <Pill tone="attention" title="You have not acknowledged this yet">new</Pill>;
 
 export default function InboxPage({ campaignId, route }: PageProps) {
   const inbox = useInbox(campaignId);
@@ -19,27 +23,30 @@ export default function InboxPage({ campaignId, route }: PageProps) {
   if (inbox.error) return <Failed error={inbox.error} />;
   const { decisions, issues, questions, resolved } = inbox.data;
   const closed = inbox.data.closed_by_lead || [];
+  const unseen = inbox.data.unacknowledged || [];
+  const fresh = new Set(unseen.map(item => item.id));
   return (
     <div className="col">
-      <div className="stage-head"><h1>Inbox</h1><span className="muted small">{decisions.length + issues.length + questions.length} waiting for you</span></div>
+      <div className="stage-head"><h1>Inbox</h1><span className="muted small">{decisions.length + issues.length + questions.length} waiting for you</span>
+        {unseen.length && campaignId ? <button className="btn small" onClick={() => void acknowledge(campaignId, unseen, after)} data-testid="mark-all-seen">Mark all as seen</button> : null}</div>
       <Section title={`Decisions (${decisions.length})`}>
-        {decisions.length ? decisions.map(d => <DecisionCard key={d.id} decision={d} version={version} campaignId={campaignId} selected={route.id === d.id} onDone={after} />) : <Empty>No approval or choice is waiting.</Empty>}
+        {decisions.length ? decisions.map(d => <DecisionCard key={d.id} decision={d} version={version} campaignId={campaignId} selected={route.id === d.id} onDone={after} isNew={fresh.has(d.id)} thread={route.thread} />) : <Empty>No approval or choice is waiting.</Empty>}
       </Section>
       <Section title={`Issues (${issues.length})`}>
-        {issues.length ? issues.map(i => <IssueCard key={i.id} issue={i} version={version} campaignId={campaignId} onDone={after} />) : <Empty>No operational issue is open.</Empty>}
+        {issues.length ? issues.map(i => <IssueCard key={i.id} issue={i} version={version} campaignId={campaignId} onDone={after} isNew={fresh.has(i.id)} thread={route.thread} />) : <Empty>No operational issue is open.</Empty>}
       </Section>
       <Section title={`Questions from the lead (${questions.length})`}>
-        {questions.length ? questions.map(q => <QuestionCard key={q.id} question={q} version={version} campaignId={campaignId} threadId={route.thread} onDone={after} />) : <Empty>The lead has no open question.</Empty>}
+        {questions.length ? questions.map(q => <QuestionCard key={q.id} question={q} version={version} campaignId={campaignId} threadId={route.thread} onDone={after} isNew={fresh.has(q.id)} />) : <Empty>The lead has no open question.</Empty>}
       </Section>
       {closed.length ? <Section title={`Closed by the lead (${closed.length})`}>
         <p className="why">Issues the lead found no longer hold, with its reason. Reopen one if you disagree.</p>
-        {closed.slice().reverse().map(i => <ClosedIssue key={i.id} issue={i} version={version} campaignId={campaignId} onDone={after} />)}</Section> : null}
+        {closed.slice().reverse().map(i => <ClosedIssue key={i.id} issue={i} version={version} campaignId={campaignId} onDone={after} isNew={fresh.has(i.id)} thread={route.thread} />)}</Section> : null}
       {resolved.length ? <Section title="Recently resolved">{resolved.slice(-10).reverse().map(d => <div key={d.id} className="row small"><span className="grow">{d.title}</span><Pill>{String(d.choice ?? d.status)}</Pill><span className="faint">{when(d.resolved_at)}</span></div>)}</Section> : null}
     </div>
   );
 }
 
-function DecisionCard({ decision, version, campaignId, selected, onDone }: { decision: Decision; version?: number; campaignId: string; selected: boolean; onDone: () => unknown }) {
+function DecisionCard({ decision, version, campaignId, selected, onDone, isNew, thread }: { decision: Decision; version?: number; campaignId: string; selected: boolean; onDone: () => unknown; isNew: boolean; thread: string | null }) {
   const [comment, setComment] = useState('');
   const [error, setError] = useState<string | null>(null);
   const choose = async (choice: string) => {
@@ -53,9 +60,9 @@ function DecisionCard({ decision, version, campaignId, selected, onDone }: { dec
   const blocked = new Set(decision.freshness?.blocked_choice_ids || []);
   return (
     <article className={'card' + (selected ? ' selected' : '')} data-testid="decision" data-record-id={decision.id}>
-      <div className="row"><strong className="grow">{decision.title}</strong>{decision.requested_by ? <Pill tone="agent">asked by the {decision.requested_by}</Pill> : null}<span className="faint small">{when(decision.created_at)}</span></div>
-      {decision.proposal ? <p>{decision.proposal}</p> : null}
-      {decision.rationale && decision.rationale !== decision.proposal ? <p className="muted small">{decision.rationale}</p> : null}
+      <div className="row"><strong className="grow">{decision.title}</strong>{isNew ? NEW : null}{decision.requested_by ? <Pill tone="agent">asked by the {decision.requested_by}</Pill> : null}<span className="faint small">{when(decision.created_at)}</span></div>
+      {decision.proposal ? <Markdown text={decision.proposal} thread={thread} /> : null}
+      {decision.rationale && decision.rationale !== decision.proposal ? <Markdown text={decision.rationale} thread={thread} className="md muted small" /> : null}
       {decision.freshness?.reason ? <p className="why">{decision.freshness.reason}</p> : null}
       <textarea placeholder="A note with your choice (optional)" value={comment} onChange={e => setComment(e.target.value)} style={{ width: '100%', minHeight: 40 }} />
       <div className="row wrap" style={{ marginTop: 6 }}>
@@ -69,7 +76,7 @@ function DecisionCard({ decision, version, campaignId, selected, onDone }: { dec
   );
 }
 
-function IssueCard({ issue, version, campaignId, onDone }: { issue: Issue; version?: number; campaignId: string; onDone: () => unknown }) {
+function IssueCard({ issue, version, campaignId, onDone, isNew, thread }: { issue: Issue; version?: number; campaignId: string; onDone: () => unknown; isNew: boolean; thread: string | null }) {
   const [error, setError] = useState<string | null>(null);
   const resolve = async (choice: 'resolved' | 'deferred' | 'action', action?: string) => {
     if (version === undefined) return;
@@ -79,8 +86,8 @@ function IssueCard({ issue, version, campaignId, onDone }: { issue: Issue; versi
   const actions = issue.actions || [];
   return (
     <article className="card" data-testid="issue">
-      <div className="row"><Pill tone="attention">{issue.code.replaceAll('_', ' ')}</Pill><span className="faint small">{when(issue.created_at)}</span>{issue.affected ? <span className="mono small faint">{issue.affected}</span> : null}</div>
-      <p>{issue.message}</p>
+      <div className="row"><Pill tone="attention">{issue.code.replaceAll('_', ' ')}</Pill>{isNew ? NEW : null}<span className="faint small">{when(issue.created_at)}</span>{issue.affected ? <span className="mono small faint">{issue.affected}</span> : null}</div>
+      <Markdown text={issue.message} thread={thread} />
       <div className="row wrap">
         {actions.map((item, i) => <button key={item.id} className={`btn small${i === 0 ? ' primary' : ''}`} title={item.description} data-testid="issue-action" onClick={() => resolve('action', item.id)}>{item.label}</button>)}
         <button className="btn small" title="Records that you dealt with it; it changes nothing by itself" onClick={() => resolve('resolved')}>Mark as handled</button>
@@ -91,7 +98,7 @@ function IssueCard({ issue, version, campaignId, onDone }: { issue: Issue; versi
   );
 }
 
-function ClosedIssue({ issue, version, campaignId, onDone }: { issue: Issue; version?: number; campaignId: string; onDone: () => unknown }) {
+function ClosedIssue({ issue, version, campaignId, onDone, isNew, thread }: { issue: Issue; version?: number; campaignId: string; onDone: () => unknown; isNew: boolean; thread: string | null }) {
   const [error, setError] = useState<string | null>(null);
   const reopen = async () => {
     if (version === undefined) return;
@@ -100,20 +107,20 @@ function ClosedIssue({ issue, version, campaignId, onDone }: { issue: Issue; ver
   };
   return (
     <details className="card" data-testid="closed-issue">
-      <summary className="row small"><Pill>{issue.code.replaceAll('_', ' ')}</Pill><span className="grow">{issue.comment}</span><span className="faint">{when(issue.resolved_at)}</span></summary>
-      <p className="small">{issue.message}</p>
+      <summary className="row small"><Pill>{issue.code.replaceAll('_', ' ')}</Pill>{isNew ? NEW : null}<span className="grow">{issue.comment}</span><span className="faint">{when(issue.resolved_at)}</span></summary>
+      <Markdown text={issue.message} thread={thread} className="md small" />
       <div className="row"><button className="btn small" onClick={reopen} data-testid="reopen-issue">Reopen</button>{issue.affected ? <span className="mono small faint">{issue.affected}</span> : null}</div>
       {error ? <div className="pill bad">{error}</div> : null}
     </details>
   );
 }
 
-function QuestionCard({ question, version, campaignId, threadId, onDone }: { question: Question; version?: number; campaignId: string; threadId: string | null; onDone: () => unknown }) {
+function QuestionCard({ question, version, campaignId, threadId, onDone, isNew }: { question: Question; version?: number; campaignId: string; threadId: string | null; onDone: () => unknown; isNew: boolean }) {
   if (isExtensionDialog(question)) return <ExtensionDialog question={question} campaignId={campaignId} version={version} who="An agent" onDone={onDone} />;
-  return <AnswerCard question={question} version={version} campaignId={campaignId} threadId={threadId} onDone={onDone} />;
+  return <AnswerCard question={question} version={version} campaignId={campaignId} threadId={threadId} onDone={onDone} isNew={isNew} />;
 }
 
-function AnswerCard({ question, version, campaignId, threadId, onDone }: { question: Question; version?: number; campaignId: string; threadId: string | null; onDone: () => unknown }) {
+function AnswerCard({ question, version, campaignId, threadId, onDone, isNew }: { question: Question; version?: number; campaignId: string; threadId: string | null; onDone: () => unknown; isNew: boolean }) {
   const answer = async (text: string) => {
     if (version === undefined) throw new Error('The campaign is still loading');
     await send({ operation: 'agent.message', campaignId, expectedRevision: version, payload: { message: text, question_id: question.id, thread_id: threadId }, origin: { thread_id: threadId } });
@@ -121,9 +128,9 @@ function AnswerCard({ question, version, campaignId, threadId, onDone }: { quest
   };
   return (
     <article className="card" data-testid="question">
-      <div className="row"><Pill tone="agent">the lead asks</Pill><span className="faint small">{when(question.created_at)}</span></div>
-      <p>{question.question}</p>
-      {question.suggestion ? <p className="small" data-testid="question-suggestion"><strong>The lead suggests:</strong> {String(question.suggestion)}</p> : null}
+      <div className="row"><Pill tone="agent">the lead asks</Pill>{isNew ? NEW : null}<span className="faint small">{when(question.created_at)}</span></div>
+      <Markdown text={question.question} thread={threadId} />
+      {question.suggestion ? <div className="small" data-testid="question-suggestion"><strong>The lead suggests:</strong> <Markdown text={String(question.suggestion)} thread={threadId} className="md inline" /></div> : null}
       {(question.options as string[] | undefined)?.length ? <div className="row wrap">{(question.options as string[]).map((option, i) =>
         <button key={option} className={`btn small${i === 0 ? ' primary' : ''}`} data-testid="question-option" onClick={() => void answer(option)}>{option}</button>)}</div> : null}
       <Composer onSend={answer} placeholder="Your answer goes to the lead as a message" testId="answer-composer" />

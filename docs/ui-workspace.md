@@ -292,6 +292,14 @@ or fixed it). Deferring and taking an issue's actions stay the researcher's. The
 it moves no guidance revision. The inbox lists such issues under *Closed by the lead* with the reason, and *Reopen*
 (`issue.reopen`, researcher only) makes one pending again.
 
+**Inbox notice.** What waits in the inbox stays in front of the researcher until they acknowledge it. The inbox view lists
+`unacknowledged` items (decisions, issues, questions, issues the lead closed), newest first. Each item has a key that changes
+when the item does (an issue raised again, a decision revised), so it comes back. `shell/InboxNotice.tsx` shows them in a bar
+under the top bar on every page, with *Open the inbox* and *Got it*. The tab title carries the count, the rail's Inbox count is
+highlighted, and new cards are marked. Opening the inbox does not acknowledge anything. *Got it* (or *Mark all as seen*)
+posts the keys to `POST /api/v1/campaigns/{id}/inbox/acknowledge`. That is an HTTP route, the researcher's boundary, so no
+agent can acknowledge for them. Only keys of items still in the inbox are kept (`monitor/rows.py`).
+
 **What is happening.** A bar under the chat header says what the lead is doing in a line (`Lead waiting · experiment
 operator working · 5 runs`); clicked, it opens a panel with each agent at work or active in the last ten minutes (what
 it is doing now, else what it last said, from its disposition summary), the runs going and queued with their device,

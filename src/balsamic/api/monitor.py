@@ -8,12 +8,16 @@ from typing import Literal
 from optimization_framework.contracts.requests import Model
 
 from balsamic.api.threads import scoped
-from balsamic.monitor.rows import monitor_view, inbox_view
+from balsamic.monitor.rows import acknowledge, monitor_view, inbox_view
 
 
 class ResourceLevelInput(Model):
     level: Literal["cautious", "balanced", "aggressive"]
     reason: str = Field(default="", max_length=2000)
+
+
+class InboxAcknowledgeInput(Model):
+    keys: list[str] = Field(min_length=1, max_length=500)
 
 
 def install(app, workspace):
@@ -26,6 +30,13 @@ def install(app, workspace):
     def inbox(campaign_id: str, after: int = Query(0, ge=0)):
         workspace.store.get(campaign_id, "campaign")
         return scoped(workspace, campaign_id, after, lambda: inbox_view(workspace, campaign_id))
+
+    @app.post("/api/v1/campaigns/{campaign_id}/inbox/acknowledge")
+    def inbox_acknowledge(campaign_id: str, body: InboxAcknowledgeInput):
+        # HTTP is the researcher's boundary: an agent cannot acknowledge what waits for the researcher.
+        workspace.store.get(campaign_id, "campaign")
+        acknowledge(workspace, campaign_id, body.keys)
+        return {"unacknowledged": inbox_view(workspace, campaign_id)["unacknowledged"]}
 
     @app.get("/api/v1/campaigns/{campaign_id}/away-digest")
     def away_digest(campaign_id: str, since: int | None = None):
