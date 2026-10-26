@@ -21,7 +21,8 @@ def install(app, workspace):
             groups = {"short": [], "long": [], "checks": []}
             for trial in trials:
                 kind = kinds.get(trial["id"], "short")
-                groups["checks" if kind == "check" else kind].append({**trial, "hidden": trial["id"] in hidden})
+                # Hidden by trial.hide (the run's own mark: who, why, when), or listed by an older rules revision.
+                groups["checks" if kind == "check" else kind].append({**trial, "hidden": bool(trial.get("hidden")) or trial["id"] in hidden})
             return {**groups, "drafts": workspace.store.list("experiment_draft", campaign_id), "rules": rules,
                     "profiles": workspace.store.list("runtime_profile", campaign_id)}
         return scoped(workspace, campaign_id, after, body)

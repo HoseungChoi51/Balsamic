@@ -25,17 +25,20 @@ export default function ExperimentsPage({ campaignId, route }: PageProps) {
   if (route.id && !route.sub) return <ExperimentLog trialId={route.id} campaignId={campaignId} back={formatHash({ page: 'experiments' }, route.thread)} />;
   const sub = route.sub || 'runs';
   const tabs = [['runs', 'Runs'], ['checks', 'Checks'], ['drafts', 'Drafts'], ['rules', 'Rules']] as const;
-  const table = (rows: Trial[], title: string) => (
-    <Section title={`${title} (${rows.length})`}>
+  const table = (all: Trial[], title: string) => {
+    const rows = all.filter(t => !t.hidden), hidden = all.length - rows.length;
+    return (
+    <Section title={`${title} (${rows.length}${hidden ? `, ${hidden} hidden` : ''})`}>
       {rows.length ? <table><thead><tr><th>Run</th><th>Algorithm</th><th>Status</th><th>Best</th><th>Evaluations</th><th>Time</th><th>Started</th></tr></thead><tbody>
-        {rows.filter(t => !t.hidden).map(t => (
+        {rows.map(t => (
           <tr key={t.id} className={selection.id === t.id ? 'selected' : ''} data-record-id={t.id} style={{ cursor: 'pointer' }} onClick={() => { selection.select(t.id); navigate(formatHash({ page: 'experiments', id: t.id, sel: t.id }, route.thread)); }}>
             <td className="mono small">{t.id}</td><td>{t.algorithm}</td><td><Pill tone={statusTone(t.status)} title={STATUS_WORDS[t.status] || t.status}>{t.status}</Pill></td>
             <td>{num(score(t), 4)}</td><td>{num((t.result as Record<string, unknown> | undefined)?.evaluations ?? (t.progress as Record<string, unknown> | undefined)?.evaluations, 0)}</td><td>{duration(t.wall_seconds)}</td><td className="small faint">{when(t.created_at)}</td>
           </tr>))}
-      </tbody></table> : <Empty>None yet.</Empty>}
+      </tbody></table> : <Empty>{hidden ? 'All hidden.' : 'None yet.'}</Empty>}
     </Section>
-  );
+    );
+  };
   return (
     <div className="col">
       <div className="stage-head"><h1>Experiments</h1></div>

@@ -50,3 +50,14 @@ def test_page_reads_answer_on_a_fresh_campaign(client, campaign):
     experiments = client.get(f"/api/v1/campaigns/{cid}/experiments").json()
     assert experiments["short"] == [] and experiments["rules"]["revision"] == 0
     assert "problem_id" in QUADRATIC
+
+
+def test_a_run_hidden_by_trial_hide_is_hidden_on_the_experiments_page(client, workspace, campaign):
+    cid, task = campaign["id"], workspace.current_tasks(campaign["id"])[0]
+    trial = command(client, "trial.create", cid, {"task_id": task["id"], "algorithm": "coordinate", "max_steps": 5, "wall_seconds": 10},
+                    campaign["version"])["outcome"]["trial"]
+    record = workspace.store.get(trial["id"], "trial")
+    workspace.store.put("trial", {**record, "status": "completed"})
+    command(client, "trial.hide", cid, {"trial_ids": [trial["id"]], "reason": "Learned nothing"}, campaign["version"])
+    rows = [row for group in ("short", "long", "checks") for row in client.get(f"/api/v1/campaigns/{cid}/experiments").json()[group]]
+    assert [row["hidden"] for row in rows if row["id"] == trial["id"]] == [True]
