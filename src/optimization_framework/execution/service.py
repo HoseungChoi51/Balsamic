@@ -27,6 +27,7 @@ from optimization_framework.execution.source import snapshot
 
 ACTIVE = {"queued", "running", "pausing", "stopping"}
 LIVE = {"running", "pausing", "stopping"}
+PROGRESS_EVENT_SECONDS = 2.0
 
 
 def process_identity(pid):
@@ -61,6 +62,7 @@ class Workspace:
         self.max_workers = max(1, min(int(max_workers), 16))
         self.gpu_workers = max(0, int(gpu_workers))   # of the max_workers slots, how many run on the GPU (execution/devices.py)
         self.stop_grace_seconds = stop_grace_seconds
+        self._progress_announced = {}   # trial id -> when its last progress event went out
         self.lock = threading.RLock()
         self.outbox_lock = threading.Lock()
         self.shutdown_event = threading.Event()
@@ -1384,10 +1386,10 @@ class Workspace:
                     if not alive(trial) and time.time() < trial.get("lease_deadline", 0) and not (directory / "result.json").exists():
                         continue
                 progress = read_json(directory / "progress.json")
-                changed = False
+                changed = progressed = False
                 if progress and progress != trial.get("progress"):
                     trial["progress"] = progress
-                    changed = True
+                    progressed = True
                 result = read_json(directory / "result.json")
                 process = self.processes.get(trial["id"])
                 if process:
@@ -1483,6 +1485,13 @@ class Workspace:
                     if trial.get("stopped_by") == "deadline":
                         trial["allocation_stop"] = "study_deadline_reached"
                 trial["updated_at"] = now()
+                # The record follows every step; the event that makes pages refetch goes out with any other change, and for
+                # progress alone at most every PROGRESS_EVENT_SECONDS (a fast run would otherwise announce itself twice a second).
+                clock = time.monotonic()
+                if progressed and not changed and clock - self._progress_announced.get(trial["id"], -PROGRESS_EVENT_SECONDS) >= PROGRESS_EVENT_SECONDS:
+                    changed = True
+                if changed:
+                    self._progress_announced[trial["id"]] = clock
                 self.store.put("trial", trial, "trial.progress" if changed else None)
 
     def _loop(self):

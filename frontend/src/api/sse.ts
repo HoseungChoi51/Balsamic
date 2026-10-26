@@ -15,6 +15,9 @@ const ROUTES: [RegExp, string[]][] = [
   [/^panel\./, ['panels', 'panel', 'messages']],
 ];
 
+const PROGRESS = /\.progress$/;
+const PROGRESS_MS = 3000;
+
 export type FrameListener = (frame: EventFrame) => void;
 
 export function connectEvents(campaignId: string | null, queryClient: QueryClient, onFrame?: FrameListener) {
@@ -22,6 +25,7 @@ export function connectEvents(campaignId: string | null, queryClient: QueryClien
   const source = new EventSource(url);
   let pending = new Set<string>();
   let timer: ReturnType<typeof setTimeout> | null = null;
+  let due = 0;
   const flush = () => {
     timer = null;
     const keys = [...pending]; pending = new Set();
@@ -31,9 +35,15 @@ export function connectEvents(campaignId: string | null, queryClient: QueryClien
     let frame: EventFrame;
     try { frame = JSON.parse((event as MessageEvent).data); } catch { return; }
     onFrame?.(frame);
-    pending.add('campaigns'); pending.add('summary'); pending.add('threads');
-    for (const item of frame.events || []) for (const [pattern, keys] of ROUTES) if (pattern.test(item.kind)) keys.forEach(key => pending.add(key));
-    if (!timer) timer = setTimeout(flush, 300);
+    const events = frame.events || [];
+    // A running experiment reports progress every second or two: that refreshes the pages that show runs, at most every
+    // PROGRESS_MS, and not every page; any other change refreshes the campaign's views within 300 ms.
+    const progress = events.length > 0 && events.every(item => PROGRESS.test(item.kind));
+    if (!progress) { pending.add('campaigns'); pending.add('summary'); pending.add('threads'); }
+    for (const item of events) for (const [pattern, keys] of ROUTES) if (pattern.test(item.kind)) keys.forEach(key => pending.add(key));
+    const at = Date.now() + (progress ? PROGRESS_MS : 300);
+    if (timer && at < due) { clearTimeout(timer); timer = null; }
+    if (!timer) { due = at; timer = setTimeout(flush, at - Date.now()); }
   });
   return () => { source.close(); if (timer) clearTimeout(timer); };
 }

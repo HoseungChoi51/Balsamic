@@ -184,6 +184,7 @@ def threads(workspace, campaign_id):
     runs, active = queued_runs(workspace, campaign_id)
     main = main_thread_id(campaign_id)
     rows = conversation(workspace, campaign_id)
+    commands = workspace.store.list("work_command", campaign_id)   # once, not once per thread: the switcher polls this
     out = []
     for thread in workspace.store.list("thread", campaign_id):
         messages = thread_messages(workspace, thread, rows)
@@ -194,7 +195,7 @@ def threads(workspace, campaign_id):
                     "busy": bool(active and (active.get("origin") or {}).get("thread_id", main) == thread["id"]),
                     "queued": sum(1 for run in own if run["status"] == "queued"),
                     "unread": bool(last and last["id"] != thread.get("last_seen_message_id") and last.get("role") != "user"),
-                    "strip": activity_strip(workspace, thread, messages)[-24:]})
+                    "strip": activity_strip(workspace, thread, messages, commands)[-24:]})
     return {"threads": out, "lead": {"id": lead["id"], "status": lead["status"]} if lead else None, "request_open": bool(config.get("request_open")),
             "active_run": {"id": active["id"], "thread_id": (active.get("origin") or {}).get("thread_id", main)} if active else None}
 
@@ -254,9 +255,10 @@ def messages(workspace, thread_id, *, limit=MESSAGE_LIMIT, before=None):
 GLYPHS = {"message": "message", "lab_event": "run", "hypothesis": "strategy", "trial": "run", "decision": "decision", "note": "note"}
 
 
-def activity_strip(workspace, thread, messages=None):
+def activity_strip(workspace, thread, messages=None, commands=None):
     """What happened in a thread, as glyphs in order: computed from records, never from a model."""
     messages = thread_messages(workspace, thread) if messages is None else messages
+    commands = workspace.store.list("work_command", thread["campaign_id"]) if commands is None else commands
     strip = []
     for message in messages:
         if message.get("merge_of_thread_id"):
@@ -265,7 +267,7 @@ def activity_strip(workspace, thread, messages=None):
             strip.append({"at": message["created_at"], "glyph": "run" if "trial" in (message.get("content") or "") else "decision" if "ecision" in (message.get("content") or "") else "note", "id": message["id"]})
         else:
             strip.append({"at": message["created_at"], "glyph": "message", "id": message["id"], "who": "you" if message.get("role") == "user" else "lead"})
-    for command in workspace.store.list("work_command", thread["campaign_id"]):
+    for command in commands:
         operation = command["request"]["operation"]
         # Messages, pins and the thread's own bookkeeping are not work; the strip shows what the thread did to the campaign.
         if (command.get("origin") or {}).get("thread_id") == thread["id"] and not operation.startswith(("agent.", "thread.", "note.", "campaign.stage")):
