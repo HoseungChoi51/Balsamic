@@ -353,10 +353,19 @@ class ResourceObservability:
         # catches maintenance/import writes that intentionally omit events.
         if cached and cached[1:3] == (cursor, count) and sampled - cached[0] < 30:
             return cached[3]
-        fields = {"status": "status", "execution_grant_id": "execution_grant_id", "wall_seconds": "wall_seconds",
-                  "execution_seconds": "execution_seconds", "upper_bound_seconds": "execution_seconds_upper_bound",
-                  "progress_seconds": "progress.elapsed_seconds", "result_seconds": "result.elapsed_seconds", "isolated": "isolation_policy"}
-        trials = self._rows("trial", fields, campaign_id)
+        listing = getattr(self.store, "list_trial_costs", None)
+        if listing:
+            # The store's accounting listing reparses only the trials written since it last ran: a running trial's
+            # progress events would otherwise reparse every trial record (hundreds of MB of design archives) each time.
+            trials = [{"id": row["id"], "campaign_id": row["campaign_id"], "status": row["status"], "execution_grant_id": row["execution_grant_id"],
+                       "wall_seconds": row["wall_seconds"], "execution_seconds": row["execution_seconds"],
+                       "upper_bound_seconds": row["execution_seconds_upper_bound"], "progress_seconds": row["progress"]["elapsed_seconds"],
+                       "result_seconds": row["result"]["elapsed_seconds"], "isolated": row["isolation_policy"]} for row in listing(campaign_id)]
+        else:
+            fields = {"status": "status", "execution_grant_id": "execution_grant_id", "wall_seconds": "wall_seconds",
+                      "execution_seconds": "execution_seconds", "upper_bound_seconds": "execution_seconds_upper_bound",
+                      "progress_seconds": "progress.elapsed_seconds", "result_seconds": "result.elapsed_seconds", "isolated": "isolation_policy"}
+            trials = self._rows("trial", fields, campaign_id)
         for row in trials:
             row["kind"] = "trial"
             row["spent_seconds"] = _number(row["execution_seconds"]) if row["isolated"] else max(_number(row["execution_seconds"]), _number(row["progress_seconds"]), _number(row["result_seconds"]))

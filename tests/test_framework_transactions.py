@@ -120,6 +120,37 @@ def test_derived_trial_queries_follow_commits_and_rollbacks(tmp_path):
     assert store.trials_requiring_capture() == []
 
 
+def test_derived_trial_listings_reparse_only_the_trials_written_and_match_a_full_rebuild(tmp_path):
+    store = Store(tmp_path)
+    def trial(identity, campaign="c", **fields):
+        return {"id": identity, "campaign_id": campaign, "status": "running", "execution_contract": 1, "attempt": 1,
+                "algorithm": "coordinate", "seed": 0, "wall_seconds": 60, "progress": {"elapsed_seconds": 1, "best_design": [0] * 64}, **fields}
+    listings = {"rows": lambda s: s.list_trial_rows("c"), "costs": lambda s: s.list_trial_costs("c"), "headers": lambda s: s.list_trial_headers(),
+                "capture": lambda s: s.trials_requiring_capture()}
+    def agree():
+        fresh = Store(tmp_path)   # no cache: every listing is a full rebuild
+        for name, listing in listings.items():
+            assert listing(store) == listing(fresh), name
+    for identity in ("trial_a", "trial_b", "trial_c"):
+        store.put("trial", trial(identity))
+    agree()
+    asked = []
+    original = store._list_trial_rows
+    store._list_trial_rows = lambda campaign_id, ids=None: asked.append(ids) or original(campaign_id, ids)
+    store.put("trial", trial("trial_b", progress={"elapsed_seconds": 9, "best_design": [1] * 64}))   # a running trial's progress
+    assert store.list_trial_rows("c")[1]["progress"] == {"elapsed_seconds": 9} and asked == [["trial_b"]]
+    store.put("trial", trial("trial_a", status="completed"))                       # leaves the running set, enters capture
+    store.put("trial", trial("trial_d"))                                            # a new trial
+    store.put("trial", trial("trial_e", campaign="other"))                          # another campaign's
+    agree()
+    assert [row["id"] for row in store.trials_requiring_capture()] == ["trial_a"]
+    assert [row["id"] for row in store.list_trial_rows("c")] == ["trial_a", "trial_b", "trial_c", "trial_d"]
+    with store.transaction():
+        store.delete_campaign("other")
+    agree()
+    assert [row["id"] for row in store.list_trial_headers()] == ["trial_a", "trial_b", "trial_c", "trial_d"]
+
+
 def test_runs_waiting_on_a_time_capped_run_offer_the_researcher_a_way_on(tmp_path):
     workspace, request = prepare(tmp_path)
     parent = workspace.create_trial(request)
