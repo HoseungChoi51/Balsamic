@@ -7,7 +7,7 @@ from .base import Contract
 from .requests import CampaignUpdate, ControlInput, ValidationInput, ReviewInput, DecisionInput
 from optimization_framework.implementations.models import EvaluatorSpec, EvaluatorPackage, EvaluatorCheckSpec, OptimizerCheckSpec
 
-Operation = Literal["agent.activate", "agent.message", "agent.control", "agent.rollback", "agent.configure", "agent.question_dismiss", "agent.ui_respond", "fixed_mask.run", "campaign.create", "campaign.update", "context.edit", "issue.resolve", "trial.create", "trial.control", "trial.extension_request", "trial.validate", "draft.save", "draft.launch", "reproduction.draft", "reproduction.compare", "study.create", "study.nominate", "finalist.set", "study.freeze_template", "study.activate", "study.race.create", "study.race.control", "study.race.decide", "validation.run", "validation.require", "validation.execute", "validation.waive",
+Operation = Literal["agent.activate", "agent.message", "agent.control", "agent.rollback", "agent.configure", "agent.question_dismiss", "agent.ui_respond", "fixed_mask.run", "campaign.create", "campaign.update", "context.edit", "issue.resolve", "issue.reopen", "trial.create", "trial.control", "trial.extension_request", "trial.validate", "draft.save", "draft.launch", "reproduction.draft", "reproduction.compare", "study.create", "study.nominate", "finalist.set", "study.freeze_template", "study.activate", "study.race.create", "study.race.control", "study.race.decide", "validation.run", "validation.require", "validation.execute", "validation.waive",
     "asset.snapshot",
     "validation.revoke_waiver", "inference.run", "asset.reuse", "asset.import_reference_set", "cost.reconcile", "comparison.report", "finding.record", "implementation.commission",
     "implementation.reference", "implementation.bind_builtin", "implementation.attach", "evaluator.commission", "evaluator.attach", "implementation.control", "implementation.revalidate", "implementation.reuse", "implementation.resolve_runtime", "bundle.export", "bundle.inspect", "bundle.publish", "decision.resolve", "source.record", "source.ingest", "hypothesis.create", "hypothesis.review", "hypothesis.status", "hypothesis.nominate", "literature.search", "confirmation.schedule", "confirmation.validate", "confirmation.release",
@@ -185,15 +185,20 @@ class ContextEditInput(Contract):
 class IssueResolveInput(Contract):
     issue_id: str
     expected_revision: int = Field(ge=1)
-    choice: Literal["resolved", "deferred", "action"] = Field(description="resolved and deferred only mark the issue; action carries out one the issue offers")
+    choice: Literal["resolved", "deferred", "action"] = Field(description="resolved and deferred only mark the issue; action carries out one the issue offers. "
+        "An agent chooses resolved only, for an issue whose condition no longer holds")
     action: str | None = Field(default=None, max_length=100, description="action: the id of one of the issue's actions")
-    comment: str = Field(default="", max_length=20000)
+    comment: str = Field(default="", max_length=20000, description="An agent says here what superseded or fixed the issue; the researcher reads it and can reopen the issue")
 
     @model_validator(mode="after")
     def action_named(self):
         if (self.choice == "action") != (self.action is not None):
             raise ValueError("Name an action exactly when choosing action")
         return self
+
+
+class IssueReopenInput(Contract):
+    issue_id: str
 
 
 class ReuseInput(Contract):

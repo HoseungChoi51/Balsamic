@@ -38,6 +38,8 @@ DELEGATED.update({"runtime.profile", "evaluator.equivalence", "trial.continue"})
 DELEGATED.add("journal.compaction_request")
 # Limits, waivers and the worker ceiling are the researcher's: an agent asks, and approval applies the change.
 DELEGATED.add("approval.request")
+# An agent closes an inbox issue whose condition no longer holds, saying why; the researcher sees it and can reopen it.
+DELEGATED.add("issue.resolve")
 # The experiment operator keeps the experiment rules and takes runs it superseded off the Experiments page.
 DELEGATED.update({"experiments.rules", "trial.hide"})
 # The resource planner's plan and estimates: they hold runs back or say what a kind is expected to use, inside the researcher's level.
@@ -394,8 +396,11 @@ class CommandService:
             else:
                 values = IssueResolveInput(**payload)
                 self._target(command, "issue_id", "manager_issue")
+                if actor != "researcher" and (values.choice != "resolved" or len(values.comment.strip()) < 20):
+                    raise ValueError("An agent closes an issue only when its condition no longer holds: choice resolved, with a comment that "
+                                     "says what superseded or fixed it. Deferring an issue and taking one of its actions are the researcher's.")
                 issue = self.workspace.memory.resolve_issue(values.issue_id, values.choice, values.comment,
-                    expected_revision=values.expected_revision, action=values.action)
+                    expected_revision=values.expected_revision, action=values.action, by=actor)
                 outcome = {"issue_id": issue["id"], "revision": issue["revision"], "issue": issue}
             return outcome
         if command.operation == "cost.reconcile":

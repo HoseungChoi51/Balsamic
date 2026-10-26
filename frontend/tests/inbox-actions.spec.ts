@@ -22,3 +22,16 @@ test('an issue offers what can be done about it, and a question comes with the l
   await page.getByTestId('question-option').first().click();
   await expect.poll(() => recorded.commands.find(c => c.operation === 'agent.message')?.payload).toMatchObject({ message: 'Run the seed 101 pair', question_id: 'question_1' });
 });
+
+test('issues the lead closed as no longer holding are listed with its reason, and the researcher can reopen one', async ({ page }) => {
+  const closed = { ...stuck, id: 'issue_old', code: 'implementation_job', status: 'resolved', resolved_by: 'lead', resolved_at: '2026-10-26T05:00:00Z', revision: 2, actions: [],
+    message: 'Candidate attempts exhausted; inspect validation and review findings.', comment: 'Superseded: H12 is built as a library and bound.' };
+  const recorded = await mockWorkspace(page, { [`/api/v1/campaigns/${CAMPAIGN_ID}/inbox`]: { ...f.inbox, closed_by_lead: [closed] } });
+  await page.goto(`/#t/${THREAD_ID}/inbox`);
+  const row = page.getByTestId('closed-issue');
+  await expect(row).toContainText('Superseded: H12 is built as a library and bound.');
+  await row.locator('summary').click();
+  await expect(row).toContainText('Candidate attempts exhausted');
+  await row.getByTestId('reopen-issue').click();
+  await expect.poll(() => recorded.commands.find(c => c.operation === 'issue.reopen')?.payload).toEqual({ issue_id: 'issue_old' });
+});

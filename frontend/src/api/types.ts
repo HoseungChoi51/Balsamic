@@ -29,8 +29,8 @@ export interface Hypotheses extends Scoped { hypotheses: Hypothesis[]; aliases: 
 export interface Decision { id: string; title: string; proposal?: string; rationale?: string; status: string; options: { id: string; label: string; description?: string }[]; recommendation?: string;
   resolution_revision?: number; requested_by?: string; created_at: string; freshness: { state: string; reason: string; blocked_choice_ids: string[] }; presentation: Record<string, unknown>; [key: string]: unknown }
 export interface Issue { id: string; code: string; message: string; status: string; revision: number; options: string[]; created_at: string; affected?: string;
-  actions?: { id: string; label: string; description: string }[] }
-export interface Inbox extends Scoped { decisions: Decision[]; issues: Issue[]; questions: Question[]; resolved: Decision[] }
+  actions?: { id: string; label: string; description: string }[]; comment?: string; resolved_at?: string; resolved_by?: string }
+export interface Inbox extends Scoped { decisions: Decision[]; issues: Issue[]; questions: Question[]; resolved: Decision[]; closed_by_lead?: Issue[] }
 export interface Monitor extends Scoped { rows: { problem: Record<string, unknown>; budget: { worker: Record<string, unknown>; llm: Record<string, unknown> }; compute: Record<string, unknown>;
   agents: Record<string, unknown>; autopilot?: Record<string, unknown>; needs_you: { decisions: number; issues: number; questions: number } }; pill: { state: 'clear' | 'attention' | 'digest'; text: string; row: string | null }; attention?: { row: string; text: string }[]; digest_id: string | null }
 export interface Files extends Scoped { assets: Record<string, unknown>[]; findings: Record<string, unknown>[]; reports: Record<string, unknown>[]; report_jobs: Record<string, unknown>[]; sources: Record<string, unknown>[]; artifacts: Record<string, unknown>[] }

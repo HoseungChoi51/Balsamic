@@ -286,7 +286,11 @@ and folds all but the last two under a one-sentence title: the housekeeper's `fo
 without completing scientifically, for example: *Start them anyway*, keeping their order, or *Stop them*), beside *Mark as
 handled*, which only records that the researcher dealt with it, and *Defer*. A lead question carries its `suggestion`
 (what it recommends, as the researcher would do it) and up to four `options` answered with one click; `researcher_ask`
-requires the suggestion, and the agents are told to ask only for what the researcher can do.
+requires the suggestion, and the agents are told to ask only for what the researcher can do. The lead may close an
+issue whose condition no longer holds (`issue.resolve` with `choice: resolved` and a `comment` that says what superseded
+or fixed it). Deferring and taking an issue's actions stay the researcher's. The closing is not researcher guidance, so
+it moves no guidance revision. The inbox lists such issues under *Closed by the lead* with the reason, and *Reopen*
+(`issue.reopen`, researcher only) makes one pending again.
 
 **What is happening.** A bar under the chat header says what the lead is doing in a line (`Lead waiting · experiment
 operator working · 5 runs`); clicked, it opens a panel with each agent at work or active in the last ten minutes (what

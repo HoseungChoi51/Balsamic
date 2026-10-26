@@ -121,7 +121,8 @@ def test_context_edit_commits_with_its_command_and_recovers_once(tmp_path, monke
         restarted.commands.execute(edit.model_copy(update={"id": "stale_edit"}))
 
 
-@pytest.mark.parametrize("operation", ["campaign.create", "campaign.update", "context.edit", "issue.resolve"])
+# issue.resolve is delegated for one case only, an issue that no longer holds (tests/test_issue_closing.py).
+@pytest.mark.parametrize("operation", ["campaign.create", "campaign.update", "context.edit"])
 def test_researcher_controls_cannot_be_delegated_or_spoofed(tmp_path, operation):
     workspace = Workspace(tmp_path)
     create = creation()

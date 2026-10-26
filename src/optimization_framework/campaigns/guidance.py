@@ -75,8 +75,9 @@ class CampaignGuidance:
                 "content": message, "issue_id": identity, "created_at": now()}, "message.created")
             return issue
 
-    def resolve_issue(self, issue_id, choice, comment, *, expected_revision=None, action=None):
-        """resolved and deferred only mark the issue; an action the issue offers is carried out (Workspace.act_on_issue)."""
+    def resolve_issue(self, issue_id, choice, comment, *, expected_revision=None, action=None, by="researcher"):
+        """resolved and deferred only mark the issue; an action the issue offers is carried out (Workspace.act_on_issue).
+        An agent (by) only closes an issue that no longer holds: that is not researcher guidance, so the revision stays."""
         with self.workspace.lock:
             issue = self.store.get(issue_id, "manager_issue")
             if choice not in {"resolved", "deferred", "action"}:
@@ -92,15 +93,29 @@ class CampaignGuidance:
                 taken = {**offered[action], "trial_ids": self.workspace.act_on_issue(issue, action)}
                 choice = "resolved"
                 comment = (comment + "\n" if comment else "") + f"Action: {offered[action]['label']} ({', '.join(taken['trial_ids'])})"
-            issue.update(status=choice, comment=comment, resolved_at=now(), revision=revision+1, action=taken)
-            state = self.state(issue["campaign_id"])
-            state["guidance_revision"] += 1
-            self.store.put("manager_state", state)
+            author = "researcher" if by == "researcher" else "lead"
+            issue.update(status=choice, comment=comment, resolved_at=now(), resolved_by=author, revision=revision+1, action=taken)
+            if author == "researcher":
+                state = self.state(issue["campaign_id"])
+                state["guidance_revision"] += 1
+                self.store.put("manager_state", state)
             self.store.put("manager_issue", issue, "manager.issue_resolved")
             self.store.put("manager_note", {"id": identifier("memory_note"), "campaign_id": issue["campaign_id"],
-                "kind": "decision", "content": f"{issue['message']}\nResearcher choice: {choice}\n{comment}",
-                "source_ids": [issue_id], "author": "researcher", "created_at": now()}, "manager.note")
+                "kind": "decision", "content": f"{issue['message']}\n" + (f"Researcher choice: {choice}" if author == "researcher"
+                else "Closed by the lead as no longer holding") + f"\n{comment}",
+                "source_ids": [issue_id], "author": author, "created_at": now()}, "manager.note")
             return issue
+
+    def reopen_issue(self, issue_id):
+        """The researcher takes back an issue an agent closed: pending again, as it was."""
+        with self.workspace.lock:
+            issue = self.store.get(issue_id, "manager_issue")
+            if issue["status"] == "pending":
+                raise ValueError("The issue is open")
+            issue.update(status="pending", reopened_at=now(), revision=issue.get("revision", 1) + 1)
+            for key in ("resolved_at", "resolved_by", "comment", "action", "resolution_basis"):
+                issue.pop(key, None)
+            return self.store.put("manager_issue", issue, "manager.issue")
 
     def visible_records(self, campaign_id):
         """(kind, record) pairs an agent may read: held-out evidence and what refers to it stay out until released."""

@@ -18,6 +18,7 @@ export default function InboxPage({ campaignId, route }: PageProps) {
   if (inbox.isPending) return <Loading what="Loading the inbox" />;
   if (inbox.error) return <Failed error={inbox.error} />;
   const { decisions, issues, questions, resolved } = inbox.data;
+  const closed = inbox.data.closed_by_lead || [];
   return (
     <div className="col">
       <div className="stage-head"><h1>Inbox</h1><span className="muted small">{decisions.length + issues.length + questions.length} waiting for you</span></div>
@@ -30,6 +31,9 @@ export default function InboxPage({ campaignId, route }: PageProps) {
       <Section title={`Questions from the lead (${questions.length})`}>
         {questions.length ? questions.map(q => <QuestionCard key={q.id} question={q} version={version} campaignId={campaignId} threadId={route.thread} onDone={after} />) : <Empty>The lead has no open question.</Empty>}
       </Section>
+      {closed.length ? <Section title={`Closed by the lead (${closed.length})`}>
+        <p className="why">Issues the lead found no longer hold, with its reason. Reopen one if you disagree.</p>
+        {closed.slice().reverse().map(i => <ClosedIssue key={i.id} issue={i} version={version} campaignId={campaignId} onDone={after} />)}</Section> : null}
       {resolved.length ? <Section title="Recently resolved">{resolved.slice(-10).reverse().map(d => <div key={d.id} className="row small"><span className="grow">{d.title}</span><Pill>{String(d.choice ?? d.status)}</Pill><span className="faint">{when(d.resolved_at)}</span></div>)}</Section> : null}
     </div>
   );
@@ -84,6 +88,23 @@ function IssueCard({ issue, version, campaignId, onDone }: { issue: Issue; versi
       {actions.length ? <div className="faint small">{actions.map(item => `${item.label}: ${item.description}`).join(' ')}</div> : null}
       {error ? <div className="pill bad">{error}</div> : null}
     </article>
+  );
+}
+
+function ClosedIssue({ issue, version, campaignId, onDone }: { issue: Issue; version?: number; campaignId: string; onDone: () => unknown }) {
+  const [error, setError] = useState<string | null>(null);
+  const reopen = async () => {
+    if (version === undefined) return;
+    try { await send({ operation: 'issue.reopen', campaignId, expectedRevision: version, payload: { issue_id: issue.id } }); await onDone(); }
+    catch (e) { setError(String((e as Error).message || e)); }
+  };
+  return (
+    <details className="card" data-testid="closed-issue">
+      <summary className="row small"><Pill>{issue.code.replaceAll('_', ' ')}</Pill><span className="grow">{issue.comment}</span><span className="faint">{when(issue.resolved_at)}</span></summary>
+      <p className="small">{issue.message}</p>
+      <div className="row"><button className="btn small" onClick={reopen} data-testid="reopen-issue">Reopen</button>{issue.affected ? <span className="mono small faint">{issue.affected}</span> : null}</div>
+      {error ? <div className="pill bad">{error}</div> : null}
+    </details>
   );
 }
 

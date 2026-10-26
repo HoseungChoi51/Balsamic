@@ -59,6 +59,20 @@ def register(workspace):
 
     commands.register("campaign.stage_pin", stage_pin, model=StagePinInput)
 
+    def issue_reopen(command, actor):
+        """The researcher takes back an issue the lead closed as no longer holding."""
+        from optimization_framework.contracts.commands import IssueReopenInput
+        if actor != "researcher":
+            raise ValueError("Only the researcher reopens an issue")
+        values = IssueReopenInput(**command.payload)
+        if workspace.store.get(values.issue_id, "manager_issue")["campaign_id"] != command.campaign_id:
+            raise ValueError("The issue belongs to another campaign")
+        issue = workspace.memory.reopen_issue(values.issue_id)
+        return {"issue_id": issue["id"], "revision": issue["revision"]}
+
+    from optimization_framework.contracts.commands import IssueReopenInput
+    commands.register("issue.reopen", issue_reopen, model=IssueReopenInput)
+
     def hypothesis_edit(command, actor):
         from optimization_framework.execution.service import algorithms
         values = HypothesisEditInput(**command.payload)
@@ -87,7 +101,7 @@ def register(workspace):
 
     commands.register("hypothesis.edit", hypothesis_edit, model=HypothesisEditInput, delegable=True)
     # The lead runs the workspace's operations on request; the page agents keep their own lists.
-    workspace.lead_operations = {"hypothesis.allocate", "hypothesis.edit", "intervention.batch", "research.generate", "hypothesis.nominate", "thread.pin", "problem_note.revise", "library.apply"}
+    workspace.lead_operations = {"hypothesis.allocate", "hypothesis.edit", "intervention.batch", "research.generate", "hypothesis.nominate", "thread.pin", "problem_note.revise", "library.apply", "issue.resolve"}
     from balsamic.threads.service import register as register_threads
     register_threads(workspace)
     from balsamic.panels.service import register as register_panels

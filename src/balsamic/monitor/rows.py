@@ -9,8 +9,11 @@ def inbox_view(workspace, campaign_id):
     decisions = [public_decision(workspace, row) for row in store.list("decision", campaign_id) if row.get("status") in {"pending", "executing"}]
     issues = [row for row in store.list("manager_issue", campaign_id) if row.get("status") == "pending"]
     questions = [row for row in store.list("agent_question", campaign_id) if row.get("status") == "pending"]
+    # What the lead closed as no longer holding stays in view with its reason (the latest 30); the researcher can reopen it.
+    closed = [row for row in store.list("manager_issue", campaign_id) if row.get("status") == "resolved" and row.get("resolved_by") == "lead"]
     return {"decisions": decisions, "issues": issues, "questions": questions,
-            "resolved": [row for row in store.list("decision", campaign_id) if row.get("status") == "resolved"][-20:]}
+            "resolved": [row for row in store.list("decision", campaign_id) if row.get("status") == "resolved"][-20:],
+            "closed_by_lead": sorted(closed, key=lambda row: row.get("resolved_at") or "")[-30:]}
 
 
 def gpu_row(host):
