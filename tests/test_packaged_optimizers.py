@@ -50,7 +50,7 @@ class Flip:
             self.rng.seed()
 
     def inspect(self):
-        return {"best_score": self.best_score, "proposals": self.count}
+        return {"best_score": self.best_score, "proposals": self.count, **({"history": [self.best] * self.count} if HISTORY else {})}
 
     def export_artifacts(self):
         return [{"kind": EXPORT_KIND, "media_type": "application/json", "data": {"candidate": self.best}}]
@@ -58,6 +58,7 @@ class Flip:
 
 RANDOM_RESTORE = False
 EXPORT_KIND = "solution"
+HISTORY = False
 
 
 def create_optimizer(context):
@@ -101,3 +102,16 @@ def test_the_contract_checks_pass_a_sound_method_and_catch_a_broken_restore(plug
     monkeypatch.setattr(flip_library, "EXPORT_KIND", "flip_best")
     with pytest.raises(AssertionError, match="export kind 'flip_best' is not one the asset catalog holds"):
         conformance.check("flip", instance(), optimizer_plugins=plugins)
+    monkeypatch.setattr(flip_library, "EXPORT_KIND", "solution")
+    monkeypatch.setattr(flip_library, "HISTORY", True)   # every design seen, reported on every inspection
+    big = problems.get("meent_grating").implementation_fixture({}, 1024)
+    with pytest.raises(AssertionError, match="the host records it after every evaluation"):
+        conformance.check("flip", big, optimizer_plugins=plugins)
+
+
+def test_a_progress_record_carries_bounded_diagnostics():
+    from optimization_framework.execution.metrics import DIAGNOSTICS_BYTES, bounded_diagnostics
+    small = {"counters": {"requests": 3}, "events": ["a", "b"]}
+    assert bounded_diagnostics(small) == small
+    shown = bounded_diagnostics({"counters": {"requests": 3}, "events": ["event"] * 20000, "best": {"mask": [1] * 40000}})
+    assert shown["counters"] == {"requests": 3} and set(shown["events"]) == {"omitted_bytes"} and shown["best"]["omitted_bytes"] > DIAGNOSTICS_BYTES

@@ -231,7 +231,6 @@ class Optimizer:
         return {**self.counts, 'phase': self.phase, 'index': self.index,
                 'episode': self.episode, 'stalls': self.stalls, 'terminal': self.terminal,
                 'elite': [e[2] for e in self.elite], 'spread': [e[2] for e in self.spread],
-                'best_candidate': list(self.best[0]) if self.best else None,
                 'best_objectives': dict(self.best[3]) if self.best else None,
                 'full_optimizer_seconds': self.prior_seconds + time.monotonic() - self.started,
                 'physical_forward_unknown': self.unknown_forward,

@@ -1,6 +1,6 @@
 [project]
 name = "grating-mask-search"
-version = "0.1.1"
+version = "0.1.2"
 description = "Binary-mask search methods for the 2D grating deflector, offered to Balsamic as optimizer plug-ins"
 requires-python = ">=3.11"
 dependencies = []

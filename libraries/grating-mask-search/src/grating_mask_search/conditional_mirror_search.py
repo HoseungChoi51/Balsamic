@@ -7,6 +7,7 @@ import random
 import time
 import zlib
 
+EVENTS_SHOWN = 20
 GRIDS = ((8, 16), (16, 16), (16, 32), (32, 32), (32, 64),
          (64, 64), (64, 128), (128, 128), (128, 256))
 TE = 'te_plus1_transmission'
@@ -265,11 +266,13 @@ class Mirror:
             self.stage = 0
 
     def inspect(self):
+        # Bounded: the host records this after every evaluation, so the whole event log and the best mask (in the host's
+        # progress already) made each record grow with the run. The last EVENTS_SHOWN events and the count are shown.
         return dict(status=self.status, counters=self.counters.copy(),
                     decisions=self.counters['decisions'], level=self.level,
                     grid=GRIDS[self.level], stage=self.stage, no_new=self.no_new,
-                    visited=[len(v) for v in self.visited], events=self.events[:],
-                    best=None if self.best is None else dict(mask=list(self.best),
+                    visited=[len(v) for v in self.visited], events=self.events[-EVENTS_SHOWN:], events_total=len(self.events),
+                    best=None if self.best is None else dict(
                         mean=self.cache[self.best][0], TE=self.cache[self.best][1],
                         TM=self.cache[self.best][2], minimum=self.cache[self.best][3]),
                     worker_wall_seconds=time.time() - self.started,

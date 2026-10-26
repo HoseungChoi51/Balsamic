@@ -9,6 +9,17 @@ DESIGNS = re.compile(rb"\[[01,]{127,}\]")
 PACKED = "packed_bits"
 PACKED_DESIGNS = re.compile(rb'\{"packed_bits":"[A-Za-z0-9+/=]*","cells":\d+\}')
 PACK_FROM = 128   # cells; a shorter design is cheap to keep as a list
+DIAGNOSTICS_BYTES = 16384   # what a progress record carries of an optimizer's inspect()
+
+
+def bounded_diagnostics(values):
+    """An optimizer's inspect() as a progress record carries it. The record is written after every evaluation, into the
+    metrics journal too, so a value larger than a quarter of DIAGNOSTICS_BYTES is replaced by its size: a method reporting
+    its whole history or a design (one did: 537 kB a row and growing) cannot make every record grow with the run."""
+    if not isinstance(values, dict) or len(json.dumps(values, default=str)) <= DIAGNOSTICS_BYTES:
+        return values
+    sizes = {key: len(json.dumps(value, default=str)) for key, value in values.items()}
+    return {key: value if sizes[key] <= DIAGNOSTICS_BYTES // 4 else {"omitted_bytes": sizes[key]} for key, value in values.items()}
 _DIGITS, _CELLS = bytes.maketrans(b"\x00\x01", b"01"), bytes.maketrans(b"01", b"\x00\x01")
 
 

@@ -108,7 +108,9 @@ specification. A coding workspace builds it under `libraries/<name>/` (`librarie
 - `plugin.py`, a `PackagedPlugin` subclass (`optimization_framework/optimizers/packaged.py`) that lists the methods and
   runs each module in-process, registered under the entry point in the library's `pyproject.toml`;
 - `tests/test_contract.py`, which runs `optimization_framework.optimizers.conformance.check` on each method: valid
-  candidates, seeded replay, checkpoint continuation, JSON checkpoints and inspection, and exports whose `kind` the asset
+  candidates, seeded replay, checkpoint continuation, JSON checkpoints and a small inspection (at most
+  `DIAGNOSTICS_BYTES`, 16 kB: the host records `inspect()` after every evaluation, so it holds counters and a recent tail,
+  never a design or a whole history; the worker replaces any larger value by its size), and exports whose `kind` the asset
   catalog holds (`AssetKind`: a best design is a `solution`, a search log `learner_diagnostics`), without a solver. A run's
   export of another kind is not cataloged: it stays in the run's files and is listed in the trial's `uncataloged_outputs`.
 

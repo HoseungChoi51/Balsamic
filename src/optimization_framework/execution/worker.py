@@ -27,7 +27,7 @@ from optimization_framework.contracts.base import content_hash, canonical_json
 from optimization_framework.contracts.experiments import RecoveryPolicy, ExperimentSpec
 from optimization_framework.contracts.problems import Observation, ProblemInstance
 from optimization_framework.evaluation.registry import problems
-from optimization_framework.execution.metrics import pack_candidate, unpacked
+from optimization_framework.execution.metrics import bounded_diagnostics, pack_candidate, unpacked
 from optimization_framework.optimizers.registry import create
 from optimization_framework.storage.artifacts import LocalArtifactStore, atomic_json
 from optimization_framework.storage.sqlite import now, read_json
@@ -459,7 +459,7 @@ class ExperimentWorker:
                 "process_exit": None if status == "running" else int(status == "failed"),
                 "checkpoint_available": self.checkpoint_id is not None, "checkpoint_id": self.checkpoint_id,
                 "resume_supported": status != "failed", "schedule_steps": self.spec["schedule_steps"],
-                "diagnostics": diagnostics, "updated_at": now(), "control_revision": self.control_revision}
+                "diagnostics": bounded_diagnostics(diagnostics), "updated_at": now(), "control_revision": self.control_revision}
         # A compatibility projection names the raw objective without changing its
         # direction, range, or units. New consumers use objective/best_objective.
         result[self.problem.primary_objective.name] = self.last_value

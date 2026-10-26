@@ -38,7 +38,9 @@ method ids are available to every campaign on the deflector problem, and a propo
 
 Built in the 2d-gratnig campaign's coding workspaces on 2026-10-25/26 and copied here unchanged, apart from the
 tests' import lines and, in 0.1.1, the kinds of `cyclic_geometric_vnd`'s two exports (the catalog's `solution` and
-`learner_diagnostics`, with formats `h12-best-binary-v1` and `h12-request-log-v1`):
+`learner_diagnostics`, with formats `h12-best-binary-v1` and `h12-request-log-v1`), and, in 0.1.2, what `inspect()` returns:
+bounded, without designs (`conditional_mirror_search` shows its last 20 events and their count, and its best without the mask;
+`elite_spread_relinking` leaves out its best candidate), because the host records it after every evaluation:
 
 | Method | Workspace | Commit |
 |---|---|---|
