@@ -297,7 +297,7 @@ read in the run (`report_write`, `problem_note_draft`, `hypothesis.create` and `
 | `journal-cleanup` | Asking for journal compaction after findings are recorded |
 | `recording-findings` | Earlier campaigns' findings; `finding.record` and publishing |
 | `runtime-profiling` | Profiles, flags, waivers, worker ceilings; optimizing a slow evaluator |
-| `implementation-supervision` | Coding workspaces up to an independent validation |
+| `implementation-supervision` | A method as a library: coding workspace, tests and contract checks, install, binding; commissions |
 | `panels` | `panel_render` |
 | `analysis-scripts` | Repository and experiment files; `analysis_run` |
 | `rcwa-convergence-check` | A score at the searched RCWA orders checked at higher orders (draft from Part F) |

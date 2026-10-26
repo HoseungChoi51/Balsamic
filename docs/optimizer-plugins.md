@@ -95,9 +95,27 @@ the dependency rule, so that extraction later is a move, not a rewrite. When a s
 its own repository with its tests and validation evidence, as `mask-optimizers` carries
 `reports/standalone-validation-20260930/`.
 
-Libraries produced by agents in implementation workspaces follow the same path. A validated implementation in the
-campaign library is a candidate. Promoting it to a package is a researcher decision, made once the code passes the
-questions above.
+### Libraries built in a campaign
+
+Implementing a proposal's method is building a library on this pattern, separate from the rest of Balsamic. Whether the
+method performs well is for experiments and the researcher to judge; the library only has to implement its
+specification. A coding workspace builds it under `libraries/<name>/` (`libraries/grating-mask-search` is the first):
+
+- a module per method on the `optimizer_v1` package contract (`create_optimizer(context)`, then `initialize`,
+  `propose`, `observe`, `checkpoint` as bytes, `restore`, `inspect`), with no Balsamic imports, so the same module
+  also runs as a package in the implementation service;
+- the implementer's tests of each method against its specification;
+- `plugin.py`, a `PackagedPlugin` subclass (`optimization_framework/optimizers/packaged.py`) that lists the methods and
+  runs each module in-process, registered under the entry point in the library's `pyproject.toml`;
+- `tests/test_contract.py`, which runs `optimization_framework.optimizers.conformance.check` on each method: valid
+  candidates, seeded replay, checkpoint continuation, and JSON checkpoints and inspection, without a solver.
+
+The library is done when `uv run pytest libraries/<name>` passes. Installing it runs its code in the lab's workers, as
+`mask-optimizers` does, so the researcher decides: the root `pyproject.toml` pins it as an editable path dependency in
+the `libraries` extra, `uv sync --inexact --extra libraries` installs it, and after a restart its methods are listed for
+the problems they name. A proposal runs a method once it is bound to it (`implementation.bind_builtin`). Frozen runs
+snapshot the library's source and record its version like any other plug-in. When a second project needs a library, it
+moves to its own repository, as `mask-optimizers` did.
 
 ## The seam: Python entry points
 

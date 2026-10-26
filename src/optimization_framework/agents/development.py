@@ -506,14 +506,24 @@ the developer before editing them. Save decisions and continuation instructions
 in `.campaign/checkpoint.md`; use `campaign_checkpoint` for progress or questions.
 Compaction and reconnects preserve this file, evidence, repository, and session.
 
-Commit your implementation and an `implementation-manifest.json` containing
-`contract` (optimizer_v1 or ask_tell), `entrypoint` (module:factory), `files` (a
-list of repository-relative source paths), exact `dependencies`, and a
-`test_summary`. Submit the full commit hash with `campaign_submit`. The service
-captures source from that commit. A submission is not validation or publication.
-The lead agent commissions independent checks; failure feedback returns to this session.
-Use a new commit for each repair. Keep physical evaluations distinct from unit
-tests and do not claim optimizer effectiveness without campaign measurements.
+Implement the method as a library under `libraries/<name>/`, the way
+`libraries/grating-mask-search` and docs/optimizer-plugins.md do: a module per method
+following the optimizer_v1 package contract (`create_optimizer(context)`, then
+initialize, propose, observe, checkpoint as bytes, restore, inspect), with no Balsamic
+imports; your own tests showing it does what the specification says; `plugin.py`
+listing the methods for the `optimization_framework.optimizers` entry point in its
+`pyproject.toml`; and a README naming the specification. Copy `tests/test_contract.py`
+from the example and name your methods in it: it runs Balsamic's contract checks
+(valid candidates, seeded replay, checkpoint continuation) and needs Balsamic itself
+(`python -m pip install --user -e .`), else it runs on the host.
+
+Commit the library and an `implementation-manifest.json` containing `contract`
+(optimizer_v1), `entrypoint` (module:factory), `files` (the library's
+repository-relative paths), exact `dependencies`, and a `test_summary`. Submit the full
+commit hash with `campaign_submit`. The researcher installs the library once its tests
+pass (`uv run pytest libraries/<name>`); a proposal then runs by naming its method.
+Use a new commit for each repair. Whether the method performs well is for the
+campaign's experiments and the researcher, not something the implementation proves.
 
 This session has no programming wall-clock deadline. Container CPU usage is
 measured separately; an optional development CPU allowance is shown in the

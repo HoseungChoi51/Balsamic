@@ -897,8 +897,8 @@ class PiTools:
         """How experiments, fixed-design checks and implementations are done, as this agent does them."""
         if agent["role"] == LEAD:
             return {"experiment": "the experiment operator (page_agent_message): drafts, runs, continuations, profiles; experiment_progress reads how runs go",
-                    "fixed_mask_diagnostics": "the experiment operator (fixed_mask.run)", "implementation": "the implementation lead (implementation.commission)"}
-        return {"fixed_mask_diagnostics": "fixed_mask.run", "implementation": "implementation.commission", "experiment": "draft.save then draft.launch; trial.create"}
+                    "fixed_mask_diagnostics": "the experiment operator (fixed_mask.run)", "implementation": "a library built in a coding workspace and installed by the researcher (procedure implementation-supervision), run by binding the proposal to its method; or the implementation lead (implementation.commission)"}
+        return {"fixed_mask_diagnostics": "fixed_mask.run", "implementation": "a library built in a coding workspace and installed by the researcher (procedure implementation-supervision), run by binding the proposal to its method (implementation.bind_builtin); or implementation.commission", "experiment": "draft.save then draft.launch; trial.create"}
 
     def _execute(self, agent, run, name, args, identity):
         cid = agent["campaign_id"]

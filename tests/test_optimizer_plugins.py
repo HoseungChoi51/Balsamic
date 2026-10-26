@@ -80,7 +80,8 @@ def test_framework_never_imports_an_optimizer_library_or_its_adapter():
 
 
 def test_installed_plugin_contributes_complete_methods():
-    assert plugins.installed.entries() == {"mask_optimizers": "dqn_meent.mask_library_adapter:MaskLibraryPlugin"}
+    # The project's own plug-in; libraries built in campaigns (the libraries extra) may add theirs.
+    assert plugins.installed.entries()["mask_optimizers"] == "dqn_meent.mask_library_adapter:MaskLibraryPlugin"
     listed = {method["id"]: method for method in methods()}
     for name in ("motif_surgery", "nested_fourier", "phenotype_de"):
         assert listed[name]["contract"] == "optimizer_v1"
