@@ -1,14 +1,54 @@
 """Docker boundary for full Pi development. No Docker socket enters a workspace."""
 from __future__ import annotations
 
+import ipaddress
 import json
 import os
 from pathlib import Path
 import shutil
+import socket
 import subprocess
+from urllib.parse import urlparse
 
 ROOT = Path(__file__).resolve().parents[3]
-IMAGE = "grating-implementation-workspace:pi-0.87.1"
+IMAGE = "grating-implementation-workspace:pi-1.3.0"
+# The coding agent's model when the workspace records none: the OpenAI Codex subscription, as before campaigns chose models.
+LEGACY_MODEL = {"provider": "openai-codex", "model": "gpt-6-sol", "effort": "xhigh"}
+# What the container's network refuses (deploy/implementation-workspace/network.sh), and its own loopback.
+UNREACHABLE = [ipaddress.ip_network(n) for n in ("127.0.0.0/8", "10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16", "100.64.0.0/10", "169.254.0.0/16")]
+
+
+def models_file():
+    """The Pi models.json the harness takes custom providers from (agent-harness/src/runtime.ts, modelsFile); None in locked mode."""
+    if os.environ.get("GRATING_PI_MODELS_FILE"):
+        return Path(os.environ["GRATING_PI_MODELS_FILE"])
+    if not os.environ.get("GRATING_PI_PROFILE"):
+        return None
+    own = Path(os.environ["GRATING_PI_PROFILE"]) / "models.json"
+    return own if own.exists() else Path.home() / ".pi/agent/models.json"
+
+
+def custom_provider(provider):
+    """A custom provider's definition (a LiteLLM router, a local server), or None for one Pi knows itself."""
+    path = models_file()
+    try:
+        return json.loads(path.read_text()).get("providers", {}).get(provider) if path else None
+    except (OSError, ValueError):
+        return None
+
+
+def reachable(provider, endpoint):
+    """Refuse a provider the container cannot reach: its network allows public addresses only."""
+    host = urlparse(endpoint.get("baseUrl") or "").hostname
+    if not host:
+        return
+    try:
+        addresses = {info[4][0] for info in socket.getaddrinfo(host, None, socket.AF_INET)}
+    except OSError as exc:
+        raise ValueError(f"The coding workspace's model provider {provider} ({host}) does not resolve: {exc}")
+    if any(ipaddress.ip_address(a) in network for a in addresses for network in UNREACHABLE):
+        raise ValueError(f"The coding workspace cannot reach the model provider {provider} at {endpoint['baseUrl']}: its network allows "
+                         "public addresses only. Give the campaign a model on a public endpoint, or commission the implementation instead")
 
 
 def run(args, *, timeout=45, cwd=None):
@@ -35,7 +75,11 @@ class DockerWorkspace:
         try:
             run(["docker", "image", "inspect", self.image], timeout=10)
             return {"available": True, "image": self.image}
-        except (ValueError, OSError, subprocess.TimeoutExpired) as exc:
+        except ValueError as exc:
+            missing = "no such image" in str(exc).lower()
+            return {"available": False, "image": self.image,
+                    "reason": f"The workspace image is not built: docker build -t {self.image} deploy/implementation-workspace" if missing else str(exc)}
+        except (OSError, subprocess.TimeoutExpired) as exc:
             return {"available": False, "reason": str(exc), "image": self.image}
 
     def inspect(self, record):
@@ -49,10 +93,34 @@ class DockerWorkspace:
                 "port": int(ports[0]["HostPort"]) if ports else None, "pid": state["Pid"],
                 "image_id": data["Image"], "container_id": data["Id"]}
 
+    def configure_pi(self, record, root):
+        """The coding agent runs on the campaign's model: that provider's sign-in only and, for a custom provider, its
+        endpoint from the researcher's Pi configuration. No other provider's credentials enter."""
+        model = record.get("model") or LEGACY_MODEL
+        provider, endpoint = model["provider"], custom_provider(model["provider"])
+        if endpoint:
+            reachable(provider, endpoint)
+        pi_home = root / "home/.pi/agent"
+        pi_home.mkdir(parents=True, exist_ok=True)
+        if not (pi_home / "settings.json").exists():
+            (pi_home / "settings.json").write_text(json.dumps({"defaultProjectTrust": "always", "defaultProvider": provider,
+                "defaultModel": model["model"], **({"defaultThinkingLevel": model["effort"]} if model.get("effort") else {}),
+                "compaction": {"enabled": True}, "telemetry": {"enabled": False}}))
+        if endpoint and not (pi_home / "models.json").exists():
+            (pi_home / "models.json").write_text(json.dumps({"providers": {provider: endpoint}}, indent=2))
+        auth_file = Path(os.environ.get("GRATING_PI_AUTH_FILE", str(Path.home() / ".pi/agent/auth.json")))
+        if auth_file.exists() and not (pi_home / "auth.json").exists():
+            auth = json.loads(auth_file.read_text())
+            if auth.get(provider):
+                target = root / "incoming/auth.json"
+                target.write_text(json.dumps({provider: auth[provider]}))
+                target.chmod(0o600)
+
     def prepare(self, record, brief, evidence):
         root = self.root(record)
         for name in ("work", "home", "incoming/commands", "incoming/results", "outgoing/events", "references"):
             (root / name).mkdir(parents=True, exist_ok=True, mode=0o700)
+        self.configure_pi(record, root)
         work = root / "work"
         if not (work / "git").exists():
             run(["git", "clone", "--bare", "--no-local", "--single-branch", str(ROOT), str(work / "git")], timeout=120)
@@ -86,18 +154,6 @@ class DockerWorkspace:
         }
         if not (vscode / "settings.json").exists():
             (vscode / "settings.json").write_text(json.dumps(settings, indent=2))
-        pi_home = root / "home/.pi/agent"
-        pi_home.mkdir(parents=True, exist_ok=True)
-        if not (pi_home / "settings.json").exists():
-            (pi_home / "settings.json").write_text(json.dumps({"defaultProjectTrust": "always",
-                "compaction": {"enabled": True}, "telemetry": {"enabled": False}}))
-        auth_file = Path(os.environ.get("GRATING_PI_AUTH_FILE", str(Path.home() / ".pi/agent/auth.json")))
-        if auth_file.exists() and not (pi_home / "auth.json").exists():
-            auth = json.loads(auth_file.read_text())
-            if auth.get("openai-codex"):
-                target = root / "incoming/auth.json"
-                target.write_text(json.dumps({"openai-codex": auth["openai-codex"]}))
-                target.chmod(0o600)
         # Reference code only: no host working files, credentials, or campaign databases.
         flrl = Path(os.environ.get("GRATING_FLRL_REFERENCE", str(ROOT.parent / "flrl")))
         if (flrl / ".git").exists() and not (root / "references/flrl").exists():
@@ -144,6 +200,8 @@ class DockerWorkspace:
                 (root / "references", "/references", True),
                 (ROOT / "agent-harness/extensions/implementation.ts", "/opt/workspace/extension.ts", True)]:
             args += ["--mount", f"type=bind,src={source},dst={target}" + (",readonly" if readonly else "")]
+        model = record.get("model") or LEGACY_MODEL
+        args += ["-e", f"PI_PROVIDER={model['provider']}", "-e", f"PI_MODEL={model['model']}", "-e", f"PI_THINKING={model.get('effort') or ''}"]
         args += ["-e", f"WORKSPACE_UID={os.getuid()}", "-e", f"WORKSPACE_GID={os.getgid()}", self.image]
         run(args, timeout=60)
         return self.inspect(record)

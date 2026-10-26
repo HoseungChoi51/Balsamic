@@ -14,7 +14,7 @@ RUN curl -fLsS --retry 3 -o /tmp/code-server.tar.gz \
  && echo "${CODE_SERVER_SHA256}  /tmp/code-server.tar.gz" | sha256sum -c - \
  && mkdir /opt/code-server && tar -xzf /tmp/code-server.tar.gz -C /opt/code-server --strip-components=1 \
  && rm /tmp/code-server.tar.gz \
- && npm install -g @earendil-works/pi-coding-agent@0.87.1 \
+ && npm install -g @earendil-works/pi-coding-agent@1.3.0 \
  && pip install --no-cache-dir numpy==2.5.3 scipy==1.18.1 meent==0.13.2 pytest
 RUN groupadd -g 1000 developer && useradd -u 1000 -g 1000 -m -s /bin/bash developer
 COPY start.sh /opt/workspace/start.sh

@@ -197,3 +197,54 @@ def test_optional_cpu_allowance_pauses_without_losing_session(setup):
     with pytest.raises(ValueError, match='exhausted'):
         development.control(cid, record['id'], {'action': 'resume', 'request_key': 'too-soon',
                                                 'expected_revision': saved['control_revision']})
+
+
+def test_while_workspaces_are_off_the_refusal_names_the_commission_and_the_switch(setup, monkeypatch):
+    workspace, campaign, development, driver = setup
+    monkeypatch.setenv('GRATING_DEVELOPMENT_ENABLED', 'false')
+    with pytest.raises(ValueError, match='implementation.commission') as refused:
+        development.create(campaign['id'], {'hypothesis_id': 'hypothesis_dev', 'objective': 'Implement', 'request_key': 'off'})
+    assert 'GRATING_DEVELOPMENT_ENABLED=true' in str(refused.value)
+    assert 'docker build -t grating-implementation-workspace' in str(refused.value)
+    assert development.view(campaign['id'])['disabled'] == str(refused.value)
+
+
+def test_a_workspace_runs_on_the_campaigns_model(setup):
+    workspace, campaign, development, driver = setup
+    cid = campaign['id']
+    config = workspace.pi.configuration(cid)
+    config['models'] = {'default': {'provider': 'centinels', 'model': 'gpt-6.1-sol', 'effort': None}, 'roles': {}}
+    workspace.store.put('agent_campaign', config)
+    record = development.create(cid, {'hypothesis_id': 'hypothesis_dev', 'objective': 'Implement', 'request_key': 'model'})
+    assert record['model'] == {'provider': 'centinels', 'model': 'gpt-6.1-sol', 'effort': None}
+
+
+def test_the_container_gets_the_campaigns_provider_only(tmp_path, monkeypatch):
+    from optimization_framework.agents import development_runtime
+    from optimization_framework.agents.development_runtime import DockerWorkspace
+    auth, models = tmp_path / 'auth.json', tmp_path / 'models.json'
+    auth.write_text(json.dumps({'centinels': {'type': 'api_key', 'key': 'router-key'}, 'openai-codex': {'type': 'oauth', 'access': 'codex-token'}}))
+    models.write_text(json.dumps({'providers': {'centinels': {'baseUrl': 'https://8.8.8.8/v1', 'api': 'openai-completions'},
+                                                'strixhalo': {'baseUrl': 'http://100.120.125.80:8084/v1', 'api': 'openai-completions'}}}))
+    monkeypatch.setenv('GRATING_PI_AUTH_FILE', str(auth))
+    monkeypatch.setenv('GRATING_PI_MODELS_FILE', str(models))
+    driver = DockerWorkspace(tmp_path / 'development')
+    record = {'id': 'development_one', 'model': {'provider': 'centinels', 'model': 'gpt-6.1-sol', 'effort': None}}
+    root = driver.root(record)
+    (root / 'incoming').mkdir(parents=True)
+    driver.configure_pi(record, root)
+    assert json.loads((root / 'incoming/auth.json').read_text()) == {'centinels': {'type': 'api_key', 'key': 'router-key'}}
+    home = root / 'home/.pi/agent'
+    assert json.loads((home / 'models.json').read_text()) == {'providers': {'centinels': {'baseUrl': 'https://8.8.8.8/v1', 'api': 'openai-completions'}}}
+    settings = json.loads((home / 'settings.json').read_text())
+    assert (settings['defaultProvider'], settings['defaultModel'], 'defaultThinkingLevel' in settings) == ('centinels', 'gpt-6.1-sol', False)
+
+    commands = []
+    monkeypatch.setattr(development_runtime, 'run', lambda args, **kwargs: commands.append(args) or '')
+    monkeypatch.setattr(DockerWorkspace, 'inspect', lambda self, record: None)
+    driver.start(record)
+    assert {'PI_PROVIDER=centinels', 'PI_MODEL=gpt-6.1-sol', 'PI_THINKING='} <= set(commands[0])
+
+    private = {'id': 'development_two', 'model': {'provider': 'strixhalo', 'model': 'local', 'effort': None}}
+    with pytest.raises(ValueError, match='public addresses only'):
+        driver.configure_pi(private, driver.root(private))

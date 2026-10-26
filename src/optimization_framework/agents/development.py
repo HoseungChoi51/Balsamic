@@ -10,7 +10,7 @@ from typing import Literal
 from pydantic import Field, model_validator
 from optimization_framework.contracts.base import Contract, content_hash
 from optimization_framework.storage.sqlite import atomic_json, now
-from .development_runtime import DockerWorkspace
+from .development_runtime import IMAGE, LEGACY_MODEL, DockerWorkspace
 
 
 class WorkspaceCreate(Contract):
@@ -90,12 +90,22 @@ class DevelopmentWorkspaces:
             "submissions": [{k: v for k, v in s.items() if k != "package"} for s in self.store.list("development_submission", record["campaign_id"]) if s["workspace_id"] == record["id"]],
             "questions": [q for q in self.store.list("development_question", record["campaign_id"]) if q["workspace_id"] == record["id"] and q["status"] == "pending"]}
 
+    def disabled(self):
+        """Why workspaces are refused, and the two ways on: the commission the agents can make now, the switch the researcher can turn."""
+        image = getattr(self.driver, "image", IMAGE)
+        return ("Full implementation workspaces are disabled in the server configuration. Commission the implementation instead "
+                "(implementation.commission, by the implementation lead): builders, test designers and reviewers build and validate it "
+                "without a workspace. The researcher can turn workspaces on: build the image (docker build -t " + image + " "
+                "deploy/implementation-workspace), then restart the lab with GRATING_DEVELOPMENT_ENABLED=true (scripts/stop, then "
+                "GRATING_DEVELOPMENT_ENABLED=true scripts/start; development_enabled in a launcher file).")
+
     def view(self, campaign_id):
-        return {"enabled": self.enabled(), "workspaces": [self.public(r) for r in self.store.list("development_workspace", campaign_id)]}
+        return {"enabled": self.enabled(), **({} if self.enabled() else {"disabled": self.disabled()}),
+                "workspaces": [self.public(r) for r in self.store.list("development_workspace", campaign_id)]}
 
     def create(self, campaign_id, payload, *, actor="researcher"):
         if not self.enabled():
-            raise ValueError("Full implementation workspaces are disabled in the server configuration")
+            raise ValueError(self.disabled())
         values = WorkspaceCreate.model_validate(payload)
         hypothesis = self.store.get(values.hypothesis_id, "hypothesis")
         if hypothesis["campaign_id"] != campaign_id or hypothesis["status"] in {"archived", "finalist"}:
@@ -114,12 +124,15 @@ class DevelopmentWorkspaces:
             config = self.controller.configuration(campaign_id)
             if not config or not config["enabled"]:
                 raise ValueError("Activate the campaign lead agent before creating an implementation workspace")
+            # The coding agent runs on the campaign's own model, as its agents do.
+            default = (config.get("models") or {}).get("default") or LEGACY_MODEL
             record = {"id": identity, "campaign_id": campaign_id, "hypothesis_id": values.hypothesis_id,
                 "title": hypothesis["title"], "parent_agent_id": config["lead_id"], "created_at": now(),
                 "objective": values.objective, "evidence_ids": values.evidence_ids,
                 "request_key": values.request_key, "request_hash": content_hash(values.model_dump()),
                 "status": "queued", "desired_status": "running", "control_revision": 0,
                 "guidance_revision": 0, "cpu_budget_seconds": values.cpu_budget_seconds,
+                "model": {key: default.get(key) for key in ("provider", "model", "effort")},
                 "usage": {"container_cpu_seconds": 0, "subscription_calls": 0, "input": 0, "output": 0,
                           "billing_mode": "subscription", "api_cost_usd": 0}, "event_files": [], "cursor": 0}
             self.store.put("development_workspace", record, "development.created")

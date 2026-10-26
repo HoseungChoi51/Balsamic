@@ -9,9 +9,13 @@ if [ -f /bridge/in/auth.json ] && [ ! -f "$HOME/.pi/agent/auth.json" ]; then
 fi
 export NODE_PATH=/usr/local/lib/node_modules/@earendil-works/pi-coding-agent/node_modules
 export GRATING_DEVELOPMENT_BRIDGE=/bridge
+# The campaign's model, named by the host; without one, the OpenAI Codex subscription.
+model=(--provider "${PI_PROVIDER:-openai-codex}" --model "${PI_MODEL:-gpt-6-sol}")
+thinking="${PI_THINKING-xhigh}"
+if [ -n "$thinking" ]; then model+=(--thinking "$thinking"); fi
 if ! tmux has-session -t implementation 2>/dev/null; then
     tmux new-session -d -s implementation -c /work/repo \
-        'exec pi --provider openai-codex --model gpt-6-sol --thinking xhigh --session /work/sessions/pi.jsonl --extension /opt/workspace/extension.ts'
+        "exec pi $(printf '%q ' "${model[@]}")--session /work/sessions/pi.jsonl --extension /opt/workspace/extension.ts"
 fi
 tmux set-option -g history-limit 100000
 exec /opt/code-server/bin/code-server --bind-addr 0.0.0.0:8080 --auth none \
