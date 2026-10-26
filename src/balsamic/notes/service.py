@@ -123,9 +123,10 @@ def view(workspace, identity, *, revision=None):
             charter = {**(charter or {}), "charter": workspace.charters.view(note["charter_id"])}
         except KeyError:
             pass
-    from balsamic.notes import skips
+    from balsamic.notes import installed, skips
     return {"note": note, "revision": current, "revisions": revisions, "annotations": annotations_of(workspace, identity), "charter": charter, "sections": list(SECTIONS), "titles": TITLES,
-            "skips": skips.view(workspace, note)}
+            "skips": skips.view(workspace, note), "writing": installed.writing(workspace, note["campaign_id"]),
+            "installed": [{"problem_id": row["problem_id"], "name": row["name"]} for row in installed.problems_of(workspace, note["campaign_id"])]}
 
 
 # Annotations and tiers ------------------------------------------------------------------------------------
@@ -270,7 +271,10 @@ def adopt(workspace, identity, revision_number, *, actor):
     if imports is None:
         raise ValueError("The formulator is not available in this workspace")
     from optimization_framework.problem_import.service import ImportCreate
-    record = imports.create(ImportCreate(title=revision["title"][:200], statement=markdown(revision, held_skips(workspace, note)), notes=f"Adopted from problem note {identity} revision {revision_number}"))
+    from balsamic.notes import installed
+    # The installed problem the tasks already run on goes with the note: the formulator builds on it instead of asking whether to.
+    statement = markdown(revision, held_skips(workspace, note)) + "\n\n" + installed.statement(installed.problems_of(workspace, note["campaign_id"]))
+    record = imports.create(ImportCreate(title=revision["title"][:200], statement=statement.strip()[:50000], notes=f"Adopted from problem note {identity} revision {revision_number}"))
     imports.start(record["id"])
     with workspace.lock:
         note = workspace.store.get(identity, "problem_note")

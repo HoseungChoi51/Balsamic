@@ -219,6 +219,25 @@ missing and tells it to name the missing step instead of starting. A setup-time 
 `campaign.autopilot.requested` (the switch stays off) and prefills the dialog once the gate opens. The housekeeper's
 suggestions and the lead's briefing name the same step.
 
+**A campaign on an installed problem** (`balsamic/notes/installed.py`). The problem's package states the problem: its
+definition, and the example whose instance the tasks run on, with the example's charter (`problems_of`). Opening the note page
+creates the note, so such a campaign goes through the gate like any other, but the researcher is not its source. At Create the
+setup starts the lead and queues one run (`pi_run_note_<campaign>`, origin `note_request: installed_problem`) that writes every
+section from the package in one `problem_note_draft` and decides by itself whether anything needs the researcher: only what the
+researcher's question leaves open and the package does not state, each an item of Open questions with a suggested answer, else
+"None remaining". It proposes no skips (`problem-formulation` procedure, "An installed problem"). Without a model the setup says
+so in the thread and points to `/note`. At Adopt the formulator's statement carries the installed problem and the tasks' values
+after the note (`installed.statement`), so it builds the charter on that evaluator from the example's charter and does not ask
+whether to. The gate's `sections` text, the note page's empty sections and its button ask the lead to write from the installed
+problem instead of asking which sections can be skipped. The note view carries `installed` and `writing` (the run while queued,
+submitted or running). The page's callout (`data-state`) names the one thing the note waits on: `writing` (nothing is needed
+from the researcher), `incomplete`, `questions` (the items under Open questions), `ready` (adopt), `adopted-incomplete`,
+`formulating`, `confirm` (a link to the Charter tab) or `done`; the how-to line shows only while drafting. Adopt waits for the
+whole note (disabled, with the reason as its title, while the lead is writing or a section is neither written nor skipped): the
+formulator writes the charter from the whole note, and a part of it only brings its questions back to the researcher. The
+page's requests that take a turn of the lead (the write/skip button, Challenge, Visualize) start the lead first when it is not
+running, as the chat does.
+
 **Skipping a section** (`balsamic/notes/skips.py`). A section other than the objective may stay unwritten when that is
 justified, and the researcher is not asked to judge it alone: the lead proposes, the researcher agrees. The lead's
 `problem_note_skip` records a `note_skip` proposal: per section a basis, `charter` (the confirmed charter of the note's

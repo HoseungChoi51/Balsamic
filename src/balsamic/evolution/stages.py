@@ -81,8 +81,12 @@ def definition(workspace, campaign):
     if missing:
         proposed = [TITLES[entry["section"]] for row in workspace.store.list(skips.KIND, campaign["id"]) if row["note_id"] == note["id"] and row["status"] == "open"
                     for entry in row["items"] if entry["status"] == "proposed" and TITLES[entry["section"]] in missing]
+        from balsamic.notes.installed import problems_of
         text = ("Not written yet: " + ", ".join(missing) + ". Each section is written, or skipped with your agreement, before proposals, allocations or autopilot. "
                 + ("The lead proposes skipping " + ", ".join(proposed) + ": agree or decline on the note or in the chat." if proposed else
+                   # An installed problem states what the sections say: the lead writes them from it, not from the researcher.
+                   "The campaign runs on an installed problem, which states them: ask the lead to write them from it (/note); it asks you only "
+                   "what the problem leaves open." if problems_of(workspace, campaign["id"]) else
                    "Ask the lead to fill them, or to tell you which can be skipped: it proposes a skip only where the confirmed charter already states "
                    "the section or it does not apply here, and you agree."))
         return {"ready": False, "missing": missing, "step": {**base, "skipped": [TITLES[name] for name in SECTIONS if name in skipped], "proposed_skips": proposed,

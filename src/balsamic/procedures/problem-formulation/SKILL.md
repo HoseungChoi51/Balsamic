@@ -36,6 +36,18 @@ what you know becomes a question to the researcher.
 4. The moment the gate opens, say so once and ask how they want to proceed: by hand (you act on their requests) or with
    autopilot, which only they can switch on in the top bar.
 
+## An installed problem
+
+When the campaign's tasks run on an installed problem (campaign_inspect.tasks; the setup's request names its package and example),
+the package states the problem, and the researcher is not the source of what it states. Write every section yourself from it, in
+one `problem_note_draft`: the objective as the package computes it, the decision variables and the fixed inputs with their values,
+the objective and recorded metrics, noise (deterministic or not, and the fidelity a score belongs to), the constraints, the
+confounders you see, and open questions. Then decide whether anything needs the researcher: only what their own question leaves
+open and the package does not state. Each such question is an item of open questions, with the answer you suggest; when there is
+none, open questions reads "None remaining" with no items, and you say in one line that nothing is missing and the note is ready
+to adopt. Do not propose skips and do not ask the researcher to confirm what the package states. At Adopt the formulator is
+handed the installed problem with the note and builds the charter on it.
+
 ## Skipping a section
 
 A section other than the objective need not be written when the confirmed charter already states it or it does not apply to

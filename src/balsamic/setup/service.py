@@ -431,4 +431,14 @@ def create(workspace, setup_id):
                                                expected_revision=workspace.store.get(campaign["id"], "campaign")["version"], payload={}), actor="researcher")
         except ValueError as exc:
             workspace.memory.issue(campaign["id"], "autopilot_setup", str(exc))
+    if draft.get("problem_id"):
+        # An installed problem states the problem: the lead writes the note from it now, and asks only what it leaves open.
+        from balsamic.notes import installed
+        try:
+            installed.request_note(workspace, campaign["id"], workspace.store.get(thread["id"], "thread"))
+        except ValueError as exc:
+            with workspace.lock:
+                workspace.store.put("message", {"id": f"message_note_request_{campaign['id']}", "campaign_id": campaign["id"], "thread_id": thread["id"], "role": "assistant",
+                                                "origin": "setup", "content": f"The lead could not start writing the problem note: {str(exc).rstrip('.')}. Ask it with /note once it can.",
+                                                "created_at": now()}, "message.created")
     return {"setup": setup, "campaign_id": campaign["id"], "thread_id": thread["id"], "receipt_id": receipt["id"], "already": False}

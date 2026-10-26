@@ -43,6 +43,7 @@ def test_problem_note_revisions_are_immutable_and_adopt_hands_the_note_to_the_fo
     outcome = command(client, "problem_note.adopt", "demo", {"note_id": "note_demo", "revision": 2}, formulating["version"])["outcome"]
     assert outcome == {"note_id": "note_demo", "revision": 2, "import_id": "import_1"} and started == ["import_1"]
     assert created[0].title == "Demo" and "## Knobs" in created[0].statement and "fill factor" in created[0].statement and "revision 2" in created[0].notes
+    assert "installed problem" not in created[0].statement, "a campaign still formulating runs on nothing installed yet"
     note = workspace.store.get("note_demo", "problem_note")
     assert note["status"] == "adopted" and note["adopted_revision"] == 2 and workspace.store.get("demo", "campaign")["problem_note_id"] == "note_demo"
     assert client.get("/api/v1/problem-notes/note_demo").json()["charter"]["status"] == "running"
@@ -118,3 +119,19 @@ def test_the_note_follows_the_charter_of_its_latest_adoption(client, workspace, 
     body = service.view(workspace, note["id"])
     assert body["note"]["charter_id"] == "charter_new" and body["charter"]["charter_id"] == "charter_new"
     assert workspace.store.get(note["id"], "problem_note")["charter_id"] == "charter_new"
+
+
+def test_adopt_hands_the_formulator_the_installed_problem_the_tasks_run_on(client, workspace, monkeypatch):
+    from balsamic.setup.service import starting_task
+    campaign = command(client, "campaign.create", "demo", {"name": "Demo", "objective": "Develop an effective optimizer for the chosen problem.",
+                                                           "tasks": [starting_task("meent_2d_dual_polarization_deflector")], "compute_budget_seconds": 600, "llm_budget_usd": 1}, 0)["outcome"]["campaign"]
+    view = client.get("/api/v1/campaigns/demo/problem-note").json()
+    assert view["installed"] == [{"problem_id": "meent_2d_dual_polarization_deflector", "name": "FLRL 2D silicon/air dual-polarization beam deflector"}] and view["writing"] is None
+    created = []
+    monkeypatch.setattr(workspace.problem_imports, "create", lambda values: created.append(values) or {"id": "import_1", "status": "collecting"})
+    monkeypatch.setattr(workspace.problem_imports, "start", lambda import_id: None)
+    command(client, "problem_note.adopt", "demo", {"note_id": "note_demo", "revision": 1}, campaign["version"])
+    # The formulator is told what the tasks already run on, with the example whose charter it builds from, and not to ask about it.
+    statement = created[0].statement
+    assert "## The installed problem this campaign runs on" in statement and "`meent_2d_dual_polarization_deflector`" in statement
+    assert "2D dual-polarization beam deflector · Octavian FLRL" in statement and '"wavelength_nm": 1050.0' in statement and "do not ask" in statement

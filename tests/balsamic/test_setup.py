@@ -1,6 +1,8 @@
 """Starting a campaign as a conversation: scripted questions with choices, free text parsed, the model's turn when one answers, create."""
 import json
 
+from support import finish_run
+
 
 def test_scripted_setup_asks_every_field_with_choices_and_creates_the_campaign(client, workspace):
     setup = client.post("/api/v1/setup").json()
@@ -127,3 +129,35 @@ def test_every_offered_problem_creates_its_campaign_on_a_runnable_task(client, w
         assert [t["problem"]["definition_id"] for t in tasks] == [problem_id]
     flrl = workspace.store.list("task", "on-meent-2d-dual-polarization-deflector")[0]
     assert flrl["problem"]["configuration"]["grid_x"] == 256 and flrl["problem"]["fidelity"] == {"rcwa_order_x": 10, "rcwa_order_y": 5}
+
+
+def test_a_campaign_on_an_installed_problem_has_the_lead_write_the_note_from_it(client, workspace, monkeypatch):
+    monkeypatch.setenv("GRATING_PI_PROVIDER", "openai-codex")
+    sid = client.post("/api/v1/setup").json()["id"]
+    answer = lambda **body: client.post(f"/api/v1/setup/{sid}/answer", json=body).json()
+    answer(text="Deflector"); answer(choice="later"); answer(choice="meent_2d_dual_polarization_deflector"); answer(choice="medium"); answer(choice="delegated")
+    assert answer(choice="off")["step"]["field"] == "ready"
+    created = client.post(f"/api/v1/setup/{sid}/create").json()
+    cid, thread = created["campaign_id"], created["thread_id"]
+    # The installed problem states the problem: Create starts the lead and asks it for the whole note, nothing of the researcher.
+    run = workspace.store.get("pi_run_note_" + cid, "agent_run")
+    assert run["origin"]["note_request"] == "installed_problem" and run["origin"]["thread_id"] == thread and workspace.pi.owns(cid)
+    assert "flrl_2d_deflector_1050nm_75deg" in run["input"] and "every section in one call" in run["input"] and "Do not propose skips" in run["input"]
+    messages = client.get(f"/api/v1/threads/{thread}/messages").json()["messages"]
+    assert messages[-1]["origin"] == "setup" and "writes the problem note from the installed problem" in messages[-1]["content"]
+    view = client.get(f"/api/v1/campaigns/{cid}/problem-note").json()
+    assert view["writing"] == {"run_id": run["id"], "status": "queued"} and view["installed"][0]["problem_id"] == "meent_2d_dual_polarization_deflector"
+    # While sections are unwritten the gate sends the researcher to the lead, not to skips.
+    assert "ask the lead to write them from it" in client.get("/api/v1/campaigns").json()["campaigns"][0]["next_step"]["text"]
+    finish_run(workspace, run["id"], "The note is written from the installed problem; nothing is missing.")
+    assert client.get(f"/api/v1/campaigns/{cid}/problem-note").json()["writing"] is None
+
+
+def test_without_a_model_the_setup_says_the_lead_could_not_start_the_note(client, workspace):
+    sid = client.post("/api/v1/setup").json()["id"]
+    answer = lambda **body: client.post(f"/api/v1/setup/{sid}/answer", json=body).json()
+    answer(text="Deflector"); answer(choice="later"); answer(choice="meent_2d_dual_polarization_deflector"); answer(choice="medium"); answer(choice="delegated"); answer(choice="off")
+    created = client.post(f"/api/v1/setup/{sid}/create").json()
+    assert not workspace.store.list("agent_run", created["campaign_id"])
+    last = client.get(f"/api/v1/threads/{created['thread_id']}/messages").json()["messages"][-1]
+    assert last["origin"] == "setup" and "could not start writing the problem note" in last["content"] and "/note" in last["content"]

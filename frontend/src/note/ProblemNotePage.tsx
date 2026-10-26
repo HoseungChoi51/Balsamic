@@ -2,7 +2,7 @@
 import { useEffect, useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import type { PageProps } from '../shell/StagePanel';
-import { useRead, useSummary } from '../api/queries';
+import { useRead, useSummary, useThreads } from '../api/queries';
 import { api } from '../api/client';
 import { send } from '../commands/bus';
 import { CharterPanel } from './CharterPanel';
@@ -20,13 +20,40 @@ interface Revision { id: string; revision: number; sections: Record<string, Sect
 interface Annotation { id: string; anchor: { revision: number; section: string; item_index?: number | null; start: number; end: number; quote: string }; kind: string; question: string; tier: string;
   escalated_from_tier?: string | null; escalation_reason?: string; answer: { text: string; answered_by: string; cost_usd?: number | null } | null; proposed_edit: Record<string, unknown> | null; visual_id?: string | null; status: string; created_at: string }
 interface NoteView { note: { id: string; title: string; current_revision: number; adopted_revision: number | null; charter_id: string | null; import_id: string | null; status: string }; revision: Revision | null;
-  revisions: { id: string; revision: number; author: string; reason: string; created_at: string }[]; annotations: Annotation[]; charter: { import_id?: string; status?: string; error?: string | null; charter_id?: string | null; reply?: string | null; model?: { provider?: string | null; model?: string | null; effort?: string | null } | null; tier?: string | null; usage?: { calls?: number; cost_usd?: number } | null; charter?: Record<string, unknown> } | null; sections: string[]; titles: Record<string, string>; skips: Skips }
+  revisions: { id: string; revision: number; author: string; reason: string; created_at: string }[]; annotations: Annotation[]; charter: { import_id?: string; status?: string; error?: string | null; charter_id?: string | null; reply?: string | null; model?: { provider?: string | null; model?: string | null; effort?: string | null } | null; tier?: string | null; usage?: { calls?: number; cost_usd?: number } | null; charter?: Record<string, unknown> } | null; sections: string[]; titles: Record<string, string>; skips: Skips;
+  writing?: { run_id: string; status: string } | null; installed?: { problem_id: string; name: string }[] }
 
 const KINDS = [['define', 'Define'], ['explain', 'Explain'], ['challenge', 'Challenge'], ['visualize', 'Visualize']] as const;
+// What the lead is asked when the campaign runs on an installed problem: the package states the sections, not the researcher.
+const WRITE_REQUEST = 'Write the empty sections of the problem note from the installed problem the campaign runs on; ask me only what it leaves open.';
+const HOW = 'Each section has Ask about this (Define, Explain, Challenge or Visualize a passage; select any words to ask about those exactly) and Edit (change the text yourself; saved as a revision in your name). Or tell the lead in the chat what to change, and it revises the note.';
+
+const written = (section: SectionData | undefined) => !!(section?.text?.trim() || section?.items?.length || section?.latex?.length);
+
+/** The one thing the note waits on now, and whose it is: the lead writing, the researcher answering or adopting, the formulator, the charter. */
+function guide(data: NoteView, missing: string[]): { state: string; title: string; text: string } {
+  const installed = !!data.installed?.length;
+  const write = installed ? 'The campaign runs on an installed problem, which states them: ask the lead to write them from it; it asks you only what the problem leaves open.'
+    : 'Ask the lead in the chat to write them, write one yourself with Edit, or ask which can be skipped.';
+  if (data.writing) return { state: 'writing', title: 'The lead is writing the note' + (installed ? ' from the installed problem.' : '.'), text: 'Nothing is needed from you yet: the lead says in the chat when the note is ready, or what it needs from you.' };
+  const questions = data.revision?.sections.open_questions?.items?.length || 0;
+  if (data.note.status === 'drafting') {
+    if (missing.length) return { state: 'incomplete', title: `Not complete: ${missing.length} of ${data.sections.length} sections still to write.`, text: write };
+    if (questions) return { state: 'questions', title: `The lead needs your answer to ${questions === 1 ? 'one open question' : questions + ' open questions'}, under Open questions.`, text: 'Answer in the chat and the lead revises the note; adopt it once it says what you mean.' };
+    return { state: 'ready', title: 'Every section is written and nothing is open. Read it, and adopt it when it says what you mean.', text: 'Adopt hands it to the formulator, which writes the charter for you to confirm.' };
+  }
+  const charterId = data.charter?.charter_id || data.note.charter_id;
+  const confirmed = (data.charter?.charter as { status?: string } | undefined)?.status === 'confirmed';
+  if (missing.length) return { state: 'adopted-incomplete', title: `Adopted, but ${missing.length} of ${data.sections.length} sections are not written, and the gate needs them.`, text: write + ' Writing them reopens the note, to adopt again.' };
+  if (!charterId || data.charter?.status === 'running') return { state: 'formulating', title: 'Adopted. The formulator is writing the charter from the note.', text: 'You confirm the charter on the Charter tab once it is written.' };
+  if (!confirmed) return { state: 'confirm', title: 'Adopted. Confirm the charter on the Charter tab: experiments run under it.', text: 'The note can still change: a change reopens the draft, to adopt again.' };
+  return { state: 'done', title: 'Adopted, and its charter is confirmed.', text: 'The note can still change: a change reopens the draft, to adopt again.' };
+}
 
 export default function ProblemNotePage({ campaignId, route, threadId }: PageProps) {
   const view = useRead<NoteView>(['note', campaignId], `/api/v1/campaigns/${campaignId}/problem-note`, { refetchInterval: 8000 });
   const summary = useSummary(campaignId);
+  const threads = useThreads(campaignId);
   const queryClient = useQueryClient();
   const selection = useSelection();
   const [menu, setMenu] = useState<{ section: string; quote: string; start: number; end: number } | null>(null);
@@ -47,6 +74,12 @@ export default function ProblemNotePage({ campaignId, route, threadId }: PagePro
   const sub = route.sub;
   const version = summary.data?.campaign.version;
   const refresh = () => queryClient.invalidateQueries({ queryKey: ['note', campaignId] });
+  // A request that takes a turn of the lead starts the lead first, as the chat does: a campaign's lead is not running until asked.
+  const ensureLead = async () => {
+    if (threads.data?.lead || version === undefined) return;
+    await send({ operation: 'agent.activate', campaignId, expectedRevision: version, payload: {}, origin: { thread_id: threadId } });
+    await queryClient.invalidateQueries({ queryKey: ['threads', campaignId] });
+  };
 
   const capture = (section: string, event: React.MouseEvent) => {
     if ((event.target as HTMLElement).closest('[data-testid="annotation-menu"], [data-testid="annotation"], button, input')) return;
@@ -77,6 +110,7 @@ export default function ProblemNotePage({ campaignId, route, threadId }: PagePro
         const answered = await api<Annotation>(`/api/v1/problem-notes/${data.note.id}/ask`, { method: 'POST', body: JSON.stringify({ note_id: data.note.id, anchor, question: question.trim(), kind }) });
         track('note.ask', { tier: answered.tier, escalated: !!answered.escalated_from_tier });
       } else {
+        await ensureLead();
         const receipt = await send({ operation: 'note.ask', campaignId, expectedRevision: version, payload: { note_id: data.note.id, anchor, question: question.trim(), kind }, origin: { thread_id: threadId } });
         track('note.ask', { tier: String(receipt.outcome.tier), escalated: false });
       }
@@ -99,7 +133,7 @@ export default function ProblemNotePage({ campaignId, route, threadId }: PagePro
   const askSkips = async () => {
     if (version === undefined || !threadId) return;
     setError(null);
-    try { await send({ operation: 'agent.message', campaignId, expectedRevision: version, payload: { message: SKIP_REQUEST, thread_id: threadId }, origin: { thread_id: threadId } }); setAsked(true); track('note.ask_skips', {}); }
+    try { await ensureLead(); await send({ operation: 'agent.message', campaignId, expectedRevision: version, payload: { message: data.installed?.length ? WRITE_REQUEST : SKIP_REQUEST, thread_id: threadId }, origin: { thread_id: threadId } }); setAsked(true); track('note.ask_skips', { installed: !!data.installed?.length }); }
     catch (e) { setError(String((e as Error).message || e)); }
   };
   const unskip = async (section: string) => {
@@ -112,17 +146,23 @@ export default function ProblemNotePage({ campaignId, route, threadId }: PagePro
   const proposed = (name: string) => { for (const p of data.skips?.proposals || []) { const item = p.items.find(i => i.section === name && i.status === 'proposed'); if (item) return { proposal: p, item }; } return null; };
   const tabs = [['', 'Note'], ['charter', 'Charter'], ['revisions', 'Revisions']] as const;
   const open = data.annotations.filter(a => a.status !== 'rejected');
+  const unwritten = data.revision ? data.sections.filter(name => !written(data.revision!.sections[name]) && !skipped(name)).map(name => data.titles[name]) : data.sections;
+  const next = guide(data, unwritten);
+  // The formulator writes the charter from the whole note: adopting a part of it only brings its questions back to you.
+  const adoptWaits = data.writing ? 'The lead is still writing the note; adopt it once it is written'
+    : unwritten.length ? `Write ${unwritten.join(', ')} first, or skip with your agreement: the formulator writes the charter from the whole note` : null;
   return (
     <div className="col">
       <div className="stage-head"><h1>{data.note.title}</h1><Pill tone={data.note.status === 'confirmed' ? 'clear' : data.note.status === 'adopted' ? 'agent' : ''}>{data.note.status}</Pill>
         <span className="muted small">revision {revision?.revision ?? 0}{shownRevision ? ' (viewing an older one)' : ''}</span>
-        {data.note.status === 'drafting' && data.revision ? <button className="btn primary small" onClick={adopt} data-testid="adopt" title="Hand the note to the formulator, which writes the charter you then confirm">Adopt</button> : null}</div>
+        {data.note.status === 'drafting' && data.revision ? <button className="btn primary small" onClick={adopt} data-testid="adopt" disabled={!!adoptWaits} title={adoptWaits || 'Hand the note to the formulator, which writes the charter you then confirm'}>Adopt</button> : null}</div>
       <nav className="tabs">{tabs.map(([key, label]) => <a key={key} href={formatHash({ page: 'note', sub: key || null }, route.thread)} className={(sub || '') === key ? 'active' : ''}>{label}</a>)}</nav>
       {error ? <div className="pill bad">{error}</div> : null}
       {!sub ? <>
-        {revision && data.note.status !== 'confirmed' && !shownRevision ? <div className="callout" role="note" data-testid="note-guide"><span className="callout-mark" aria-hidden="true">→</span><div className="grow small">
-          <strong>{data.note.status === 'adopted' ? 'Adopted. It can still change: a change reopens the draft, to adopt again.' : 'A draft by the lead, not yet adopted. Make it say what you mean before you adopt it.'}</strong>
-          <div>Each section has <b>Ask about this</b> (Define, Explain, Challenge or Visualize a passage; select any words to ask about those exactly) and <b>Edit</b> (change the text yourself; saved as a revision in your name). Or tell the lead in the chat what to change, and it revises the note. Adopt when it is right: the formulator writes the charter from it, and you confirm the charter.</div>
+        {(revision || data.writing) && data.note.status !== 'confirmed' && !shownRevision ? <div className="callout" role="note" data-testid="note-guide" data-state={next.state}><span className="callout-mark" aria-hidden="true">→</span><div className="grow small">
+          <strong>{next.title}</strong>
+          <div>{next.state === 'confirm' ? <><a href={formatHash({ page: 'note', sub: 'charter' }, route.thread)}>Open the Charter tab</a>. {next.text}</> : next.text}</div>
+          {data.note.status === 'drafting' && next.state !== 'writing' ? <div className="faint">{HOW}</div> : null}
         </div></div> : null}
         {!revision ? <Empty>No note yet. Describe the problem to the lead in the conversation, or type /note.</Empty> : <>
         {(() => {
@@ -136,8 +176,10 @@ export default function ProblemNotePage({ campaignId, route, threadId }: PagePro
               title={{ written: 'Written', skipped: 'Left unwritten with your agreement', proposed: 'The lead proposes leaving it unwritten; agree or decline in the section', missing: 'Not written yet: the problem is not defined until it is written or skipped with your agreement' }[state(name)]} onClick={e => { e.preventDefault(); toggle(name, true); document.getElementById(`section-${name}`)?.scrollIntoView({ behavior: 'smooth', block: 'start' }); }}>
               {data.titles[name]}{open.some(a => a.anchor.section === name) ? <span className="faint">· {open.filter(a => a.anchor.section === name).length}</span> : null}</a>)}
             <span className="small faint grow">{missing.length ? `${missing.length} of ${data.sections.length} still to write` + (waiting ? `, ${waiting} with a skip proposed` : '') : Object.keys(data.skips?.skipped || {}).some(skipped) ? 'every section is written or skipped' : 'every section is written'}</span>
-            {missing.length > waiting && data.note.status !== 'confirmed' && !shownRevision ? <button className="btn small" onClick={askSkips} disabled={asked || !threadId} data-testid="ask-skips"
-              title="The lead says which empty sections the confirmed charter already states or that do not apply here, with its reasons, and asks you about the rest; you agree to each skip">{asked ? 'Asked the lead (see the chat)' : 'Ask which can be skipped'}</button> : null}
+            {missing.length > waiting && data.note.status !== 'confirmed' && !shownRevision && !data.writing ? <button className="btn small" onClick={askSkips} disabled={asked || !threadId} data-testid="ask-skips"
+              title={data.installed?.length ? 'The lead writes the empty sections from the installed problem the campaign runs on, and asks you only what it leaves open'
+                : 'The lead says which empty sections the confirmed charter already states or that do not apply here, with its reasons, and asks you about the rest; you agree to each skip'}>
+              {asked ? 'Asked the lead (see the chat)' : data.installed?.length ? 'Ask the lead to write them' : 'Ask which can be skipped'}</button> : null}
             <button className="btn quiet small" onClick={() => setFolded(new Set(data.sections.filter(written)))} title="Fold the written sections to see what is left">Fold written</button>
             <button className="btn quiet small" onClick={() => setFolded(new Set())}>Expand all</button>
           </nav>;
@@ -166,7 +208,8 @@ export default function ProblemNotePage({ campaignId, route, threadId }: PagePro
                     {skip.lapsed ? <p className="small">This skip no longer holds: {skip.lapsed}. Write the section, or ask the lead again.</p> : <p className="small faint">Left unwritten with your agreement.</p>}
                     <SkipReason item={skip} />
                     {!skip.lapsed && editable ? <div className="row"><button className="btn small" onClick={() => unskip(name)} data-testid="unskip" title="Take the skip back: the section is to be written before the gate opens">Write it instead</button></div> : null}</div>
-                : empty ? <p className="faint small">Not written yet. Ask the lead to write it, or write it with Edit. If the charter already says it or it does not apply here, ask which sections can be skipped.</p> : null}
+                : empty ? <p className="faint small">{data.writing ? 'The lead is writing it.' : data.installed?.length ? 'Not written yet. The installed problem states it: ask the lead to write it from there, or write it with Edit.'
+                  : 'Not written yet. Ask the lead to write it, or write it with Edit. If the charter already says it or it does not apply here, ask which sections can be skipped.'}</p> : null}
               {section?.items?.length ? <ul>{section.items.map((item, i) => <li key={i}><Markdown text={item} thread={route.thread} className="md inline" /></li>)}</ul> : null}
               {section?.latex?.map((formula, i) => <Markdown key={i} text={'$$' + formula + '$$'} thread={route.thread} />)}</>}
               {menu?.section === name ? <div className="card" data-testid="annotation-menu"><div className="row wrap"><span className="small faint">“{menu.quote.slice(0, 80)}”</span>
