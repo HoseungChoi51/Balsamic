@@ -83,6 +83,8 @@ def monitor_view(workspace, campaign_id):
     attention = []
     if sum(needs_you.values()):
         attention.append(("needs_you", f"{sum(needs_you.values())} waiting for you"))
+    from balsamic.monitor.stalls import attention as stalled
+    attention.extend(stalled(workspace, campaign_id))
     if agents.get("status") in {"paused", "stopped", "failed"}:
         attention.append(("agents", "The agent team is " + agents["status"]))
     if worker.get("exhausted"):

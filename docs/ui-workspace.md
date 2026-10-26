@@ -411,6 +411,14 @@ devices are listed but not measured); agents; autopilot (state, spent of cap, ro
 "All clear" unless a row needs attention (something waits for you, the team is paused, stopped or failed, a budget is
 exhausted or unaccounted), or "Away digest" while an unseen digest exists. The drawer polls resources only while open.
 
+**Stalls** (`balsamic/monitor/stalls.py`). Work that stops without anyone saying so is noticed inside Balsamic, on the
+manager tick. When the researcher's request is open, nothing waits for them, and no agent turn, run, implementation job or
+coding agent is queued or working for 5 minutes, the lead gets one platform notice to continue or close the request; if
+nothing starts within 10 more minutes, an inbox issue (`request_stalled`) tells the researcher. An agent turn with no reply
+or step for 20 minutes, typically a slow or stuck model call, raises `agent_long_wait` with the role, model and effort.
+Both appear in the pill while they last and clear themselves when the work moves again. Autopilot paces its own rounds and
+is left to them.
+
 **Away digest** (`balsamic/monitor/digest.py`). When an autopilot round completes and the researcher has shown no sign
 of life (a UI event or a message) for 30 minutes, an `away_digest` is written: rounds completed, strategies stopped
 (with reasons and who stopped them), promoted, runs started and finished, decisions and questions waiting, the
