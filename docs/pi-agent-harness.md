@@ -21,7 +21,11 @@ sign-in from `auth.json` and, for a custom provider (a LiteLLM router), its endp
 from the Pi `models.json`, and refuses a provider on a private address, which the
 container cannot reach. Workspaces are off unless `GRATING_DEVELOPMENT_ENABLED=true`;
 while they are off, the refusal tells the agents to commission the implementation
-and the researcher how to turn workspaces on.
+and the researcher how to turn workspaces on. Either way the test designer, builders
+and reviewer see the specification alone, so a specification whose name, mechanism
+or acceptance criteria name a campaign record instead of stating it is refused
+before any model call (`ImplementationBridge.check_self_contained`); provenance may
+cite records.
 
 ## Deployment and sign-in
 

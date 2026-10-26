@@ -248,3 +248,21 @@ def test_the_container_gets_the_campaigns_provider_only(tmp_path, monkeypatch):
     private = {'id': 'development_two', 'model': {'provider': 'strixhalo', 'model': 'local', 'effort': None}}
     with pytest.raises(ValueError, match='public addresses only'):
         driver.configure_pi(private, driver.root(private))
+
+
+def test_a_specification_must_state_what_it_cites(setup):
+    workspace, campaign, development, driver = setup
+    cid = campaign['id']
+    artifact = 'artifact_pi_tool_86f8269f855f5ffdb0b6c927c295bc7c'
+    workspace.store.put('agent_artifact', {'id': artifact, 'campaign_id': cid, 'content': 'R4-A: the normative mechanism'})
+    record = development.create(cid, {'hypothesis_id': 'hypothesis_dev', 'objective': 'Implement', 'request_key': 'cite'})
+    spec = {'name': 'Test method', 'mechanism': f'Freeze {artifact} verbatim', 'acceptance_criteria': ['Seeded replay'],
+            'dependencies': {}, 'provenance': [{'id': artifact}]}
+    # The test designer sees the specification alone: an id it cannot read is refused before any model call.
+    with pytest.raises(ValueError, match=f'campaign records \\({artifact}\\).*cannot read'):
+        development.freeze_envelope(cid, record['id'], {'request_key': 'cited', 'spec': spec})
+    with pytest.raises(ValueError, match='cannot read'):
+        workspace.implementations.reserve_commission('hypothesis_dev', spec, compute_seconds=10, idempotency_key='cited')
+    # Stated in full, with the record cited in provenance (and an id that names no record left alone), it is accepted.
+    spec['mechanism'] = 'R4-A: the normative mechanism, written out; pi_tool_86f8269f855f5ffdb0b6c927c295bc7c'
+    assert development.freeze_envelope(cid, record['id'], {'request_key': 'stated', 'spec': spec})['id']

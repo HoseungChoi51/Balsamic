@@ -444,6 +444,7 @@ class DevelopmentWorkspaces:
         values = WorkspaceEnvelope.model_validate(payload)
         record = self.get(campaign_id, identity)
         spec = (BoundOptimizerSpec if values.spec.get("evaluator_version_id") else ImplementationSpec).model_validate(values.spec)
+        self.workspace.implementations.check_self_contained(spec.model_dump(mode="json"))
         if spec.problem_id != self.store.get(record["hypothesis_id"], "hypothesis").get("problem_id", spec.problem_id):
             raise ValueError("Validation envelope uses a different problem")
         serialized = spec.model_dump(mode="json")

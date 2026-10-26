@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import copy
 import json
+import re
 import time
 
 from optimization_framework.implementations.client import ImplementationClient
@@ -27,6 +28,10 @@ def public_grant(grant):
     for attempt in result.get("attempts", []):
         attempt.pop("package", None)
     return result
+
+
+# A record id as agents write them: words joined by underscores, ending in a long hex digest (artifact_pi_tool_86f8…).
+RECORD_ID = re.compile(r"\b[a-z][a-z0-9]*(?:_[a-z0-9]+)*_[0-9a-f]{12,}\b")
 
 
 class ImplementationBridge:
@@ -244,6 +249,7 @@ class ImplementationBridge:
                 if grant.get("job_id"):
                     return grant
             else:
+                self.check_self_contained(request["spec"])
                 if self.compute_committed(campaign_id) + compute_seconds > campaign.get("implementation_compute_budget_seconds", 0):
                     raise ValueError("Assign a separate implementation compute allocation in the campaign charter before commissioning this job")
                 research_spent = sum(api_spend(r.get("usage"))
@@ -312,6 +318,23 @@ class ImplementationBridge:
                 "role": "assistant", "origin": "manager_system", "grant_id": identity, "created_at": now(),
                 "content": f"Reserved {compute_seconds:g}s to revalidate {version['name']} against independent checks. The existing executable stays pinned; this job makes no model calls."}, "message.created")
             return grant
+
+    def check_self_contained(self, spec):
+        """Refuse a specification whose text names campaign records instead of stating them: the test designer, builders and
+        reviewer see the specification alone, by design, and cannot read a record it points to. Provenance may cite them, and
+        structured fields (an evaluator version a method is bound to) name what the service itself resolves."""
+        text = json.dumps([spec.get(key) for key in ("name", "mechanism", "acceptance_criteria")])
+        named = []
+        for token in dict.fromkeys(RECORD_ID.findall(text)):
+            try:
+                self.store.get_entry(token)
+                named.append(token)
+            except KeyError:
+                pass
+        if named:
+            raise ValueError(f"The specification names campaign records ({', '.join(named)}) that the independent test designer, builders "
+                             "and reviewer cannot read: they see the specification alone. Write what those records state into the "
+                             "mechanism (up to 20,000 characters) and the acceptance criteria, and cite the ids in provenance")
 
     @staticmethod
     def hypothesis_digest(hypothesis):
