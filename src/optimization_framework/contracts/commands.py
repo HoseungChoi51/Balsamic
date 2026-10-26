@@ -250,19 +250,28 @@ LIMITS = ("compute_budget_seconds", "llm_budget_usd", "delegated_trial_seconds",
 
 
 class ApprovalRequestInput(Contract):
-    """Ask the researcher for something only they grant. On approval it is applied as the researcher's own command."""
-    kind: Literal["campaign_limits", "waiver", "worker_ceiling"]
+    """Ask the researcher for something only they grant. On approval it is applied as the researcher's own command; a compute
+    approval is the go-ahead for a plan of work that computes for more than a minute (campaigns/compute_consent.py)."""
+    kind: Literal["campaign_limits", "waiver", "worker_ceiling", "compute"]
     rationale: str = Field(min_length=1, max_length=5000, description="What the change makes possible and the measurement behind it")
     limits: dict[str, float] = Field(default_factory=dict, description="campaign_limits: the new value of each limit to change, among " + ", ".join(LIMITS))
     requirement_id: str | None = Field(default=None, description="waiver: the validation requirement to waive")
     evidence_ids: list[str] = Field(default_factory=list, max_length=50, description="waiver: the measurements the researcher should judge it by")
     workers: int | None = Field(default=None, ge=1, le=64, description="worker_ceiling: experiments that may run at once on this server")
+    plan: str | None = Field(default=None, min_length=1, max_length=5000, description="compute: what will run (each run, profile, job or coding workspace) and why")
+    wall_seconds: float | None = Field(default=None, gt=0, le=604800, description="compute: how long until the researcher has the results")
+    worker_seconds: float | None = Field(default=None, gt=0, le=2419200, description="compute: the worker time the plan may use in all")
+    coding_workspaces: int = Field(default=0, ge=0, le=10, description="compute: coding workspaces the plan opens")
+    meanwhile: str | None = Field(default=None, min_length=1, max_length=2000, description="compute: what the researcher can do while it runs")
 
     @model_validator(mode="after")
     def one_request(self):
-        given = {"campaign_limits": bool(self.limits), "waiver": self.requirement_id is not None, "worker_ceiling": self.workers is not None}
+        given = {"campaign_limits": bool(self.limits), "waiver": self.requirement_id is not None, "worker_ceiling": self.workers is not None,
+                 "compute": self.plan is not None}
         if not given[self.kind] or sum(given.values()) != 1:
-            raise ValueError("Give exactly the fields of the chosen kind: limits, requirement_id with evidence_ids, or workers")
+            raise ValueError("Give exactly the fields of the chosen kind: limits, requirement_id with evidence_ids, workers, or a compute plan")
+        if self.kind == "compute" and (self.wall_seconds is None or self.worker_seconds is None or self.meanwhile is None):
+            raise ValueError("A compute plan states wall_seconds, worker_seconds and what the researcher can do meanwhile")
         if set(self.limits) - set(LIMITS):
             raise ValueError("Unknown campaign limit: " + ", ".join(sorted(set(self.limits) - set(LIMITS))))
         if self.kind == "waiver" and not self.evidence_ids:

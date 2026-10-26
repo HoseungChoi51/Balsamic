@@ -350,6 +350,18 @@ researcher's own command (`campaign.update`, `validation.waive` or `workers.set`
 changes nothing. A changed worker ceiling holds until the services restart, when the launcher
 configuration's `workers` applies again. The per-experiment limit may be set up to 86,400 s.
 
+So is compute, at every step (`campaigns/compute_consent.py`). No agent starts anything that computes
+for more than a minute (a run, an allocation, a runtime profile, a validation, an implementation job,
+a race, a coding workspace) until the researcher has given the go-ahead, even when a request implies the
+work. The agent files `approval.request` kind `compute`: the plan (what runs and why), how long until
+results, the worker time, any coding workspaces, and what the researcher can do meanwhile. The inbox
+asks "Start this work now?" with the time until results; Start now records a consent for that worker
+time (and those workspaces), which the work it starts is charged against, for at most an hour or three
+times the stated wall time; Not now changes nothing. The command bus refuses an agent's work-starting
+command that no consent covers and names what is left; coding workspaces and their validations are
+checked where they start. The researcher's own commands are never checked, and autopilot runs within
+the compute cap the researcher set when switching it on. The per-experiment limit still applies.
+
 ## Extensions
 
 Pi extensions run inside the harness process with its permissions, and can see prompts, tool calls, credentials and

@@ -57,6 +57,9 @@ class CommandService:
         self.listeners = []
         # Checked before an agent's command runs: guard(command, actor, campaign) raises to refuse (autopilot's cap).
         self.guards = []
+        # Nothing that computes for more than a minute starts from an agent without the researcher's go-ahead.
+        from .compute_consent import register as register_compute_consent
+        register_compute_consent(self)
         # Set by the service layer: thread_revision(command) -> the current revision of the command's origin thread.
         self.thread_revision = None
 
@@ -703,6 +706,14 @@ class CommandService:
                 proposal = (f"{asker} asks you to waive a check that now blocks work. " +
                     (f"Its last result: {results[-1]['verdict']}. {results[-1].get('rationale', '')} " if results else "It has no result yet. ") +
                     "A waiver is yours alone, is recorded with this reason, and can be revoked.")
+            elif values.kind == "compute":
+                from .compute_consent import _minutes
+                request.update(plan=values.plan, wall_seconds=values.wall_seconds, worker_seconds=values.worker_seconds,
+                               coding_workspaces=values.coding_workspaces, meanwhile=values.meanwhile)
+                coding = f" and opens {values.coding_workspaces} coding workspace{'s' if values.coding_workspaces > 1 else ''}" if values.coding_workspaces else ""
+                title, approve = f"Start this work now? About {_minutes(values.wall_seconds)} until results", "Start now"
+                proposal = (f"{asker} asks to start: {values.plan}\nIt takes about {_minutes(values.wall_seconds)} until results and uses up to "
+                    f"{_minutes(values.worker_seconds)} of worker time{coding}.\nMeanwhile: {values.meanwhile}")
             else:
                 if values.workers == self.workspace.max_workers:
                     raise ValueError(f"The worker ceiling is already {values.workers}")
@@ -714,8 +725,8 @@ class CommandService:
             decision = {"id": "approval_" + command.id, "campaign_id": command.campaign_id, "charter_version": campaign["version"],
                 "guidance_revision": self.workspace.memory.state(command.campaign_id)["guidance_revision"],
                 "question": title, "title": title, "rationale": values.rationale, "context": values.rationale, "proposal": proposal,
-                "options": [{"id": "0", "label": approve, "description": "Applied at once as your own command."},
-                            {"id": "1", "label": "Leave it as it is", "description": "The requester is told and nothing changes."}],
+                "options": [{"id": "0", "label": approve, "description": "The requester starts it at once." if values.kind == "compute" else "Applied at once as your own command."},
+                            {"id": "1", "label": "Not now" if values.kind == "compute" else "Leave it as it is", "description": "The requester is told and nothing changes."}],
                 "recommendation": "0", "approval_request": request,
                 "requested_by": "lead" if self.workspace.pi.owns(command.campaign_id) else "manager", "audience": "researcher",
                 "status": "pending", "created_at": now()}

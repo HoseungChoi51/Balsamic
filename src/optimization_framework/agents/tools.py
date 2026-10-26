@@ -69,8 +69,11 @@ few lines. Do not repeat what a page shows: link the page instead, as a Markdown
 such as [Experiments](#experiments). The summary is a plain status line without record ids.
 The campaign database is authoritative: read campaign_inspect first and after the researcher acts, read evidence on demand,
 keep exact record ids and cite them. Only a tool result is a receipt.
-Limits, budgets, waivers and the worker ceiling are the researcher's: when one stands in the way, file approval.request with the
-measurement that shows it; ask scientific choices with researcher_ask. Never enlarge an allocation or fabricate validation.
+Compute is the researcher's to start, at every step: before anything that computes for more than a minute (runs, profiles,
+validations, implementation jobs, coding workspaces), file approval.request kind compute saying what runs, why, how long, and what
+they can do meanwhile; start it once approved, never silently. Limits, budgets, waivers and the worker ceiling are theirs too: file
+approval.request with the measurement that shows it; ask scientific choices with researcher_ask. Never enlarge an allocation or
+fabricate validation.
 """
 # The lead's own contract: coordination and delegation. The workspace adds its briefing (workspace.lead_instructions).
 LEAD_CONTRACT = """You are the lead agent. Three agents are in charge of a page for the whole campaign: the discussion moderator (review rounds
@@ -942,7 +945,7 @@ class PiTools:
         if name == "implementation_workspace_message":
             return self.controller.development.message(cid, args["workspace_id"], {k: v for k, v in args.items() if k != "workspace_id"}, actor=LEAD)
         if name == "implementation_workspace_validate":
-            return self.controller.development.validate(cid, args["workspace_id"], {k: v for k, v in args.items() if k != "workspace_id"})
+            return self.controller.development.validate(cid, args["workspace_id"], {k: v for k, v in args.items() if k != "workspace_id"}, actor=LEAD)
         if name == "evidence_read":
             record = self.record(agent, args["record_id"])
             return view_record(record, record_id=args["record_id"], pointer=args.get("pointer", ""), offset=args.get("offset", 0),

@@ -41,7 +41,7 @@ def resolve(workspace, command):
     if values.choice in view["freshness"]["blocked_choice_ids"]:
         raise ValueError(view["freshness"]["reason"])
     campaign = workspace.store.get(command.campaign_id, "campaign")
-    effect = None
+    effect = consent = None
     if values.choice == "0" and decision.get("trial_id") and decision.get("incremental_solver_calls") is not None:
         trial = workspace.store.get(decision["trial_id"], "trial")
         if trial["campaign_id"] != command.campaign_id:
@@ -57,6 +57,10 @@ def resolve(workspace, command):
              # An estimate gets a margin; a stated request is granted exactly as shown.
              "wall_seconds": trial["wall_seconds"] + (seconds if decision.get("requested_by") else max(5, seconds))})
         effect = {"child_command": child.model_dump(mode="json")}
+    elif values.choice == "0" and (decision.get("approval_request") or {}).get("kind") == "compute":
+        # The go-ahead itself: the requester starts the work, charged to this consent.
+        from .compute_consent import grant
+        consent = grant(workspace, decision, decision["approval_request"])
     elif values.choice == "0" and decision.get("approval_request"):
         request = decision["approval_request"]
         reason = decision["rationale"] + (" Researcher: " + values.comment if values.comment else "")
@@ -79,7 +83,7 @@ def resolve(workspace, command):
     decision.pop("delivery_error", None)
     decision.update(resolution_revision=values.expected_resolution_revision + 1, resolution_command_id=command.id)
     if effect is None:
-        decision = finish_decision(workspace, decision, values.choice, values.comment, None)
+        decision = finish_decision(workspace, decision, values.choice, values.comment, {"consent_id": consent["id"]} if consent else None)
     else:
         decision.update(status="executing", choice=values.choice, comment=values.comment)
         workspace.store.put("decision", decision, "decision.executing")

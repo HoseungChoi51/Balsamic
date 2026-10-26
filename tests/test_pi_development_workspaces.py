@@ -266,3 +266,20 @@ def test_a_specification_must_state_what_it_cites(setup):
     # Stated in full, with the record cited in provenance (and an id that names no record left alone), it is accepted.
     spec['mechanism'] = 'R4-A: the normative mechanism, written out; pi_tool_86f8269f855f5ffdb0b6c927c295bc7c'
     assert development.freeze_envelope(cid, record['id'], {'request_key': 'stated', 'spec': spec})['id']
+
+
+def test_an_agent_opens_a_coding_workspace_only_with_the_researchers_go_ahead(setup):
+    from optimization_framework.campaigns import compute_consent
+    workspace, campaign, development, driver = setup
+    cid = campaign['id']
+    workspace.store.put('hypothesis', {'id': 'hypothesis_other', 'campaign_id': cid, 'title': 'Other method', 'status': 'proposed',
+                                       'mechanism': 'Another', 'algorithm': 'custom', 'algorithm_config': {}})
+    request = {'hypothesis_id': 'hypothesis_dev', 'objective': 'Implement', 'request_key': 'agent'}
+    with pytest.raises(ValueError, match='approval.request with kind compute'):
+        development.create(cid, request, actor='lead')
+    compute_consent.grant(workspace, {'id': 'decision_go', 'campaign_id': cid},
+                          {'plan': 'Implement the method', 'wall_seconds': 3600, 'worker_seconds': 600, 'coding_workspaces': 1})
+    assert development.create(cid, request, actor='lead')['id']
+    with pytest.raises(ValueError, match='0 coding workspaces for "Implement the method"'):
+        development.create(cid, {**request, 'hypothesis_id': 'hypothesis_other'}, actor='lead')
+    assert development.create(cid, {**request, 'hypothesis_id': 'hypothesis_other'})['id']   # the researcher's own

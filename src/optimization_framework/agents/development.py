@@ -119,6 +119,9 @@ class DevelopmentWorkspaces:
                 return self.public(saved)
             except KeyError:
                 pass
+            from optimization_framework.campaigns import compute_consent
+            if actor != "researcher":
+                compute_consent.require(self.workspace, campaign_id, "Opening a coding workspace", coding=1)
             for evidence_id in values.evidence_ids:
                 self.evidence(campaign_id, evidence_id)
             config = self.controller.configuration(campaign_id)
@@ -136,6 +139,8 @@ class DevelopmentWorkspaces:
                 "usage": {"container_cpu_seconds": 0, "subscription_calls": 0, "input": 0, "output": 0,
                           "billing_mode": "subscription", "api_cost_usd": 0}, "event_files": [], "cursor": 0}
             self.store.put("development_workspace", record, "development.created")
+            if actor != "researcher":
+                compute_consent.charge(self.workspace, campaign_id, coding=1)
             self.message(campaign_id, identity, {"message": values.objective +
                 "\nRead .campaign/assignment.md and .campaign/evidence.json first. Save checkpoints in .campaign/checkpoint.md. "
                 "Use the normal Pi coding tools to implement, debug, and test. Submit a committed package with campaign_submit. "
@@ -411,7 +416,7 @@ class DevelopmentWorkspaces:
             self.event(record, key, "submission", {"submission_id": identity, "commit": payload["commit"]})
         atomic_json(self.driver.root(record) / "incoming/results" / (key + ".json"), {"submission_id": saved["id"], "status": saved["status"]})
 
-    def validate(self, campaign_id, identity, payload):
+    def validate(self, campaign_id, identity, payload, *, actor="researcher"):
         from optimization_framework.implementations.models import BoundOptimizerSpec, ImplementationSpec
         from .capabilities import implementation_execution
         values = WorkspaceValidate.model_validate(payload)
@@ -431,10 +436,15 @@ class DevelopmentWorkspaces:
         capability = implementation_execution()
         if not capability["available"]:
             raise ValueError("Protected validation is unavailable: " + capability["reason"])
+        from optimization_framework.campaigns import compute_consent
+        if actor != "researcher":
+            compute_consent.require(self.workspace, campaign_id, "Validating a submission", values.compute_seconds)
         grant = self.workspace.implementations.reserve_commission(record["hypothesis_id"], spec,
             compute_seconds=values.compute_seconds, max_calls=12, api_budget_usd=0,
             idempotency_key="development-" + content_hash([identity, values.request_key])[:24],
             package=submission["package"], accounting_mode="execution_v1")
+        if actor != "researcher":
+            compute_consent.charge(self.workspace, campaign_id, values.compute_seconds)
         submission.update(grant_id=grant["id"], status="validating")
         self.store.put("development_submission", submission, "development.validation_requested")
         return {"submission_id": submission["id"], "grant_id": grant["id"]}
