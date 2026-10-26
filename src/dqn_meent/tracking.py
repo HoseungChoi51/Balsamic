@@ -1,4 +1,5 @@
 """Optional live TensorBoard metrics and atomic best-design snapshots."""
+from collections import OrderedDict
 from dataclasses import asdict
 import json
 import logging
@@ -106,10 +107,13 @@ class JournalFollower:
         self.logger = self.thread = self.best = None
         self.stop = threading.Event()
         self.offset = 0
+        # A row names its best design by observation (best_observation_id); the latest observations are kept to find it.
+        self.observations, self.observations_offset, self.recent = self.journal.with_name("observations.jsonl"), 0, OrderedDict()
         if directory is not None:
             _summary_writer()  # a missing dependency must fail before any work starts
             if resumed and self.journal.exists():
                 self.offset = self.journal.stat().st_size
+                self.observations_offset = self.observations.stat().st_size if self.observations.exists() else 0
 
     def __enter__(self):
         if self.directory is not None and self.live:
@@ -152,7 +156,31 @@ class JournalFollower:
         self.logger.log(row, force=improved)
         if improved:
             self.best = best
-            self.logger.design(record["best_candidate"], row["step"])
+            design = self._best_design(record)
+            if design is not None:
+                self.logger.design(design, row["step"])
+
+    def _best_design(self, record):
+        """The best design a row gives (older journals) or names by its observation."""
+        from optimization_framework.execution.metrics import unpack_candidate
+        if record.get("best_candidate") is not None:
+            return unpack_candidate(record["best_candidate"])
+        wanted = record.get("best_observation_id")
+        if wanted and wanted not in self.recent and self.observations.exists():
+            with self.observations.open("rb") as stream:
+                stream.seek(self.observations_offset)
+                for raw in stream:
+                    if not raw.endswith(b"\n"):
+                        break
+                    self.observations_offset += len(raw)
+                    try:
+                        observation = json.loads(raw)
+                    except ValueError:
+                        continue
+                    self.recent[observation.get("id")] = observation.get("candidate")
+                    if len(self.recent) > 256:
+                        self.recent.popitem(last=False)
+        return unpack_candidate(self.recent[wanted]) if wanted in self.recent else None
 
     def __exit__(self, exc_type, exc, traceback):
         if self.directory is None:

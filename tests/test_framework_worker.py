@@ -41,22 +41,22 @@ def test_common_lifecycle_and_cooperative_continuation(tmp_path, problem, algori
 
 
 @pytest.mark.meent
-def test_metrics_journal_gives_the_best_design_only_where_it_changed(tmp_path):
+def test_metrics_journal_names_the_best_design_by_its_observation(tmp_path):
     prepare(tmp_path, problem_id="meent_grating", algorithm="hillclimb")
     result = run(tmp_path)
     rows = read_journal(tmp_path / "metrics.jsonl")
-    assert len(rows) == result["step"] == 12 and not any("archive" in row for row in rows)
-    given = [row for row in rows if "best_candidate" in row]
-    assert rows[0] in given and len(given) < len(rows)
-    assert all(row["best_design"] == row["best_candidate"] for row in given)
+    assert len(rows) == result["step"] == 12
+    assert not any(key in row for row in rows for key in ("archive", "best_candidate", "best_design"))
+    designs = {row["id"]: row["candidate"] for row in read_journal(tmp_path / "observations.jsonl")}
+    assert all(row["best_observation_id"] in designs for row in rows)
     for previous, row in zip(rows, rows[1:]):
-        assert row in given or row["best_objective"] == previous["best_objective"]
-    assert given[-1]["best_candidate"] == result["best_candidate"]
-    # The current archive stays in the progress record, and a new attempt states its best design again.
+        assert row["best_observation_id"] == previous["best_observation_id"] or row["best_objective"] != previous["best_objective"]
+    assert designs[rows[-1]["best_observation_id"]] == result["best_candidate"]
+    # The current archive stays in the progress record, and a new attempt names its best design too.
     assert json.loads((tmp_path / "progress.json").read_text())["archive"] == result["archive"]
     atomic_json(tmp_path / "control.json", {"command": "run", "max_steps": 13, "revision": 1})
     run(tmp_path)
-    assert read_journal(tmp_path / "metrics.jsonl")[12]["best_candidate"] is not None
+    assert read_journal(tmp_path / "metrics.jsonl")[12]["best_observation_id"] in {row["id"] for row in read_journal(tmp_path / "observations.jsonl")}
 
 
 def test_forced_rollback_retains_suffix_and_repeats_from_checkpoint(tmp_path):

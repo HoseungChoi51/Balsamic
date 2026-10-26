@@ -1,4 +1,5 @@
-"""Old metrics journals are rewritten to what a worker writes now, losing only the repeated archive."""
+"""Old metrics journals are rewritten to what a worker writes now: no archive and no designs, each row naming its best
+design's observation."""
 import importlib.util
 import json
 from pathlib import Path
@@ -22,12 +23,11 @@ def old_journal(directory):
     run(directory)
     atomic_json(directory / "control.json", {"command": "run", "max_steps": 12, "revision": 1})
     result = run(directory)
-    rows, attempt, best = read_journal(directory / "metrics.jsonl"), None, {}
+    designs = {row["id"]: row["candidate"] for row in read_journal(directory / "observations.jsonl")}
+    rows = read_journal(directory / "metrics.jsonl")
     for row in rows:
-        if row["attempt_id"] != attempt:
-            attempt, best = row["attempt_id"], {}
-        best = {**best, **{key: row[key] for key in tool.BEST if key in row}}
-        row.update(best, archive=[{"candidate": best["best_candidate"], "objective": row["best_objective"]}])
+        best = designs[row.pop(tool.NAMED)]
+        row.update(best_candidate=best, best_design=best, archive=[{"candidate": best, "objective": row["best_objective"]}])
     (directory / "metrics.jsonl").write_bytes(b"".join(map(tool.dumps, rows)))
     return rows, result
 
@@ -45,12 +45,14 @@ def test_rewritten_journal_is_what_a_worker_writes_now(tmp_path):
     assert outcome["replaced"] and outcome["rows"] == 12 and outcome["after"] < outcome["before"]
     assert path.read_bytes().endswith(b'\n{"step": 13')
     rows = read_journal(path)
-    volatile = {"attempt_id", "elapsed_seconds", "updated_at", "checkpoint_id"}
+    volatile = {"attempt_id", "elapsed_seconds", "updated_at", "checkpoint_id", tool.NAMED}   # observation ids are per run
     stable = lambda journal: [{key: value for key, value in row.items() if key not in volatile} for row in journal]
     assert stable(rows) == stable(read_journal(tmp_path / "new/metrics.jsonl"))
     assert [{key: value for key, value in row.items() if key not in {"archive", *tool.BEST}} for row in old] == [
-        {key: value for key, value in row.items() if key not in tool.BEST} for row in rows]
-    assert [row["best_candidate"] for row in rows if "best_candidate" in row][-1] == result["best_candidate"]
+        {key: value for key, value in row.items() if key != tool.NAMED} for row in rows]
+    designs = {row["id"]: row["candidate"] for row in read_journal(tmp_path / "old/observations.jsonl")}
+    assert [designs[row[tool.NAMED]] for row in rows] == [row["best_candidate"] for row in old]
+    assert designs[rows[-1][tool.NAMED]] == result["best_candidate"]
     # A second pass finds nothing to remove and leaves the file as it is.
     text = path.read_bytes()
     assert "replaced" not in tool.compact(path) and path.read_bytes() == text

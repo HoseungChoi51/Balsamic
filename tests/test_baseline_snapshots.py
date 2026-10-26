@@ -23,7 +23,7 @@ def test_recorded_prefix_matches_standalone_shorter_search(tmp_path):
     tenth = journal[-1]
     assert tenth["best_objective"] == prefix["best_efficiency"]
     assert tenth["solver_calls"] == prefix["solver_calls"]
-    # A row gives the best design only where it changed.
-    best = [row["best_candidate"] for row in journal if "best_candidate" in row][-1]
+    # A row names its best design by the observation that evaluated it.
+    best = {row["id"]: row["candidate"] for row in read_journal(tmp_path / "full/observations.jsonl")}[tenth["best_observation_id"]]
     np.testing.assert_array_equal(best, np.load(tmp_path / "short/best_design.npy"))
     assert full["seed"] == prefix["seed"] == 7

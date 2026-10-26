@@ -191,7 +191,6 @@ class ExperimentWorker:
         self.monotonic_deadline = time.monotonic() + max(0, self.deadline - time.time()) if self.deadline else None
         self.step = 0
         self.archive = []
-        self.journaled_best = None
         self.published_archive = []
         self.last_value = None
         self.last_command, self.control_revision = "run", -1
@@ -473,17 +472,18 @@ class ExperimentWorker:
         return result
 
     def journal_row(self, progress):
-        """One step's row of the metrics journal: its progress without designs an earlier row gave.
+        """One step's row of the metrics journal: its progress without designs.
 
-        The archive is never repeated and the best design is given only where it changed (and
-        on an attempt's first row). progress.json always holds both, and the observation journal
-        holds every evaluated design; repeating them here cost over a megabyte per evaluation
-        of a 32,768-cell design.
+        The best design is named by the observation that evaluated it (best_observation_id): the
+        observation journal holds every evaluated design, packed, and progress.json the current
+        best. Rows once repeated the archive (over a megabyte per evaluation of a 32,768-cell
+        design), then the best design where it changed: 130 kB per improvement, most of a quarter
+        gigabyte in 25 minutes for a search that improves on one evaluation in seven.
         """
         best = self.archive[0] if self.archive else None
-        dropped = {"archive"} if best is not self.journaled_best else {"archive", "best_candidate", "best_design"}
-        self.journaled_best = best
-        return {key: value for key, value in progress.items() if key not in dropped}
+        row = {key: value for key, value in progress.items() if key not in {"archive", "best_candidate", "best_design"}}
+        row["best_observation_id"] = best.get("observation_id") if best else None
+        return row
 
     def publish_progress(self, progress):
         """The live progress record, and the archive in its own file only when it changed.

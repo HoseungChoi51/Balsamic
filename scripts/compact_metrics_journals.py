@@ -1,13 +1,15 @@
 #!/usr/bin/env python
-"""Rewrite finished trials' metrics journals without the designs every row used to repeat.
+"""Rewrite finished trials' metrics journals to what a worker writes now: no designs.
 
-A worker once wrote its whole archive and its best design on every row: over a megabyte per
-row for a 32,768-cell design. A rewritten journal is what a worker writes now: no archive, and
-the best design only on an attempt's first row and where it changed. Rows, their order and
-every other field are unchanged, so each old row except its archive can still be rebuilt.
+A worker once wrote its whole archive and its best design on every row (over a megabyte per row
+for a 32,768-cell design), and later its best design wherever it changed (130 kB per improvement).
+A row now names its best design by the observation that evaluated it (best_observation_id); the
+observation journal beside it holds every evaluated design. Rows, their order and every other
+field are unchanged, so each old row except its archive can still be rebuilt.
 
-A journal is replaced only after the new file has been read back and every row rebuilt from
-it matches the old one. A trial whose worker is running is left alone.
+A journal is replaced only after the new file has been read back and every row's best design,
+rebuilt from the observation it names, matches the old one. A journal whose best design is not
+among its observations is left alone, and so is a trial whose worker is running.
 
     python scripts/compact_metrics_journals.py runs/workspace/workspace/trials [--dry-run]
 """
@@ -19,7 +21,10 @@ from concurrent.futures import ProcessPoolExecutor
 from hashlib import sha256
 from pathlib import Path
 
+from optimization_framework.execution.metrics import PACKED, pack_candidate
+
 BEST = ("best_candidate", "best_design")
+NAMED = "best_observation_id"
 EXACT_EVERY = 1000   # rows whose whole text must be reproduced, to prove the writer's format
 
 
@@ -38,9 +43,38 @@ def parsed(line):
     return row if isinstance(row, dict) else None
 
 
-def compacted(lines):
-    """The journal's lines without designs that an earlier row of the same attempt gave."""
-    attempt = best = None
+def fingerprint(candidate):
+    """A design's identity, the same whether a journal holds it as a list or packed."""
+    packed = candidate if isinstance(candidate, dict) and PACKED in candidate else pack_candidate(candidate)
+    return sha256(json.dumps(packed, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
+
+
+def observed(path):
+    """The observation journal's designs: fingerprint by observation id, and observation ids by fingerprint."""
+    by_id, by_design = {}, {}
+    if path.exists():
+        with path.open("rb") as stream:
+            for line in stream:
+                row = parsed(line)
+                if row is None or "id" not in row or "candidate" not in row:
+                    continue
+                design = fingerprint(row["candidate"])
+                by_id[row["id"]] = design
+                by_design.setdefault(design, []).append(row["id"])
+    return by_id, by_design
+
+
+def given(row):
+    """(whether the row states its best design, the design): older rows state it, maybe as None before any best."""
+    for key in BEST:
+        if key in row:
+            return True, row[key]
+    return False, None
+
+
+def compacted(lines, by_design):
+    """The journal's lines as a worker writes them now: each row names its best design's observation."""
+    attempt = named = None
     for number, line in enumerate(lines):
         row = parsed(line)
         if row is None:
@@ -48,27 +82,41 @@ def compacted(lines):
             continue
         if number % EXACT_EVERY == 0 and dumps(row) != line:
             raise ValueError(f"Row {number + 1} is not in the worker's format")
-        given = {key: row[key] for key in BEST if key in row}
-        repeated = bool(given) and row.get("attempt_id") == attempt and given == best
-        if given:
-            attempt, best = row.get("attempt_id"), given
-        dropped = {"archive", *BEST} if repeated else {"archive"}
-        yield dumps({key: value for key, value in row.items() if key not in dropped}) if dropped & row.keys() else line
+        if row.get("attempt_id") != attempt:
+            attempt, named = row.get("attempt_id"), None
+        stated, design = given(row)
+        if not stated and "archive" not in row and NAMED in row:
+            named = row[NAMED]
+            yield line
+            continue
+        if stated:
+            if design is None:
+                named = None
+            else:
+                found = by_design.get(fingerprint(design))
+                if not found:
+                    raise ValueError(f"The best design of row {number + 1} is not among the run's observations")
+                named = found[0]
+        yield dumps({**{key: value for key, value in row.items() if key not in {"archive", *BEST, NAMED}}, NAMED: named})
 
 
-def digest(lines):
-    """Identify every row with its best design restored and its archive left out."""
-    attempt, best, state, rows = None, {}, sha256(), 0
+def digest(lines, by_id):
+    """Identify every row by its fields, without archive or designs, and its best design's fingerprint."""
+    attempt, best, state, rows = None, None, sha256(), 0
     for line in lines:
         row = parsed(line)
         if row is None:
             state.update(sha256(line).digest())
             continue
         if row.get("attempt_id") != attempt:
-            attempt, best = row.get("attempt_id"), {}
-        best = {**best, **{key: row[key] for key in BEST if key in row}}
-        full = {**{key: value for key, value in row.items() if key != "archive"}, **best}
-        state.update(sha256(json.dumps(full, sort_keys=True).encode()).digest())
+            attempt, best = row.get("attempt_id"), None
+        stated, design = given(row)
+        if stated:
+            best = None if design is None else fingerprint(design)
+        elif NAMED in row:
+            best = by_id.get(row[NAMED]) if row[NAMED] else None
+        fields = {key: value for key, value in row.items() if key not in {"archive", *BEST, NAMED}}
+        state.update(sha256(json.dumps({**fields, "best": best}, sort_keys=True).encode()).digest())
         rows += 1
     return state.hexdigest(), rows
 
@@ -84,15 +132,16 @@ def compact(path, dry_run=False):
         fcntl.flock(lock, fcntl.LOCK_UN)
         before = path.stat()
         try:
+            by_id, by_design = observed(path.parent / "observations.jsonl")
             with path.open("rb") as source, temporary.open("wb") as target:
-                for line in compacted(source):
+                for line in compacted(source, by_design):
                     target.write(line)
                 target.flush()
                 os.fsync(target.fileno())
             with path.open("rb") as source:
-                expected = digest(source)
+                expected = digest(source, by_id)
             with temporary.open("rb") as target:
-                if digest(target) != expected:
+                if digest(target, by_id) != expected:
                     raise ValueError("The rewritten journal does not rebuild the original rows")
             result = {"path": str(path), "rows": expected[1], "before": before.st_size, "after": temporary.stat().st_size}
             if dry_run or result["after"] >= result["before"]:
