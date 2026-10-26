@@ -372,7 +372,7 @@ def summary(draft):
     auto = draft.get("autopilot") or {}
     return (f"So: \"{draft.get('name')}\" ({draft.get('identity')}), " + (f"objective \"{draft['objective'][:120]}\"" if draft.get("objective") else "objective to be formulated with the lead")
             + f", on {draft.get('problem_id') or 'a problem to formulate first'}, {float(draft.get('compute_budget_seconds') or 0):g} s of worker time and ${float(draft.get('llm_budget_usd') or 0):g}, "
-            f"runs up to {float(draft.get('delegated_trial_seconds') or 0):g} s, {draft.get('autonomy')} delegation, autopilot {'on with a cap of ' + format(float(auto.get('compute_cap_seconds') or 0), 'g') + ' s' if auto.get('enabled') else 'off'}.")
+            f"runs up to {float(draft.get('delegated_trial_seconds') or 0):g} s, autonomy {draft.get('autonomy')}, autopilot {'on with a cap of ' + format(float(auto.get('compute_cap_seconds') or 0), 'g') + ' s' if auto.get('enabled') else 'off'}.")
 
 
 def campaign_input(draft):

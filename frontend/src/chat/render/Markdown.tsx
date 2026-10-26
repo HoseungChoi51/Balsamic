@@ -21,8 +21,16 @@ export function linkIds(text: string, aliases: Record<string, string> = {}) {
   });
 }
 
+// Dollars are math only in a pair (pandoc's rule): the opening one has no space after it, the closing one no space before it and no
+// digit after it. Any other dollar is a price and is escaped, so "$20 and ... $20" never becomes one long formula. Code and $$ blocks are left alone.
+const DOLLAR = /(```[\s\S]*?(?:```|$))|(`[^`]*`)|(\\[\s\S])|(\$\$[\s\S]*?\$\$)|(\$(?![\s$])(?:\\[\s\S]|\n(?![ \t]*\n)|[^$\\\n])*?(?<!\s)\$(?!\d))|\$/g;
+
+export function escapeStrayDollars(text: string) {
+  return text.replace(DOLLAR, (match, ...kept: (string | undefined)[]) => kept.slice(0, 5).some(Boolean) ? match : '\\$');
+}
+
 export function Markdown({ text, thread, aliases, className = 'md' }: { text: string; thread: string | null; aliases?: Record<string, string>; className?: string }) {
-  const prepared = linkIds(text, aliases);
+  const prepared = linkIds(escapeStrayDollars(text), aliases);
   return (
     <div className={className}>
       <ReactMarkdown remarkPlugins={[remarkGfm, remarkMath]} rehypePlugins={[rehypeKatex]} components={{

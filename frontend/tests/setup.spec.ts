@@ -72,3 +72,26 @@ test('the setup is answered from the keyboard: Ctrl+Enter keeps the cursor in th
   await expect(chat).toContainText('That is everything');
   expect(recorded.commands.map((c: any) => c.setup_answer)).toEqual([{ text: 'Deflector v3' }, { choice: 'later' }, { choice: 'formulate' }]);
 });
+
+test('a price in a setup reply stays text, and no reply widens the columns beyond the window', async ({ page }) => {
+  const recorded = await mockWorkspace(page);
+  await page.goto('/#new');
+  await expect(page).toHaveURL(/#new\/setup_\d+$/);
+  // "$20 and ... $20" was read as one inline formula: the words ran together in italics on one unbreakable line.
+  (recorded as any).setup.transcript.push({ role: 'assistant', field: 'ready', choices: [], text:
+    'Updated to $20 and runs up to 30 minutes. So: "grating2d" (grating2d), 21600 s of worker time and $20, runs up to 1800 s. Between $5-$10 or US$3. '
+    + 'Math still renders: $\\eta_1$ and $$E = h\\nu$$ and a long one, $' + '\\mathrm{x}'.repeat(200) + '$, and a long word, ' + 'w'.repeat(400) + '.' });
+  await page.getByTestId('setup-composer').fill('Grating');
+  await page.getByTestId('setup-composer-send').click();
+  const reply = page.getByTestId('setup-turn').filter({ hasText: 'Updated to' });
+  await expect(reply).toContainText('Updated to $20 and runs up to 30 minutes.');
+  await expect(reply).toContainText('worker time and $20, runs up to 1800 s. Between $5-$10 or US$3.');
+  await expect(reply.locator('.katex')).toHaveCount(3);
+  const width = page.viewportSize()!.width;
+  for (const id of ['setup-chat', 'page-new']) {
+    const box = (await page.getByTestId(id).boundingBox())!;
+    expect(box.x + box.width, id).toBeLessThanOrEqual(width);
+  }
+  expect((await page.getByTestId('page-new').boundingBox())!.width).toBeGreaterThan(300);
+  expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(width);
+});
