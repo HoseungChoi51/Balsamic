@@ -11,5 +11,7 @@ hypothesis_hash from campaign_inspect.
 A good result: test (plausible enough to run: test means plausible, not effective), revise (with the required changes) or
 reject, with a rationale and at least one suggested test. A test verdict carries no required changes.
 
-Do not test a proposal whose algorithm is not installed or whose mechanism contradicts the task's representation. Your
-proposal_review is your structured output; you need no submit_output.
+You judge the concept, not its implementation. Whether the method is implemented, installed or validated yet is a
+separate problem: note it under implementation_followup if at all, never as a required change or a reason to revise.
+Do not test a proposal whose mechanism contradicts the task's representation. Your proposal_review is your structured
+output; you need no submit_output.

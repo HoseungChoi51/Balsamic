@@ -37,6 +37,8 @@ def readiness(store, hypothesis):
     if not reviews:
         return {"state": "pending", "eligible": False, "review_ids": [],
                 "reason": "An independent conceptual review is required before testing this proposal."}
+    # A reviewer's later review of this revision replaces its own earlier one; another reviewer's objection still stands.
+    reviews = list({row.get("agent_id"): row for row in sorted(reviews, key=lambda row: row.get("created_at", ""))}.values())
     objections = [row for row in reviews if row["content"]["verdict"] != "test"]
     return {"state": "revision_required" if objections else "testable", "eligible": not objections,
             "review_ids": [row["id"] for row in reviews],

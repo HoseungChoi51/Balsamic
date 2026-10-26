@@ -818,3 +818,22 @@ def test_an_implementation_agent_runs_its_script_with_the_servers_python_in_the_
     result = tools.call(builder['id'], run['id'], 'run', 'workspace_run', {'path': 'check.py'})
     assert result['exit_code'] == 0, result.get('stderr')
     assert json.loads(result['stdout']) == list(__import__('sys').version_info[:2])
+
+
+def test_a_reviewer_can_change_its_own_verdict_but_not_override_another(prepared):
+    from optimization_framework.campaigns.proposals import hypothesis_revision, readiness
+    w,c,a,r=prepared
+    hypothesis={'id':'idea','campaign_id':c['id'],'title':'Proposed update','mechanism':'One step','requires_concept_review':True}
+    w.store.put('hypothesis',hypothesis)
+    def review(reviewer,key,verdict):
+        run=w.pi.enqueue(reviewer,key,'Review'); run['status']='submitted'; w.store.put('agent_run',run)
+        PiTools(w.pi).call(reviewer['id'],run['id'],key,'proposal_review',{'hypothesis_id':'idea','hypothesis_hash':hypothesis_revision(hypothesis),
+            'verdict':verdict,'rationale':'Judged on the concept','suggested_tests':['Matched seed baseline']})
+    first=w.pi.create_agent(c['id'],'proposal_reviewer','Review independently','first',parent_id=a['id'])
+    review(first,'objects','revise')
+    assert readiness(w.store,hypothesis)['state']=='revision_required'
+    review(first,'withdraws','test')
+    assert readiness(w.store,hypothesis)['eligible']
+    second=w.pi.create_agent(c['id'],'proposal_reviewer','Review independently','second',parent_id=a['id'])
+    review(second,'objects_too','revise')
+    assert readiness(w.store,hypothesis)['state']=='revision_required'
