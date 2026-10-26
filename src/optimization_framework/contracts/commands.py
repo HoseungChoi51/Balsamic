@@ -254,6 +254,18 @@ class JournalCompactionRequestInput(JournalCompactInput):
 LIMITS = ("compute_budget_seconds", "llm_budget_usd", "delegated_trial_seconds", "implementation_compute_budget_seconds", "validation_reserve_seconds")
 
 
+class PlannedRun(Contract):
+    """One planned experiment of a compute request: the researcher sees its speed, outputs and disk use measured on earlier
+    runs of the same problem (campaigns/experiment_plan.py)."""
+    task_id: str
+    hypothesis_id: str | None = None
+    algorithm: str | None = Field(default=None, max_length=200, description="the method id, when no hypothesis names it")
+    seeds: list[int] = Field(min_length=1, max_length=64)
+    wall_seconds: float = Field(gt=0, le=604800, description="each run's wall time")
+    max_evaluations: int | None = Field(default=None, ge=1, le=100000000)
+    device: Literal["cuda", "cpu"] | None = None
+
+
 class ApprovalRequestInput(Contract):
     """Ask the researcher for something only they grant. On approval it is applied as the researcher's own command; a compute
     approval is the go-ahead for a plan of work that computes for more than a minute (campaigns/compute_consent.py)."""
@@ -268,6 +280,8 @@ class ApprovalRequestInput(Contract):
     worker_seconds: float | None = Field(default=None, gt=0, le=2419200, description="compute: the worker time the plan may use in all")
     coding_workspaces: int = Field(default=0, ge=0, le=10, description="compute: coding workspaces the plan opens")
     meanwhile: str | None = Field(default=None, min_length=1, max_length=2000, description="compute: what the researcher can do while it runs")
+    runs: list[PlannedRun] = Field(default_factory=list, max_length=50, description="compute for experiments: each planned experiment, "
+        "so the researcher reads the plan (speed, evaluations, outputs and disk use, measured on earlier runs) before approving")
 
     @model_validator(mode="after")
     def one_request(self):
@@ -277,6 +291,8 @@ class ApprovalRequestInput(Contract):
             raise ValueError("Give exactly the fields of the chosen kind: limits, requirement_id with evidence_ids, workers, or a compute plan")
         if self.kind == "compute" and (self.wall_seconds is None or self.worker_seconds is None or self.meanwhile is None):
             raise ValueError("A compute plan states wall_seconds, worker_seconds and what the researcher can do meanwhile")
+        if self.runs and self.kind != "compute":
+            raise ValueError("Planned runs belong to a compute request")
         if set(self.limits) - set(LIMITS):
             raise ValueError("Unknown campaign limit: " + ", ".join(sorted(set(self.limits) - set(LIMITS))))
         if self.kind == "waiver" and not self.evidence_ids:

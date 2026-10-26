@@ -362,6 +362,16 @@ command that no consent covers and names what is left; coding workspaces and the
 checked where they start. The researcher's own commands are never checked, and autopilot runs within
 the compute cap the researcher set when switching it on. The per-experiment limit still applies.
 
+For experiments, the request lists its `runs`: per run, the task, the hypothesis or method, seeds, wall
+time, evaluation cap and device. The workspace computes their plan from the records
+(`campaigns/experiment_plan.py`), and the inbox shows it on the approval as a plan card. The plan gives
+each run's design and its speed, measured on the nearest earlier run of the same problem (same method
+and device first). It gives the evaluations the wall time allows and what ends the run (the wall time or
+the cap). It gives the disk use of each output file, scaled from that run's journals, and warnings: a run
+writing more than 2 GB, a cap that ends runs early, a problem nothing has measured yet. What was not
+measured says so. A draft is one run: the Experiments page's Drafts open as the same plan, with what
+blocks the draft from starting.
+
 ## Extensions
 
 Pi extensions run inside the harness process with its permissions, and can see prompts, tool calls, credentials and

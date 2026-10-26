@@ -10,6 +10,7 @@ import { ExtensionDialog, isExtensionDialog } from '../chat/ExtensionDialog';
 import { Composer } from '../chat/Composer';
 import { Markdown } from '../chat/render/Markdown';
 import { acknowledge } from '../shell/InboxNotice';
+import { PlanCard } from '../experiments/PlanCard';
 
 const NEW = <Pill tone="attention" title="You have not acknowledged this yet">new</Pill>;
 
@@ -63,6 +64,7 @@ function DecisionCard({ decision, version, campaignId, selected, onDone, isNew, 
       <div className="row"><strong className="grow">{decision.title}</strong>{isNew ? NEW : null}{decision.requested_by ? <Pill tone="agent">asked by the {decision.requested_by}</Pill> : null}<span className="faint small">{when(decision.created_at)}</span></div>
       {decision.proposal ? <Markdown text={decision.proposal} thread={thread} /> : null}
       {decision.rationale && decision.rationale !== decision.proposal ? <Markdown text={decision.rationale} thread={thread} className="md muted small" /> : null}
+      {decision.plan ? <PlanCard plan={decision.plan} /> : null}
       {decision.freshness?.reason ? <p className="why">{decision.freshness.reason}</p> : null}
       <textarea placeholder="A note with your choice (optional)" value={comment} onChange={e => setComment(e.target.value)} style={{ width: '100%', minHeight: 40 }} />
       <div className="row wrap" style={{ marginTop: 6 }}>

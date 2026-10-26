@@ -272,3 +272,11 @@ tr.accent td { background: var(--accent-soft); } tr.accent td:first-child { bord
 .md table { border-collapse: collapse; margin: 6px 0 10px; } .md th, .md td { border: 1px solid var(--line); padding: 3px 8px; text-align: left; }
 .md.inline, .md.inline p { display: inline; margin: 0; }
 .turn.lab .md { line-height: 1.45; }
+
+/* An experiment plan (experiments/PlanCard.tsx): what the researcher reads before approving. */
+.plan { display: grid; gap: 8px; margin: 6px 0; }
+.plan-run { border: 1px solid var(--line); border-radius: var(--radius-s); padding: 8px 10px; background: var(--panel); }
+.plan-warnings { margin: 0; padding: 6px 10px 6px 26px; background: var(--warn-soft); border-left: 3px solid var(--warn); border-radius: var(--radius-s); }
+.plan-outputs { border-collapse: collapse; margin-top: 6px; width: 100%; } .plan-outputs td { padding: 2px 8px 2px 0; vertical-align: top; }
+.plan-outputs td.num { text-align: right; white-space: nowrap; }
+a.draft-row { color: inherit; text-decoration: none; gap: 8px; } a.draft-row:hover { border-color: var(--line-2); }

@@ -26,7 +26,11 @@ export interface Experiments extends Scoped { short: Trial[]; long: Trial[]; che
 export interface Hypothesis { id: string; title: string; short_title?: string | null; status: string; mechanism?: string; rationale?: string; algorithm?: string; algorithm_chosen?: boolean; origin?: string; parent_ids?: string[];
   reviews?: { id: string; author: string; verdict?: string; text: string; created_at: string }[]; readiness?: { state: string; eligible: boolean; reason?: string }; created_at?: string; [key: string]: unknown }
 export interface Hypotheses extends Scoped { hypotheses: Hypothesis[]; aliases: { record_id: string; label: string }[]; rounds: Record<string, unknown> }
-export interface Decision { id: string; title: string; proposal?: string; rationale?: string; status: string; options: { id: string; label: string; description?: string }[]; recommendation?: string;
+export interface PlanRun { label: string; hypothesis_id?: string | null; method: string; task_id: string; task?: string | null; design?: string | null; seeds: number[];
+  device?: string | null; wall_seconds: number; max_evaluations?: number | null; speed: { seconds_per_evaluation: number | null; basis: string };
+  evaluations: { expected: number | null; ends_by: string }; outputs: { file: string; what: string; bytes: number }[]; other_bytes: number | null; disk_bytes: number | null }
+export interface ExperimentPlan { runs: PlanRun[]; warnings: string[]; totals: { runs: number; worker_seconds: number; disk_bytes: number | null; max_workers?: number | null } }
+export interface Decision { plan?: ExperimentPlan; id: string; title: string; proposal?: string; rationale?: string; status: string; options: { id: string; label: string; description?: string }[]; recommendation?: string;
   resolution_revision?: number; requested_by?: string; created_at: string; freshness: { state: string; reason: string; blocked_choice_ids: string[] }; presentation: Record<string, unknown>; [key: string]: unknown }
 export interface Issue { id: string; code: string; message: string; status: string; revision: number; options: string[]; created_at: string; affected?: string;
   actions?: { id: string; label: string; description: string }[]; comment?: string; resolved_at?: string; resolved_by?: string }

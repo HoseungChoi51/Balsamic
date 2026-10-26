@@ -690,7 +690,7 @@ class CommandService:
             values = ApprovalRequestInput(**payload)
             campaign = self.store.get(command.campaign_id, "campaign")
             asker = "The lead agent" if self.workspace.pi.owns(command.campaign_id) else "The campaign manager"
-            request = {"kind": values.kind}
+            request, planned = {"kind": values.kind}, None
             if values.kind == "campaign_limits":
                 CampaignUpdate(**values.limits)
                 changes = {key: value for key, value in values.limits.items() if campaign.get(key) != value}
@@ -715,6 +715,11 @@ class CommandService:
                 from .compute_consent import _minutes
                 request.update(plan=values.plan, wall_seconds=values.wall_seconds, worker_seconds=values.worker_seconds,
                                coding_workspaces=values.coding_workspaces, meanwhile=values.meanwhile)
+                if values.runs:
+                    # The experiments' plan, from the records: what the researcher reads before approving.
+                    from .experiment_plan import plan as experiment_plan
+                    request["runs"] = [run.model_dump(exclude_none=True, exclude={"schema_version"}) for run in values.runs]
+                    planned = experiment_plan(self.workspace, command.campaign_id, request["runs"])
                 coding = f" and opens {values.coding_workspaces} coding workspace{'s' if values.coding_workspaces > 1 else ''}" if values.coding_workspaces else ""
                 title, approve = f"Start this work now? About {_minutes(values.wall_seconds)} until results", "Start now"
                 proposal = (f"{asker} asks to start: {values.plan}\nIt takes about {_minutes(values.wall_seconds)} until results and uses up to "
@@ -734,7 +739,7 @@ class CommandService:
                             {"id": "1", "label": "Not now" if values.kind == "compute" else "Leave it as it is", "description": "The requester is told and nothing changes."}],
                 "recommendation": "0", "approval_request": request,
                 "requested_by": "lead" if self.workspace.pi.owns(command.campaign_id) else "manager", "audience": "researcher",
-                "status": "pending", "created_at": now()}
+                "status": "pending", "created_at": now(), **({"plan": planned} if planned else {})}
             self.store.put("decision", decision, "decision.created")
             return {"decision_id": decision["id"], "request": request}
         if command.operation == "journal.compact":

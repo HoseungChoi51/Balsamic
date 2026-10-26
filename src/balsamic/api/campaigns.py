@@ -167,7 +167,9 @@ def install(app, workspace):
     @app.get("/api/v1/drafts/{draft_id}")
     def experiment_draft(draft_id: str):
         with workspace.lock, workspace.store.transaction():
-            return {"draft": workspace.store.get(draft_id, "experiment_draft"), "readiness": workspace.drafts.readiness(draft_id)}
+            from optimization_framework.campaigns.experiment_plan import draft_plan
+            draft = workspace.store.get(draft_id, "experiment_draft")
+            return {"draft": draft, "readiness": workspace.drafts.readiness(draft_id), "plan": draft_plan(workspace, draft)}
 
     @app.get("/api/v1/reproduction-sources")
     def reproduction_sources(campaign_id: str):

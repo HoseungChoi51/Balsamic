@@ -71,8 +71,9 @@ def refusal(workspace, campaign_id, what, seconds=None):
     return (f"{what} would compute for {'about ' + _minutes(seconds) if seconds is not None else 'more than a minute'}, and the researcher "
             "has not given the go-ahead for it. Nothing that computes for more than a minute starts without it, even when a request "
             "implies the work. File approval.request with kind compute: plan (what will run and why), wall_seconds (how long until "
-            "results), worker_seconds, coding_workspaces, and meanwhile (what the researcher can do while it runs); start once they "
-            "approve. " + ("Approved and unused: " + "; ".join(left) + "." if left else "No approved plan has time left."))
+            "results), worker_seconds, coding_workspaces, meanwhile (what the researcher can do while it runs), and for experiments "
+            "runs (each: task_id, hypothesis_id or algorithm, seeds, wall_seconds, max_evaluations, device), so the researcher reads "
+            "their measured speed, outputs and disk use; start once they approve. " + ("Approved and unused: " + "; ".join(left) + "." if left else "No approved plan has time left."))
 
 
 def require(workspace, campaign_id, what, seconds=0.0, *, coding=0):

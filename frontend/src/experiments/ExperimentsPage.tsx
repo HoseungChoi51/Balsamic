@@ -7,6 +7,9 @@ import { Curve } from '../primitives/charts';
 import { formatHash, navigate } from '../router/routes';
 import { useSelection } from '../stores/selection';
 import { TraceOrigin } from '../evolution/TraceOrigin';
+import { Markdown } from '../chat/render/Markdown';
+import { PlanCard } from './PlanCard';
+import type { ExperimentPlan } from '../api/types';
 import { useState } from 'react';
 
 const STATUS_WORDS: Record<string, string> = { stopped: 'stopped (by request, not failed)', failed: 'failed', completed: 'completed', running: 'running', queued: 'queued', paused: 'paused' };
@@ -45,7 +48,11 @@ export default function ExperimentsPage({ campaignId, route }: PageProps) {
       <nav className="tabs">{tabs.map(([key, label]) => <a key={key} href={formatHash({ page: 'experiments', sub: key === 'runs' ? null : key }, route.thread)} className={sub === key ? 'active' : ''}>{label}</a>)}</nav>
       {sub === 'runs' ? <>{table(data.long, 'Long runs')}{table(data.short, 'Short runs')}</> : null}
       {sub === 'checks' ? table(data.checks, 'Checks: validations, recipes, speed probes') : null}
-      {sub === 'drafts' ? <Section title={`Drafts (${data.drafts.length})`}>{data.drafts.length ? data.drafts.map(d => <div key={String(d.id)} className="card row"><strong className="grow">{String(d.title || d.id)}</strong><Pill>{String(d.status || 'draft')}</Pill></div>) : <Empty>No draft waits to be started.</Empty>}</Section> : null}
+      {sub === 'drafts' && route.id ? <DraftView draftId={route.id} thread={route.thread} back={formatHash({ page: 'experiments', sub: 'drafts' }, route.thread)} /> : null}
+      {sub === 'drafts' ? <Section title={`Drafts (${data.drafts.length})`}>{data.drafts.length ? data.drafts.map(d => (
+        <a key={String(d.id)} href={formatHash({ page: 'experiments', sub: 'drafts', id: String(d.id) }, route.thread)} className={'card row draft-row' + (route.id === d.id ? ' selected' : '')} data-testid="draft-row">
+          <strong className="grow">{String(d.title || d.id)}</strong><Pill>{String(d.status || 'draft')}</Pill><span className="small faint">open the plan</span></a>))
+        : <Empty>No draft waits to be started.</Empty>}</Section> : null}
       {sub === 'rules' ? <Section title="Experiment rules"><Kv rows={Object.entries(data.rules).filter(([k]) => !['id', 'campaign_id'].includes(k)).map(([k, v]) => [k.replaceAll('_', ' '), typeof v === 'object' ? JSON.stringify(v) : String(v)])} /><p className="why">The experiment operator changes these on request (experiments.rules).</p></Section> : null}
     </div>
   );
@@ -73,5 +80,25 @@ function ExperimentLog({ trialId, campaignId, back }: { trialId: string; campaig
       <Section title="Checks">{record.data.validations.length ? record.data.validations.map(v => <div key={String(v.id)} className="row small"><Pill>{String(v.verdict || v.status)}</Pill><span>{String(v.kind || v.recipe_id || '')}</span></div>) : <Empty>No validation ran on this run.</Empty>}</Section>
       <Section title="Worker log (tail)"><pre style={{ maxHeight: 300 }}>{logs.data?.text || '(empty)'}</pre></Section>
     </div>
+  );
+}
+
+/** A draft is an experiment plan: what it asks, whether it can start and what blocks it, and the plan computed from the records. */
+function DraftView({ draftId, thread, back }: { draftId: string; thread: string | null; back: string }) {
+  type Blocker = { code: string; message: string };
+  const draft = useRead<{ draft: Record<string, unknown> & { procedure: Record<string, unknown>; title: string; revision: number }; readiness: { ready: boolean; blockers: Blocker[]; waiting_for?: Blocker[] }; plan: ExperimentPlan }>(['draft', draftId], `/api/v1/drafts/${draftId}`);
+  if (draft.isPending) return <Loading what="Loading the plan" />;
+  if (draft.error) return <Failed error={draft.error} />;
+  const { procedure } = draft.data.draft;
+  const { readiness, plan } = draft.data;
+  return (
+    <article className="card" data-testid="draft-view">
+      <div className="row"><h2 className="grow">{draft.data.draft.title}</h2><span className="faint small">revision {draft.data.draft.revision}</span><a className="btn quiet small" href={back}>Close</a></div>
+      {procedure.question ? <Markdown text={String(procedure.question)} thread={thread} /> : <p className="faint small">The draft does not say what it asks.</p>}
+      {readiness.ready ? <p><Pill tone="clear">ready to start</Pill></p> : (
+        <div data-testid="draft-blockers"><Pill tone="attention">cannot start yet</Pill>
+          <ul className="small">{readiness.blockers.map(blocker => <li key={blocker.code}>{blocker.message}</li>)}</ul></div>)}
+      <PlanCard plan={plan} />
+    </article>
   );
 }

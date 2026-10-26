@@ -66,3 +66,32 @@ def test_a_compute_plan_states_its_times_and_what_to_do_meanwhile(lab):
     workspace, campaign, task = lab
     with pytest.raises(ValueError, match="wall_seconds, worker_seconds and what the researcher can do meanwhile"):
         send(workspace, campaign["id"], "vague", "approval.request", {"kind": "compute", "plan": "Some runs", "rationale": "Screening"})
+
+
+def test_a_compute_request_for_experiments_shows_their_plan_measured_on_earlier_runs(lab):
+    workspace, campaign, task = lab
+    cid = campaign["id"]
+    # An earlier run of the same problem: 100 evaluations in 50 s, with journals of known sizes.
+    workspace.store.put("trial", {"id": "trial_earlier", "campaign_id": cid, "task_id": task["id"], "algorithm": "coordinate", "status": "completed",
+                                  "created_at": "2026-10-26T00:00:00+00:00", "result": {"evaluations": 100, "elapsed_seconds": 50.0}})
+    directory = workspace.job_dir("trial_earlier")
+    directory.mkdir(parents=True)
+    (directory / "observations.jsonl").write_bytes(b"o" * 100_000)
+    (directory / "metrics.jsonl").write_bytes(b"m" * 50_000)
+    (directory / "spec.json").write_bytes(b"s" * 1_000)
+    send(workspace, cid, "ask_plan", "approval.request", {"kind": "compute", "plan": "Two seeds of the coordinate search", "rationale": "Compare seeds",
+        "wall_seconds": 600, "worker_seconds": 1200, "meanwhile": "Read the earlier run",
+        "runs": [{"task_id": task["id"], "algorithm": "coordinate", "seeds": [0, 1], "wall_seconds": 600, "max_evaluations": 1000}]})
+    decision = workspace.store.list("decision", cid)[-1]
+    [run] = decision["plan"]["runs"]
+    assert run["speed"]["seconds_per_evaluation"] == 0.5 and "measured on trial_earlier (100 evaluations, coordinate" in run["speed"]["basis"]
+    assert run["evaluations"] == {"expected": 1000, "ends_by": "the evaluation cap"}
+    assert {row["file"]: row["bytes"] for row in run["outputs"]} == {"observations.jsonl": 1_000_000, "metrics.jsonl": 500_000}
+    assert run["other_bytes"] == 1_000 and run["disk_bytes"] == 1_501_000 and decision["plan"]["totals"]["disk_bytes"] == 3_002_000
+    assert decision["plan"]["warnings"] == ["coordinate: the cap of 1,000 evaluations ends each run after about 8 of its 10 minutes."]
+    # A problem no earlier run measured: said, not guessed.
+    from optimization_framework.campaigns.experiment_plan import plan
+    workspace.store.put("trial", {**workspace.store.get("trial_earlier", "trial"), "task_id": "task_other"})
+    unmeasured = plan(workspace, cid, [{"task_id": task["id"], "algorithm": "coordinate", "seeds": [0], "wall_seconds": 600}])
+    assert unmeasured["runs"][0]["speed"]["seconds_per_evaluation"] is None and unmeasured["runs"][0]["disk_bytes"] is None
+    assert "not measured on this problem" in unmeasured["warnings"][0]
