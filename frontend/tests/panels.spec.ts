@@ -33,6 +33,16 @@ test('a panel the formulator composed renders on its page from the catalog; fiel
   await expect(panel.getByTestId('panel-error')).toContainText('Monthly budget is at least 0');
 });
 
+test('a field bound to the charter shows the charter\'s unit, and a panel label in another unit is called out', async ({ page }) => {
+  const scaled = { ...f.panel, components: f.panel.components.map(c => c.type === 'number' ? { ...c, units: 'M token' } : c) };
+  await mockWorkspace(page, { [`/api/v1/campaigns/${CAMPAIGN_ID}/problem-note`]: f.adoptedNoteView, [`/api/v1/campaigns/${CAMPAIGN_ID}/panels`]: { campaign_id: CAMPAIGN_ID, panels: [scaled] } });
+  await page.route('**/api/v1/problem-charters/charter_1', route => route.fulfill({ json: f.charterView }));
+  await page.goto(`/#t/${THREAD_ID}/note/charter`);
+  const field = page.getByTestId('panels-bottom').getByTestId('panel-number');
+  await expect(field.locator('span.faint.small').first()).toHaveText('token');
+  await expect(field.getByTestId('panel-unit-mismatch')).toHaveText('the panel says M token; the charter keeps this in token: type it in token');
+});
+
 test('a panel the lead made in the conversation shows as a card in the thread with a link to its page', async ({ page }) => {
   const link = { id: 'message_panel_panel_1', campaign_id: CAMPAIGN_ID, role: 'assistant', origin: 'lab_event', kind: 'panel_link', panel_id: 'panel_1', content: 'The lead added a panel to #note/charter: Seat budget', created_at: '2026-10-19T08:06:00Z' };
   await mockWorkspace(page, { [`/api/v1/threads/${THREAD_ID}/messages`]: { ...f.messages, messages: [...f.messages.messages, link] } });

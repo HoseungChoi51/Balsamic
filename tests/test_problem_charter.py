@@ -238,6 +238,35 @@ def test_proposals_are_computed_here_and_apply_only_to_the_charter_they_were_mad
         charters.decide(late["id"], 0)
 
 
+def test_one_thing_counted_at_two_scales_is_flagged_and_other_campaigns_units_are_named(workspace):
+    from optimization_framework.contracts.requests import CampaignInput
+    assert C.unit_scale("Mtok", frozenset({"token"})) == (1e6, "token")
+    assert C.unit_scale("million tokens/day") == (1e6, "token/day")
+    assert C.unit_scale("Mtok") == (1.0, "mtok")   # a prefix is read only before a unit in use
+    assert C.unit_scale("1") is None and C.unit_scale("deg") is None
+    assert "units.scale" not in codes(C.findings(reactor()))   # mL, mL/min, s, bar, C, cP: nothing counted twice
+    budget = reactor()
+    budget["quantities"]["monthly_tokens"] = {"description": "Monthly budget", "value": 120.0, "units": "Mtok"}
+    budget["quantities"]["daily_tokens"] = {"description": "Daily cap", "value": 4_000_000.0, "units": "token"}
+    row = next(r for r in C.findings(budget) if r["code"] == "units.scale")
+    assert row["severity"] == "warning" and set(row["about"]) == {"monthly_tokens", "daily_tokens"}
+    assert "1 Mtok = 1,000,000 token" in row["message"]
+    # Another campaign's charter counts tokens in a unit of its own; this charter's view names it under the names it concerns.
+    other = reactor(title="Token units")
+    other["quantities"].update(tokens_per_tu={"description": "Tokens per unit", "value": 1000, "units": "token/TU"},
+                               ceiling_tu={"description": "Daily ceiling", "value": 150, "units": "TU"},
+                               reserve_tu={"description": "Daily reserve", "value": 5, "units": "TU"})
+    confirmed = workspace.charters.confirm(workspace.charters.create(other, source={"kind": "test"})["id"])
+    workspace.create_campaign(CampaignInput(name="Older", charter=confirmed["charter"], compute_budget_seconds=600, validation_reserve_seconds=0))
+    mine = reactor()
+    mine["quantities"]["daily_cap_tokens"] = {"description": "Daily cap", "value": 4_000_000, "units": "token"}
+    view = workspace.charters.view(workspace.charters.create(mine, source={"kind": "test"})["id"])
+    assert [row["about"] for row in view["units_elsewhere"]] == [["daily_cap_tokens"]]
+    assert view["units_elsewhere"][0]["message"] == ("In “Token units” (campaign Older), tokens_per_tu = 1,000 token/TU: token is counted "
+                                                     "in TU there, and 2 of its parameters are in TU.")
+    assert workspace.charters.view(confirmed["charter"]["id"])["units_elsewhere"] == []   # a campaign's own charter is not compared with itself
+
+
 def test_forks_record_their_origin_and_campaigns_are_made_and_revised_from_confirmed_charters(workspace):
     from optimization_framework.contracts.requests import CampaignInput, CampaignUpdate
     charters = workspace.charters
@@ -366,6 +395,22 @@ def test_the_formulator_cannot_waive_accept_or_answer_for_the_researcher(workspa
     again = workspace.charters.submit(record["id"], {**record["charter"], "waivers": [{"key": "constraint.qualitative:safe", "reason": "x"}]}, run_id="r")
     assert again["charter"]["quantities"]["pressure_bar"]["accepted"] and again["charter"]["questions"][0]["answer"] == "A"
     assert again["charter"]["waivers"] == []
+
+
+def test_an_assumption_stated_in_words_is_accepted_by_its_subject_and_an_accept_that_matches_nothing_saves_nothing(workspace):
+    record = workspace.charters.create(reactor(assumptions=[{"statement": "The objective is total yield", "about": ["isolated_yield"]}]),
+                                       source={"kind": "test"})
+    row = next(r for r in C.findings(record["charter"]) if r["code"] == "assumption.unaccepted")
+    assert row["key"] == "assumption.unaccepted:statement0" and row["about"] == ["isolated_yield"]
+    # The name the assumption is about is not the assumption: nothing is accepted, and no revision is saved.
+    with pytest.raises(ValueError, match="No unaccepted assumption named isolated_yield"):
+        workspace.charters.accept_assumptions(record["id"], ["isolated_yield"])
+    assert workspace.charters.get(record["id"])["revision"] == record["revision"]
+    accepted = workspace.charters.accept_assumptions(record["id"], ["statement0"])
+    assert accepted["charter"]["assumptions"][0]["accepted"]
+    assert "assumption.unaccepted" not in codes(C.findings(accepted["charter"]))
+    with pytest.raises(ValueError, match="No unaccepted assumption"):   # accepting it again is not a new revision either
+        workspace.charters.accept_assumptions(record["id"], ["statement0"])
 
 
 def test_every_blocking_finding_carries_suggested_ways_out():

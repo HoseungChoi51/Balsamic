@@ -75,7 +75,9 @@ Inputs are:
 Each input has:
 - `description`;
 - `kind` (`number`, `integer`, `text` or `boolean`);
-- `units`: `"1"` for a pure number, and `"deg"` for degrees;
+- `units`: `"1"` for a pure number, and `"deg"` for degrees; one thing is counted in one unit throughout the charter
+  (tokens in `token` everywhere, never `Mtok` in one place and `token` in another), in its base unit even when the
+  numbers are large: the page reads them out as millions or billions;
 - `range`: limits that make physical sense, such as a positive length, an angle from 0 to 90, or
   a fraction from 0 to 1;
 - `value`;

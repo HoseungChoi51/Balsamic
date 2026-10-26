@@ -202,7 +202,7 @@ def _bound_value(view, bind):
 def _kv_row(workspace, charter_view, row):
     if row.get("bind"):
         bound = _bound(charter_view, row["bind"])
-        return {"label": row["label"], "value": bound.get("value"), "units": row.get("units") or bound.get("units")}
+        return {"label": row["label"], "value": bound.get("value"), "units": bound.get("units") or row.get("units")}   # the value is the charter's, in its unit
     if row.get("record"):
         try:
             value = workspace.store.get_entry(row["record"]["id"])["data"].get(row["record"]["field"])

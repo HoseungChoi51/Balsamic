@@ -66,8 +66,8 @@ test('the charter page is a form: findings are settled with numbers, acceptances
   expect(posts.filter(p => p.path === 'edit')[1].body).toMatchObject({ changes: [{ op: 'set', path: 'variables.0.upper', value: 8000000 }] });
   await expect(panel.getByTestId('finding')).toHaveCount(0);
   // The tables below follow the saved charter: the bound and the value typed on the findings now show there.
-  await expect(panel.getByTestId('upper-daily_cap')).toHaveValue('8000000');
-  await expect(panel.getByTestId('value-monthly_budget_tokens')).toHaveValue('120000000');
+  await expect(panel.getByTestId('upper-daily_cap')).toHaveValue('8,000,000');
+  await expect(panel.getByTestId('value-monthly_budget_tokens')).toHaveValue('120,000,000');
   await expect(panel.getByTestId('confirm-why')).toContainText('2 questions from the formulator to answer first');
   // The first open item is marked next; answering it sends it to the end, compact, and the next one takes the mark.
   await expect(panel.getByTestId('question').first()).toHaveAttribute('data-next', '1');
@@ -115,6 +115,79 @@ test('the charter page is a form: findings are settled with numbers, acceptances
   const raw = panel.getByTestId('raw-charter');
   await expect(raw).toHaveCSS('white-space', 'pre-wrap');
   expect(await raw.evaluate(el => el.scrollWidth <= el.clientWidth + 1)).toBe(true);
+});
+
+test('a check says the unit of each number it is about, and a typed number is grouped by thousands and read in words', async ({ page }) => {
+  await mockWorkspace(page, { [`/api/v1/campaigns/${CAMPAIGN_ID}/problem-note`]: f.adoptedNoteView });
+  const elsewhere = 'In “Older charter” (campaign token sharing), tokens_per_tu = 1,000 token/TU: token is counted in TU there, and 6 of its parameters are in TU.';
+  await page.route('**/api/v1/problem-charters/charter_1', route => route.fulfill({ json: { ...f.charterView, units_elsewhere: [{ about: ['monthly_budget_tokens'], message: elsewhere }] } }));
+  await page.goto(`/#t/${THREAD_ID}/note/charter`);
+  const panel = page.getByTestId('charter-panel');
+  const missing = panel.locator('[data-code="quantity.no_value"]');
+  // The unit is said in words beside the name, and on the field's label; another campaign's unit for the same thing is named.
+  await expect(missing.getByTestId('meaning')).toContainText('Tokens per month · in token · no value yet');
+  await expect(missing.getByTestId('meaning-unit')).toHaveText('token');
+  await expect(missing.getByText('value of monthly_budget_tokens, in token')).toBeVisible();
+  await expect(missing.getByTestId('unit-note')).toHaveText(elsewhere);
+  await expect(panel.locator('[data-code="assumption.unaccepted"]').getByTestId('meaning')).toContainText('in day · now 20 day');
+  await expect(panel.locator('[data-code="variable.bounds"]').getByTestId('meaning')).toContainText('in token/day · from 0 token/day to none yet');
+  // Separators follow the digits as they are typed, and the size is read out in words.
+  const field = missing.getByTestId('finding-value');
+  await field.pressSequentially('1000000000');
+  await expect(field).toHaveValue('1,000,000,000');
+  await expect(missing.getByTestId('finding-value-words')).toHaveText('· 1 billion');
+  // The caret keeps its place among the digits; deleting a separator deletes the digit before it.
+  await field.fill('');
+  await field.pressSequentially('1234567');
+  await expect(field).toHaveValue('1,234,567');
+  await expect(missing.getByTestId('finding-value-words')).toHaveText('· ≈ 1.23 million');
+  await field.press('Home'); await field.press('ArrowRight'); await field.press('ArrowRight');   // after "1,"
+  await field.press('Backspace');
+  await expect(field).toHaveValue('234,567');
+  await field.press('Home'); await field.press('ArrowRight'); await field.press('ArrowRight');
+  await field.pressSequentially('9');
+  await expect(field).toHaveValue('2,394,567');
+  expect(await field.evaluate((el: HTMLInputElement) => el.selectionStart)).toBe(4);   // after "2,39"
+  // Numbers that are not plain digits are left as written.
+  await field.fill('1e9');
+  await expect(field).toHaveValue('1e9');
+  await expect(missing.getByTestId('finding-value-words')).toHaveText('· 1 billion');
+});
+
+test('an assumption stated in words is accepted by its subject, the page shows it is working, and a check names the question about the same thing', async ({ page }) => {
+  await mockWorkspace(page, { [`/api/v1/campaigns/${CAMPAIGN_ID}/problem-note`]: f.adoptedNoteView });
+  const statement = 'Provisional objective is total delivered value under the budget.';
+  const questions = [{ id: 'objective_choice', question: 'Which single objective should replace the provisional objective?', options: ['Total value', 'Value per cost'], about: ['objective'], answer: null }];
+  const view = { ...f.charterView, findings: [{ key: 'assumption.unaccepted:statement0', code: 'assumption.unaccepted', severity: 'blocking', message: `Assumption: ${statement}`, about: ['objective'], waivable: false }],
+    charter: { ...f.charterView.charter, assumptions: [{ statement, about: ['objective'], accepted: false }], questions } };
+  const posts: unknown[] = [];
+  let release = () => {};
+  const held = new Promise<void>(resolve => { release = resolve; });
+  await page.route('**/api/v1/problem-charters/charter_1**', async route => {
+    if (route.request().method() === 'GET') return route.fulfill({ json: posts.length ? { ...view, revision: 3, findings: [] } : view });
+    posts.push(route.request().postDataJSON());
+    await held;
+    return route.fulfill({ json: { ...view, revision: 3, findings: [] } });
+  });
+  await page.goto(`/#t/${THREAD_ID}/note/charter`);
+  const panel = page.getByTestId('charter-panel');
+  // The two sections say how they differ, and a check is named in words, its code on hover.
+  await expect(panel.getByTestId('checks-lead')).toContainText('A check is what is wrong with the charter as it is written now');
+  await expect(panel.getByTestId('checks-lead')).toContainText('The questions below are different');
+  await expect(panel.getByTestId('questions-lead')).toContainText('A question is a decision the formulator could not make from the sources');
+  const check = panel.getByTestId('finding');
+  await expect(check.locator('.finding-code')).toHaveText('assumption to accept');
+  await expect(check.locator('.finding-code')).toHaveAttribute('title', 'assumption.unaccepted');
+  await expect(check.getByTestId('related-question')).toContainText('“Which single objective should replace the provisional objective?”');
+  await expect(check.getByTestId('related-question')).toContainText('accept it now only if you want it as written');
+  // Accept sends the assumption's subject, and says it is working until the charter is saved.
+  await check.getByTestId('accept-assumption').click();
+  await expect(check.getByTestId('accept-assumption')).toHaveText('Accepting…');
+  await expect(panel.getByTestId('charter-saving')).toBeVisible();
+  expect(posts).toEqual([{ expected_revision: 2, names: ['statement0'] }]);
+  release();
+  await expect(panel.getByTestId('finding')).toHaveCount(0);
+  await expect(panel.getByTestId('charter-saving')).toHaveCount(0);
 });
 
 test('while the formulator works on the answers, the questions say so and nothing asks to be answered again', async ({ page }) => {

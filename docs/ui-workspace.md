@@ -154,15 +154,29 @@ its page) stays on the page.
 
 **Charter form.** `note/CharterPanel.tsx` reads `GET /api/v1/problem-charters/{id}` (the record plus `describe`: `findings`,
 `values`, `errors`, `rendered`, `blocking`) and settles each blocking finding in place: `assumption.unaccepted` → Accept
-(`accept-assumptions {names}`) or a new value; `quantity.no_value` / `quantity.range` → a number or an expression
+(`accept-assumptions {names}` with the finding's subject: the quantity's name, or `statement<index>` for an assumption
+stated in words; the service refuses names that match no unaccepted assumption rather than save a revision that changes
+nothing) or a new value; `quantity.no_value` / `quantity.range` → a number or an expression
 (`edit {changes: [{op: set, path: quantities.<name>.value|expression}]}`); `variable.bounds` / `variable.values` →
 bounds or values (`variables.<index>.lower|upper|values`); any finding → its `suggestions` as one-click buttons (a
 `waive` posts `waive {key, reason}`, a `request` posts `requests {text}`, an `edit` posts its computed `changes` with its
 `rationale` as the researcher's own edit, shown as the primary button with a line saying what it does; "Ask the formulator" opens its box prefilled
-with the suggested request) or Waive when waivable. The section is titled "Checks to pass before confirming" and says
-the findings come from the checks, not the formulator; the questions section says the opposite. In a finding or a
+with the suggested request) or Waive when waivable. The section is titled "Checks to pass before confirming"; its lead
+(`checks-lead`) says a check is what is wrong with the charter as written, found by code, and settled by the researcher
+changing the charter, and the questions lead (`questions-lead`) says a question is a decision the formulator asks for and
+that an answer changes nothing until the formulator revises the charter. A check names its kind in words ("assumption to
+accept", "value missing", …; the code on hover and in `data-code`), and one about the same names as an open question says
+so (`related-question`: answer that first, the revision may settle or replace the check). While a post is in flight the
+header shows "saving your change…" (`charter-saving`) and Accept reads "Accepting…". In a finding or a
 question, every quantity and variable name is set apart (`.qname`, its description on hover) and the names it is about
-are explained under it in words (`finding-meaning`); fields carry their guidance as a label above the box, never as a
+are explained under it in words (`finding-meaning`, one `meaning` row each: the description, the unit its numbers are in
+— "in **token**", "a pure number" —, and the value now or a variable's bounds, each with its magnitude in words), with
+any unit note under it (`unit-note`): a `units.scale` warning (one thing counted at two scales in this charter, "token"
+and "Mtok") or a row of the view's `units_elsewhere` (another campaign's charter revision counting the same thing in
+another unit: at another scale, or in a unit of its own such as `token/TU`); number fields group digits by thousands as
+they are typed, keeping the caret after the same digit (deleting a separator deletes the digit before it), name their unit
+on the label ("value of X, in token") and read a number of a million or more in words beside it ("· 1 billion"); a panel
+field bound to the charter shows the charter's unit, and a panel label in another unit is called out; fields carry their guidance as a label above the box, never as a
 placeholder that a narrow box cuts off. Across the app, an agent pill whose words say it is at work (running, revising,
 deciding, …) carries a pulsing dot (`Pill`, `live`). Quantities and variables are editable tables (numbers typed as numbers; derived values shown computed);
 questions are answered from their options (the formulator's recommendation first, marked; an option under which nothing

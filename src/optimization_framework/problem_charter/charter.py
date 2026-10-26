@@ -195,6 +195,158 @@ def finding(code, severity, subject, message, about=()):
 NUMBER = r"(?<![\w.{:])(-?\d+(?:,\d{3})*(?:\.\d+)?(?:[eE][-+]?\d+)?)"
 
 
+# Units -----------------------------------------------------------------------------------------------
+# A unit is read as a factor and a base, so that one thing counted at two scales ("token" and "Mtok", "s" and "ms") is
+# caught: a number written for one is off by the factor in the other. Nothing here knows a field. A scale word ("million
+# tokens") is always read; a one-letter prefix ("Mtok", "ms") only when what follows is itself a unit in use.
+SCALE_WORDS = {"thousand": 1e3, "kilo": 1e3, "million": 1e6, "mn": 1e6, "mega": 1e6, "billion": 1e9, "bn": 1e9, "giga": 1e9,
+               "trillion": 1e12, "tera": 1e12, "milli": 1e-3, "micro": 1e-6, "nano": 1e-9}
+SCALE_LETTERS = {"k": 1e3, "K": 1e3, "M": 1e6, "G": 1e9, "B": 1e9, "T": 1e12, "m": 1e-3, "µ": 1e-6, "u": 1e-6, "n": 1e-9}
+SPELLINGS = {"tok": "token", "tkn": "token"}
+
+
+def unit_word(text: str) -> str:
+    """A unit word in one spelling: lowercase and singular ("Tokens" and "tok" are "token")."""
+    text = text.strip().lower()
+    if len(text) > 3 and text.endswith("s") and not text.endswith("ss"):
+        text = text[:-1]
+    return SPELLINGS.get(text, text)
+
+
+def unit_scale(units: str, known=frozenset()) -> tuple[float, str] | None:
+    """(factor, base) of a unit: "Mtok" is (1e6, "token") when "token" is known, "million tokens/day" is (1e6, "token/day");
+    None for a pure number or degrees."""
+    units = (units or "").strip()
+    if units in DIMENSIONLESS or units.lower() in DEGREES:
+        return None
+    top, _, per = units.partition("/")
+    words = top.replace("·", " ").replace("*", " ").split()
+    factor = 1.0
+    if len(words) > 1:
+        first, power = words[0], re.fullmatch(r"10\^(-?\d+)", words[0])
+        if first.lower().rstrip("s") in SCALE_WORDS:
+            factor, words = SCALE_WORDS[first.lower().rstrip("s")], words[1:]
+        elif first in "kKMGBT":
+            factor, words = SCALE_LETTERS[first], words[1:]
+        elif power:
+            factor, words = 10.0 ** int(power.group(1)), words[1:]
+        elif re.fullmatch(r"\d[\d,]*(?:\.\d+)?(?:[eE][-+]?\d+)?", first) and float(first.replace(",", "")) > 0:
+            factor, words = float(first.replace(",", "")), words[1:]
+        if words and words[0].lower() == "of":
+            words = words[1:]
+    head = " ".join(words)
+    for prefix, scale in SCALE_WORDS.items():
+        if len(prefix) > 2 and head.lower().startswith(prefix) and len(head) > len(prefix) + 1:
+            factor, head = factor * scale, head[len(prefix):]
+            break
+    else:
+        if len(head) > 1 and head[0] in SCALE_LETTERS and unit_word(head[1:]) in known:
+            factor, head = factor * SCALE_LETTERS[head[0]], head[1:]
+    base = "/".join([unit_word(head)] + [unit_word(part) for part in per.split("/") if per])
+    return factor, base
+
+
+def unit_rows(charter) -> list[tuple[str, str, Any]]:
+    """Every number-valued quantity and decision variable with its units and its stated value (None for a variable)."""
+    rows = [(name, q.units, q.value if q.role == "input" else None) for name, q in charter.quantities.items()
+            if q.kind in {"number", "integer"}]
+    return rows + [(v.name, v.units, None) for v in charter.variables]
+
+
+def known_units(*row_lists) -> frozenset:
+    """The unit words in use, read without prefixes: what a one-letter prefix may stand before. A word that two units in
+    use share after different prefixes ("nm" and "um") counts too."""
+    found, after = set(), {}
+    for rows in row_lists:
+        for _, units, _ in rows:
+            scaled = unit_scale(units)
+            if scaled:
+                head = scaled[1].split("/")[0]
+                found.add(head)
+                if len(head) > 1 and units.strip()[0] in SCALE_LETTERS:
+                    after.setdefault(unit_word(head[1:]), set()).add(head)
+    return frozenset(found | {rest for rest, heads in after.items() if len(heads) > 1})
+
+
+def ratio(number: float) -> str:
+    return f"{number:,.0f}" if number >= 1 and float(number).is_integer() else format(number, ".6g")
+
+
+def scale_findings(charter) -> list[dict]:
+    """One thing counted at two scales in one charter ("token" and "Mtok"): a number typed for one is off by the factor in
+    the other."""
+    rows = unit_rows(charter)
+    known = known_units(rows)
+    groups: dict[str, dict[float, list[tuple[str, str]]]] = {}
+    for name, units, _ in rows:
+        scaled = unit_scale(units, known)
+        if scaled:
+            groups.setdefault(scaled[1], {}).setdefault(scaled[0], []).append((name, units.strip()))
+    out = []
+    for base, scales in groups.items():
+        if len(scales) < 2:
+            continue
+        smallest = min(scales)
+        unit_of = lambda members: " or ".join(dict.fromkeys(units for _, units in members))
+        least = unit_of(scales[smallest])
+        parts = [f"{', '.join(name for name, _ in members)} in {unit_of(members)}"
+                 + (f" (1 {unit_of(members)} = {ratio(factor / smallest)} {least})" if factor != smallest else "")
+                 for factor, members in sorted(scales.items())]
+        out.append(finding("units.scale", "warning", base, f"{base} is counted at {len(scales)} scales: {'; '.join(parts)}. "
+            "A number written for one is off by that factor in the other: count it in one unit throughout, or derive one "
+            "from the other.", [name for members in scales.values() for name, _ in members]))
+    return out
+
+
+def units_elsewhere(charter, others: list[dict]) -> list[dict]:
+    """Where the charters of other campaigns count a thing this charter counts in another unit: at another scale ("Mtok"
+    against "token"), or in a unit of their own ("token/TU", with quantities in TU). Each row says which names here it is
+    about, so a number carried over from one charter is not read in the other's unit. `others` holds {title, campaign,
+    charter} each."""
+    charter = parse(charter)
+    mine = unit_rows(charter)
+    mine_known = known_units(mine)
+    out = []
+    for other in others:
+        theirs = unit_rows(parse(other["charter"]))
+        known = known_units(mine, theirs)
+        here: dict[str, list[tuple[float, str, str, str]]] = {}   # by the thing counted: (factor, base, units, name)
+        for name, units, _ in mine:
+            scaled = unit_scale(units, known)
+            if scaled:
+                here.setdefault(scaled[1].split("/")[0], []).append((*scaled, units.strip(), name))
+        bare: dict[str, int] = {}
+        for _, units, _ in theirs:
+            scaled = unit_scale(units, known)
+            if scaled and scaled[0] == 1 and "/" not in scaled[1]:
+                bare[scaled[1]] = bare.get(scaled[1], 0) + 1
+        found: dict[tuple, dict] = {}
+        for name, units, value in theirs:
+            scaled = unit_scale(units, known)
+            top, _, per = scaled[1].partition("/") if scaled else ("", "", "")
+            if top not in here:
+                continue
+            factor, base = scaled
+            same = [row for row in here[top] if row[1] == base]
+            stated = name if value is None else f"{name} = {ratio(value) if isinstance(value, (int, float)) and not isinstance(value, bool) else value} {units.strip()}"
+            if same and all(row[0] != factor for row in same):
+                mine_factor, _, mine_units, _ = same[0]
+                row = found.setdefault(("scale", base, factor), {"about": [row[3] for row in same], "names": [],
+                    "note": f"1 {units.strip()} there is {ratio(factor / mine_factor)} {mine_units} here"})
+            elif not same and per and per in bare and per not in mine_known:
+                written = units.split("/", 1)[1].strip()
+                row = found.setdefault(("per", base), {"about": [row[3] for row in here[top]], "names": [],
+                    "note": f"{here[top][0][2]} is counted in {written} there, and {bare[per]} of its parameters are in {written}"})
+            else:
+                continue
+            row["names"].append(stated)
+        for row in found.values():
+            names = ", ".join(row["names"][:3]) + (" …" if len(row["names"]) > 3 else "")
+            out.append({"charter_id": other.get("charter_id"), "title": other["title"], "campaign": other["campaign"], "about": row["about"],
+                        "message": f"In “{other['title']}” (campaign {other['campaign']}), {names}: {row['note']}."})
+    return out
+
+
 def literal_findings(text: str, location: str, charter, values) -> list[dict]:
     """Numbers stated in a text with the units of a quantity: the text should refer to the quantity instead."""
     units = {}
@@ -272,6 +424,7 @@ def findings(charter, registry=None) -> list[dict]:
             if a.units.strip() == b.units.strip() and math.isclose(values[left], values[right], rel_tol=1e-9):
                 out.append(finding("duplicate.value", "warning", f"{left}:{right}", f"{left} and {right} are both "
                     f"{show(values[left], a.units)}. If they are the same quantity, keep one and refer to it.", [left, right]))
+    out.extend(scale_findings(charter))
     # Texts
     for location, text in texts(charter).items():
         for match in REFERENCE.finditer(text or ""):

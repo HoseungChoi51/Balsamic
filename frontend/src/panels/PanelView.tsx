@@ -54,7 +54,9 @@ export function PanelView({ panel, threadId, compact = false }: { panel: Panel; 
       }
       case 'number': return <div key={id} className="panel-field" data-testid="panel-number" data-component={id}>
         <label>{String(component.label)}{data.origin === 'assumed' && !data.accepted ? <Pill tone="attention">assumed</Pill> : null}</label>
-        <NumberField key={String(data.revision ?? '')} initial={data.value as number | null} units={(component.units as string) || (data.units as string)} onSet={v => set(id, v)} busy={busy || waiting} testId={`panel-${id}`} />
+        {/* The number typed is stored as it is, so the unit shown is the charter's; a label in another unit would mislead. */}
+        <NumberField key={String(data.revision ?? '')} initial={data.value as number | null} units={(data.units as string) || (component.units as string)} onSet={v => set(id, v)} busy={busy || waiting} testId={`panel-${id}`} />
+        {data.units && component.units && String(component.units).trim() !== String(data.units).trim() ? <span className="pill attention" data-testid="panel-unit-mismatch">the panel says {String(component.units)}; the charter keeps this in {String(data.units)}: type it in {String(data.units)}</span> : null}
         {waitNote || (component.help ? <span className="small faint">{String(component.help)}</span> : null)}</div>;
       case 'select': return <div key={id} className="panel-field" data-testid="panel-select" data-component={id}>
         <label>{String(component.label)}</label>

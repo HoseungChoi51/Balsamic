@@ -68,9 +68,25 @@ class Charters:
             lineage = {**origin, "title": base["title"], "changes": [row for row in mechanics.diff(base, record["charter"])
                                                                       if row["part"] in {"value", "relation", "quantity"}]}
         return {**record, **mechanics.describe(record["charter"], self.registry), "lineage": lineage,
+                "units_elsewhere": mechanics.units_elsewhere(record["charter"], self._in_use(charter_id)),
                 "formulator": self.formulator(record), "question_rounds": rounds, "question_rounds_max": QUESTION_ROUNDS,
                 "proposals": sorted(proposals, key=lambda row: row["created_at"], reverse=True)[:20],
                 "history": record["history"][-50:]}
+
+    def _in_use(self, charter_id):
+        """The charter revision each other campaign runs on, for comparing how they count the same things."""
+        rows = []
+        for campaign in self.store.list("campaign"):
+            reference = campaign.get("charter")
+            if not reference or reference["id"] == charter_id:
+                continue
+            try:
+                charter = self.revision(reference["id"], reference["revision"])["charter"]
+            except KeyError:
+                continue
+            rows.append({"charter_id": reference["id"], "title": charter.get("title") or reference["id"],
+                         "campaign": campaign.get("name") or campaign["id"], "charter": charter})
+        return rows
 
     def _save(self, record, charter: dict, by: str, rationale: str):
         charter = ProblemCharter.model_validate(charter).model_dump(mode="json")
@@ -209,12 +225,18 @@ class Charters:
         with self.workspace.lock, self.store.transaction():
             record = self._current(charter_id, expected_revision)
             charter = record["charter"]
+            # A quantity by its name, a stated assumption by its subject in the finding (statement<index>).
+            accepted = []
             for name, quantity in charter["quantities"].items():
-                if quantity["origin"] == "assumed" and (names is None or name in names):
+                if quantity["origin"] == "assumed" and not quantity.get("accepted") and (names is None or name in names):
                     quantity["accepted"] = True
+                    accepted.append(name)
             for index, assumption in enumerate(charter["assumptions"]):
-                if names is None or f"statement{index}" in names:
+                if not assumption.get("accepted") and (names is None or f"statement{index}" in names):
                     assumption["accepted"] = True
+                    accepted.append(f"statement{index}")
+            if not accepted:   # never a revision that changes nothing: the page would show the same assumption as if Accept had not run
+                raise ValueError(f"No unaccepted assumption {'is' if names is None else 'named ' + ', '.join(names) + ' is'} in the charter")
             return self._save(record, charter, "researcher", "Accepted assumptions")
 
     def waive(self, charter_id, key, reason, *, expected_revision=None):
