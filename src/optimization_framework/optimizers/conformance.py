@@ -2,12 +2,15 @@
 
 These are software checks, not a judgement of the algorithm: every proposal is a valid candidate of the problem,
 the same seed gives the same proposals, a checkpoint restored into a fresh optimizer gives the same next proposal,
-and checkpoints and inspection are plain JSON. Scores are synthetic; no evaluator runs.
+checkpoints and inspection are plain JSON, and every exported artifact has a kind the asset catalog holds. Scores are
+synthetic; no evaluator runs.
 """
 from __future__ import annotations
 
 import json
+from typing import get_args
 
+from optimization_framework.contracts.assets import AssetKind
 from optimization_framework.contracts.problems import Observation
 from .registry import create
 
@@ -39,6 +42,10 @@ def check(method, instance, *, seeds=(0, 7), steps=6, parameters=None, optimizer
                 _observe(first, instance, a, candidate, step)
                 _observe(second, instance, b, candidate, step)
             json.dumps(first.inspect())
+            for item in first.export_artifacts() if hasattr(first, "export_artifacts") else []:
+                assert isinstance(item, dict) and "data" in item, f"seed {seed}: an export is not a dict with data"
+                assert item.get("kind") in get_args(AssetKind), \
+                    f"seed {seed}: export kind {item.get('kind')!r} is not one the asset catalog holds ({', '.join(get_args(AssetKind))})"
             state = json.loads(json.dumps(first.checkpoint()))
             expected = instance.candidate_schema.canonicalize(first.propose(1)[0].candidate)
             restored = make(seed)
@@ -52,4 +59,4 @@ def check(method, instance, *, seeds=(0, 7), steps=6, parameters=None, optimizer
             first.close()
             second.close()
     return {"method": method, "seeds": list(seeds), "steps": steps,
-            "checks": ["valid candidates", "seeded replay", "checkpoint continuation", "JSON checkpoint and inspection"]}
+            "checks": ["valid candidates", "seeded replay", "checkpoint continuation", "JSON checkpoint and inspection", "catalog export kinds"]}

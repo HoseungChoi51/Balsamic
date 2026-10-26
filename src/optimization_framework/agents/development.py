@@ -522,9 +522,11 @@ following the optimizer_v1 package contract (`create_optimizer(context)`, then
 initialize, propose, observe, checkpoint as bytes, restore, inspect), with no Balsamic
 imports; your own tests showing it does what the specification says; `plugin.py`
 listing the methods for the `optimization_framework.optimizers` entry point in its
-`pyproject.toml`; and a README naming the specification. Copy `tests/test_contract.py`
+`pyproject.toml`; and a README naming the specification. An `export_artifacts` item's
+`kind` is one Balsamic's catalog holds: `solution` for a best design,
+`learner_diagnostics` for a search log. Copy `tests/test_contract.py`
 from the example and name your methods in it: it runs Balsamic's contract checks
-(valid candidates, seeded replay, checkpoint continuation) and needs Balsamic itself
+(valid candidates, seeded replay, checkpoint continuation, export kinds) and needs Balsamic itself
 (`python -m pip install --user -e .`), else it runs on the host.
 
 Commit the library and an `implementation-manifest.json` containing `contract`

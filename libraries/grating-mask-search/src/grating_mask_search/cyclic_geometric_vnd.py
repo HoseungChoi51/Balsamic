@@ -247,11 +247,12 @@ class Optimizer:
         return dict(zip((MEAN, TE, TM, MIN), metrics)) if metrics else None
 
     def export_artifacts(self):
-        events = {'kind': 'h12_request_log', 'media_type': 'application/json',
+        # Kinds are the catalog's: the best mask is a solution, the request log a diagnostic of the search.
+        events = {'kind': 'learner_diagnostics', 'format': 'h12-request-log-v1', 'media_type': 'application/json',
                   'data': list(self.request_log)}
         if self.best is None:
             return [events]
-        return [{'kind': 'h12_best_binary', 'media_type': 'application/json',
+        return [{'kind': 'solution', 'format': 'h12-best-binary-v1', 'media_type': 'application/json',
                  'data': {'shape': [ROWS, COLS], 'candidate': list(self.best),
                           'objectives': self.metric_dict(self.best_metrics)}}, events]
 

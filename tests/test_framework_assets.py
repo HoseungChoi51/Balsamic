@@ -96,6 +96,35 @@ def test_worker_cost_and_artifact_ingestion_survives_repeat_reconciliation(tmp_p
     assert len(catalog.store.list("execution_attempt")) == 1
 
 
+def test_an_export_of_a_kind_the_catalog_does_not_hold_is_reported_and_the_run_s_other_outputs_are_cataloged(tmp_path):
+    import json
+    from optimization_framework.assets.execution import ingest_costs, ingest_outputs
+    from optimization_framework.contracts.base import content_hash
+    from optimization_framework.evaluation.registry import problems
+    from optimization_framework.execution.worker import run
+    from optimization_framework.storage.artifacts import atomic_json
+    catalog = setup_catalog(tmp_path / "workspace")
+    directory = tmp_path / "worker"
+    problem = problems.resolve("bounded_continuous", {"dimensions": 2})
+    trial = {"id": "experiment", "campaign_id": "current", "study_id": "study", "seed": 3,
+        "algorithm": "coordinate", "algorithm_config": {}, "problem": problem.model_dump(mode="json"),
+        "max_steps": 4, "wall_seconds": 30, "schedule_steps": 4, "created_at": "test"}
+    atomic_json(directory / "spec.json", trial)
+    trial["result"] = run(directory)
+    # A library's export named with a kind of its own, as the worker sealed it into the run's manifest.
+    manifest = json.loads((directory / "outputs.json").read_text())
+    held = len(manifest["outputs"])
+    manifest["outputs"].append({"kind": "h12_best_binary", "reference": {"sha256": "0" * 64}, "authority": "optimizer"})
+    manifest.pop("id")
+    manifest["id"] = "outputs_" + content_hash(manifest)
+    atomic_json(directory / "outputs.json", manifest)
+    outputs = ingest_outputs(catalog, trial, directory, ingest_costs(catalog, trial, directory))
+    assert held and "solution_archive" in {catalog.store.get(identity, "asset")["kind"] for identity in outputs}
+    assert trial["uncataloged_outputs"] == [{"index": held, "kind": "h12_best_binary", "manifest_id": manifest["id"],
+                                             "reason": "kind 'h12_best_binary' is not one the asset catalog holds"}]
+    assert ingest_outputs(catalog, trial, directory, ingest_costs(catalog, trial, directory)) == outputs and len(trial["uncataloged_outputs"]) == 1
+
+
 @pytest.mark.meent
 def test_refinement_requires_explicit_asset_use_and_attributes_its_source_work(tmp_path):
     from optimization_framework.contracts.requests import CampaignInput, TaskInput, TrialInput

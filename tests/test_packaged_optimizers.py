@@ -1,5 +1,5 @@
 """A library built to the optimizer_v1 package contract runs in-process as a plug-in method, and the contract checks
-catch an optimizer that breaks seeded replay or checkpoint continuation."""
+catch an optimizer that breaks seeded replay or checkpoint continuation, or exports a kind the asset catalog does not hold."""
 import json
 import random
 import textwrap
@@ -52,8 +52,12 @@ class Flip:
     def inspect(self):
         return {"best_score": self.best_score, "proposals": self.count}
 
+    def export_artifacts(self):
+        return [{"kind": EXPORT_KIND, "media_type": "application/json", "data": {"candidate": self.best}}]
+
 
 RANDOM_RESTORE = False
+EXPORT_KIND = "solution"
 
 
 def create_optimizer(context):
@@ -92,4 +96,8 @@ def test_the_contract_checks_pass_a_sound_method_and_catch_a_broken_restore(plug
     monkeypatch.setattr(flip_library, "RANDOM_RESTORE", True)
     random.seed(1)
     with pytest.raises(AssertionError, match="restored checkpoint changed the next proposal"):
+        conformance.check("flip", instance(), optimizer_plugins=plugins)
+    monkeypatch.setattr(flip_library, "RANDOM_RESTORE", False)
+    monkeypatch.setattr(flip_library, "EXPORT_KIND", "flip_best")
+    with pytest.raises(AssertionError, match="export kind 'flip_best' is not one the asset catalog holds"):
         conformance.check("flip", instance(), optimizer_plugins=plugins)

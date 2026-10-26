@@ -24,8 +24,8 @@ uv run pytest libraries/grating-mask-search    # from the repository root, once 
 
 - `tests/test_<method>.py`: the implementer's own tests of each method against its specification.
 - `tests/test_contract.py`: Balsamic's optimizer contract on the deflector problem, without a solver: valid
-  candidates, seeded replay, checkpoint continuation, and JSON checkpoints and inspection
-  (`optimization_framework.optimizers.conformance`).
+  candidates, seeded replay, checkpoint continuation, JSON checkpoints and inspection, and exports of kinds the
+  asset catalog holds (`optimization_framework.optimizers.conformance`).
 
 ## Install
 
@@ -37,7 +37,8 @@ method ids are available to every campaign on the deflector problem, and a propo
 ## Provenance
 
 Built in the 2d-gratnig campaign's coding workspaces on 2026-10-25/26 and copied here unchanged, apart from the
-tests' import lines:
+tests' import lines and, in 0.1.1, the kinds of `cyclic_geometric_vnd`'s two exports (the catalog's `solution` and
+`learner_diagnostics`, with formats `h12-best-binary-v1` and `h12-request-log-v1`):
 
 | Method | Workspace | Commit |
 |---|---|---|

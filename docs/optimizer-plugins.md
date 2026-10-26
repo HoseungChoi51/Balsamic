@@ -108,7 +108,9 @@ specification. A coding workspace builds it under `libraries/<name>/` (`librarie
 - `plugin.py`, a `PackagedPlugin` subclass (`optimization_framework/optimizers/packaged.py`) that lists the methods and
   runs each module in-process, registered under the entry point in the library's `pyproject.toml`;
 - `tests/test_contract.py`, which runs `optimization_framework.optimizers.conformance.check` on each method: valid
-  candidates, seeded replay, checkpoint continuation, and JSON checkpoints and inspection, without a solver.
+  candidates, seeded replay, checkpoint continuation, JSON checkpoints and inspection, and exports whose `kind` the asset
+  catalog holds (`AssetKind`: a best design is a `solution`, a search log `learner_diagnostics`), without a solver. A run's
+  export of another kind is not cataloged: it stays in the run's files and is listed in the trial's `uncataloged_outputs`.
 
 The library is done when `uv run pytest libraries/<name>` passes. Installing it runs its code in the lab's workers, as
 `mask-optimizers` does, so the researcher decides: the root `pyproject.toml` pins it as an editable path dependency in
