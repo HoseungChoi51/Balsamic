@@ -30,8 +30,8 @@ uv run pytest libraries/grating-mask-search    # from the repository root, once 
 ## Install
 
 The repository pins the library as a path dependency (`libraries` extra in the root `pyproject.toml`). After
-`uv sync --inexact --extra libraries` and a restart of the lab, the three method ids are
-available to every campaign on the deflector problem, and a proposal runs one by binding it
+`uv sync --inexact --extra libraries` the running lab picks it up at its next listing, without a restart: the three
+method ids are available to every campaign on the deflector problem, and a proposal runs one by binding it
 (`implementation.bind_builtin`).
 
 ## Provenance

@@ -148,3 +148,36 @@ def test_frozen_host_uses_the_manifest_plugins(module, monkeypatch):
         monkeypatch.setattr(*target, getattr(*target))
     frozen_host.install_entries({"entry_points": {}, "optimizer_entry_points": {"fixed": f"{module}:Plugin"}})
     assert [method["id"] for method in plugins.installed.methods()] == ["fixed_step"]
+
+
+def test_a_plugin_installed_while_the_service_runs_is_listed_without_a_restart(tmp_path, monkeypatch):
+    import sys
+    site_dir, library = tmp_path / "site-packages", tmp_path / "library"
+    site_dir.mkdir(), library.mkdir()
+    # An editable install as uv makes it: metadata in site-packages, and a .pth naming the library's source directory.
+    monkeypatch.setattr(sys, "path", [str(site_dir), *sys.path])
+    monkeypatch.setattr(plugins.site, "getsitepackages", lambda: [str(site_dir)])
+    monkeypatch.setattr(plugins.site, "getusersitepackages", lambda: str(tmp_path / "no-user-site"))
+    monkeypatch.setattr(plugins, "RECHECK_SECONDS", 0)
+    monkeypatch.delitem(sys.modules, "late_plugin", raising=False)
+
+    def install(version, title):
+        for old in site_dir.glob("late_plugin-*.dist-info"):
+            shutil.rmtree(old)
+        (library / "late_plugin.py").write_text(textwrap.dedent(PLUGIN).replace('"Fixed step"', repr(title)))
+        info = site_dir / f"late_plugin-{version}.dist-info"
+        info.mkdir()
+        (info / "METADATA").write_text(f"Metadata-Version: 2.1\nName: late-plugin\nVersion: {version}\n")
+        (info / "entry_points.txt").write_text(f"[{plugins.GROUP}]\nlate = late_plugin:Plugin\n")
+        (site_dir / "_late_plugin.pth").write_text(str(library) + "\n")
+
+    running = plugins.OptimizerPlugins()
+    assert "fixed_step" not in {method["id"] for method in methods(running)}
+    install("1.0", "Fixed step")
+    assert {method["id"]: method["name"] for method in methods(running)}["fixed_step"] == "Fixed step"
+    assert capability_reason("fixed_step", instance(), running) is None
+    install("1.1", "Fixed step, revised")   # upgraded in place: the module imports afresh
+    assert {method["id"]: method["name"] for method in methods(running)}["fixed_step"] == "Fixed step, revised"
+    shutil.rmtree(next(site_dir.glob("late_plugin-*.dist-info")))
+    assert "fixed_step" not in {method["id"] for method in methods(running)}
+    sys.modules.pop("late_plugin", None)

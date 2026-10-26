@@ -112,8 +112,8 @@ specification. A coding workspace builds it under `libraries/<name>/` (`librarie
 
 The library is done when `uv run pytest libraries/<name>` passes. Installing it runs its code in the lab's workers, as
 `mask-optimizers` does, so the researcher decides: the root `pyproject.toml` pins it as an editable path dependency in
-the `libraries` extra, `uv sync --inexact --extra libraries` installs it, and after a restart its methods are listed for
-the problems they name. A proposal runs a method once it is bound to it (`implementation.bind_builtin`). Frozen runs
+the `libraries` extra, and `uv sync --inexact --extra libraries` installs it. The running lab lists its methods for the
+problems they name at the next listing, without a restart (see "Installed while the lab runs" below). A proposal runs a method once it is bound to it (`implementation.bind_builtin`). Frozen runs
 snapshot the library's source and record its version like any other plug-in. When a second project needs a library, it
 moves to its own repository, as `mask-optimizers` did.
 
@@ -146,6 +146,11 @@ Three consequences to remember:
   importing numerical packages. `tests/test_framework_contracts.py::test_application_starts_with_numerical_domain_imports_blocked`
   enforces this. The first draft of this change loaded plug-ins at import and failed that test, so keep it in mind
   when you add a registry.
+- **Installed while the lab runs.** The installed registry compares what is installed (each entry and its
+  distribution's version) with what it loaded, at most once a second (`plugins.RECHECK_SECONDS`). On a change it
+  reloads: the directories that new `.pth` files name (an editable install) join `sys.path`, as at a restart, the
+  modules of a plug-in upgraded in place import afresh, and `registry.methods()` rebuilds its descriptors. The lab's
+  own packages (`src/`) are never re-imported. Runs already queued keep the plug-ins captured in their manifests.
 - Entry points are recorded **at install time**. After adding or renaming one, run `uv sync`; an editable install
   does not see new entry points until then.
 - The framework imports only the module named in metadata, and only an administrator can change it. Model output

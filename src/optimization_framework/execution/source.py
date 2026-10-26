@@ -25,6 +25,10 @@ def package_directory(name):
     package = source_root() / name
     if not package.is_dir():
         spec = find_spec(name)
+        if spec is None:
+            # A plug-in package installed since this service started: its path joins sys.path as it would at a restart.
+            from optimization_framework.optimizers.plugins import pick_up_installs
+            spec = find_spec(name) if pick_up_installs() else None
         locations = list(spec.submodule_search_locations or []) if spec else []
         if len(locations) != 1:
             raise ValueError(f"Installed source package {name!r} has no unambiguous capture location")

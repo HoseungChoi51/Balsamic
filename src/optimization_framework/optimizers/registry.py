@@ -75,7 +75,7 @@ for method in BUILTINS:
 
 
 BUILTIN_IDS = frozenset(item["id"] for item in BUILTINS)
-_PLUGGED = weakref.WeakKeyDictionary()  # plug-in registry -> its completed descriptors
+_PLUGGED = weakref.WeakKeyDictionary()  # plug-in registry -> (its generation, its completed descriptors)
 
 
 def _plugin_method(method):
@@ -94,14 +94,16 @@ def _describe(name, optimizer_plugins=None):
 
 def methods(optimizer_plugins=None):
     """Bundled methods, then plug-in methods. Plug-ins load on first use, never at import,
-    so services start without importing numerical packages."""
+    so services start without importing numerical packages; installed ones reload when what is installed changes."""
     source = optimizer_plugins or plugins.installed
-    if source not in _PLUGGED:
-        plugged = [_plugin_method(method) for method in source.methods()]
+    listed = source.methods()
+    cached = _PLUGGED.get(source)
+    if cached is None or cached[0] != source.generation:
+        plugged = [_plugin_method(method) for method in listed]
         if clash := BUILTIN_IDS & {method["id"] for method in plugged}:
             raise ValueError("Optimizer plug-ins redefine bundled methods: " + ", ".join(sorted(clash)))
-        _PLUGGED[source] = plugged
-    return [*BUILTINS, *_PLUGGED[source]]
+        _PLUGGED[source] = cached = (source.generation, plugged)
+    return [*BUILTINS, *cached[1]]
 
 
 def capabilities(name, parameters=None, implementation=None):
