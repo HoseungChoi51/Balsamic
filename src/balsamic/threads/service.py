@@ -3,8 +3,9 @@
 Every campaign has a ``main`` thread. A fork starts a new thread at a message; the lead's first turn in it branches the
 session tree at that message's reply. Parking writes a summary card; merging posts one note into the target thread,
 parks the source, and gives the lead a turn on the target's leaf. Lab events (a command that completed in another thread)
-reach every other active thread as one line. Messages carry ``thread_id`` (absent means main) and a ``desk`` when written
-to a page agent.
+reach every other active thread of the researcher's as one line. Messages carry ``thread_id`` (absent means main) and a
+``desk`` when written to a page agent. The agents' side conversation of a request closes when the request's work has ended
+(threads/closing.py).
 """
 import re
 
@@ -67,10 +68,12 @@ def agents_thread_id(campaign_id, root_run_id):
 
 def agents_thread(workspace, campaign_id, root):
     """The side conversation of the agents working on one researcher request (the lead run `root`): created on first
-    use as a branch of the request's thread, linked from it by one line, named by the housekeeper."""
+    use as a branch of the request's thread, linked from it by one line, named by the housekeeper; reopened when closed."""
+    from balsamic.threads.closing import reopen
     identity = agents_thread_id(campaign_id, root["run_id"])
     try:
-        return workspace.store.get(identity, "thread")
+        found = workspace.store.get(identity, "thread")
+        return reopen(workspace, identity) if found["status"] == "closed" else found
     except KeyError:
         pass
     parent_id = root.get("thread_id") or main_thread_id(campaign_id)
@@ -491,6 +494,8 @@ def register(workspace):
     commands.register("thread.pin", pin, model=PinInput, delegable=True)
     commands.register("thread.merge", merge, model=MergeInput)
     commands.listeners.append(lambda record: post_lab_event(workspace, record))
+    from balsamic.threads.closing import register as register_closing
+    register_closing(workspace)
 
 
 # Lab events ------------------------------------------------------------------------------------------------
@@ -500,7 +505,8 @@ LAB_EVENT_OPERATIONS = {"trial.create", "draft.launch", "trial.control", "trial.
 
 
 def post_lab_event(workspace, record):
-    """A command that completed in one thread becomes one line in every other active thread of the campaign."""
+    """A command that completed in one thread becomes one line in every other active thread of the researcher's; an agents'
+    side conversation records its own request's work only."""
     origin = record.get("origin") or {}
     operation = record["request"]["operation"]
     if not origin.get("thread_id") or operation not in LAB_EVENT_OPERATIONS:
@@ -515,7 +521,7 @@ def post_lab_event(workspace, record):
     target = outcome.get("trial_id") or outcome.get("hypothesis_id") or outcome.get("race_id") or outcome.get("decision_id") or ""
     line = f"{actor} ran {operation}{' on ' + target if target else ''} in the branch \"{source['title']}\"."
     for thread in workspace.store.list("thread", campaign_id):
-        if thread["id"] == source["id"] or thread["status"] != "active":
+        if thread["id"] == source["id"] or thread["status"] != "active" or thread.get("kind") == "agents":
             continue
         workspace.store.put("message", {"id": f"message_lab_{content_hash([record['id'], thread['id']])[:16]}", "campaign_id": campaign_id, "role": "assistant",
                                         "origin": "lab_event", "content": line, "thread_id": thread["id"], "command_id": record["id"], "created_at": now()}, "message.created")

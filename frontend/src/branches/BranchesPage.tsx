@@ -24,13 +24,13 @@ export function SummaryCard({ thread, current, route, onPark, onUnpark, onMerge 
       <div className="row">
         <a href={formatHash({ page: route.page === 'branches' ? 'monitor' : route.page, sub: route.sub }, thread.id)} onClick={() => track('thread.switch', { from: 'map' })}><strong>{thread.title}</strong></a>
         {thread.kind === 'agents' ? <Pill tone="agent" title="The agents' own conversation while working on one of your requests">agents</Pill> : null}
-        <Pill tone={thread.status === 'active' ? 'clear' : thread.status === 'parked' ? 'attention' : ''}>{thread.status}</Pill>
+        <Pill tone={thread.status === 'active' ? 'clear' : thread.status === 'parked' ? 'attention' : ''} title={thread.status === 'closed' ? 'The work on its request has ended; it opens again if that work resumes' : undefined}>{thread.status}</Pill>
         {thread.busy ? <Pill tone="agent">lead working</Pill> : null}{thread.queued ? <Pill>{thread.queued} queued</Pill> : null}{thread.unread ? <Pill tone="you">new reply</Pill> : null}
         <span className="grow" /><span className="small faint">{thread.message_count} turns · {when(thread.last_activity_at)}</span>
       </div>
       <div style={{ margin: '4px 0' }}><ActivityStrip strip={(thread.status === 'active' ? thread.strip : summary?.strip) || thread.strip || []} /></div>
       {summary ? <p className="small">{summary.text} <span className="faint">({summary.written_by === 'model' ? `summary by ${summary.model || 'the model'}` : 'activity only, no model call'}{summary.stale ? ', stale' : ''})</span></p>
-        : <p className="small faint">No summary yet: one is written when the branch is parked or merged.</p>}
+        : <p className="small faint">No summary yet: one is written when the branch is parked, merged or closed.</p>}
       {thread.parent_thread_id ? <p className="why">forked from {thread.parent_thread_id} at {thread.fork_message_id}</p> : null}
       <div className="row wrap">
         {thread.status === 'active' && thread.name !== 'main' ? <button className="btn small" onClick={() => onPark(thread)}>Park</button> : null}
@@ -63,13 +63,16 @@ export default function BranchesPage({ campaignId, route }: PageProps) {
     try { await send({ operation, campaignId, expectedRevision: version, payload, origin: { thread_id: route.thread } }); track(kind, {}); await queryClient.invalidateQueries({ queryKey: ['threads', campaignId] }); }
     catch (e) { setError(String((e as Error).message || e)); }
   };
-  const lanes = (parent: string | null, depth = 0): React.ReactNode[] => rows.filter(t => (t.parent_thread_id || null) === parent).flatMap(t => [
+  // Closed agents' conversations (their requests' work has ended) are listed apart, newest first, folded.
+  const closed = rows.filter(t => t.status === 'closed').sort((a, b) => String(b.last_activity_at || '').localeCompare(String(a.last_activity_at || '')));
+  const card = (t: Thread) => <SummaryCard thread={t} current={route.thread === t.id} route={route} onPark={th => run('thread.park', { thread_id: th.id }, 'thread.park')} onUnpark={th => run('thread.unpark', { thread_id: th.id }, 'thread.unpark')} onMerge={th => { setMerging(th); setInto(rows.find(r => r.id === th.parent_thread_id)?.id || rows[0].id); }} />;
+  const lanes = (parent: string | null, depth = 0): React.ReactNode[] => rows.filter(t => (t.parent_thread_id || null) === parent && t.status !== 'closed').flatMap(t => [
     <div key={t.id} style={{ marginLeft: depth * 22, borderLeft: depth ? '2px solid var(--line-2)' : 'none', paddingLeft: depth ? 10 : 0 }} className="lane">
-      <SummaryCard thread={t} current={route.thread === t.id} route={route} onPark={th => run('thread.park', { thread_id: th.id }, 'thread.park')} onUnpark={th => run('thread.unpark', { thread_id: th.id }, 'thread.unpark')} onMerge={th => { setMerging(th); setInto(rows.find(r => r.id === th.parent_thread_id)?.id || rows[0].id); }} />
+      {card(t)}
     </div>, ...lanes(t.id, depth + 1)]);
   return (
     <div className="col">
-      <div className="stage-head"><h1>Branches</h1><span className="muted small">{rows.filter(t => t.status === 'active').length} active · {rows.filter(t => t.status === 'parked').length} parked · {rows.filter(t => t.status === 'merged').length} merged</span></div>
+      <div className="stage-head"><h1>Branches</h1><span className="muted small">{rows.filter(t => t.status === 'active').length} active · {rows.filter(t => t.status === 'parked').length} parked · {rows.filter(t => t.status === 'merged').length} merged · {closed.length} closed</span></div>
       {error ? <div className="pill bad">{error}</div> : null}
       {merging ? <div className="card" data-testid="merge-dialog"><h3>Merge “{merging.title}” into</h3>
         <select value={into} onChange={e => setInto(e.target.value)}>{rows.filter(t => t.id !== merging.id && t.status !== 'merged').map(t => <option key={t.id} value={t.id}>{t.title}</option>)}</select>
@@ -79,6 +82,8 @@ export default function BranchesPage({ campaignId, route }: PageProps) {
           {merging.merge_draft?.text && merging.merge_draft.text !== note ? <button className="btn small" onClick={() => setNote(merging.merge_draft!.text!)} data-testid="use-draft">Use the draft</button> : null}
           <button className="btn primary small" disabled={!note.trim()} onClick={async () => { await run('thread.merge', { thread_id: merging.id, into_thread_id: into, note }, 'thread.merge'); setMerging(null); setNote(''); }}>Merge</button><button className="btn small" onClick={() => setMerging(null)}>Cancel</button></div></div> : null}
       {rows.length ? lanes(null) : <Empty>No thread yet.</Empty>}
+      {closed.length ? <details data-testid="closed-threads"><summary className="small">{closed.length} closed agents' conversation{closed.length === 1 ? '' : 's'}: the work on their requests has ended</summary>
+        <div className="col">{closed.map(t => <div key={t.id} className="lane">{card(t)}</div>)}</div></details> : null}
     </div>
   );
 }

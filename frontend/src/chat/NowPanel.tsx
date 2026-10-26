@@ -60,7 +60,7 @@ export function NowPanel({ campaignId, threadId, route }: { campaignId: string; 
   const waits = Object.fromEntries((compute?.waiting || []).map(row => [row.trial_id, row.reason]));
   const pools = compute?.pools;
   const profiles = (data?.profiles || []).filter(profile => profile.status === 'running') as { id: string; levels: { device?: string; workers: number }[]; plan?: unknown[] }[];
-  const side = (threads.data?.threads || []).filter(thread => thread.kind === 'agents' && thread.id !== threadId)
+  const side = (threads.data?.threads || []).filter(thread => thread.kind === 'agents' && thread.status === 'active' && thread.id !== threadId)
     .sort((a, b) => String(b.last_activity_at || '').localeCompare(String(a.last_activity_at || '')))[0];
   const why = (trial: Trial) => {
     if (trial.status !== 'queued') return null;

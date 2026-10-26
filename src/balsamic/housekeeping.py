@@ -130,12 +130,17 @@ def _save(workspace, kind, record, fields, event):
 
 
 def thread_context(workspace, thread):
-    """The forked message, the lead's reply to it and the two turns before: what the branch is about."""
+    """The forked message, the lead's reply to it and the two turns before: what the branch is about. An agents' side
+    conversation started without a researcher's message is about its own first messages."""
     rows = []
     try:
         forked = workspace.store.get(thread["fork_message_id"], "message")
     except KeyError:
-        return rows
+        if thread.get("kind") != "agents":
+            return rows
+        own = sorted((m for m in workspace.store.list("message", thread["campaign_id"]) if m.get("thread_id") == thread["id"]
+                      and m.get("origin") != "lab_event"), key=lambda m: m.get("created_at") or "")
+        return [f"{(m.get('agent_role') or 'agent').replace('_', ' ').capitalize()}: {(m.get('content') or '').strip()[:800]}" for m in own[:2]]
     parent = workspace.store.list("message", thread["campaign_id"])
     parent = sorted((m for m in parent if m.get("thread_id") == thread.get("parent_thread_id") and m.get("origin") != "lab_event"),
                     key=lambda m: m.get("created_at") or "")

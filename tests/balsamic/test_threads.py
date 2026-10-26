@@ -243,6 +243,42 @@ def test_agents_talk_in_a_side_thread_linked_from_the_request(client, workspace,
     assert client.get(f"/api/v1/threads/{MAIN}/messages").json()["messages"][-1]["content"] == "The review is done; see the side conversation."
 
 
+def test_a_notice_continues_its_request_and_the_side_conversation_closes_when_the_work_ends(client, workspace, campaign, team):
+    from datetime import datetime, timedelta, timezone
+    from balsamic.threads import closing
+    from optimization_framework.contracts.base import content_hash
+    cid = campaign["id"]
+    run_id = say(client, campaign, "Let agents review the proposals.")
+    run = submitted(workspace, run_id)
+    first = tool_call(workspace, team, run, "delegate", {"role": "proposal_reviewer", "objective": "Review the five proposals.", "request_key": "r-1"}, call_id="c1")
+    finish_run(workspace, run_id, "Reviewers are on it.", entry_ids={"parent": "e0", "last": "e1"}, disposition="waiting")
+    finish_run(workspace, first["run_id"], "Verdicts recorded.", entry_ids={"parent": "x0", "last": "x1"}, disposition="complete")
+    # The lead's notice that its assistant finished continues the researcher's request: what it starts joins the same side conversation.
+    notice = submitted(workspace, "pi_child_result_" + content_hash(first["run_id"])[:28])
+    assert notice["origin"]["root"]["run_id"] == run_id and notice["origin"]["thread_id"] == MAIN
+    second = tool_call(workspace, team, notice, "delegate", {"role": "proposal_reviewer", "objective": "Review the revisions.", "request_key": "r-2"}, call_id="c2")
+    assert workspace.store.get(second["agent_id"], "agent_session")["assignment_origin"]["run_id"] == run_id
+    finish_run(workspace, second["run_id"], "Revisions reviewed.", entry_ids={"parent": "y0", "last": "y1"}, disposition="complete")
+    [side] = [t for t in client.get(f"/api/v1/campaigns/{cid}/threads").json()["threads"] if t.get("kind") == "agents"]
+    # Lab events go to the researcher's threads only: the side conversation records its own request's work.
+    command(client, "hypothesis.create", cid, {"title": "From main", "mechanism": "m", "rationale": "r"}, campaign["version"], origin={"thread_id": MAIN})
+    assert [m["content"] for m in client.get(f"/api/v1/threads/{side['id']}/messages").json()["messages"]] == ["Verdicts recorded.", "Revisions reviewed."]
+
+    later = datetime.now(timezone.utc) + timedelta(seconds=closing.QUIET_SECONDS + 1)
+    assert closing.check(workspace, cid, later)["closed"] == []   # the lead's turns on the request are still to run
+    finish_run(workspace, notice["id"], "Both reviews are in.", entry_ids={"parent": "e1", "last": "e2"}, disposition="complete")
+    finish_run(workspace, "pi_child_result_" + content_hash(second["run_id"])[:28], "Nothing more to add.", entry_ids={"parent": "e2", "last": "e3"}, disposition="complete")
+    assert closing.check(workspace, cid)["closed"] == []   # quiet for less than QUIET_SECONDS
+    assert closing.check(workspace, cid, later)["closed"] == [side["id"]]
+    closed = workspace.store.get(side["id"], "thread")
+    assert closed["status"] == "closed" and closed["summary"]["text"].startswith("2 messages between the agents.") and closed["summary"]["reason"] == "closed"
+
+    # Work on the request resumes (a later notice continues it): the conversation opens again.
+    workspace.pi.enqueue(team, "pi_events_resumed", "An event for the request.", root=notice["origin"]["root"])
+    assert closing.check(workspace, cid, later)["reopened"] == [side["id"]]
+    assert workspace.store.get(side["id"], "thread")["status"] == "active" and workspace.store.get(side["id"], "thread")["summary"]["stale"]
+
+
 def test_a_desk_request_is_answered_on_the_desk_and_read_there(client, workspace, campaign, team):
     from support import submitted, tool_call
     # The lead asks the moderator first (a side conversation), then the researcher writes on the desk.

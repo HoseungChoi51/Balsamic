@@ -9,8 +9,11 @@ from optimization_framework.storage.sqlite import now
 TURNS = 12
 
 
-def activity_text(messages):
+def activity_text(messages, *, agents=False):
     turns = [m for m in messages if m.get("origin") != "lab_event"]
+    if agents:
+        last = (turns[-1].get("content") or "").strip().split("\n")[0][:160] if turns else ""
+        return f"{len(turns)} message{'s' if len(turns) != 1 else ''} between the agents." + (f" Last: {last}" if last else "")
     you = sum(1 for m in turns if m.get("role") == "user")
     lead = len(turns) - you
     last = next((m for m in reversed(turns) if m.get("role") == "assistant"), None)
@@ -21,7 +24,7 @@ def activity_text(messages):
 def summarize(workspace, thread, messages, *, reason, model=True):
     from balsamic.threads.service import activity_strip
     strip = activity_strip(workspace, thread, messages)
-    card = {"text": activity_text(messages), "strip": strip[-40:], "as_of_message_id": messages[-1]["id"] if messages else None,
+    card = {"text": activity_text(messages, agents=thread.get("kind") == "agents"), "strip": strip[-40:], "as_of_message_id": messages[-1]["id"] if messages else None,
             "written_by": "activity_only", "stale": False, "edited": False, "reason": reason, "written_at": now()}
     if not model or not messages:
         return card

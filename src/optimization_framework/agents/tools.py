@@ -737,10 +737,10 @@ class PiTools:
         return max(int(run.get("guidance_revision") or 0), int(inspected or 0))
 
     def assignment_origin(self, agent, run):
-        """The researcher's request an agent's work descends from: the lead's run and thread, inherited by assistants of assistants."""
+        """The researcher's request an agent's work descends from: the lead's run and thread (for a notice turn, the request it
+        continues), inherited by assistants of assistants."""
         if agent["role"] == LEAD:
-            origin = (run or {}).get("origin") or {}
-            return {"thread_id": origin.get("thread_id"), "message_id": origin.get("message_id"), "run_id": run["id"]} if run and origin.get("thread_id") else None
+            return self.controller.request_root(run) if run else None
         return agent.get("assignment_origin") or None
 
     def ask_page_agent(self, agent, target, message, evidence_ids, identity, run=None):

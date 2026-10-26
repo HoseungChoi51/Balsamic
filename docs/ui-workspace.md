@@ -150,7 +150,14 @@ messages, the lead's requests to page agents and the lead's answers to agents' q
 thread (`thread_agents_<run>_<campaign>`, `kind: agents`, parent = the request's thread, named by the housekeeper). The
 first message there posts one `agents_link` line in the researcher's thread; the chat shows it with a link, and lists
 agents threads in their own group of the switcher. Messages carry `agent_role`. A page agent's desk (requests made on
-its page) stays on the page.
+its page) stays on the page. A lead turn that nobody asked for (a notice: an assistant finished, a coding workspace
+reported, a turn was interrupted) continues a request rather than starting one: `pi.enqueue(root=...)` records the
+request it reports on in `origin.root` (the finished assistant's request, else the lead's latest), and
+`pi.request_root(run)` reads it. An agents thread is the record of one request's work, so it opens and closes with that
+work (`threads/closing.py`, on the manager tick). It closes once no lead turn on the request and no turn of an agent
+working for it is queued or running, no question of theirs is pending, and nothing was said in it for five minutes. It
+then gets an activity card and leaves the switcher; the Branches page folds the closed ones apart. It reopens when work on
+its request resumes. Lab-event lines go to the researcher's threads only. Forked branches are the researcher's to park.
 
 **Charter form.** `note/CharterPanel.tsx` reads `GET /api/v1/problem-charters/{id}` (the record plus `describe`: `findings`,
 `values`, `errors`, `rendered`, `blocking`) and settles each blocking finding in place: `assumption.unaccepted` → Accept

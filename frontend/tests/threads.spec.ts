@@ -99,3 +99,17 @@ test('the chat suggests the next request by stage until the lead has spoken: pro
   await expect.poll(() => recorded.commands.length).toBe(1);
   expect(recorded.commands[0]).toMatchObject({ operation: 'research.generate', payload: { count: 3, operation: 'diversify' } });
 });
+
+test('closed agents\' conversations leave the switcher and are folded apart on the branch map', async ({ page }) => {
+  const closedSide = { ...f.agentsThread, id: 'thread_agents_closed0001_' + f.CAMPAIGN_ID, title: 'Screening of H12', status: 'closed',
+    summary: { text: '3 messages between the agents. Last: Screens done.', strip: [], as_of_message_id: 'x', written_by: 'activity_only', stale: false, edited: false, reason: 'closed' } };
+  await mockWorkspace(page, { [`/api/v1/campaigns/${f.CAMPAIGN_ID}/threads`]: { ...f.threads, threads: [f.thread, f.agentsThread, closedSide] } });
+  await page.goto(`/#t/${THREAD_ID}/branches`);
+  await expect(page.getByTestId('agents-group').locator('option')).toHaveText(['Review of the proposals']);
+  await expect(page.getByText('2 active · 0 parked · 0 merged · 1 closed')).toBeVisible();
+  const folded = page.getByTestId('closed-threads');
+  await expect(folded).toContainText("1 closed agents' conversation: the work on their requests has ended");
+  await expect(folded.getByTestId('thread-card')).toBeHidden();
+  await folded.locator('summary').click();
+  await expect(folded.getByTestId('thread-card')).toContainText('3 messages between the agents');
+});

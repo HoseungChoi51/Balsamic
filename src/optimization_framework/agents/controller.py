@@ -256,7 +256,7 @@ class PiController:
             "created_at": now(), "agent_id": lead["id"], "from_agent_id": agent["id"]}, "message.created")
         run = self.enqueue(lead, "lead_question_" + content_hash(identity)[:28], NOTICE +
             f"The {name} ({agent['id']}) asks you, for the work it is doing on its page:\n{question}\n"
-            "Answer it in your reply, which goes back to it; do not start other work for it. End with yield_work.")
+            "Answer it in your reply, which goes back to it; do not start other work for it. End with yield_work.", root=agent.get("assignment_origin"))
         run["asked_by"] = agent["id"]; self.store.put("agent_run", run)
         return {"run_id": run["id"], "next": "The lead's answer comes back to you as a notice. Call yield_work(waiting) unless you can go on without it."}
 
@@ -394,7 +394,15 @@ class PiController:
                                     "reason": str(exc)})
         return {"updated": updated, "blocked": blocked}
 
-    def enqueue(self, agent, identity, text, *, mode="follow_up", origin=None, leaf_entry_id=None, branch_from_entry_id=None, thread_revision=None, autopilot=False):
+    def request_root(self, run):
+        """The researcher's request a lead turn works on: the turn itself when it was asked for (by the researcher, or autopilot),
+        else the request its notice continues."""
+        origin = (run or {}).get("origin") or {}
+        if origin.get("root"):
+            return origin["root"]
+        return {"thread_id": origin["thread_id"], "message_id": origin.get("message_id"), "run_id": run["id"]} if origin.get("thread_id") else None
+
+    def enqueue(self, agent, identity, text, *, mode="follow_up", origin=None, root=None, leaf_entry_id=None, branch_from_entry_id=None, thread_revision=None, autopilot=False):
         try:
             saved = self.store.get(identity, "agent_run")
             if saved["agent_id"] != agent["id"] or saved["input"] != text or saved["mode"] != mode:
@@ -403,16 +411,17 @@ class PiController:
         except KeyError:
             pass
         if origin is None and agent["role"] == LEAD:
-            # A notice (a finished assistant, a resumed team) goes to the thread whose request started the work.
-            for earlier in reversed(self.store.list_agent_runs(agent["id"])):
-                if (earlier.get("origin") or {}).get("thread_id"):
-                    origin = {"thread_id": earlier["origin"]["thread_id"], "actor": "lab"}
-                    try:
-                        thread = self.store.get(origin["thread_id"], "thread")
-                        leaf_entry_id, thread_revision = thread.get("agent_leaf"), thread.get("guidance_revision")
-                    except KeyError:
-                        pass
-                    break
+            # A notice (a finished assistant, a resumed team) continues the request whose work it reports on (root), else the
+            # latest request, in that request's thread: it opens no request, and no side conversation, of its own.
+            root = root if root and root.get("thread_id") else next(
+                (found for found in map(self.request_root, reversed(self.store.list_agent_runs(agent["id"]))) if found), None)
+            if root:
+                origin = {"thread_id": root["thread_id"], "actor": "lab", "root": root}
+                try:
+                    thread = self.store.get(origin["thread_id"], "thread")
+                    leaf_entry_id, thread_revision = thread.get("agent_leaf"), thread.get("guidance_revision")
+                except KeyError:
+                    pass
         run = {"id": identity, "campaign_id": agent["campaign_id"], "agent_id": agent["id"], "input": text,
             "mode": mode, "status": "queued", "created_at": now(), "origin": origin, "autopilot": autopilot,
             "leaf_entry_id": leaf_entry_id, "branch_from_entry_id": branch_from_entry_id, "thread_revision": thread_revision,
@@ -851,17 +860,19 @@ class PiController:
                                 self.enqueue(parent, "pi_child_result_" + content_hash(rid)[:28], NOTICE +
                                     f"The {agent['role'].replace('_', ' ')} ({agent_id}) finished the request you sent it, with status {run['status']}. "
                                     f"Read agent run {rid} and what it saved, and use them for the researcher's request; a completed response is "
-                                    "not proof of scientific completion.")
+                                    "not proof of scientific completion.", root=agent.get("assignment_origin"))
                     elif agent["parent_agent_id"] and delivered:
                         parent = self.store.get(agent["parent_agent_id"], "agent_session")
                         self.enqueue(parent, "pi_child_result_" + content_hash(rid)[:28], NOTICE +
                             f"Subagent {agent_id} ({agent['role']}) finished with status {run['status']}. "
                             f"Read agent run {rid} and its artifacts, and use them for the researcher's request that the assignment belongs to, "
                             "or revise the assignment; a completed response is not proof of scientific completion."
-                            + (" Its structured result is on the run (evidence_read, pointer /output)." if run.get("output") is not None else ""))
+                            + (" Its structured result is on the run (evidence_read, pointer /output)." if run.get("output") is not None else ""),
+                            root=agent.get("assignment_origin"))
                     if run["status"] == "interrupted" and not agent.get("grant_id"):
                         self.enqueue(agent, "pi_recover_" + content_hash(rid)[:28], NOTICE +
-                            f"Assignment {rid} was interrupted by a harness restart. Read saved receipts and continue from persisted history. Do not repeat committed operations.")
+                            f"Assignment {rid} was interrupted by a harness restart. Read saved receipts and continue from persisted history. Do not repeat committed operations.",
+                            root=self.request_root(run))
                     if run.get("asked_by") and run["status"] in TERMINAL:
                         # The lead answered a page agent's question: the answer goes back to it.
                         asker = self.store.get(run["asked_by"], "agent_session")
@@ -886,7 +897,8 @@ class PiController:
                                     "Your last turn ended without yield_work. If the researcher's request is fulfilled, or you only answered a question, "
                                     "call yield_work(complete) with a one-line summary; the researcher has your answer already, so the report must not repeat it. If jobs or assistants you started for the request are still running, "
                                     "or you asked the researcher something, call yield_work(waiting). If a part of the request itself is still undone, do that "
-                                    "part first. Start nothing the request did not ask for, and write no further message unless there is something new to report.")
+                                    "part first. Start nothing the request did not ask for, and write no further message unless there is something new to report.",
+                                    root=self.request_root(run))
                             else:
                                 self.store.put("agent_question", {"id": "pi_stalled_" + rid, "campaign_id": agent["campaign_id"],
                                     "agent_id": agent_id, "status": "pending", "created_at": now(),

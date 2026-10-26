@@ -53,6 +53,8 @@ export function ThreadChat({ campaignId, threadId, route, onDetach }: { campaign
   const lead = threads.data?.lead;
   const busy = stream.live.status === 'running' || !!thread?.busy;
   const others = (threads.data?.threads || []).filter(t => t.status !== 'merged');
+  // An agents' conversation closes when the work on its request has ended; the Branches page keeps the closed ones.
+  const sides = (threads.data?.threads || []).filter(t => t.kind === 'agents' && (t.status !== 'closed' || t.id === threadId));
   const base = () => { if (!campaign) throw new Error('The campaign is still loading'); return { campaignId, expectedRevision: campaign.version, origin: { thread_id: threadId } }; };
   const refresh = () => Promise.all([queryClient.invalidateQueries({ queryKey: ['messages', threadId] }), queryClient.invalidateQueries({ queryKey: ['threads', campaignId] })]);
 
@@ -118,10 +120,10 @@ export function ThreadChat({ campaignId, threadId, route, onDetach }: { campaign
       <div className="thread-head">
         <select aria-label="Thread" value={threadId} data-testid="thread-switch" onChange={e => { track('thread.switch', {}); navigate(formatHash({ page: route.page, sub: route.sub, id: route.id }, e.target.value)); }}>
           {(threads.data?.threads || []).filter(t => t.kind !== 'agents').map(t => <option key={t.id} value={t.id}>{t.title}{t.status === 'parked' ? ' (parked)' : t.status === 'merged' ? ' (merged)' : ''}{t.unread ? ' •' : ''}</option>)}
-          {(threads.data?.threads || []).some(t => t.kind === 'agents') ? <optgroup label="Agents' conversations" data-testid="agents-group">
-            {(threads.data?.threads || []).filter(t => t.kind === 'agents').map(t => <option key={t.id} value={t.id}>{t.title}{t.unread ? ' •' : ''}</option>)}</optgroup> : null}
+          {sides.length ? <optgroup label="Agents' conversations" data-testid="agents-group">
+            {sides.map(t => <option key={t.id} value={t.id}>{t.title}{t.status === 'closed' ? ' (closed)' : t.unread ? ' •' : ''}</option>)}</optgroup> : null}
         </select>
-        {thread?.kind === 'agents' ? <Pill tone="agent" title="What the agents said to each other while working on one of your requests">agents</Pill> : thread?.name && thread.name !== 'main' ? <Pill>{thread.status === 'parked' ? 'parked branch' : 'branch'}</Pill> : null}
+        {thread?.kind === 'agents' ? <Pill tone="agent" title="What the agents said to each other while working on one of your requests">{thread.status === 'closed' ? 'agents · closed' : 'agents'}</Pill> : thread?.name && thread.name !== 'main' ? <Pill>{thread.status === 'parked' ? 'parked branch' : 'branch'}</Pill> : null}
         <span className="grow" />
         <ContextChip threadId={threadId} onOpen={() => setDrawer(d => !d)} />
         {onDetach ? <button className="btn quiet small" onClick={onDetach} title="Open this chat in its own window; the page fills this one" data-testid="toggle-detach">Detach</button> : null}
