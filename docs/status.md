@@ -21,7 +21,7 @@ chat ([ui-workspace.md](ui-workspace.md), [problem-setup.md](problem-setup.md)).
 | Compute is the researcher's: a notice threshold and a go-ahead threshold per campaign | Tested | [ADR 0007](adr/0007-compute-is-the-researchers.md) |
 | The campaign's state in every turn, the guidance revision pinned on the server, Pi extensions curated per role, the pages' operations routed in code, procedures read on demand, specialists with briefs and output schemas | Tested, checked live by the evals | Parts M–R |
 | Lead-agent evals that can be run again: 36 of 36 runs pass at `f851e9c` | Live evals | Parts L, S |
-| Changing code through an implementation workspace | Dev mode only | Part C; roadmap Phase 4 |
+| The coding box: a coding agent works in a workspace from a written ticket, behind an egress allowlist, limits and a deadline; what it delivers is validated outside the box before it installs; commissions run as headless boxes, the one route that builds code; the researcher can deliver from their own coding agent | Tested; on with `development_enabled` | [H1–H8](releases/phase-4.md) |
 | Scores re-checked at higher RCWA orders as a step of every campaign | Not in place | Part F; roadmap V3 |
 
 "Live" means the running services use the code; "tested" means the automated tests pass. Parts from the roadmap on say
@@ -29,15 +29,15 @@ their own state in [readiness/](readiness/README.md).
 
 ## Phases of the roadmap
 
-| Phase | Goal | State on 2026-10-27, at `phase-3` | Release |
+| Phase | Goal | State on 2026-10-27, at `phase-4` | Release |
 |---|---|---|---|
 | 1 | Charter to results | Complete | [`phase-1`](releases/phase-1.md) |
 | 2 | Measure first | Complete; the eval baseline is the `baseline` tag (`61538de`) | [`phase-2`](releases/phase-2.md) |
 | 3 | A mandate for every request | Complete | [`phase-3`](releases/phase-3.md) |
-| 4 | The coding box | Paused by Hoseung: H1 merged; H5 and H6 open | — |
-| 5 | Evidence gates | Paused: V3 merged; V1 and V4 open | — |
-| 6 | Problem packs | Paused: N1, N2, N4, N8 and N15 merged; N3, N5, N6, N7 and N11 open | — |
-| 7 | Fewer standing agents, claims that resolve | Paused: K1 and K3 merged; T2 and K2 open | — |
+| 4 | The coding box | Complete | [`phase-4`](releases/phase-4.md) |
+| 5 | Evidence gates | V3 merged; V1 and V4 open; V2 and V5 not started | — |
+| 6 | Problem packs | N1, N2, N4, N8 and N15 merged; N3, N5, N6, N7 and N11 open; N9, N10 and N12 wait for decision 20 | — |
+| 7 | Fewer standing agents, claims that resolve | K1 and K3 merged; T2 and K2 open | — |
 
 This table changes when a phase completes: the part that completes it marks it done with its release tag
 ([releases](releases/README.md)). Between, a phase's parts say how far they got in their own files in
@@ -56,8 +56,6 @@ the roadmap part that closes each:
 | INV-15 | A stop for performance follows an adequate assessment or the researcher's waiver | none | V2 |
 | INV-18 | Locked confirmation results stay unreadable to the agents until release | none | V4 |
 | INV-19 | Numbers in findings and reports appear in the evidence they cite | none | K2 |
-| INV-23 | A library's tests and conformance passed before it enters the lab | none | H6 |
-| INV-25 | The coding box has a deadline | none | H5 |
 
 The register is the source: when a part closes a row there, this list is out of date until the phase completes, and the
 register wins.
