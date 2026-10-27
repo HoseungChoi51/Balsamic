@@ -35,15 +35,64 @@ function settingsFor(directory?: string) {
 }
 
 /**
- * Custom providers (a LiteLLM proxy, a local server) come from a Pi models.json: the profile's own when it has one,
- * else the researcher's own Pi configuration (~/.pi/agent/models.json), so the harness offers the same models as `pi` does.
- * GRATING_PI_MODELS_FILE names another file. Keys stay in auth.json and the environment, never in the profile.
+ * Custom providers (a LiteLLM proxy, a local server) come from a Pi models.json: the profile's own when it has one; else the
+ * profile's catalogue (models.template.json, below) merged under the researcher's own Pi configuration; else that own
+ * configuration (~/.pi/agent/models.json), so the harness offers the same models as `pi` does. GRATING_PI_MODELS_FILE names
+ * another file. Keys stay in auth.json and the environment, never in the profile.
  */
 export function modelsFile(): string | undefined {
   if (process.env.GRATING_PI_MODELS_FILE) return path.resolve(process.env.GRATING_PI_MODELS_FILE);
   if (profile && fs.existsSync(path.join(profile, 'models.json'))) return path.join(profile, 'models.json');
+  const catalogue = profile ? profileModels(profile) : null;
+  if (catalogue) return catalogue.file;
   const own = path.join(process.env.HOME || '', '.pi', 'agent', 'models.json');
   return profile && fs.existsSync(own) ? own : profile ? path.join(profile, 'models.json') : undefined;
+}
+
+const VARIABLE = /\$\{(\w+)\}|\$(\w+)/g;
+
+function variables(value: unknown): string[] {
+  return typeof value === 'string' ? [...value.matchAll(VARIABLE)].map(match => match[1] || match[2]) : [];
+}
+
+function readModels(file: string): any {
+  return fs.existsSync(file) ? JSON.parse(fs.readFileSync(file, 'utf8')) : {providers: {}};
+}
+
+/**
+ * A profile's tracked catalogue, models.template.json (the dev profile's Centinels provider), made into the models.json Pi
+ * reads. Pi resolves environment variables in a provider's apiKey and headers but not in its baseUrl, so a baseUrl naming
+ * ${NAME} is resolved here, from the environment (the start scripts load ~/.config/balsamic/secrets.env into it). The result
+ * is merged under the researcher's own ~/.pi/agent/models.json (a provider they define themselves wins) and written to the
+ * profile's ignored tmp/. A provider whose baseUrl variable is unset is left out. `unset` names, per provider of the
+ * catalogue, the variables of its baseUrl and apiKey that are not set, so a turn that cannot start can say what to set.
+ */
+export function profileModels(directory: string, home: string = process.env.HOME || '', env: Record<string, string | undefined> = process.env) {
+  const template = path.join(directory, 'models.template.json');
+  if (!fs.existsSync(template)) return null;
+  const own = readModels(path.join(home, '.pi', 'agent', 'models.json'));
+  const providers: Record<string, any> = {};
+  const unset: Record<string, string[]> = {};
+  for (const [name, config] of Object.entries<any>(readModels(template).providers || {})) {
+    if (own.providers?.[name]) continue;
+    const missing = [...variables(config.baseUrl), ...variables(config.apiKey)].filter(key => !env[key]);
+    if (missing.length) unset[name] = missing;
+    if (variables(config.baseUrl).every(key => env[key])) {
+      providers[name] = {...config, baseUrl: typeof config.baseUrl === 'string' ? config.baseUrl.replace(VARIABLE, (_, a, b) => env[a || b] || '') : config.baseUrl};
+    }
+  }
+  const file = path.join(directory, 'tmp', 'models.json');
+  fs.mkdirSync(path.dirname(file), {recursive: true, mode: 0o700});
+  fs.writeFileSync(file, JSON.stringify({...own, providers: {...providers, ...(own.providers || {})}}, null, 2) + '\n', {mode: 0o600});
+  return {file, unset};
+}
+
+/** Why a model is unavailable, with what to set when it is the profile catalogue's provider and its variables are unset. */
+export function unavailable(provider: string, model: string, directory: string | null = profile, env: Record<string, string | undefined> = process.env) {
+  const missing = directory ? profileModels(directory, process.env.HOME || '', env)?.unset[provider] : undefined;
+  return `Model unavailable: ${provider}/${model}` + (missing?.length
+    ? `. The dev profile defines ${provider} from ${missing.join(' and ')}, which ${missing.length > 1 ? 'are' : 'is'} not set: add `
+      + `${missing.length > 1 ? 'them' : 'it'} to ~/.config/balsamic/secrets.env and restart (agent-harness/profiles/dev/README.md)` : '');
 }
 
 async function modelRuntime(authPath: string) {
@@ -56,7 +105,7 @@ export async function createRuntime(options: any) {
   const runtime = await modelRuntime(options.authPath);
   await runtime.refresh({providers: [provider], allowNetwork: false});
   const model = runtime.getModel(provider, options.model);
-  if (!model) throw new Error(`Model unavailable: ${provider}/${options.model}`);
+  if (!model) throw new Error(unavailable(provider, options.model));
   const sessionDir = path.join(options.directory, 'sessions');
   fs.mkdirSync(sessionDir, {recursive: true, mode: 0o700});
   const manager = options.sessionFile ? SessionManager.open(options.sessionFile)
@@ -123,7 +172,7 @@ export async function applySpec(session: any, spec: any) {
   if (session.model?.provider !== provider || session.model?.id !== spec.model) {
     await session.modelRuntime.refresh({providers: [provider], allowNetwork: false});
     const model = session.modelRuntime.getModel(provider, spec.model);
-    if (!model) throw new Error(`Model unavailable: ${provider}/${spec.model}`);
+    if (!model) throw new Error(unavailable(provider, spec.model));
     await session.setModel(model);
     const auth = await session.modelRuntime.checkAuth(provider).catch(() => undefined);
     session.billing = auth?.type === 'oauth' ? 'subscription' : auth?.type === 'api_key' ? 'api' : 'unknown';
@@ -141,7 +190,7 @@ export async function completeOnce(authPath: string, input: any, observe: (event
   const runtime = await modelRuntime(authPath);
   await runtime.refresh({providers: [provider], allowNetwork: false});
   const model = runtime.getModel(provider, input.model);
-  if (!model) throw new Error(`Model unavailable: ${provider}/${input.model}`);
+  if (!model) throw new Error(unavailable(provider, input.model));
   const auth = await runtime.checkAuth(provider).catch(() => undefined);
   if (!auth) throw new Error(`No sign-in or key is configured for ${provider}`);
   const level = thinkingFor(settingsFor(), model, input.effort);

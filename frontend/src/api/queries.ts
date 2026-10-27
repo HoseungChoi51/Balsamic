@@ -1,7 +1,7 @@
 /** React Query hooks for the scoped reads. Keys start with the page name so the SSE listener can refetch by name. */
 import { useQuery } from '@tanstack/react-query';
 import { api, scoped } from './client';
-import type { CampaignRow, Experiments, Files, Hypotheses, Inbox, Messages, Monitor, Summary, Thread, Threads, WorkspaceInfo } from './types';
+import type { CampaignRow, Experiments, Files, Hypotheses, Inbox, Messages, Monitor, Summary, Thread, ThreadMandate, Threads, WorkspaceInfo } from './types';
 
 const KEEP = { staleTime: 5000, refetchOnWindowFocus: false } as const;
 
@@ -20,6 +20,10 @@ export function useThreads(campaignId: string | null) {
 export function useMessages(threadId: string | null) {
   return useQuery<Messages>({ queryKey: ['messages', threadId], enabled: !!threadId, ...KEEP,
     queryFn: ({ client }) => scoped<Messages>(`/api/v1/threads/${threadId}/messages`, client.getQueryData<Messages>(['messages', threadId])) });
+}
+/** The mandate the thread's current request works under, and the others in force in it (roadmap R7): the bar above the chat. */
+export function useThreadMandate(threadId: string | null) {
+  return useQuery<ThreadMandate>({ queryKey: ['mandate', threadId], enabled: !!threadId, ...KEEP, queryFn: () => api<ThreadMandate>(`/api/v1/threads/${threadId}/mandate`) });
 }
 export function useExperiments(campaignId: string | null) {
   return useQuery<Experiments>({ queryKey: ['experiments', campaignId], enabled: !!campaignId, ...KEEP,

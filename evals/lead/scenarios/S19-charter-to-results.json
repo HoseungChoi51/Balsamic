@@ -1,6 +1,6 @@
 {
   "id": "S19-charter-to-results",
-  "source": "Roadmap G2: Phase 1's flow live, from a confirmed charter to ranked results. Asked once and approved once, the lead files one compute request; Balsamic builds nothing itself but installs the coding workspace's library, adopts its problem, binds the proposals and starts the runs; the lead ranks them by tardiness from the comparison report",
+  "source": "Roadmap G2: Phase 1's flow live, from a confirmed charter to ranked results. Asked once and approved once, the lead proposes one Screen mandate; Balsamic builds nothing itself but installs the coding workspace's library, adopts its problem, binds the proposals and starts the runs; the lead ranks them by tardiness from the comparison report",
   "setup": {"preset": "baking_order", "llm_budget_usd": 1.5, "development": true},
   "steps": [
     {"say": "Implement earliest due date, swap search and exact enumeration, and compare them."},
@@ -11,8 +11,8 @@
     {"wait": "idle", "timeout_s": 600}
   ],
   "checks": [
-    {"commands_with": {"operation": "approval.request", "payload": {"kind": "compute"}, "count": 1}},
-    {"commands_with": {"operation": "approval.request", "payload": {"kind": "compute"}, "matches": "^(?=.*\"coding_workspaces\": [1-9])(?=.*\"runs\": \\[\\{)", "count": 1}},
+    {"commands_with": {"operation": "approval.request", "payload": {"kind": "mandate"}, "count": 1}},
+    {"commands_with": {"operation": "approval.request", "payload": {"kind": "mandate"}, "matches": "^(?=.*\"coding_workspaces\": [1-9])(?=.*\"runs\": \\[\\{)", "count": 1}},
     {"commands_exactly": {"operation": "implementation.bind_builtin", "count": 0}},
     {"no_commands": ["trial.create", "draft.launch"]},
     {"researcher_actions": 2},

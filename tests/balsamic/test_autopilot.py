@@ -33,14 +33,16 @@ def test_autopilot_rounds_run_only_while_enabled_and_within_the_cap(client, work
     assert state["can_start"] and state["remaining_seconds"] == 300 and state["final"] is False
     rounds.tick(workspace)
     run = next(r for r in workspace.store.list("agent_run", "demo") if r.get("autopilot"))
-    assert run["origin"] == {"thread_id": "thread_autopilot_demo", "message_id": "message_" + run["id"], "actor": "autopilot"} and "Autopilot round 1" in run["input"]
+    # The round is a turn of autopilot's request: the root of the standing mandate its switch granted (R4).
+    assert run["origin"] == {"thread_id": "thread_autopilot_demo", "message_id": "message_" + run["id"], "actor": "autopilot",
+                             "root": {**settings["mandate_root"], "run_id": run["id"]}} and "Autopilot round 1" in run["input"]
     assert workspace.store.get("thread_autopilot_demo", "thread")["system"] is True
     assert workspace.pi.configuration("demo")["request_open"] is True
     # No second round while the first is in its turn; a researcher message takes precedence afterwards.
     rounds.tick(workspace)
     assert len([r for r in workspace.store.list("agent_run", "demo") if r.get("autopilot")]) == 1
     assert rounds.round_state(workspace, "demo")["reason"] in {"a request is open: researcher messages come first", "the lead is in a turn"}
-    # Its commands are checked against the cap: a run past the remaining compute is refused with the reason.
+    # Its commands are checked against the cap, by the mandate guard: a run past the remaining compute is refused with the reason.
     run = submitted(workspace, run["id"])
     refused = tool_call(workspace, team, run, "campaign_command", {"operation": "hypothesis.allocate", "request_key": "big", "rationale": "more",
                         "payload": {"hypothesis_id": "nope", "worker_seconds": 301, "rationale": "x"}})

@@ -19,6 +19,9 @@ RUN curl -fLsS --retry 3 -o /tmp/code-server.tar.gz \
 RUN groupadd -g 1000 developer && useradd -u 1000 -g 1000 -m -s /bin/bash developer
 COPY start.sh /opt/workspace/start.sh
 COPY network.sh /opt/workspace/network.sh
+# The bridge to Balsamic for any harness: a CLI and a stdio MCP server (balsamic-workspace mcp).
+COPY --chmod=755 balsamic-workspace.mjs /opt/workspace/balsamic-workspace.mjs
+RUN ln -s /opt/workspace/balsamic-workspace.mjs /usr/local/bin/balsamic-workspace
 ENV HOME=/home/developer PATH=/home/developer/.local/bin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin \
     PYTHONUNBUFFERED=1
 WORKDIR /work

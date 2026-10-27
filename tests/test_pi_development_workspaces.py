@@ -251,6 +251,24 @@ def test_the_container_gets_the_campaigns_provider_only(tmp_path, monkeypatch):
         driver.configure_pi(private, driver.root(private))
 
 
+def test_a_profiles_catalogue_is_read_as_the_harness_resolved_it(tmp_path, monkeypatch):
+    """The dev profile's Centinels catalogue (issue #70): the harness alone has the endpoint's variable and writes tmp/models.json."""
+    from optimization_framework.agents.development_runtime import custom_provider, models_file
+    profile, home = tmp_path / 'profile', tmp_path / 'home'
+    (profile / 'tmp').mkdir(parents=True)
+    (home / '.pi/agent').mkdir(parents=True)
+    monkeypatch.delenv('GRATING_PI_MODELS_FILE', raising=False)
+    monkeypatch.setenv('GRATING_PI_PROFILE', str(profile))
+    monkeypatch.setenv('HOME', str(home))
+    assert models_file() == home / '.pi/agent/models.json'                      # no catalogue: the researcher's own
+    (profile / 'models.template.json').write_text(json.dumps({'providers': {'centinels': {'baseUrl': '${CENTINELS_BASE_URL}'}}}))
+    assert models_file() == home / '.pi/agent/models.json'                      # not resolved yet
+    (profile / 'tmp/models.json').write_text(json.dumps({'providers': {'centinels': {'baseUrl': 'https://8.8.8.8/v1', 'api': 'openai-completions'}}}))
+    assert models_file() == profile / 'tmp/models.json' and custom_provider('centinels')['baseUrl'] == 'https://8.8.8.8/v1'
+    (profile / 'models.json').write_text(json.dumps({'providers': {}}))
+    assert models_file() == profile / 'models.json'                             # a profile's own file still wins
+
+
 def test_a_specification_must_state_what_it_cites(setup):
     workspace, campaign, development, driver = setup
     cid = campaign['id']
@@ -276,7 +294,7 @@ def test_an_agent_opens_a_coding_workspace_only_with_the_researchers_go_ahead(se
     workspace.store.put('hypothesis', {'id': 'hypothesis_other', 'campaign_id': cid, 'title': 'Other method', 'status': 'proposed',
                                        'mechanism': 'Another', 'algorithm': 'custom', 'algorithm_config': {}})
     request = {'hypothesis_id': 'hypothesis_dev', 'objective': 'Implement', 'request_key': 'agent'}
-    with pytest.raises(ValueError, match='approval.request with kind compute'):
+    with pytest.raises(ValueError, match="mandate_propose"):
         development.create(cid, request, actor='lead')
     compute_consent.grant(workspace, {'id': 'decision_go', 'campaign_id': cid},
                           {'plan': 'Implement the method', 'wall_seconds': 3600, 'worker_seconds': 600, 'coding_workspaces': 1})

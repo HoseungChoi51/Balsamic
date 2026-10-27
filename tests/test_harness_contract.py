@@ -22,8 +22,9 @@ SPECIALIST_WORDS = 389
 GROWTH = 1.10
 # The plan's targets: the lead's contract at most 900 words, the shared core at most 350. Raised on 2026-10-26 by the researcher's
 # decisions: one global rule (nothing that computes for more than a minute starts without their go-ahead, +40 for both) and one
-# statement for the lead (availability, soundness and performance are separate questions, +30).
-LEAD_LIMIT, CORE_LIMIT = 970, 390
+# statement for the lead (availability, soundness and performance are separate questions, +30). Lowered by R6 to the new size: the
+# request-scope lines the mandate now enforces gave way to one line on proposing it (-25 for both).
+LEAD_LIMIT, CORE_LIMIT = 941, 365
 
 
 @pytest.fixture

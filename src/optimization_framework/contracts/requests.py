@@ -112,6 +112,8 @@ class CampaignUpdate(Model):
     # to them, longer than the second waits for their go-ahead.
     compute_notice_seconds: float | None = Field(default=None, ge=0, le=86400)
     compute_gate_seconds: float | None = Field(default=None, gt=0, le=86400)
+    # The template the chat's mandate dial starts at (R7, campaigns/mandates.py default_template); unset, it follows autonomy.
+    default_template: Literal["answer", "explore", "screen", "run_campaign"] | None = None
 
 
 class TrialInput(Model):
