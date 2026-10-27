@@ -115,8 +115,13 @@ specification. A coding workspace builds it under `libraries/<name>/` (`librarie
   export of another kind is not cataloged: it stays in the run's files and is listed in the trial's `uncataloged_outputs`.
 
 The library is done when `uv run pytest libraries/<name>` passes. Installing it runs its code in the lab's workers, as
-`mask-optimizers` does, so the researcher decides: the root `pyproject.toml` pins it as an editable path dependency in
-the `libraries` extra, and `uv sync --inexact --extra libraries` installs it. The running lab lists its methods for the
+`mask-optimizers` does, so the researcher decides: Install on the coding workspace's card (Hypotheses → Implementations)
+copies the exact submitted commit's `libraries/<name>/` from the workspace, pins it in the root `pyproject.toml` as an
+editable path dependency in the `libraries` extra, and runs `uv lock` and `uv sync --inexact --extra libraries`. A dry run
+comes first: a change to a package the lab already has waits for the researcher's confirmation, and a failure puts
+`pyproject.toml`, `uv.lock` and `libraries/` back as they were. Each install is a `library_install` record with the methods it
+added (`agents/library_install.py`); the researcher commits the edited `pyproject.toml` and `uv.lock`. A new delivery of the
+same library needs a new version: the running lab loads a library's new code only when its version changes. The running lab lists its methods for the
 problems they name at the next listing, without a restart (see "Installed while the lab runs" below). A proposal runs a method once it is bound to it (`implementation.bind_builtin`). Frozen runs
 snapshot the library's source and record its version like any other plug-in. When a second project needs a library, it
 moves to its own repository, as `mask-optimizers` did.

@@ -147,3 +147,53 @@ test('the Algorithms section says what can run, what waits to be installed and b
   await expect(section).toContainText('1 more bundled methods that can run here');
   await expect(section).toContainText('1 methods that cannot run here, or are procedures');
 });
+
+test('the researcher installs a delivered library from its card, after a confirmation that says what installing does', async ({ page }) => {
+  const submission = { id: 's1', commit: '2a3eb0899a', status: 'submitted', created_at: '2026-10-27T03:22:04Z', report,
+    manifest: { files: ['libraries/baking-order-search/pyproject.toml', 'libraries/baking-order-search/src/bakery/dp.py'] } };
+  const delivered = { ...workspace, status: 'idle', outcome: { state: 'delivered', verdict: 'ready_with_limits', submission_id: 's1', commit: '2a3eb0899a', at: '2026-10-27T03:22:04Z' },
+    submissions: [submission], installs: [] as Record<string, unknown>[] };
+  const posted: Record<string, unknown>[] = [];
+  await mockWorkspace(page);
+  await page.route(`**/api/campaigns/${CAMPAIGN_ID}/implementation-workspaces`, route => route.fulfill({ json: { enabled: true, workspaces: [delivered] } }));
+  await page.route(`**/api/campaigns/${CAMPAIGN_ID}/implementation-workspaces/${WID}/submissions/s1/install`, async route => {
+    const body = route.request().postDataJSON(); posted.push(body);
+    delivered.installs = [{ id: 'library_install_1', submission_id: 's1', requested_at: '2026-10-27T04:00:00Z', package: 'baking-order-search', version: '0.2.0',
+      path: 'libraries/baking-order-search', methods_added: [], missing_methods: [], ...(body.confirm_changes
+        ? { status: 'installed', methods_added: ['bakery_adjacent', 'bakery_dp'], changes: [{ name: 'numpy', from: '2.1.0', to: '2.3.0' }] }
+        : { status: 'needs_confirmation', changes: [{ name: 'numpy', from: '2.1.0', to: '2.3.0' }] }) }];
+    return route.fulfill({ json: delivered.installs[0] });
+  });
+  await page.goto(`/#t/${THREAD_ID}/hypotheses/implementations`);
+  const box = page.getByTestId('install-box');
+  await box.getByTestId('install-open').click();
+  const confirm = box.getByTestId('install-confirm');
+  await expect(confirm).toContainText('Install libraries/baking-order-search from commit 2a3eb08: the coding agent reports it ready, with limits');
+  await expect(confirm).toContainText('The evaluator is not commissioned');
+  await expect(confirm).toContainText("Its code runs in the lab's workers");
+  await confirm.getByTestId('install-go').click();
+  await expect.poll(() => posted.length).toBe(1);
+  expect(posted[0]).toMatchObject({ confirm_changes: false, accept_not_ready: false });
+  await expect(box.getByTestId('install-changes')).toContainText('numpy 2.1.0 → 2.3.0');
+  await box.getByTestId('install-confirm-changes').click();
+  await expect.poll(() => posted.length).toBe(2);
+  expect(posted[1]).toMatchObject({ confirm_changes: true });
+  await expect(box).toContainText('installed');
+  await expect(box).toContainText('methods bakery_adjacent, bakery_dp');
+});
+
+test('a library the coding agent reported not ready installs only once the researcher says so; loose files cannot be installed', async ({ page }) => {
+  const notReady = { ...report, verdict: 'not_ready', limitations: [], next_actions: [{ owner: 'lead', action: 'Fix the seed replay' }] };
+  await mockWorkspace(page, { [`/api/campaigns/${CAMPAIGN_ID}/implementation-workspaces`]: { enabled: true, workspaces: [
+    { ...workspace, status: 'idle', outcome: { state: 'delivered', verdict: 'not_ready', submission_id: 's1', commit: '2a3eb0899a', at: '2026-10-27T03:22:04Z' },
+      submissions: [{ id: 's1', commit: '2a3eb0899a', status: 'submitted', created_at: '2026-10-27T03:22:04Z', report: notReady, manifest: { files: ['libraries/bakery/pyproject.toml'] } }] },
+    { ...workspace, id: 'development_loose', title: 'Loose', status: 'idle', outcome: { state: 'delivered', verdict: 'unreported', submission_id: 's0', commit: '1111111', at: '2026-10-26T00:00:00Z' },
+      submissions: [{ id: 's0', commit: '1111111', status: 'submitted', created_at: '2026-10-26T00:00:00Z', manifest: { files: ['h12_optimizer.py'] } }] }] } });
+  await page.goto(`/#t/${THREAD_ID}/hypotheses/implementations`);
+  const card = page.locator(`[data-workspace="${WID}"]`);
+  await card.getByTestId('install-open').click();
+  await expect(card.getByTestId('install-go')).toBeDisabled();
+  await card.getByTestId('install-not-ready').check();
+  await expect(card.getByTestId('install-go')).toBeEnabled();
+  await expect(page.locator('[data-workspace="development_loose"]').getByTestId('install-unavailable')).toContainText('cannot be installed as a library');
+});

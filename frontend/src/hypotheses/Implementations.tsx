@@ -16,7 +16,9 @@ export interface Report {
   methods: { method_id: string; hypothesis_id?: string | null; state: string; conformance: string; tests?: Tests | null; note?: string }[];
   next_actions: { owner: 'researcher' | 'lead' | 'validator'; action: string }[];
 }
-export interface Submission { id: string; commit: string; status: string; notes?: string; report?: Report | null; created_at: string;
+export interface Install { id: string; submission_id: string; status: string; package: string; version: string; path: string; requested_at: string;
+  finished_at?: string; methods_added: string[]; missing_methods: string[]; changes: { name: string; from: string; to: string | null }[]; error?: string; log_tail?: string }
+export interface Submission { id: string; commit: string; status: string; notes?: string; report?: Report | null; created_at: string; manifest?: { files?: string[] };
   validation_outcome?: { status?: string; error?: string | null; findings?: Record<string, string>[] } }
 export interface Outcome { state: string; verdict?: string; submission_id?: string; commit?: string; at: string; reason?: string }
 export interface Workspace {
@@ -25,7 +27,7 @@ export interface Workspace {
   error?: string; activity?: string; checkpoints?: Checkpoint[]; last_error_at?: string | null; ide_url?: string;
   opened_by?: { actor?: string; role?: string }; questions?: { id: string; question: string }[];
   phase?: string; tests?: Tests; estimate?: { remaining_minutes: number; given_at: string; source: string };
-  outcome?: Outcome | null; finished_at?: string | null; submissions?: Submission[];
+  outcome?: Outcome | null; finished_at?: string | null; submissions?: Submission[]; installs?: Install[];
 }
 interface Entry { at: string; kind: string; title: string; detail: string; tone: string; ref: string | null; items: string[] }
 interface Timeline { entries: Entry[]; next_before: string | null }
@@ -186,10 +188,67 @@ function OutcomeBox({ workspace: w, labels, thread }: { workspace: Workspace; la
           <li key={i}><Pill tone={a.owner === 'researcher' ? 'you' : 'agent'}>{OWNER[a.owner]}</Pill> {a.action}</li>)}</ul></div> : null}
       </> : submission ? <details className="small"><summary>No delivery report (sent before the coding agent's tools asked for one); its notes</summary>
         <Markdown text={submission.notes || '(none)'} thread={thread} className="md small" /></details> : null}
+      {submission && ['delivered', 'validated'].includes(o.state) ? <InstallBox workspace={w} submission={submission} /> : null}
     </div>
   );
 }
 
+const INSTALL: Record<string, [string, string]> = { queued: ['install queued', 'agent'], installing: ['installing', 'agent'], installed: ['installed', 'clear'],
+  failed: ['install failed', 'bad'], needs_confirmation: ['waits for your confirmation', 'attention'] };
+export const libraryOf = (s: Submission) => { const names = new Set((s.manifest?.files || []).map(f => /^libraries\/([^/]+)\//.exec(f)?.[1]).filter(Boolean)); return names.size === 1 ? [...names][0] as string : null; };
+
+/** Installing the delivered library: the researcher's step. It runs the library's code in the lab's workers, edits
+ *  pyproject.toml and uv.lock (which the researcher commits), and waits for a second yes when installed packages would change. */
+function InstallBox({ workspace: w, submission }: { workspace: Workspace; submission: Submission }) {
+  const queryClient = useQueryClient();
+  const [open, setOpen] = useState(false);
+  const [notReady, setNotReady] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const library = libraryOf(submission);
+  const latest = (w.installs || []).filter(i => i.submission_id === submission.id).at(-1);
+  const report = submission.report;
+  if (!library) return <p className="small faint" data-testid="install-unavailable">Delivered as files outside libraries/&lt;name&gt;/, so it cannot be installed as a library.</p>;
+  const post = async (confirmChanges: boolean) => {
+    setError(null);
+    try {
+      await api(`/api/campaigns/${w.campaign_id}/implementation-workspaces/${w.id}/submissions/${submission.id}/install`, { method: 'POST',
+        body: JSON.stringify({ request_key: `install-${Date.now()}`, confirm_changes: confirmChanges, accept_not_ready: notReady }) });
+      setOpen(false);
+      await queryClient.invalidateQueries({ queryKey: ['implementation-workspaces'] });
+      await queryClient.invalidateQueries({ queryKey: ['methods'] });
+    } catch (e) { setError(String((e as Error).message || e)); }
+  };
+  const [label, tone] = latest ? INSTALL[latest.status] || [latest.status, ''] : ['', ''];
+  return (
+    <div className="install" data-testid="install-box">
+      <div className="row wrap">
+        {latest ? <Pill tone={tone} live={latest.status === 'installing'}>{label}</Pill> : null}
+        {latest?.status === 'installed' ? <span className="small">{latest.package} {latest.version} · methods {latest.methods_added.join(', ') || 'none new'}
+          {latest.missing_methods.length ? <span className="pill bad"> not found: {latest.missing_methods.join(', ')}</span> : null}</span> : null}
+        {!open && latest?.status !== 'installing' && latest?.status !== 'queued' ? <button className="btn small primary" onClick={() => setOpen(true)} data-testid="install-open">
+          {latest?.status === 'installed' ? 'Install again…' : 'Install…'}</button> : null}
+      </div>
+      {latest?.status === 'failed' ? <details className="small"><summary className="pill bad" style={{ whiteSpace: 'normal' }}>{latest.error}</summary><pre>{latest.log_tail}</pre></details> : null}
+      {latest?.status === 'needs_confirmation' ? <div className="callout attention small" data-testid="install-changes">
+        <span className="grow">Installing it would change packages the lab already has: {latest.changes.map(c => `${c.name} ${c.from} → ${c.to || 'removed'}`).join(', ')}.</span>
+        <button className="btn small" onClick={() => void post(true)} data-testid="install-confirm-changes">Install, changing these</button></div> : null}
+      {open ? <div className="callout small" data-testid="install-confirm">
+        <div className="grow">
+          <p>Install <code>libraries/{library}</code> from commit <code>{submission.commit.slice(0, 7)}</code>
+            {report ? <>: the coding agent reports it <strong>{(VERDICT[report.verdict] || [report.verdict])[0]}</strong></> : ', delivered without a report'}.</p>
+          {report?.limitations.length ? <ul>{report.limitations.map((l, i) => <li key={i}>{l}</li>)}</ul> : null}
+          <p className="faint">Its code runs in the lab's workers. Balsamic copies that exact commit into <code>libraries/{library}</code>, pins it in
+            pyproject.toml and uv.lock (commit them), and runs <code>uv sync</code>; a change to packages the lab already has waits for your yes.</p>
+          {report?.verdict === 'not_ready' ? <label className="row"><input type="checkbox" checked={notReady} onChange={e => setNotReady(e.target.checked)} data-testid="install-not-ready" />
+            Install it although the coding agent reported it not ready</label> : null}
+        </div>
+        <div className="row"><button className="btn small primary" disabled={report?.verdict === 'not_ready' && !notReady} onClick={() => void post(false)} data-testid="install-go">Install</button>
+          <button className="btn small quiet" onClick={() => setOpen(false)}>Cancel</button></div>
+      </div> : null}
+      {error ? <div className="pill bad" role="alert">{error}</div> : null}
+    </div>
+  );
+}
 
 /** A word to the coding agent: the researcher's instruction takes precedence over the lead's. */
 function MessageAgent({ workspace: w }: { workspace: Workspace }) {
@@ -259,7 +318,8 @@ function Algorithms({ campaignId, thread, labels }: { campaignId: string; thread
               <td><Pill tone={tone} title={reason || undefined}>{label}</Pill>{m.state !== 'runnable' && reason ? <div className="faint">{reason}</div> : null}</td>
               <td><span className="row wrap" style={{ gap: 4 }}>{m.proposals.map(p => <span key={p.hypothesis_id} title={p.bound ? (p.default ? 'runs it as the default method' : 'runs it') : 'built for it, not bound yet'}>
                 {chip(p.hypothesis_id)}{p.bound ? null : <span className="faint"> (not bound)</span>}</span>)}</span></td>
-              <td>{m.next_action ? <><Pill tone={m.next_action.owner === 'researcher' ? 'you' : 'agent'}>{OWNER[m.next_action.owner] || m.next_action.owner}</Pill> {m.next_action.text}</> : null}</td>
+              <td>{m.next_action ? <><Pill tone={m.next_action.owner === 'researcher' ? 'you' : 'agent'}>{OWNER[m.next_action.owner] || m.next_action.owner}</Pill> {m.state === 'not_installed' && m.workspace_id
+                ? <a href={formatHash({ page: 'hypotheses', sub: 'implementations', id: m.workspace_id }, thread)}>{m.next_action.text}</a> : m.next_action.text}</> : null}</td>
             </tr>; })}</tbody></table> : <Empty>No method that matters here yet.</Empty>}
         {spare.length ? <details className="small"><summary>{spare.length} more bundled methods that can run here</summary>
           <p className="mono">{spare.map(m => m.id).join(', ')}</p></details> : null}

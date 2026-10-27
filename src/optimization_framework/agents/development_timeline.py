@@ -158,7 +158,8 @@ def entries(store, record):
             state = install.get("status")
             found.append(entry(install.get("finished_at") or install["requested_at"], "install",
                                {"installed": f"Installed {install.get('package')} {install.get('version') or ''}".strip(),
-                                "failed": "Install failed"}.get(state, "Install requested"),
+                                "failed": "Install failed", "needs_confirmation": "Install waits for your confirmation: it would change installed packages"
+                                }.get(state, "Install requested"),
                                install.get("error") or ", ".join(install.get("methods_added") or []), "ok" if state == "installed" else "bad" if state == "failed" else "",
                                install["id"]))
     for issue in store.list("manager_issue", cid):

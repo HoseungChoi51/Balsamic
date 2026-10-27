@@ -224,7 +224,10 @@ class DevelopmentWorkspaces:
                 for e in self.store.list("development_envelope", record["campaign_id"]) if e["workspace_id"] == record["id"]],
             "submissions": sorted(({k: v for k, v in s.items() if k != "package"} for s in self.store.list("development_submission", record["campaign_id"])
                                    if s["workspace_id"] == record["id"]), key=lambda s: s["created_at"]),
-            "questions": [q for q in self.store.list("development_question", record["campaign_id"]) if q["workspace_id"] == record["id"] and q["status"] == "pending"]}
+            "questions": [q for q in self.store.list("development_question", record["campaign_id"]) if q["workspace_id"] == record["id"] and q["status"] == "pending"],
+            # The researcher's installs of what it delivered, newest last.
+            "installs": sorted((i for i in self.store.list("library_install", record["campaign_id"]) if i.get("workspace_id") == record["id"]),
+                               key=lambda i: i["requested_at"])}
 
     def _result(self, record):
         result = outcome(record, self.store.list("development_submission", record["campaign_id"]))
@@ -737,7 +740,9 @@ Submit the full commit hash with `campaign_submit` and your delivery report: you
 and nothing is limited; ready_with_limits with the limitations; not_ready with what must
 happen next), each method's id, proposal, state, tests and conformance, the totals of your
 test run with its command, and the next actions with who does each (installing the library
-is the researcher's). The researcher reads this report as the outcome of your work.
+is the researcher's). The researcher reads this report as the outcome of your work. Raise the
+library's version with each new delivery: the running lab loads its new code only when the
+version changes.
 
 At each `campaign_checkpoint`, give your phase, what is done and what remains, the latest
 test counts and your estimate of the minutes left until you submit: the researcher follows
