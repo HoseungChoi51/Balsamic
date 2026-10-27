@@ -52,17 +52,37 @@ def protected_tests(store, record):
 
 
 # The host side ---------------------------------------------------------------------------------------------------------------
-def _sites():
-    """What the sandboxed Python needs to read: its installation, the lab's environment, and the directories its .pth files
-    name (Balsamic's own source, the lab's installed libraries). Nothing else of the host."""
-    found = {Path(sys.prefix), Path(sys.base_prefix), Path(sys.executable).resolve().parents[1]}
+SYSTEM = ("/usr", "/lib", "/lib64", "/lib32", "/bin", "/sbin", "/etc/ld.so.cache", "/etc/localtime")
+
+
+def source():
+    """The directory that holds this Balsamic's packages (optimization_framework): the sandbox runs the host's own code, so what
+    validates a library is the Balsamic that installs it."""
+    return Path(__file__).resolve().parents[2]
+
+
+def links(executable=None):
+    """Each symlink between the interpreter and its binary, in order (a venv's python -> /usr/bin/python3 ->
+    /etc/alternatives/python3 -> /usr/bin/python3.13), as agents/files.py interpreter() follows them: the sandbox starts the
+    interpreter only if every link of the chain is there."""
+    found, hop = [], executable or sys.executable
+    while os.path.islink(hop):
+        hop = os.path.normpath(os.path.join(os.path.dirname(hop), os.readlink(hop)))   # an absolute target replaces the directory
+        found.append(hop)
+    return found
+
+
+def roots():
+    """What the sandboxed Python reads besides the system: the lab's environment and its installation, the directories the
+    environment's .pth files name (the lab's editable installs) and Balsamic's own source. Nothing else of the host: not its
+    data, its home or /etc (a link of the interpreter's chain there is bound by itself, command())."""
+    found = {Path(sys.prefix), Path(sys.base_prefix), Path(sys.executable).resolve().parents[1], source()}
     for site in {sysconfig.get_path("purelib"), sysconfig.get_path("platlib")}:
         found.add(Path(site))
         for pth in Path(site).glob("*.pth"):
             for line in pth.read_text(errors="replace").splitlines():
                 if line.strip() and not line.startswith(("#", "import")) and Path(line.strip()).is_dir():
                     found.add(Path(line.strip()))
-    found.add(Path(__file__).resolve().parents[2])   # the directory that holds optimization_framework
     return sorted({path.resolve() for path in found if path.exists()})
 
 
@@ -74,14 +94,19 @@ def command(library, protected, out, request):
         raise ValidationUnavailable("Validating a library outside the box needs Linux and bubblewrap (bwrap): install bubblewrap")
     args = [bwrap, "--unshare-all", "--die-with-parent", "--new-session", "--cap-drop", "ALL", "--clearenv",
             "--proc", "/proc", "--dev", "/dev", "--tmpfs", "/tmp"]
-    for path in ("/usr", "/lib", "/lib64", "/lib32", "/bin", "/sbin", "/etc/ld.so.cache", "/etc/localtime"):
+    for path in SYSTEM:
         args += ["--ro-bind-try", path, path]
-    for path in _sites():
+    bound = [*map(Path, SYSTEM), *roots()]
+    for path in roots():
         args += ["--ro-bind", str(path), str(path)]
+    # A link of the interpreter's chain outside what is bound (a Debian /etc/alternatives entry) is bound as itself: its target.
+    for hop in links():
+        if not any(Path(hop).is_relative_to(root) for root in bound):
+            args += ["--ro-bind", hop, hop]
     args += ["--ro-bind", str(library), LIBRARY, "--ro-bind", str(protected), TESTS, "--bind", str(out), OUT, "--chdir", LIBRARY]
     environment = {"HOME": "/tmp", "PATH": "/usr/bin:/bin", "LANG": "C.UTF-8", "PYTHONDONTWRITEBYTECODE": "1", "PYTHONNOUSERSITE": "1",
-                   "PYTHONHASHSEED": "0", "GRATING_LLM_DISABLED": "true", "MPLBACKEND": "Agg", "OPENBLAS_NUM_THREADS": "1",
-                   "OMP_NUM_THREADS": "1", "MKL_NUM_THREADS": "1"}
+                   "PYTHONHASHSEED": "0", "PYTHONPATH": str(source()), "GRATING_LLM_DISABLED": "true", "MPLBACKEND": "Agg",
+                   "OPENBLAS_NUM_THREADS": "1", "OMP_NUM_THREADS": "1", "MKL_NUM_THREADS": "1"}
     for key, value in environment.items():
         args += ["--setenv", key, value]
     return [*args, "--", sys.executable, "-B", "-s", "-m", __name__, json.dumps(request)]
@@ -218,29 +243,44 @@ def _pytest(directory):
     return {"passed": count("passed"), "failed": count("failed"), "skipped": count("skipped"), "results": results}
 
 
+def _fits(method, instance):
+    """Whether a plain-function method's conformance can run on an instance: the problems and candidates it names, as
+    capability_reason() checks them. Explicit constraints are left to check_function(), which refuses an infeasible candidate,
+    as the library's generated contract test runs it on its own problem."""
+    return (not method.get("problem_ids") or instance.definition_id in method["problem_ids"]) and \
+        instance.candidate_schema.representation in method["representations"]
+
+
+def _instances(request, registry):
+    """The problem instances conformance runs on, in order: the campaign's tasks on a problem the library provides, the
+    library's own problems at their defaults, then the campaign's other tasks."""
+    provided = set(request["problem_entry_points"])
+    asked = [*(row for row in request["instances"] if row["problem_id"] in provided),
+             *({"problem_id": problem_id, "configuration": {}, "fidelity": None} for problem_id in sorted(provided)),
+             *(row for row in request["instances"] if row["problem_id"] not in provided)]
+    found = []
+    for row in asked:
+        try:
+            found.append(registry.resolve(row["problem_id"], row["configuration"], row.get("fidelity") or None))
+        except Exception:   # a task the lab cannot resolve here, or a problem of the library's with no defaults
+            continue
+    return found
+
+
 def _conformance(request):
-    """Each method's conformance on the first instance it can run: the library's own problems, then the campaign's tasks."""
+    """Each method's conformance (check_function for a plain-function method, check for any other) on the first instance it
+    runs on (_instances()); not_run when there is none."""
     from importlib import import_module
     from optimization_framework.evaluation.registry import problems
     from optimization_framework.optimizers.conformance import check, check_function
     from optimization_framework.optimizers.functions import FunctionPlugin
     from optimization_framework.optimizers.plugins import OptimizerPlugins
     from optimization_framework.optimizers.registry import capability_reason
-    registry, rows, instances = problems, [], []
+    registry, rows = problems, []
     for problem_id, value in sorted(request["problem_entry_points"].items()):
         module, factory = value.split(":", 1)
-        adapter = getattr(import_module(module), factory)()
-        registry = registry.extended(adapter)
-    for row in request["instances"]:
-        try:
-            instances.append(registry.resolve(row["problem_id"], row["configuration"], row["fidelity"] or None))
-        except Exception:   # a task this library does not provide or the lab cannot resolve here
-            continue
-    for problem_id in sorted(request["problem_entry_points"]):
-        try:
-            instances.append(registry.resolve(problem_id, {}, None))
-        except Exception:
-            continue
+        registry = registry.extended(getattr(import_module(module), factory)())
+    instances = _instances(request, registry)
     if not request["entry_points"]:
         return rows
     plugins = OptimizerPlugins(entries=request["entry_points"])
@@ -255,6 +295,8 @@ def _conformance(request):
         function = isinstance(plugin, FunctionPlugin)
         row = {"method_id": method_id, "check": "check_function" if function else "check"}
         instance = next((item for item in instances if capability_reason(method_id, item, plugins) is None), None)
+        if instance is None and function:
+            instance = next((item for item in instances if _fits(method, item)), None)
         if instance is None:
             rows.append({**row, "conformance": "not_run", "reason": "no problem of the library or task of the campaign that it runs on"})
             continue
