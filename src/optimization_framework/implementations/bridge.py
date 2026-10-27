@@ -114,13 +114,25 @@ class ImplementationBridge:
                 return {"state": "incompatible", "runnable": False, "reason": str(exc), "version_id": version_id}
             return {"state": "ready", "runnable": True, "reason": "Implementation validation passed. Experimental performance is assessed separately.",
                     "version_id": version_id, "validation_report_id": report["id"]}
-        if hypothesis.get("algorithm") in {a["id"] for a in algorithms()}:
+        installed = {a["id"] for a in algorithms()}
+        if hypothesis.get("algorithm") in installed:
+            from optimization_framework.optimizers import plugins
             from optimization_framework.optimizers.registry import capability_reason
+            name = hypothesis["algorithm"]
             candidates = [task] if task else self.workspace.current_tasks(hypothesis["campaign_id"])
-            reasons = [capability_reason(hypothesis["algorithm"], candidate["problem"]) for candidate in candidates if candidate.get("problem")]
+            reasons = [capability_reason(name, candidate["problem"]) for candidate in candidates if candidate.get("problem")]
             if reasons and all(reasons):
                 return {"state": "incompatible", "runnable": False, "reason": "; ".join(sorted(set(reasons)))}
+            if hypothesis.get("algorithm_chosen") is False:
+                return {"state": "ready", "runnable": True, "default_method": True, "validation_level": "bundled_regression",
+                        "reason": f"It would run the default method ({name}): no method of its own was chosen for it."}
+            if (origin := plugins.installed.origin(name)) and not origin["own"]:
+                return {"state": "ready", "runnable": True, "validation_level": "installed_library", "package": origin,
+                        "reason": f"Installed library {origin['distribution'] or origin['entry_point']} {origin['version'] or ''} provides {name}.".replace("  ", " ")}
             return {"state": "ready", "runnable": True, "reason": "Built-in implementation is available.", "validation_level": "bundled_regression"}
+        from optimization_framework.campaigns.method_catalog import development_readiness
+        if building := development_readiness(self.store, hypothesis, installed):
+            return building
         if job:
             return {"state": job["status"], "runnable": False, "reason": job.get("error") or "Implementation work is in progress.", "job_id": job.get("job_id"), "grant_id": job["id"]}
         if hypothesis.get("source"):

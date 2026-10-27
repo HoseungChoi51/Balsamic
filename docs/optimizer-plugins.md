@@ -323,8 +323,8 @@ my-toolbox = { git = "https://github.com/kc-ml2/my-toolbox", tag = "v1.0.0" }
 
 ## Known limits and an exercise
 
-- `registry.methods()` caches each plug-in registry's methods for the life of the process. **Restart the
-  services** after installing or removing a plug-in.
+- `registry.methods()` caches each plug-in registry's methods until the plug-ins reload: installing, upgrading or
+  removing a plug-in is noticed at the next listing (within `RECHECK_SECONDS`), so the services need no restart.
 - The six FLRL methods are still bundled. They are defined in `optimizers/fourier_specs.py` and created through a
   hard-coded `from dqn_meent.flrl_optimizers import FourierOptimizer`, the same smell this document removes.
   **Exercise:** move their descriptors and parameter properties next to `FourierOptimizer`, add a

@@ -155,7 +155,7 @@ def capability_reason(name, instance, optimizer_plugins=None):
     if plugin and (reason := plugin.unavailable_reason()):
         return reason
     if method.get("problem_ids") and instance.definition_id not in method["problem_ids"]:
-        return f"{method['name']} requires its declared 2D MEENT problem"
+        return f"{method['name']} runs only on {', '.join(method['problem_ids'])}; this task's problem is {instance.definition_id}"
     if instance.candidate_schema.representation not in method["representations"]:
         return f"{method['name']} requires {' or '.join(method['representations'])} candidates"
     if instance.candidate_schema.constraints and not method["constraints"]:

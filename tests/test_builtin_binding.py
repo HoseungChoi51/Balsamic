@@ -58,6 +58,6 @@ def test_binding_rejects_an_incompatible_installed_method(setup):
     payload = {'hypothesis_id': h['id'], 'task_id': task['id'], 'algorithm': 'flrl_ppo', 'parameters': {},
         'expected_algorithm': h['algorithm'], 'expected_configuration_hash': content_hash(h.get('algorithm_config', {})),
         'reason': 'This incompatible binding must fail.'}
-    with pytest.raises(ValueError, match='2D MEENT'):
+    with pytest.raises(ValueError, match='runs only on meent_2d_dual_polarization_deflector'):
         workspace.commands.execute(command(workspace, campaign, 'implementation.bind_builtin', payload, 'invalid_binding'))
     assert not workspace.store.list('builtin_binding')

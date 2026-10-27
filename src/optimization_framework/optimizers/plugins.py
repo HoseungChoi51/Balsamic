@@ -65,6 +65,7 @@ class OptimizerPlugins:
     def __init__(self, entries=None):
         self._entries = None if entries is None else dict(entries)
         self._owners = None
+        self._origins = {}    # method id -> the plug-in entry and the installed package that provides it
         self._loaded = None   # what the owners were loaded from: entries, and for installed plug-ins their versions
         self._checked = 0.0
         self._lock = threading.RLock()
@@ -85,6 +86,19 @@ class OptimizerPlugins:
         """Each installed entry with its distribution's version, so that an upgrade in place is noticed too."""
         return {entry.name: (entry.value, entry.dist.version if entry.dist else None) for entry in metadata.entry_points(group=GROUP)}
 
+    def _distributions(self):
+        """Each installed entry's package name and version, and whether it is the lab's own (none for entries a frozen host's
+        manifest names)."""
+        if self._entries is not None:
+            return {}
+        own = Path(__file__).resolve().parents[2]
+        found = {}
+        for entry in metadata.entry_points(group=GROUP):
+            spec = find_spec(entry.value.split(":")[0].split(".")[0])
+            found[entry.name] = {"distribution": entry.dist.name if entry.dist else None, "version": entry.dist.version if entry.dist else None,
+                                 "own": bool(spec and spec.origin and Path(spec.origin).resolve().is_relative_to(own))}
+        return found
+
     def _load(self):
         with self._lock:
             return self._reload()
@@ -99,7 +113,7 @@ class OptimizerPlugins:
             installed = self._installed() if self._entries is None else None
             if self._entries is None:
                 pick_up_installs()
-            owners = {}
+            owners, origins, distributions = {}, {}, self._distributions()
             for name, value in self.entries().items():
                 module, factory = value.split(":", 1)
                 plugin = getattr(import_module(module), factory)()
@@ -111,7 +125,8 @@ class OptimizerPlugins:
                     if method["id"] in owners:
                         raise ValueError(f"Optimizer method {method['id']!r} is registered twice")
                     owners[method["id"]] = (plugin, dict(method))
-            self._owners, self._loaded, self._checked = owners, installed, time.monotonic()
+                    origins[method["id"]] = {"entry_point": name, **distributions.get(name, {"distribution": None, "version": None, "own": False})}
+            self._owners, self._origins, self._loaded, self._checked = owners, origins, installed, time.monotonic()
             self.generation += 1
         return self._owners
 
@@ -131,6 +146,12 @@ class OptimizerPlugins:
 
     def methods(self):
         return [dict(method) for _, method in self._load().values()]
+
+    def origin(self, method_id):
+        """{entry_point, distribution, version, own} of the package that provides a plug-in method (own: the lab's own package,
+        so a bundled method), or None for any other ID."""
+        self._load()
+        return dict(self._origins[method_id]) if method_id in self._origins else None
 
     def get(self, method_id):
         """(plugin, descriptor) for a plug-in method, or None for any other ID."""

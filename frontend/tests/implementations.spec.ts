@@ -112,3 +112,38 @@ test('each implementation result is news in the inbox, linked to its workspace',
   await expect(item).toContainText('new');
   await expect(item.getByRole('link')).toHaveAttribute('href', new RegExp(`hypotheses/implementations/${WID}`));
 });
+
+test('the Algorithms section says what can run, what waits to be installed and by whom, and why the rest cannot', async ({ page }) => {
+  const methods = {
+    tasks: [{ id: 'task_1', name: 'Bakery schedule', blocker: 'This problem requires a validated evaluator.' }],
+    building: [{ workspace_id: 'development_dp', title: 'Subset DP', phase: 'testing', hypothesis_ids: ['hypothesis_b'] }],
+    methods: [
+      { id: 'random', name: 'Uniform random', source: 'bundled', state: 'runnable', tasks: [{ task_id: 'task_1', runnable: true, reason: null }],
+        proposals: [{ hypothesis_id: 'hypothesis_a', bound: true, default: false }], next_action: null },
+      { id: 'hillclimb', name: 'Hill climb', source: 'bundled', state: 'runnable', tasks: [{ task_id: 'task_1', runnable: true, reason: null }], proposals: [], next_action: null },
+      { id: 'bakery_adjacent', name: 'bakery_adjacent', source: 'submitted', state: 'not_installed', reported: true, verdict: 'ready_with_limits',
+        package: { name: 'baking-order-search', version: null, commit: '2a3eb0899a', install_id: null }, workspace_id: WID, submission_id: 's1',
+        tasks: [{ task_id: 'task_1', runnable: false, reason: 'Not installed' }], proposals: [{ hypothesis_id: 'hypothesis_b', bound: false, default: false }],
+        next_action: { owner: 'researcher', text: 'Install the library on this page' } },
+      { id: 'conditional_mirror_search', name: 'Mirror search', source: 'library', state: 'incompatible', package: { name: 'grating-mask-search', version: '0.1.2' },
+        tasks: [{ task_id: 'task_1', runnable: false, reason: "Mirror search runs only on meent_2d; this task's problem is bakery" }], proposals: [{ hypothesis_id: 'hypothesis_a', bound: true, default: false }], next_action: null },
+    ],
+    other: [{ id: 'replay', name: 'Replay', source: 'bundled', reason: 'A procedure for reference evaluation, not a search method' }], other_count: 1,
+  };
+  await mockWorkspace(page, { [`/api/v1/campaigns/${CAMPAIGN_ID}/methods`]: methods });
+  await page.goto(`/#t/${THREAD_ID}/hypotheses/implementations`);
+  const section = page.getByTestId('algorithms');
+  await expect(section.getByTestId('task-blocker')).toContainText('Bakery schedule cannot run any method yet: This problem requires a validated evaluator.');
+  await expect(section.getByTestId('algorithm-building')).toContainText('Subset DP');
+  const rows = section.getByTestId('algorithm');
+  await expect(rows).toHaveCount(3);   // the unused bundled method is folded away
+  await expect(section.locator('[data-method="random"]')).toContainText('can run');
+  const adjacent = section.locator('[data-method="bakery_adjacent"]');
+  await expect(adjacent).toContainText('delivered, not installed');
+  await expect(adjacent).toContainText('library baking-order-search, delivered in commit 2a3eb08');
+  await expect(adjacent).toContainText('(not bound)');
+  await expect(adjacent).toContainText('You Install the library on this page');
+  await expect(section.locator('[data-method="conditional_mirror_search"]')).toContainText("runs only on meent_2d; this task's problem is bakery");
+  await expect(section).toContainText('1 more bundled methods that can run here');
+  await expect(section).toContainText('1 methods that cannot run here, or are procedures');
+});

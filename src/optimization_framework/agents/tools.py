@@ -840,6 +840,13 @@ class PiTools:
                                    for name, schema in method["parameter_schema"]["properties"].items()}})
         return result
 
+    def methods_unavailable(self, campaign_id):
+        from optimization_framework.campaigns.method_catalog import unavailable
+        try:
+            return unavailable(self.workspace, campaign_id)
+        except (KeyError, ValueError) as exc:
+            return {"error": str(exc)[:300]}
+
     def inspect(self, agent):
         campaign_id = agent["campaign_id"]
         campaign = self.store.get(campaign_id, "campaign")
@@ -870,6 +877,8 @@ class PiTools:
             "researcher_guidance": self.workspace.memory.state(campaign_id)["guidance"],
             "tasks": [{**t, "evaluator_readiness": self.workspace.evaluators.readiness(t)} for t in tasks[:20]],
             "methods": self.methods(tasks[:20]),
+            # What matters here but cannot run (delivered and not installed, incompatible, being built), with why and what next.
+            "methods_unavailable": self.methods_unavailable(campaign_id),
             "reference_evidence": [{**{key: item.get(key) for key in ("asset_id", "title", "applicability", "exposure_status")},
                 "content": str(item["payload"].get("content", ""))[:600], "classification": item["payload"].get("classification"),
                 "read": "evidence_read with record_id=asset_id returns the whole finding"} for item in self.references(campaign_id)],

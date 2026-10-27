@@ -232,6 +232,6 @@ def test_worker_accounts_physical_calls_and_only_archives_binary_scores(tmp_path
 def test_methods_reject_other_problems_and_conflicting_fidelity():
     from optimization_framework.evaluation.registry import problems
     other = problems.resolve('bounded_continuous', {'dimensions': 2})
-    assert '2D MEENT' in capability_reason('flrl_ppo', other)
+    assert "runs only on meent_2d_dual_polarization_deflector; this task's problem is bounded_continuous" in capability_reason('flrl_ppo', other)
     with pytest.raises(ValueError, match='fidelity'):
         create('flrl_ppo', problem(), {**parameters('flrl_ppo'), 'rcwa_order_x': 10}, seed=42, schedule_steps=20)

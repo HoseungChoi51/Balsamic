@@ -81,7 +81,7 @@ export async function mockWorkspace(page: Page, overrides: Partial<Record<string
       [`/api/v1/campaigns/${f.CAMPAIGN_ID}/guidance`]: { state: { guidance: '## Research direction\n\nFind a better deflector', revision: 0, guidance_revision: 2 }, notes: [] }, '/api/v1/problems': { problems: [{ id: 'bounded_continuous', title: 'Bounded continuous' }] },
       [`/api/v1/campaigns/${f.CAMPAIGN_ID}/away-digest`]: f.digest,
       '/api/v1/experiments/trial_1': { trial: f.experiments.short[0], chain_trial_ids: ['trial_1'], validations: [], race: null }, '/api/v1/experiments/trial_1/metrics': [{ evaluations: 10, best_objective: .2 }, { evaluations: 80, best_objective: .41 }],
-      '/api/v1/experiments/trial_1/logs': { text: 'worker started' }, '/api/v1/studies/study_1/race': { race: null }, [`/api/v1/implementations`]: { versions: [] }, [`/api/campaigns/${f.CAMPAIGN_ID}/implementation-workspaces`]: { enabled: true, workspaces: [] },
+      '/api/v1/experiments/trial_1/logs': { text: 'worker started' }, '/api/v1/studies/study_1/race': { race: null }, [`/api/v1/implementations`]: { versions: [] }, [`/api/campaigns/${f.CAMPAIGN_ID}/implementation-workspaces`]: { enabled: true, workspaces: [] }, [`/api/v1/campaigns/${f.CAMPAIGN_ID}/methods`]: { tasks: [], methods: [], building: [], other: [], other_count: 0 },
       ...overrides,
     };
     if (path === '/api/v1/library') return json(route, url.searchParams.get('q') ? { ...f.library, entries: f.library.entries.filter(e => e.entry.strategy.title.toLowerCase().includes(url.searchParams.get('q')!.toLowerCase())) } : f.library);

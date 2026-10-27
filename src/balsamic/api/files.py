@@ -89,6 +89,13 @@ def install(app, workspace):
                                      for version in catalog["versions"]}
         return catalog
 
+    @app.get("/api/v1/campaigns/{campaign_id}/methods")
+    def campaign_methods(campaign_id: str):
+        """Which methods the campaign can run, and why the others cannot (campaigns/method_catalog.py)."""
+        from optimization_framework.campaigns.method_catalog import catalog
+        workspace.store.get(campaign_id, "campaign")
+        return catalog(workspace, campaign_id)
+
     @app.get("/api/v1/implementation-references/{reference_id}")
     def implementation_reference(reference_id: str):
         return workspace.store.get(reference_id, "implementation_reference")

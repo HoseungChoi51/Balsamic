@@ -57,6 +57,8 @@ export function Implementations({ campaignId, route, labels }: { campaignId: str
   const versions = catalog.data?.versions || [];
   return (
     <>
+      <Algorithms campaignId={campaignId} thread={route.thread} labels={labels} />
+      {workspaces.length ? <h2 style={{ margin: '12px 0 6px' }}>Coding workspaces</h2> : null}
       {workspaces.length ? workspaces.map(w => <WorkspaceCard key={w.id} workspace={w} thread={route.thread} labels={labels} focused={route.id === w.id} />)
         : <Empty>{view.data.enabled ? 'No coding workspace yet. The implementation lead opens one, with your go-ahead, when a proposal needs code.'
           : view.data.disabled || 'Coding workspaces are off.'}</Empty>}
@@ -188,6 +190,7 @@ function OutcomeBox({ workspace: w, labels, thread }: { workspace: Workspace; la
   );
 }
 
+
 /** A word to the coding agent: the researcher's instruction takes precedence over the lead's. */
 function MessageAgent({ workspace: w }: { workspace: Workspace }) {
   const [text, setText] = useState('');
@@ -210,5 +213,59 @@ function MessageAgent({ workspace: w }: { workspace: Workspace }) {
       <button className="btn small" disabled={!text.trim() || state === 'sending'} onClick={() => void send()}>Send</button>
       {state && state !== 'sending' ? <span className="small faint">{state}</span> : null}
     </div>
+  );
+}
+
+interface MethodRow {
+  id: string; name: string; source: 'bundled' | 'library' | 'submitted'; state: string; reported?: boolean; verdict?: string;
+  package?: { name?: string | null; version?: string | null; commit?: string | null; install_id?: string | null } | null;
+  workspace_id?: string | null; submission_id?: string | null;
+  tasks: { task_id: string; runnable: boolean; reason: string | null }[];
+  proposals: { hypothesis_id: string; bound: boolean; default: boolean }[];
+  next_action: { owner: string; text: string } | null;
+}
+interface Catalog { tasks: { id: string; name: string; problem_id?: string; blocker: string | null }[]; methods: MethodRow[];
+  building: { workspace_id: string; title: string; phase?: string | null; hypothesis_ids: string[] }[]; other: { id: string; name: string; source: string; reason: string | null }[]; other_count: number }
+
+const METHOD_STATE: Record<string, [string, string]> = { runnable: ['can run', 'clear'], not_installed: ['delivered, not installed', 'attention'],
+  needs_revision: ['needs revision', 'bad'], incompatible: ['cannot run here', 'bad'], legacy: ['not installable', ''] };
+
+/** Which algorithms this campaign can run, and why the others cannot, with the next step and who takes it. */
+function Algorithms({ campaignId, thread, labels }: { campaignId: string; thread: string | null; labels: Record<string, string> }) {
+  const view = useRead<Catalog>(['methods', campaignId], `/api/v1/campaigns/${campaignId}/methods`, { refetchInterval: 30000 });
+  if (view.isPending) return <Loading what="Reading which algorithms can run" />;
+  if (view.error) return <Failed error={view.error} />;
+  const { tasks, methods, building, other, other_count } = view.data;
+  const chip = (id: string) => <a key={id} className="chip" href={formatHash({ page: 'hypotheses', id, sel: id }, thread)}>{labels[id] || id.slice(0, 18)}</a>;
+  // Bundled methods nothing here uses are folded away; what proposals use, and libraries, come first.
+  const shown = methods.filter(m => m.source !== 'bundled' || m.proposals.length || m.state !== 'runnable');
+  const spare = methods.filter(m => !shown.includes(m));
+  const where = (m: MethodRow) => m.source === 'bundled' ? 'bundled with Balsamic'
+    : m.source === 'library' ? `library ${m.package?.name || ''} ${m.package?.version || ''}`.trim()
+    : `${m.package?.name ? `library ${m.package.name}, ` : ''}delivered in commit ${(m.package?.commit || '').slice(0, 7)}${m.reported === false ? ' (method ids not reported)' : ''}`;
+  return (
+    <Section title="Algorithms" right={<span className="small faint">what this campaign can run, and why the others cannot</span>}>
+      <div data-testid="algorithms">
+        {tasks.filter(t => t.blocker).map(t => <div key={t.id} className="callout attention small" data-testid="task-blocker">
+          <strong>{t.name}</strong> cannot run any method yet: {t.blocker}</div>)}
+        {building.map(b => <div key={b.workspace_id} className="row small wrap" data-testid="algorithm-building">
+          <Pill tone="agent" live>being built</Pill><a href={formatHash({ page: 'hypotheses', sub: 'implementations', id: b.workspace_id }, thread)}>{b.title}</a>
+          {b.phase ? <span className="faint">({b.phase})</span> : null}<span className="faint">for</span>{b.hypothesis_ids.map(chip)}</div>)}
+        {shown.length ? <table className="small" data-testid="algorithm-table"><thead><tr><th>Method</th><th>From</th><th>Can it run?</th><th>Proposals</th><th>Next</th></tr></thead>
+          <tbody>{shown.map(m => { const [label, tone] = METHOD_STATE[m.state] || [m.state, '']; const reason = m.tasks.find(t => t.reason)?.reason;
+            return <tr key={`${m.source}-${m.id}`} data-testid="algorithm" data-method={m.id} data-state={m.state}>
+              <td><span className="mono">{m.id}</span>{m.name !== m.id ? <div className="faint">{m.name}</div> : null}</td>
+              <td>{m.workspace_id ? <a href={formatHash({ page: 'hypotheses', sub: 'implementations', id: m.workspace_id }, thread)}>{where(m)}</a> : where(m)}</td>
+              <td><Pill tone={tone} title={reason || undefined}>{label}</Pill>{m.state !== 'runnable' && reason ? <div className="faint">{reason}</div> : null}</td>
+              <td><span className="row wrap" style={{ gap: 4 }}>{m.proposals.map(p => <span key={p.hypothesis_id} title={p.bound ? (p.default ? 'runs it as the default method' : 'runs it') : 'built for it, not bound yet'}>
+                {chip(p.hypothesis_id)}{p.bound ? null : <span className="faint"> (not bound)</span>}</span>)}</span></td>
+              <td>{m.next_action ? <><Pill tone={m.next_action.owner === 'researcher' ? 'you' : 'agent'}>{OWNER[m.next_action.owner] || m.next_action.owner}</Pill> {m.next_action.text}</> : null}</td>
+            </tr>; })}</tbody></table> : <Empty>No method that matters here yet.</Empty>}
+        {spare.length ? <details className="small"><summary>{spare.length} more bundled methods that can run here</summary>
+          <p className="mono">{spare.map(m => m.id).join(', ')}</p></details> : null}
+        {other_count ? <details className="small"><summary>{other_count} methods that cannot run here, or are procedures rather than search methods</summary>
+          <ul>{other.map(o => <li key={o.id}><span className="mono">{o.id}</span>: <span className="faint">{o.reason}</span></li>)}</ul></details> : null}
+      </div>
+    </Section>
   );
 }
