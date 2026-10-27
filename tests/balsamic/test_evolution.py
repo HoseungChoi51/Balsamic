@@ -31,7 +31,7 @@ def test_ledger_rows_aggregate_trials_race_cells_reviews_and_readiness(client, w
     body = client.get("/api/v1/campaigns/demo/evolution", params={"progress": "true"}).json()
     rows = {row["id"]: row for row in body["nodes"]}
     row = rows[a["id"]]
-    assert row["best"] == {"score": 0.6, "basis": "measured", "source": "result", "trial_id": f"trial_{a['id']}_1", "interval": None}
+    assert row["best"] == {"score": 0.6, "basis": "measured", "source": "result", "trial_id": f"trial_{a['id']}_1", "interval": None, "direction": "maximize"}
     assert row["worker_seconds"] == pytest.approx(54 + 1100 + 54) and row["allotted_seconds"] == 1320 and row["evaluations"] == 200
     assert row["live_trials"] == 1 and row["stage"] == "extended" and row["race"] is None and row["finalist"] is False
     assert rows[b["id"]]["parent_links"] == [{"id": a["id"], "kind": "variant"}] and rows[b["id"]]["round"] == 1
@@ -197,3 +197,53 @@ def test_the_next_formulation_step_is_named_until_the_charter_is_confirmed(clien
     step = next_step(workspace, workspace.store.get(campaign["id"], "campaign"))
     assert step["kind"] == "confirm" and step["blocking"] is True and step["proposals"] == 1
     assert client.get("/api/v1/campaigns").json()["campaigns"][0]["next_step"]["kind"] == "confirm"
+
+
+def minimizing(workspace, trial_id, *, where="result"):
+    """Say the run's objective is minimized: in its result (as the worker writes it), or only through its task (the demo's quadratic)."""
+    record = workspace.store.get(trial_id, "trial")
+    if where == "result":
+        record["result"]["objective_definition"] = {"name": "loss", "direction": "minimize", "units": "dimensionless"}
+    else:
+        task = workspace.current_tasks(record["campaign_id"])[0]
+        assert task["problem"]["primary_objective"]["direction"] == "minimize"
+        record["task_id"] = task["id"]
+    workspace.store.put("trial", record, "trial.evidence_cataloged")
+
+
+def test_a_minimize_campaign_ranks_the_lowest_score_best(client, workspace, campaign):
+    a = hypothesis(client, campaign, "Restarts")
+    b = hypothesis(client, campaign, "Annealing")
+    for seed, score in enumerate((0.4, 0.6)):
+        minimizing(workspace, trial(workspace, "demo", a["id"], score=score, seed=seed)["id"])
+    minimizing(workspace, trial(workspace, "demo", b["id"], score=0.3)["id"], where="task")
+    body = client.get("/api/v1/campaigns/demo/evolution", params={"progress": "true"}).json()
+    rows = {row["id"]: row for row in body["nodes"]}
+    assert rows[a["id"]]["best"]["score"] == 0.4 and rows[a["id"]]["best"]["direction"] == "minimize"
+    assert rows[a["id"]]["best"]["trial_id"] == f"trial_{a['id']}_0"
+    assert rows[b["id"]]["best"]["direction"] == "minimize", "the task's objective decides when the result names none"
+    assert body["progress"]["best_so_far"] == 0.3 and body["progress"]["direction"] == "minimize"
+
+
+def test_strategies_that_disagree_on_direction_have_no_single_best(client, workspace, campaign):
+    a = hypothesis(client, campaign, "Restarts")
+    b = hypothesis(client, campaign, "Annealing")
+    minimizing(workspace, trial(workspace, "demo", a["id"], score=0.4)["id"])
+    trial(workspace, "demo", b["id"], score=0.6)
+    body = client.get("/api/v1/campaigns/demo/evolution", params={"progress": "true"}).json()
+    rows = {row["id"]: row for row in body["nodes"]}
+    assert rows[a["id"]]["best"]["direction"] == "minimize" and rows[b["id"]]["best"]["direction"] == "maximize"
+    assert body["progress"]["best_so_far"] is None and body["progress"]["direction"] is None
+
+
+def test_a_panel_chart_draws_the_best_run_under_the_direction(client, workspace, campaign, monkeypatch):
+    import balsamic.evolution.ledger as ledger
+    from balsamic.panels.service import _chart_points
+    a = hypothesis(client, campaign, "Restarts")
+    low, high = (trial(workspace, "demo", a["id"], score=score, seed=seed) for seed, score in enumerate((0.2, 0.7)))
+    for record in (low, high):
+        minimizing(workspace, record["id"])
+    drawn = []
+    monkeypatch.setattr(ledger, "curve", lambda workspace, trial_id: drawn.append(trial_id) or [])
+    _chart_points(workspace, {"hypothesis": a["id"]})
+    assert drawn == [low["id"]]

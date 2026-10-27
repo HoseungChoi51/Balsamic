@@ -9,7 +9,7 @@ import tempfile
 import threading
 import time
 
-from optimization_framework.contracts.base import content_hash
+from optimization_framework.contracts.base import content_hash, lenient
 from optimization_framework.contracts.commands import Command
 from optimization_framework.storage.sqlite import now
 from optimization_framework.campaigns.record_view import view_record
@@ -320,7 +320,7 @@ def step_label(tool, args=None):
 
 def comparison_brief(report):
     """What a comparison report concludes, without its curves or method definitions."""
-    return [{"group_id": group["id"], "common_observed_cost": group.get("common_observed_cost"),
+    return [{"group_id": group["id"], "direction": group.get("direction"), "common_observed_cost": group.get("common_observed_cost"),
              **({} if group.get("common_observed_cost") is not None else {"note": "These runs share no cost that all of them reached, "
                  "so no method summary could be computed. Name the runs to compare with each other in trial_ids."}),
              "method_summaries": group.get("method_summaries", []),
@@ -364,7 +364,7 @@ TOOLS = {
     "implementation_workspace_create": ("Start or reattach a persistent full Pi coding workspace for an active hypothesis (hypothesis_ids: the other proposals the same library serves). No numerical grant is reserved by creation.", obj({"hypothesis_id": S, "hypothesis_ids": {"type": "array", "items": S, "maxItems": 20}, "objective": S, "evidence_ids": {"type": "array", "items": S, "maxItems": 100}, "request_key": S, "cpu_budget_seconds": {"type": "number", "exclusiveMinimum": 0, "maximum": 86400}}, ["hypothesis_id", "objective", "request_key"])),
     "implementation_workspace_inspect": ("Read implementation workspace state, progress, questions, submissions, and event cursor.", obj({"workspace_id": S, "after": {"type": "integer", "minimum": 0}}, ["workspace_id"])),
     "implementation_workspace_message": ("Steer or follow up with the full Pi coding agent in the given workspace.", obj({"workspace_id": S, "message": S, "mode": {"enum": ["steer", "follow_up"]}, "request_key": S, "question_id": S}, ["workspace_id", "message", "request_key"])),
-    "implementation_workspace_validate": ("Commission independent validation of one committed source submission within the campaign's implementation allocation. Supply either a frozen envelope_id or a spec; prefer the short envelope ID when available.", obj({"workspace_id": S, "submission_id": S, "envelope_id": S, "spec": {"type": "object"}, "compute_seconds": {"type": "number", "exclusiveMinimum": 0, "maximum": 86400}, "request_key": S}, ["workspace_id", "submission_id", "compute_seconds", "request_key"])),
+    "implementation_workspace_validate": ("Commission independent validation of one committed source submission under the compute go-ahead. Supply either a frozen envelope_id or a spec; prefer the short envelope ID when available.", obj({"workspace_id": S, "submission_id": S, "envelope_id": S, "spec": {"type": "object"}, "compute_seconds": {"type": "number", "exclusiveMinimum": 0, "maximum": 86400}, "request_key": S}, ["workspace_id", "submission_id", "compute_seconds", "request_key"])),
     "page_agent_message": ("Ask the agent in charge of a page for work of its page: discussion_moderator (review rounds over proposals; "
         "Hypotheses), experiment_operator (designing, starting, watching and stopping runs; Experiments), implementation_lead (building and "
         "checking implementations; Implementations) or resource_planner (how many runs go at once, what kinds of runs use, why runs wait; "
@@ -1081,9 +1081,14 @@ class PiTools:
                 raise ValueError(self.page_work(agent, name, args))
             campaign = self.store.get(cid, "campaign")
             command_id = "pi_command_" + content_hash([cid, args["operation"], args["request_key"]])[:32]
+            # Unknown top-level payload keys are dropped and reported, a near-miss refused (decision 5); nested objects stay strict.
+            payload, ignored = args["payload"], []
+            known = self.workspace.commands.payload_keys(args["operation"])
+            if known is not None and isinstance(payload, dict):
+                payload, ignored = lenient(payload, known)
             try:
                 accepted = self.store.get(command_id, "work_command")
-                if accepted["request"]["operation"] != args["operation"] or accepted["request"]["payload"] != args["payload"]:
+                if accepted["request"]["operation"] != args["operation"] or accepted["request"]["payload"] != payload:
                     raise ValueError("Request key belongs to a different command")
                 return self.receipt(accepted)
             except KeyError:
@@ -1102,10 +1107,10 @@ class PiTools:
                 # The campaign-wide guidance pin is the run's, or a newer one the agent read in this run (campaign_inspect); a revision the model
                 # states is ignored (D7). The thread pin is never overridden.
                 operation=args["operation"], expected_revision=campaign["version"], expected_guidance_revision=self.guidance_pin(run),
-                expected_thread_revision=run.get("thread_revision"), expected_authority_hash=self.workspace.commands.authority_hash(campaign), payload=args["payload"],
+                expected_thread_revision=run.get("thread_revision"), expected_authority_hash=self.workspace.commands.authority_hash(campaign), payload=payload,
                 origin=CommandOrigin(thread_id=origin.get("thread_id"), message_id=origin.get("message_id"), actor=actor, agent_id=agent["id"], run_id=run["id"],
                                      rationale=(args.get("rationale") or None)))
-            return self.receipt(self.workspace.commands.execute(command, actor="autopilot" if actor == "autopilot" else "manager"))
+            return self.receipt(self.workspace.commands.execute(command, actor="autopilot" if actor == "autopilot" else "manager", ignored_fields=ignored))
         if name in {"report_write", "report_answer"}:
             writer = self.workspace.report_writer
             if name == "report_write":

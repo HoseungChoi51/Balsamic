@@ -223,12 +223,19 @@ def _table_rows(workspace, campaign_id, component):
 
 
 def _chart_points(workspace, source):
-    from balsamic.evolution.ledger import curve
+    from balsamic.evolution.ledger import best_of, curve, direction_of, score_of
     if source.get("trial"):
         return curve(workspace, source["trial"])
     trials = [t for t in workspace.store.list("trial") if t.get("hypothesis_id") == source.get("hypothesis")]
-    best = max(trials, key=lambda t: float(((t.get("result") or t.get("progress") or {}).get("best_objective") or float("-inf"))), default=None)
-    return curve(workspace, best["id"]) if best else []
+    best, _ = best_of((score_of(t)[0], direction_of(t, _task(workspace, t)), t) for t in trials)
+    return curve(workspace, best[2]["id"]) if best else []
+
+
+def _task(workspace, trial):
+    try:
+        return workspace.store.get(trial.get("task_id"), "task")
+    except (KeyError, TypeError):
+        return None
 
 
 # ---- actions ------------------------------------------------------------------------------------------------
