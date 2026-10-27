@@ -14,10 +14,11 @@ test('the bare address is the home page: the logo, the name, the version and wha
   await expect(page.getByTestId('home-version')).toHaveText(`v${version}`);
   await expect(home).toContainText('lead agent');
   await expect(page.getByTestId('shell')).toHaveCount(0);
-  // The home page stays at the bare address; it opens the workspace, and the brand in the top bar leads back.
+  // The home page stays at the bare address; it opens the workspace with no campaign chosen, and the brand in the top bar leads back.
   await expect(page).toHaveURL(/\/$/);
   await page.getByTestId('home-open').click();
-  await expect(page).toHaveURL(new RegExp(`#t/${THREAD_ID}/monitor$`));
+  await expect(page).toHaveURL(/#monitor$/);
+  await expect(page.getByTestId('campaign-switch')).toHaveValue('');
   await page.getByTestId('brand').click();
   await expect(page).toHaveURL(/#home$/);
   await expect(page.getByTestId('home')).toBeVisible();

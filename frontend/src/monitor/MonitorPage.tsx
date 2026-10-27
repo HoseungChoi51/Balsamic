@@ -11,10 +11,15 @@ import { AwayDigest } from './AwayDigest';
 import { ModelTiers } from './ModelTiers';
 import { Bars, Columns, Meter, Ring, Slots } from '../primitives/charts';
 
+/** The tabs that belong to the workspace and show without a campaign: the machine and the models agents run on. */
+const WORKSPACE_TABS = new Set(['resources', 'models']);
+
 export default function MonitorPage({ campaignId, route }: PageProps) {
   const sub = route.sub || 'resources';
   const monitor = useMonitor(campaignId);
-  const tabs = [['resources', 'Resources'], ['usage', 'Model usage'], ['races', 'Race progress'], ['agents', 'Agents'], ['log', 'Agent log'], ['models', 'Models'], ['guidance', 'Guidance'], ['digest', 'Away digest']] as const;
+  const tabs = ([['resources', 'Resources'], ['usage', 'Model usage'], ['races', 'Race progress'], ['agents', 'Agents'], ['log', 'Agent log'], ['models', 'Models'], ['guidance', 'Guidance'], ['digest', 'Away digest']] as const)
+    .filter(([key]) => campaignId || WORKSPACE_TABS.has(key));
+  if (!campaignId && !WORKSPACE_TABS.has(sub)) return <div className="empty" data-testid="no-campaign">Choose a campaign above, or start one.</div>;
   return (
     <div className="col">
       <div className="stage-head"><h1>Monitor</h1>{monitor.data ? <Pill tone={monitor.data.pill.state}>{monitor.data.pill.text}</Pill> : null}</div>
@@ -33,7 +38,7 @@ export default function MonitorPage({ campaignId, route }: PageProps) {
 }
 
 function Resources({ campaignId }: { campaignId: string }) {
-  const snapshot = useRead<Record<string, unknown>>(['resources', campaignId], `/api/v1/resources?campaign_id=${campaignId}`, { refetchInterval: 5000, staleTime: 2000 });
+  const snapshot = useRead<Record<string, unknown>>(['resources', campaignId], `/api/v1/resources${campaignId ? `?campaign_id=${campaignId}` : ''}`, { refetchInterval: 5000, staleTime: 2000 });
   const queryClient = useQueryClient();
   const [error, setError] = useState<string | null>(null);
   if (snapshot.isPending) return <Loading what="Reading the machine" />;
@@ -68,7 +73,7 @@ function Resources({ campaignId }: { campaignId: string }) {
           ['GPU', gpus.length ? gpus.map(([name, g]) => `${name}: ${String(g.utilization_percent)} %`).join(' · ') : <span className="faint">not reported</span>], ['Workers', `${String(busy ?? '?')} running of ${String(limit ?? '?')}`]]} />
       </Section>
       {data.slots ? <SlotSettings slots={data.slots as SlotsView} gpuReported={gpus.length > 0} /> : null}
-      <ComputeThresholds campaignId={campaignId} />
+      {campaignId ? <ComputeThresholds campaignId={campaignId} /> : null}
       <Section title="Resource level" right={<span className="small faint">yours alone; agents plan within it{admission.set_by ? ` · set by ${String(admission.set_by)} ${when(admission.updated_at)}` : ''}</span>}>
         <div className="level-grid" data-testid="resource-levels" data-level={level}>
           {levels.map(option => <button key={option.id} type="button" className={'level' + (level === option.id ? ' chosen' : '')} aria-pressed={level === option.id} onClick={() => setLevel(option.id)} data-testid={`level-${option.id}`}>
@@ -178,7 +183,7 @@ function Log({ campaignId }: { campaignId: string }) {
 }
 
 function Models({ campaignId }: { campaignId: string }) {
-  const models = useRead<Record<string, unknown>>(['agent-models', campaignId], `/api/v1/campaigns/${campaignId}/agents/models`);
+  const models = useRead<Record<string, unknown>>(['agent-models', campaignId], campaignId ? `/api/v1/campaigns/${campaignId}/agents/models` : null);
   return (
     <>
       <ModelTiers />

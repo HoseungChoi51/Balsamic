@@ -12,6 +12,10 @@ export interface Choice { id: string; label: string; description?: string; patch
 export interface Setup { id: string; status: 'asking' | 'ready' | 'created' | 'abandoned'; mode: 'model' | 'scripted'; model: { provider: string; model: string } | null; cost_usd?: number; model_note?: string;
   draft: Record<string, unknown>; transcript: { role: 'user' | 'assistant'; text: string; field?: string; choices?: Choice[]; at?: string }[]; step: { field: string; question: string; choices: Choice[]; free_text: boolean; placeholder?: string } | null; campaign_id: string | null }
 
+const OPEN_SETUP = 'balsamic.openSetup';
+const OPEN = new Set(['asking', 'ready']);
+function openSetup(): string | null { try { return localStorage.getItem(OPEN_SETUP); } catch { return null; } }
+
 export function useSetup(setupId: string | null) {
   return useQuery<Setup>({ queryKey: ['setup', setupId], enabled: !!setupId, queryFn: () => api<Setup>(`/api/v1/setup/${setupId}`), staleTime: 1000 });
 }
@@ -24,13 +28,18 @@ export function SetupChat({ setupId }: { setupId: string | null }) {
   const [error, setError] = useState<string | null>(null);
   useEffect(() => {
     if (setupId) return;
-    void api<Setup>('/api/v1/setup', { method: 'POST' }).then(created => {
-      track('setup.start', { mode: created.mode });
-      if (location.hash.replace(/^#/, '').split('/')[0] === 'new') navigate('#new/' + created.id);   // unless the researcher already went elsewhere
-    });
+    // A setup left open (the researcher went to another page, say to choose the lead's model) continues; else a new one starts.
+    const open = openSetup();
+    void (open ? api<Setup>(`/api/v1/setup/${open}`).catch(() => null) : Promise.resolve(null))
+      .then(found => found && OPEN.has(found.status) ? found : api<Setup>('/api/v1/setup', { method: 'POST' }).then(created => { track('setup.start', { mode: created.mode }); return created; }))
+      .then(current => { if (location.hash.replace(/^#/, '').split('/')[0] === 'new') navigate('#new/' + current.id); });   // unless the researcher already went elsewhere
   }, [setupId]);
   useEffect(() => { scroller.current?.scrollTo({ top: scroller.current.scrollHeight }); }, [setup.data?.transcript.length]);
   const data = setup.data;
+  useEffect(() => {
+    if (!setupId || !data) return;
+    try { if (OPEN.has(data.status)) localStorage.setItem(OPEN_SETUP, setupId); else if (openSetup() === setupId) localStorage.removeItem(OPEN_SETUP); } catch { /* private mode */ }
+  }, [setupId, data?.status]);
   const send = async (body: { text?: string; choice?: string }) => {
     if (!setupId) return;
     setBusy(true); setError(null);
@@ -73,7 +82,8 @@ export function SetupChat({ setupId }: { setupId: string | null }) {
     <div className="chat" data-testid="setup-chat">
       <div className="thread-head"><strong className="grow">New campaign</strong>
         {data!.status !== 'created' ? <button className="btn quiet small" onClick={startOver} data-testid="start-over" title="Abandon this draft and begin again">Start over</button> : null}
-        <Pill tone={data!.mode === 'model' ? 'agent' : ''} title={data!.mode === 'model' ? `Questions phrased by ${data!.model?.model}` : 'No model configured: scripted questions'}>{data!.mode === 'model' ? `assistant · ${data!.model?.model}` : 'scripted assistant'}</Pill></div>
+        <Pill tone={data!.mode === 'model' ? 'agent' : ''} title={data!.mode === 'model' ? `Questions phrased by ${data!.model?.model}` : 'No model configured: scripted questions'}>{data!.mode === 'model' ? `assistant · ${data!.model?.model}` : 'scripted assistant'}</Pill>
+        <a className="small" href="#monitor/models" data-testid="setup-model-link" title="This assistant and the campaign's lead run on the lead's tier; choose its model and thinking on Monitor → Models">Lead's model</a></div>
       <div className="turns" ref={scroller}>
         {data!.transcript.map((turn, i) => (
           <article key={i} className={'turn ' + (turn.role === 'user' ? 'user' : 'agent')} data-testid="setup-turn">

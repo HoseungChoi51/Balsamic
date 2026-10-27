@@ -2,10 +2,9 @@ import { test, expect } from '@playwright/test';
 import { mockWorkspace } from './mocks/workspace';
 import { THREAD_ID } from './mocks/fixtures';
 
-test('the shell opens the newest campaign on its main thread with the rail, the stage badge and the monitor pill', async ({ page }) => {
+test('a campaign opens on its main thread with the rail, the stage badge and the monitor pill', async ({ page }) => {
   await mockWorkspace(page);
-  await page.goto('/#monitor');
-  await expect(page).toHaveURL(new RegExp(`#t/${THREAD_ID}/monitor$`));
+  await page.goto(`/#t/${THREAD_ID}/monitor`);
   await expect(page.getByTestId('stage')).toHaveText('generate');
   await expect(page.getByTestId('monitor-pill')).toHaveText('1 waiting for you');
   await expect(page.getByTestId('rail-inbox')).toContainText('1');

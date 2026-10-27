@@ -49,7 +49,8 @@ class PageBoundary extends Component<{ where: string; children: ReactNode }, { e
 
 export function StagePanel({ route, campaignId, threadId, desk = true }: { route: Route; campaignId: string | null; threadId: string | null; desk?: boolean }) {
   const Page = pages[route.page as keyof typeof pages] || pages.monitor;
-  if (route.page !== 'new' && !campaignId) return <main className="stage"><div className="empty">Choose a campaign above, or start one.</div></main>;
+  // Without a campaign a page shows nothing, except Monitor's machine and models, which are the workspace's.
+  if (route.page !== 'new' && route.page !== 'monitor' && !campaignId) return <main className="stage"><div className="empty" data-testid="no-campaign">Choose a campaign above, or start one.</div></main>;
   const role = campaignId ? deskRole(route) : null;
   const campaigns = useCampaigns();
   const step = campaigns.data?.find(c => c.id === campaignId)?.next_step;

@@ -94,6 +94,23 @@ def test_the_model_phrases_the_questions_and_fills_the_draft_from_free_text(clie
     assert s["draft"]["compute_budget_seconds"] == 3600 and s["draft"]["llm_budget_usd"] == 3 and "scripted questions" in s["model_note"]
 
 
+def test_an_open_setup_runs_on_the_lead_model_chosen_after_it_opened(client, workspace, monkeypatch):
+    monkeypatch.setenv("GRATING_LLM_DISABLED", "false")
+    lead = {"provider": "centinels", "model": "gpt-6-luna", "effort": None}
+    monkeypatch.setattr(workspace.pi, "lead_model", lambda: dict(lead))
+    workspace.pi.harness_status = {"configured": True}
+    calls = []
+    def complete(call_id, body, timeout=0):
+        calls.append(body)
+        return {"text": json.dumps({"reply": "Noted.", "draft_patch": {"name": "Deflector v3"}, "field": "objective", "question": "", "choices": []}), "usage": {}}
+    monkeypatch.setattr(workspace.pi.client, "complete", complete)
+    sid = client.post("/api/v1/setup").json()["id"]
+    lead["model"] = "gpt-6.1-sol"   # the researcher sets the lead's tier on Monitor → Models, then comes back
+    assert client.get(f"/api/v1/setup/{sid}").json()["model"]["model"] == "gpt-6.1-sol"
+    client.post(f"/api/v1/setup/{sid}/answer", json={"text": "call it deflector v3"})
+    assert calls[0]["model"] == "gpt-6.1-sol"
+
+
 def test_a_setup_is_abandoned_by_a_word_a_choice_or_the_button_and_never_created(client, workspace):
     sid = client.post("/api/v1/setup").json()["id"]
     client.post(f"/api/v1/setup/{sid}/answer", json={"text": "Wrong one"})

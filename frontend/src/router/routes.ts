@@ -7,10 +7,6 @@ export interface Route { thread: string | null; page: PageName; sub: string | nu
 
 export const PAGES = catalog.pages as Record<string, { title: string; description: string; subs?: Record<string, string>; agent?: string }>;
 export const RAIL = catalog.rail as PageName[];
-const LAST_THREAD = 'balsamic.lastThread';
-
-export function rememberThread(threadId: string | null) { try { if (threadId) localStorage.setItem(LAST_THREAD, threadId); } catch { /* private mode */ } }
-export function lastThread(): string | null { try { return localStorage.getItem(LAST_THREAD); } catch { return null; } }
 
 export function parseHash(hash: string): Route {
   const canonical = hash ? canonicalHash(hash) : '#home';

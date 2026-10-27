@@ -17,7 +17,7 @@ def install(app, workspace):
     @app.get("/api/v1/setup/{setup_id}")
     def read(setup_id: str):
         try:
-            return _no_store(workspace.store.get(setup_id, "campaign_setup"))
+            return _no_store(setup.follow_lead(workspace, workspace.store.get(setup_id, "campaign_setup")))
         except KeyError:
             raise HTTPException(404, "Unknown setup")
 

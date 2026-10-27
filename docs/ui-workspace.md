@@ -60,9 +60,13 @@ so `scripts/labctl` and `deploy/*.json` keep working.
 | `branches` | | |
 
 Addresses are `#t/<thread>/<page>[/<sub>][/<id>]?sel=<id>&tab=`. A thread-less address (what the lead writes, e.g.
-`#experiments/trial_x`) opens in the current thread. `#new` starts a campaign. The bare address (and `#home`, which the
-Balsamic name in the top bar links to) is the home page: the logo, the name, the version (`frontend/package.json`), what
-Balsamic is, and a link into the workspace, which opens the last thread. Every old address still works: the
+`#experiments/trial_x`) opened from a campaign opens in that campaign's current thread. Opened otherwise (from the home
+page, from New campaign, or typed into a fresh tab), it names no campaign, and no other campaign stands in for one: a
+campaign's page says "Choose a campaign above, or start one", and Monitor shows only what belongs to the workspace (the
+machine, run slots and resource level on Resources; the model tiers on Models), so the lead's model can be chosen before a
+campaign exists. `#new` starts a campaign, or continues the setup left open in this browser. The bare address (and
+`#home`, which the Balsamic name in the top bar links to) is the home page: the logo, the name, the version
+(`frontend/package.json`), what Balsamic is, and a link into the workspace with no campaign chosen. Every old address still works: the
 `aliases` block of `pages.json` maps `#overview`, `#decisions`, `#problem`, `#implementations`, `#comparison`, `#studies`,
 `#validation`, `#assets`, `#notebook`, `#reports`, `#resources`, `#agents[/usage|/log|/models|/guidance]`, `#discussions`,
 `#drafts`, `#models`, `#llm-usage`, `#memory` and `#problem-import` to their current pages, and `/reports/<id>` stays a

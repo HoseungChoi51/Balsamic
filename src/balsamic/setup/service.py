@@ -221,6 +221,14 @@ def model_for(workspace):
     return {"provider": choice["provider"], "model": choice["model"], "effort": "low"}
 
 
+def follow_lead(workspace, setup):
+    """An open setup runs on the lead's tier as it is now: a model chosen on Monitor → Models after the setup opened applies to its next answer."""
+    if setup["status"] == "asking":
+        setup["model"] = model_for(workspace)
+        setup["mode"] = "model" if setup["model"] else "scripted"
+    return setup
+
+
 def model_step(workspace, setup, answer_text, model):
     transcript = "\n".join(f"{'Researcher' if turn['role'] == 'user' else 'Assistant'}: {turn['text']}" for turn in setup["transcript"][-12:])
     prompt = (f"Draft so far: {json.dumps({k: v for k, v in setup['draft'].items() if k not in {'decided', 'identity_chosen'}})}\n"
@@ -283,6 +291,7 @@ def answer(workspace, setup_id, values):
         if values.choice == "restart" or (text and re.fullmatch(r"(start over|restart|abandon|start again)[.!]?", text.lower())):
             return abandon(workspace, setup_id)
         setup["transcript"].append({"role": "user", "text": chosen["label"] if chosen else text, "choice": chosen["id"] if chosen else None, "field": step["field"], "at": now()})
+        follow_lead(workspace, setup)
         if step["field"] == "ready" and chosen and chosen["id"].startswith("edit:"):
             field = chosen["id"].split(":", 1)[1]
             return _ask(workspace, setup, field, "Sure. ")

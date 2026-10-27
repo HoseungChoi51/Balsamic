@@ -17,7 +17,6 @@ export function CampaignRemoval({ campaignId }: { campaignId: string }) {
     try {
       await api(`/api/v1/campaigns/${campaignId}/removal`, { method: 'POST', body: JSON.stringify({ keep }) });
       await queryClient.invalidateQueries({ queryKey: ['campaigns'] });
-      try { localStorage.removeItem('balsamic.lastThread'); } catch { /* private mode */ }
       navigate('#new');
     } catch (e) { setError(String((e as Error).message || e)); }
   };
