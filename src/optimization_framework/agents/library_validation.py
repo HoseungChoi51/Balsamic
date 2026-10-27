@@ -6,7 +6,8 @@ and the protected acceptance tests kept on the host, which the box never saw.
 The host writes the commit's files into a fresh directory, starts this module with `python -m` under bubblewrap (no network,
 a read-only view of the lab's Python and Balsamic, nothing of the lab's data), and reads one result file back. A method whose
 own tests or conformance fail is refused; a failure no method owns (a broken objective, a collection error) refuses the
-library. Protected tests come back as names and outcomes only: their source and their failure text stay on the host.
+library. Protected tests come back as names and outcomes only: their source and their failure text stay on the host. A
+method refused here is not bound and does not run until a version that passes is installed (refused_reason()).
 """
 from __future__ import annotations
 

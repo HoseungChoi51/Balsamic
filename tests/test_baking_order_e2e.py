@@ -410,6 +410,10 @@ def test_the_baking_order_goes_from_a_charter_to_ranked_results(client, workspac
     install = installer.automatic(cid, record["id"], submission, background=False)
     assert install["status"] == "installed", install
     assert install["actor"] == "balsamic" and install["problems_added"] == ["baking_order"]
+    # Validated outside the box first (H6): the library's own tests and each method's conformance passed on the host.
+    host = install["host_validation"]
+    assert install["refused_methods"] == [] and host["tests"]["failed"] == 0 and host["tests"]["passed"] > 0
+    assert sorted((row["method_id"], row["host"]) for row in host["methods"]) == sorted((key, "passed") for key in keys.values())
     assert sorted(install["methods_added"]) == sorted(keys.values()) and install.get("changed_generated_files", []) == []
     # The problem is picked up: the declared task adopts the library's problem, by Balsamic, first after the install (E5).
     [task] = workspace.current_tasks(cid)
