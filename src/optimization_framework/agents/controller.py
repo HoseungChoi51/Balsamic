@@ -241,6 +241,11 @@ class PiController:
         agent.update(request_open=True, requested_by=requested_by, request_changed_at=now())
         if requested_by == "researcher":
             agent.pop("assignment_origin", None)   # answered on the desk, not in a lead request's side conversation
+            # The researcher's request on the page is the agent's own: the root its mandate serves (decision 12).
+            agent["desk_root"] = {"thread_id": (origin or {}).get("thread_id") or "desk_" + agent["role"],
+                                  "message_id": (origin or {}).get("message_id") or "message_" + identity.removeprefix("pi_run_"), "run_id": identity}
+        else:
+            agent.pop("desk_root", None)
         self.store.put("agent_session", agent, "agent.request_opened")
         return self.enqueue(agent, identity, text, mode="steer", origin=origin)
 

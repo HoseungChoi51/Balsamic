@@ -269,10 +269,17 @@ class PlannedRun(Contract):
     device: Literal["cuda", "cpu"] | None = None
 
 
+class StopCondition(Contract):
+    """When a request's work is done: in words, and optionally a condition the code can check (a mandate's, contracts/mandates.py)."""
+    text: str = Field(min_length=1, max_length=2000)
+    machine: Literal["all_runs_terminal"] | None = None
+
+
 class ApprovalRequestInput(Contract):
-    """Ask the researcher for something only they grant. On approval it is applied as the researcher's own command; a compute
-    approval is the go-ahead for a plan of work longer than the researcher's go-ahead threshold (campaigns/compute_consent.py)."""
-    kind: Literal["campaign_limits", "waiver", "worker_ceiling", "compute"]
+    """Ask the researcher for something only they grant. On approval it is applied as the researcher's own command; a mandate
+    (an agent's, with mandate_propose) is the go-ahead for a request's work beyond Explore (campaigns/mandates.py). Kind compute,
+    the go-ahead for a plan of work alone (campaigns/compute_consent.py), stays for requests filed before mandates."""
+    kind: Literal["campaign_limits", "waiver", "worker_ceiling", "compute", "mandate"]
     rationale: str = Field(min_length=1, max_length=5000, description="What the change makes possible and the measurement behind it")
     limits: dict[str, float] = Field(default_factory=dict, description="campaign_limits: the new value of each limit to change, among " + ", ".join(LIMITS))
     requirement_id: str | None = Field(default=None, description="waiver: the validation requirement to waive")
@@ -289,17 +296,26 @@ class ApprovalRequestInput(Contract):
     meanwhile: str | None = Field(default=None, min_length=1, max_length=2000, description="compute: what the researcher can do while it runs")
     runs: list[PlannedRun] = Field(default_factory=list, max_length=50, description="compute for experiments: each planned experiment, "
         "so the researcher reads the plan (speed, evaluations, outputs and disk use, measured on earlier runs) before approving")
+    template: Literal["screen", "run_campaign"] | None = Field(default=None, description="mandate: the template asked for")
+    model_usd: float | None = Field(default=None, ge=0, le=10000, description="mandate: the model-spend envelope")
+    deadline_minutes: float | None = Field(default=None, gt=0, le=40320, description="mandate: minutes from the approval to its deadline")
+    stop_when: StopCondition | None = Field(default=None, description="mandate: when the request's work is done")
 
     @model_validator(mode="after")
     def one_request(self):
         given = {"campaign_limits": bool(self.limits), "waiver": self.requirement_id is not None, "worker_ceiling": self.workers is not None,
-                 "compute": self.plan is not None}
+                 "compute": self.plan is not None and self.template is None, "mandate": self.template is not None}
         if not given[self.kind] or sum(given.values()) != 1:
-            raise ValueError("Give exactly the fields of the chosen kind: limits, requirement_id with evidence_ids, workers, or a compute plan")
+            raise ValueError("Give exactly the fields of the chosen kind: limits, requirement_id with evidence_ids, workers, a compute plan, "
+                             "or a mandate's template and plan")
         if self.kind == "compute" and (self.wall_seconds is None or self.worker_seconds is None or self.meanwhile is None):
             raise ValueError("A compute plan states wall_seconds, worker_seconds and what the researcher can do meanwhile")
-        if (self.runs or self.hypothesis_ids) and self.kind != "compute":
-            raise ValueError("Planned runs and the proposals a plan is for belong to a compute request")
+        if self.kind == "mandate" and (self.plan is None or self.worker_seconds is None):
+            raise ValueError("A mandate states its plan and the worker_seconds of its envelope")
+        if (self.runs or self.hypothesis_ids) and self.kind not in {"compute", "mandate"}:
+            raise ValueError("Planned runs and the proposals a plan is for belong to a mandate or a compute request")
+        if (self.model_usd is not None or self.deadline_minutes is not None or self.stop_when is not None) and self.kind != "mandate":
+            raise ValueError("A model-spend envelope, a deadline and a stop condition belong to a mandate")
         if set(self.limits) - set(LIMITS):
             raise ValueError("Unknown campaign limit: " + ", ".join(sorted(set(self.limits) - set(LIMITS))))
         if self.kind == "waiver" and not self.evidence_ids:

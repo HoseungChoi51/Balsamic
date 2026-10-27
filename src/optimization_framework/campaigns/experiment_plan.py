@@ -1,9 +1,9 @@
 """What an experiment plan costs and records, computed from the campaign's records, never written by an agent.
 
 For each planned run: the design it searches, the speed and the disk use per output file measured on the nearest earlier
-run of the same problem (same method and device first), the evaluations its wall time allows, and what ends it. A go-ahead
-request for experiments carries its runs (approval.request kind compute, runs), and a draft is one run; the researcher reads
-the plan before anything starts. What was not measured is said, never guessed.
+run of the same problem (same method and device first), the evaluations its wall time allows, and what ends it. A mandate for
+experiments carries its runs (approval.request kind mandate, or kind compute before mandates), and a draft is one run; the
+researcher reads the plan before anything starts. What was not measured is said, never guessed.
 """
 import os
 

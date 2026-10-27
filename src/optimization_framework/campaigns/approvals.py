@@ -1,4 +1,4 @@
-"""Researcher approvals of what an agent asked for: extensions, limits, waivers, the worker ceiling, journal clean-ups.
+"""Researcher approvals of what an agent asked for: mandates, extensions, limits, waivers, the worker ceiling, journal clean-ups.
 
 An agent files a request as a decision (trial.extension_request, approval.request, journal.compaction_request); the
 researcher resolves it in the inbox, and the change runs as the researcher's own command through the bus, with the
@@ -41,7 +41,7 @@ def resolve(workspace, command):
     if values.choice in view["freshness"]["blocked_choice_ids"]:
         raise ValueError(view["freshness"]["reason"])
     campaign = workspace.store.get(command.campaign_id, "campaign")
-    effect = consent = None
+    effect = consent = granted = None
     if values.choice == "0" and decision.get("trial_id") and decision.get("incremental_solver_calls") is not None:
         trial = workspace.store.get(decision["trial_id"], "trial")
         if trial["campaign_id"] != command.campaign_id:
@@ -63,6 +63,10 @@ def resolve(workspace, command):
         from .proposals import approve
         consent = grant(workspace, decision, decision["approval_request"])
         approve(workspace, consent)
+    elif values.choice in {"0", "1"} and (decision.get("approval_request") or {}).get("kind") == "mandate":
+        # A mandate: as proposed, its compute part a consent for its plan, or Explore only (campaigns/mandates.py).
+        from .mandates import approve as approve_mandate
+        granted = approve_mandate(workspace, decision, explore_only=values.choice == "1")
     elif values.choice == "0" and decision.get("approval_request"):
         request = decision["approval_request"]
         reason = decision["rationale"] + (" Researcher: " + values.comment if values.comment else "")
@@ -85,7 +89,7 @@ def resolve(workspace, command):
     decision.pop("delivery_error", None)
     decision.update(resolution_revision=values.expected_resolution_revision + 1, resolution_command_id=command.id)
     if effect is None:
-        decision = finish_decision(workspace, decision, values.choice, values.comment, {"consent_id": consent["id"]} if consent else None)
+        decision = finish_decision(workspace, decision, values.choice, values.comment, granted or ({"consent_id": consent["id"]} if consent else None))
     else:
         decision.update(status="executing", choice=values.choice, comment=values.comment)
         workspace.store.put("decision", decision, "decision.executing")

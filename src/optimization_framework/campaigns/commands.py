@@ -65,6 +65,9 @@ class CommandService:
         # Nothing that computes longer than the researcher's go-ahead threshold starts from an agent without their go-ahead.
         from .compute_consent import register as register_compute_consent
         register_compute_consent(self)
+        # A request with no mandate has Explore, recorded at its first work-starting command, and charged (campaigns/mandates.py).
+        from .mandates import register as register_mandates
+        register_mandates(self)
         # Set by the service layer: thread_revision(command) -> the current revision of the command's origin thread.
         self.thread_revision = None
 
@@ -716,12 +719,12 @@ class CommandService:
             values = ApprovalRequestInput(**payload)
             campaign = self.store.get(command.campaign_id, "campaign")
             asker = "The lead agent" if self.workspace.pi.owns(command.campaign_id) else "The campaign manager"
-            request, planned, root = {"kind": values.kind}, None, None
+            request, planned, root, options = {"kind": values.kind}, None, None, None
             if values.kind == "campaign_limits":
                 CampaignUpdate(**values.limits)
                 ceiling, asked = campaign.get("implementation_compute_budget_seconds") or 0, values.limits.get("implementation_compute_budget_seconds")
                 if asked is not None and asked != ceiling and not 0 < asked < ceiling:
-                    raise ValueError("Ask for a compute go-ahead (kind compute) instead; the implementation allocation is only an optional ceiling")
+                    raise ValueError("Propose a mandate with mandate_propose instead; the implementation allocation is only an optional ceiling")
                 changes = {key: value for key, value in values.limits.items() if campaign.get(key) != value}
                 if not changes:
                     raise ValueError("The campaign already has these limits")
@@ -740,9 +743,11 @@ class CommandService:
                 proposal = (f"{asker} asks you to waive a check that now blocks work. " +
                     (f"Its last result: {results[-1]['verdict']}. {results[-1].get('rationale', '')} " if results else "It has no result yet. ") +
                     "A waiver is yours alone, is recorded with this reason, and can be revoked.")
-            elif values.kind == "compute":
+            elif values.kind in {"compute", "mandate"}:
                 from .compute_consent import _minutes
-                request.update(plan=values.plan, wall_seconds=values.wall_seconds, worker_seconds=values.worker_seconds,
+                # A mandate's card says how long until results: its own estimate, else its deadline, else its worker time.
+                wall = values.wall_seconds or (values.deadline_minutes * 60 if values.deadline_minutes else values.worker_seconds)
+                request.update(plan=values.plan, wall_seconds=wall, worker_seconds=values.worker_seconds,
                                coding_workspaces=values.coding_workspaces, meanwhile=values.meanwhile)
                 named = list(dict.fromkeys([*values.hypothesis_ids, *(run.hypothesis_id for run in values.runs if run.hypothesis_id)]))
                 for identity in named:
@@ -760,10 +765,23 @@ class CommandService:
                     request["runs"] = [run.model_dump(exclude_none=True, exclude={"schema_version"}) for run in values.runs]
                     planned = experiment_plan(self.workspace, command.campaign_id, request["runs"])
                 coding = f" and opens {values.coding_workspaces} coding workspace{'s' if values.coding_workspaces > 1 else ''}" if values.coding_workspaces else ""
-                title, approve = f"Start this work now? About {_minutes(values.wall_seconds)} until results", "Start now"
-                proposal = (f"{asker} asks to start: {values.plan}\nIt takes about {_minutes(values.wall_seconds)} until results and uses up to "
-                    f"{_minutes(values.worker_seconds)} of worker time{coding}.\nMeanwhile: {values.meanwhile}" +
-                    (f"\nIt covers only the work for {', '.join(named)}." if named else ""))
+                if values.kind == "mandate":
+                    from .mandates import LABELS, OPTIONS as options
+                    request.update(template=values.template, model_usd=values.model_usd, deadline_minutes=values.deadline_minutes,
+                                   stop_when=values.stop_when.model_dump(exclude={"schema_version"}) if values.stop_when else None)
+                    label = LABELS[values.template]
+                    title, approve = f"Approve a {label} mandate for this request? About {_minutes(wall)} until results", "Approve"
+                    proposal = (f"{asker} proposes a {label} mandate for this request: {values.plan}\nEnvelope: up to {_minutes(values.worker_seconds)} "
+                        f"of worker time{coding}" + (f" and ${values.model_usd:g} of model spend" if values.model_usd is not None else "") + ". "
+                        + (f"Deadline: {_minutes(values.deadline_minutes * 60)} after you approve. " if values.deadline_minutes else "No deadline. ")
+                        + (f"It stops when: {values.stop_when.text}" if values.stop_when else "")
+                        + (f"\nMeanwhile: {values.meanwhile}" if values.meanwhile else "")
+                        + (f"\nIt covers only the work for {', '.join(named)}." if named else ""))
+                else:
+                    title, approve = f"Start this work now? About {_minutes(values.wall_seconds)} until results", "Start now"
+                    proposal = (f"{asker} asks to start: {values.plan}\nIt takes about {_minutes(values.wall_seconds)} until results and uses up to "
+                        f"{_minutes(values.worker_seconds)} of worker time{coding}.\nMeanwhile: {values.meanwhile}" +
+                        (f"\nIt covers only the work for {', '.join(named)}." if named else ""))
                 from .compute_consent import request_root
                 root = request_root(self.workspace, command.origin)
             else:
@@ -780,7 +798,8 @@ class CommandService:
             decision = {"id": "approval_" + command.id, "campaign_id": command.campaign_id, "charter_version": campaign["version"],
                 "guidance_revision": self.workspace.memory.state(command.campaign_id)["guidance_revision"],
                 "question": title, "title": title, "rationale": values.rationale, "context": values.rationale, "proposal": proposal,
-                "options": [{"id": "0", "label": approve, "description": "The requester starts it at once." if values.kind == "compute" else "Applied at once as your own command."},
+                "options": options or
+                           [{"id": "0", "label": approve, "description": "The requester starts it at once." if values.kind == "compute" else "Applied at once as your own command."},
                             {"id": "1", "label": "Not now" if values.kind == "compute" else "Leave it as it is", "description": "The requester is told and nothing changes."}],
                 "recommendation": "0", "approval_request": request,
                 "requested_by": "lead" if self.workspace.pi.owns(command.campaign_id) else "manager", "audience": "researcher",

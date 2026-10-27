@@ -4,8 +4,9 @@ threshold starts too, with a notice to the researcher that stays in the inbox un
 covers it. Anything longer, and any coding workspace, waits for the researcher's go-ahead, knowing what will run, why, how long
 it takes and what they can do meanwhile.
 
-The agent asks with approval.request (kind compute); the researcher's approval records a compute consent for that plan's
-worker time (and the coding workspaces it opens). The command bus refuses an agent's work-starting command that is not
+The agent proposes a mandate (mandate_propose; approval.request kind mandate, which replaces kind compute for agents); the
+researcher's approval records a compute consent for that plan's worker time (and the coding workspaces it opens) as the mandate's
+compute part. The command bus refuses an agent's work-starting command that is not
 covered (guard) and charges what it starts to the consent, or records the notice (listener); coding workspaces, their
 validations and analysis scripts are checked where they start. The researcher's own commands are never checked, and autopilot's
 compute cap, which the researcher set when switching it on, is autopilot's go-ahead. A request to do some work is not a go-ahead
@@ -86,15 +87,15 @@ def proposals(workspace, operation, payload):
 
 
 def request_root(workspace, origin):
-    """The researcher's request an agent's command descends from: the lead turn's request root, or the one an assistant or page
-    agent was given with its assignment. None when it cannot be told."""
+    """The researcher's request an agent's command descends from: the lead turn's request root, the one an assistant or page
+    agent was given with its assignment, or the researcher's own request on a page agent's page. None when it cannot be told."""
     origin = origin if isinstance(origin, dict) else origin.model_dump() if origin is not None else {}
     run = _record(workspace, origin.get("run_id"), "agent_run")
     if run is None:
         return None
     from optimization_framework.agents.models import LEAD
     agent = _record(workspace, run.get("agent_id"), "agent_session") or {}
-    return workspace.pi.request_root(run) if agent.get("role") == LEAD else agent.get("assignment_origin") or None
+    return workspace.pi.request_root(run) if agent.get("role") == LEAD else agent.get("assignment_origin") or agent.get("desk_root") or None
 
 
 def _record(workspace, identity, kind):
@@ -167,9 +168,9 @@ def refusal(workspace, campaign_id, what, seconds=None, *, hypothesis_ids=(), ro
         state = "No approved plan has time left."
     return (f"{what} would compute for {'about ' + _minutes(seconds) if seconds is not None else 'an unknown time'}, and the researcher "
             f"has not given the go-ahead for it. Nothing that computes for more than {gate} (the researcher's go-ahead threshold), and no "
-            "coding workspace, starts without it, even when a request implies the work. File approval.request with kind compute: plan "
-            "(what will run and why), wall_seconds (how long until results), worker_seconds, coding_workspaces, hypothesis_ids (the proposals it is for), "
-            "meanwhile (what the researcher can do while it runs), and for experiments "
+            "coding workspace, starts without it, even when a request implies the work. Propose the request's mandate with mandate_propose, "
+            "template screen: plan (what will run and why), wall_seconds (how long until results), worker_seconds, coding_workspaces, hypothesis_ids "
+            "(the proposals it is for), meanwhile (what the researcher can do while it runs), and for experiments "
             "runs (each: task_id, hypothesis_id or algorithm, seeds, wall_seconds, max_evaluations, device), so the researcher reads "
             "their measured speed, outputs and disk use; start once they approve. " + state)
 

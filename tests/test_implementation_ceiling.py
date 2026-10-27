@@ -53,7 +53,7 @@ def go_ahead(workspace, campaign_id, hypothesis, seconds):
 
 def test_with_no_ceiling_a_commission_needs_only_the_compute_go_ahead(tmp_path):
     workspace, cid, hypothesis = lab(tmp_path)
-    with pytest.raises(ValueError, match="approval.request with kind compute"):
+    with pytest.raises(ValueError, match="mandate_propose"):
         send(workspace, cid, "build_early", "implementation.commission", commission(hypothesis, 900))
     assert workspace.store.list("implementation_grant", cid) == []
     go_ahead(workspace, cid, hypothesis, 900)
@@ -82,7 +82,7 @@ def test_a_positive_ceiling_still_caps(tmp_path):
 
 def test_an_agent_asking_to_raise_the_allocation_is_sent_to_the_compute_go_ahead(tmp_path):
     workspace, cid, _ = lab(tmp_path, ceiling=60)
-    redirect = r"Ask for a compute go-ahead \(kind compute\) instead; the implementation allocation is only an optional ceiling"
+    redirect = r"Propose a mandate with mandate_propose instead; the implementation allocation is only an optional ceiling"
     for identity, value in (("raise", 600), ("remove", 0)):
         with pytest.raises(ValueError, match=redirect):
             send(workspace, cid, identity, "approval.request", {"kind": "campaign_limits", "rationale": "Room to build",
@@ -96,6 +96,6 @@ def test_an_agent_asking_to_raise_the_allocation_is_sent_to_the_compute_go_ahead
 
 def test_with_no_ceiling_any_raise_is_refused(tmp_path):
     workspace, cid, _ = lab(tmp_path)
-    with pytest.raises(ValueError, match="kind compute"):
+    with pytest.raises(ValueError, match="mandate_propose"):
         send(workspace, cid, "raise", "approval.request", {"kind": "campaign_limits", "rationale": "Room to build",
             "limits": {"implementation_compute_budget_seconds": 600}})

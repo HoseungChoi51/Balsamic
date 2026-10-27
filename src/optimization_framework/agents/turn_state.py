@@ -47,7 +47,21 @@ def common(tools, agent, run):
     else:
         lines.append("Open questions to the researcher: none.")
     lines.append(compute_rule(tools, agent["campaign_id"]))
-    return lines
+    mandate = mandate_line(tools, agent, run)
+    return lines + ([mandate] if mandate else [])
+
+
+def mandate_line(tools, agent, run):
+    """The mandate of the request this turn serves: the active one, else the request's last, else Explore by default (roadmap R2)."""
+    from optimization_framework.campaigns import mandates
+    from optimization_framework.campaigns.compute_consent import request_root
+    root = request_root(tools.workspace, {"run_id": run["id"]})
+    if not root or not root.get("thread_id"):
+        return None
+    found = mandates.active(tools.workspace, agent["campaign_id"], root) or next((mandate for mandate in reversed(mandates.mandates(
+        tools.workspace, agent["campaign_id"])) if mandate.root and mandates.same_root(mandate.root.model_dump(), root)), None)
+    return "Mandate of this request: " + (mandates.describe(tools.workspace, found) if found else
+                                           "none: Explore by default (mandate_propose for more).")
 
 
 def compute_rule(tools, campaign_id):

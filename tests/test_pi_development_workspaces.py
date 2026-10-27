@@ -276,7 +276,7 @@ def test_an_agent_opens_a_coding_workspace_only_with_the_researchers_go_ahead(se
     workspace.store.put('hypothesis', {'id': 'hypothesis_other', 'campaign_id': cid, 'title': 'Other method', 'status': 'proposed',
                                        'mechanism': 'Another', 'algorithm': 'custom', 'algorithm_config': {}})
     request = {'hypothesis_id': 'hypothesis_dev', 'objective': 'Implement', 'request_key': 'agent'}
-    with pytest.raises(ValueError, match='approval.request with kind compute'):
+    with pytest.raises(ValueError, match="mandate_propose"):
         development.create(cid, request, actor='lead')
     compute_consent.grant(workspace, {'id': 'decision_go', 'campaign_id': cid},
                           {'plan': 'Implement the method', 'wall_seconds': 3600, 'worker_seconds': 600, 'coding_workspaces': 1})

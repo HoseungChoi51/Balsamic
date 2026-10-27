@@ -31,13 +31,13 @@ def run(task, seconds):
 def test_an_agent_starts_nothing_over_the_go_ahead_threshold_without_the_researchers_go_ahead(lab):
     workspace, campaign, task = lab
     cid = campaign["id"]
-    with pytest.raises(ValueError, match="approval.request with kind compute") as refused:
+    with pytest.raises(ValueError, match="mandate_propose") as refused:
         send(workspace, cid, "screen_1", "trial.create", run(task, 590))
     assert "about 10 min" in str(refused.value) and "more than 5 min (the researcher's go-ahead threshold)" in str(refused.value)
     assert "even when a request implies the work" in str(refused.value)
     send(workspace, cid, "short_probe", "trial.create", run(task, 30))           # up to the go-ahead threshold needs no go-ahead
     send(workspace, cid, "researcher_run", "trial.create", run(task, 590), actor="researcher")   # the researcher's own run
-    with pytest.raises(ValueError, match="approval.request with kind compute"):
+    with pytest.raises(ValueError, match="mandate_propose"):
         send(workspace, cid, "profile", "runtime.profile", {"task_id": task["id"], "probe_seconds": 300})   # every step, not only experiments
 
     send(workspace, cid, "ask", "approval.request", {"kind": "compute", "plan": "Two screening runs of H13, seeds 0 and 1",
