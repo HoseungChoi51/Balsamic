@@ -1,11 +1,13 @@
-"""HTTP routes for problem charters: start, read, edit, answer, ask, decide, confirm and fork."""
+"""HTTP routes for problem charters: start, read, edit, answer, ask, decide, confirm, fork and export."""
 from __future__ import annotations
 
 from typing import Any
 
+from fastapi import Response
 from pydantic import BaseModel, ConfigDict, Field
 
 from . import charter as mechanics
+from .scaffold import archive
 
 
 class Body(BaseModel):
@@ -108,6 +110,12 @@ def install(app, workspace):
     @app.get("/api/v1/problem-charters/{charter_id}/revisions/{number}")
     def charter_revision(charter_id: str, number: int):
         return charters.revision(charter_id, number)
+
+    @app.get("/api/v1/problem-charters/{charter_id}/revisions/{number}/export.zip")
+    def export(charter_id: str, number: int):
+        """The revision as a standalone Python project (roadmap F1), for the researcher's own tools."""
+        filename, data = archive(charters.revision(charter_id, number)["charter"], number, charter_id=charter_id)
+        return Response(data, media_type="application/zip", headers={"Content-Disposition": f'attachment; filename="{filename}"'})
 
     @app.post("/api/v1/problem-charters/{charter_id}/preview")
     def preview(charter_id: str, body: Changes):
