@@ -37,7 +37,8 @@ const CHECKS: Record<string, string> = { 'assumption.unaccepted': 'assumption to
   'quantity.range': 'value outside its range', 'quantity.kind': 'value of the wrong kind', 'relation.error': 'relation does not compute',
   'variable.bounds': 'bounds missing', 'variable.values': 'values missing', 'variable.shape': 'size unknown', 'variable.missing': 'nothing to optimize',
   'constraint.qualitative': 'rule in words only', 'constraint.violated': 'rule broken', 'constraint.infeasible': 'rules conflict',
-  'objective.missing': 'no objective', 'text.reference': 'text', 'text.literal_mismatch': 'number in the text' };
+  'objective.missing': 'no objective', 'text.reference': 'text', 'text.literal_mismatch': 'number in the text',
+  'evaluator.provided': 'provided by a library', 'evaluator.provided_mismatch': 'library computes another problem' };
 const checkLabel = (code: string) => CHECKS[code] || (code.startsWith('evaluator.') ? 'evaluator' : code.startsWith('instance.') ? 'instance' : code);
 const inUnits = (units?: string) => units && units.trim() && units.trim() !== '1' ? `, in ${units.trim()}` : '';
 
@@ -103,7 +104,9 @@ export function CharterPanel({ charterId, campaignId, version, onChanged, formul
   // A request the formulator has answered with a proposal is shown with that proposal, not as "sent".
   const pending = asked.filter(a => a.revision === c.revision && !c.proposals.some(p => p.asked === a.text));
   const nextId = blocking.length ? blocking[0].key : openQuestions.length ? openQuestions[0].id : null;
-  const warnings = c.findings.filter(f => f.severity !== 'blocking');
+  const warnings = c.findings.filter(f => f.severity !== 'blocking' && f.severity !== 'info');
+  // Facts the checks found that need nothing from anyone, such as an installed library providing the declared problem.
+  const notes = c.findings.filter(f => f.severity === 'info');
   const confirmed = c.status === 'confirmed';
   const why = confirmed ? null : blocking.length ? `${blocking.length} check${blocking.length === 1 ? '' : 's'} to pass first` : openQuestions.length ? `${openQuestions.length} question${openQuestions.length === 1 ? '' : 's'} from the formulator to answer first` : null;
   const variableIndex = (name: string) => doc.variables.findIndex(v => v.name === name);
@@ -121,6 +124,7 @@ export function CharterPanel({ charterId, campaignId, version, onChanged, formul
         {error ? <div className="pill bad" role="alert" data-testid="charter-error">{error}</div> : null}
         {why && !confirmed ? <p className="small muted" data-testid="confirm-why">{why}. Settle each item below; nothing commits until you confirm.</p> : null}
         {doc.summary ? <p className="lede" data-testid="charter-summary">{c.rendered?.summary || doc.summary}</p> : null}
+        {notes.map(f => <div key={f.key} className="finding small" data-testid="charter-note" data-code={f.code}><span className="finding-code">{checkLabel(f.code)}</span> <span className="grow">{f.message}</span></div>)}
         {formulatorModel ? <div className="row small faint" data-testid="formulator-model" style={{ marginTop: 4 }}><span className="finding-code">formulator</span>
           <span>{working ? 'working on' : formulator === 'failed' ? 'failed on' : 'runs on'} <span className="mono">{formulatorModel.name}</span>{formulatorModel.tier ? <> (the "{formulatorModel.tier}" tier; the formulator row under Monitor → Models)</> : null}{formulatorModel.calls != null ? <>, {formulatorModel.calls} call{formulatorModel.calls === 1 ? '' : 's'} so far</> : null}. The model is fixed for this charter; a tier change applies to the next one.</span>
           {working ? <Pill tone="agent">working</Pill> : null}</div> : null}

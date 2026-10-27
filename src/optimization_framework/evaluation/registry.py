@@ -12,11 +12,14 @@ class ProblemRegistry:
     def __init__(self):
         self._loaders: dict[str, Callable] = {}
         self._adapters: dict[str, ProblemAdapter] = {}
+        self._sources: dict[str, dict] = {}
 
     def discover(self):
         for item in entry_points(group="optimization_framework.problems"):
             if item.name not in self._loaders:
                 self.register(item.name, item.load)
+                if item.dist is not None:
+                    self._sources[item.name] = {"distribution": item.dist.name, "version": item.dist.version}
         return self
 
     def register(self, name: str, loader: Callable):
@@ -42,6 +45,10 @@ class ProblemRegistry:
     def ids(self) -> list[str]:
         return sorted(self._loaders)
 
+    def source(self, name: str) -> dict | None:
+        """The distribution and version an entry point came from, when it was discovered from one."""
+        return self._sources.get(name)
+
     def extended(self, adapter):
         """Bind this exact adapter in a caller's scope, including an existing name.
 
@@ -52,6 +59,7 @@ class ProblemRegistry:
         registry._loaders = self._loaders.copy()
         registry._adapters = self._adapters.copy()
         name = adapter.describe().id
+        registry._sources = {key: value for key, value in self._sources.items() if key != name}
         registry._loaders[name] = lambda: lambda: adapter
         registry._adapters[name] = adapter
         return registry
