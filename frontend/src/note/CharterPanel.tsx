@@ -22,7 +22,7 @@ interface CharterView { id: string; title?: string; status: string; revision: nu
   rendered?: Record<string, string>; units_elsewhere?: { about: string[]; message: string }[]; proposals: Proposal[]; charter: { title?: string; text?: string; summary?: string; quantities: Record<string, Quantity>; variables: Variable[]; questions: Question[]; assumptions: { statement: string; accepted?: boolean }[]; waivers: { key: string; reason: string }[] } }
 
 const number = (text: string) => { const v = Number(text.replace(/[,_\s]/g, '')); return Number.isFinite(v) ? v : null; };
-const show = (v: unknown) => v == null ? '' : typeof v === 'number' ? (Math.abs(v) >= 1e4 ? v.toLocaleString('en-US') : String(v)) : String(v);
+const show = (v: unknown) => v == null ? '' : typeof v === 'number' ? (Math.abs(v) >= 1e4 ? v.toLocaleString('en-US') : String(v)) : typeof v === 'object' ? JSON.stringify(v) : String(v);
 /** Digits grouped by thousands as they are typed; anything else (an exponent, a name) is left as written. */
 const group = (text: string) => { const m = /^(\s*-?)(\d[\d,]*)(\.\d*)?(\s*)$/.exec(text); return m ? m[1] + m[2].replace(/,/g, '').replace(/\B(?=(\d{3})+(?!\d))/g, ',') + (m[3] || '') + m[4] : text; };
 const grouped = (v: number) => v.toLocaleString('en-US', { maximumFractionDigits: 12 });
@@ -120,7 +120,7 @@ export function CharterPanel({ charterId, campaignId, version, onChanged, formul
           <span className="grow">The formulator is revising the charter. What you see here may change, so answers, values and choices wait until it has saved its revision; this page updates by itself.</span><Pill tone="agent">working</Pill></div> : null}
         {error ? <div className="pill bad" role="alert" data-testid="charter-error">{error}</div> : null}
         {why && !confirmed ? <p className="small muted" data-testid="confirm-why">{why}. Settle each item below; nothing commits until you confirm.</p> : null}
-        {doc.summary ? <p className="lede">{doc.summary}</p> : null}
+        {doc.summary ? <p className="lede" data-testid="charter-summary">{c.rendered?.summary || doc.summary}</p> : null}
         {formulatorModel ? <div className="row small faint" data-testid="formulator-model" style={{ marginTop: 4 }}><span className="finding-code">formulator</span>
           <span>{working ? 'working on' : formulator === 'failed' ? 'failed on' : 'runs on'} <span className="mono">{formulatorModel.name}</span>{formulatorModel.tier ? <> (the "{formulatorModel.tier}" tier; the formulator row under Monitor → Models)</> : null}{formulatorModel.calls != null ? <>, {formulatorModel.calls} call{formulatorModel.calls === 1 ? '' : 's'} so far</> : null}. The model is fixed for this charter; a tier change applies to the next one.</span>
           {working ? <Pill tone="agent">working</Pill> : null}</div> : null}
@@ -341,11 +341,27 @@ function FindingRow({ finding, doc, values, notes, related = [], busy, edit, pos
   );
 }
 
+/** A value that is not one number (a clock reading, a table of orders) as it is: the material gave it, so it is shown, never an empty number field. */
+function DataValue({ value }: { value: unknown }) {
+  const cell = (v: unknown) => v == null ? '—' : typeof v === 'object' ? JSON.stringify(v) : show(v);
+  if (Array.isArray(value) && value.length && value.every(row => row && typeof row === 'object' && !Array.isArray(row))) {
+    const rows = value as Record<string, unknown>[];
+    const columns = [...new Set(rows.flatMap(row => Object.keys(row)))];
+    return <table className="small" data-testid="data-value"><thead><tr>{columns.map(col => <th key={col}>{col}</th>)}</tr></thead>
+      <tbody>{rows.map((row, i) => <tr key={i}>{columns.map(col => <td key={col}>{cell(row[col])}</td>)}</tr>)}</tbody></table>;
+  }
+  const text = Array.isArray(value) ? value.map(cell).join(', ') : value && typeof value === 'object' ? Object.entries(value).map(([k, v]) => `${k} ${cell(v)}`).join(', ') : cell(value);
+  return <span className="mono small" data-testid="data-value">{text}</span>;
+}
+
 function QuantityRow({ name, quantity: q, computed, error, busy, edit, post }: { name: string; quantity: Quantity; computed: number | null | undefined; error?: string; busy: boolean; edit: (changes: Record<string, unknown>[], rationale: string) => Promise<unknown>; post: (path: string, body: Record<string, unknown>) => Promise<unknown> }) {
   const derived = q.role === 'derived';
+  const value = q.value as unknown;
+  const data = q.kind === 'data' || (value != null && typeof value !== 'number');
   return <tr data-testid="quantity" data-name={name}>
     <td><strong>{name}</strong>{q.description ? <div className="small faint">{q.description}</div> : null}</td>
     <td>{derived ? <span className="mono" title={q.expression || ''}>{computed == null ? <span className="faint">{error || 'not computable yet'}</span> : show(computed)} <span className="faint small">= {q.expression}</span></span>
+      : data ? <DataValue value={value} />
       : <NumberField initial={q.value} onSet={v => edit([{ op: 'set', path: `quantities.${name}.value`, value: v }], `Set ${name} on the Charter page`)} busy={busy} testId={`value-${name}`} width={130} />}
       {!derived && q.range && (q.range[0] != null || q.range[1] != null) ? <div className="small faint">range {show(q.range[0]) || '…'} to {show(q.range[1]) || '…'}</div> : null}</td>
     <td className="small">{q.units && q.units !== '1' ? q.units : ''}</td>

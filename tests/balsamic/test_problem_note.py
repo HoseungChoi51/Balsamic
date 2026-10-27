@@ -39,11 +39,15 @@ def test_problem_note_revisions_are_immutable_and_adopt_hands_the_note_to_the_fo
     created, started = [], []
     monkeypatch.setattr(workspace.problem_imports, "create", lambda values: created.append(values) or {"id": "import_1", "status": "collecting"})
     monkeypatch.setattr(workspace.problem_imports, "start", lambda import_id: started.append(import_id))
+    documents = {}
+    monkeypatch.setattr(workspace.problem_imports, "add_document", lambda import_id, name, raw: documents.update({name: raw.decode()}))
     monkeypatch.setattr(workspace.problem_imports, "sync", lambda import_id: {"id": import_id, "status": "running", "charter_id": None, "error": None, "reply": None})
     outcome = command(client, "problem_note.adopt", "demo", {"note_id": "note_demo", "revision": 2}, formulating["version"])["outcome"]
     assert outcome == {"note_id": "note_demo", "revision": 2, "import_id": "import_1"} and started == ["import_1"]
     assert created[0].title == "Demo" and "## Knobs" in created[0].statement and "fill factor" in created[0].statement and "revision 2" in created[0].notes
     assert "installed problem" not in created[0].statement, "a campaign still formulating runs on nothing installed yet"
+    # Beside the note, the formulator reads the researcher's own words, verbatim: the setup objective and what they told the agents.
+    assert list(documents) == ["researcher.md"] and "## Objective recorded at setup\n\nDesign a deflector with higher efficiency" in documents["researcher.md"]
     note = workspace.store.get("note_demo", "problem_note")
     assert note["status"] == "adopted" and note["adopted_revision"] == 2 and workspace.store.get("demo", "campaign")["problem_note_id"] == "note_demo"
     assert client.get("/api/v1/problem-notes/note_demo").json()["charter"]["status"] == "running"
@@ -51,6 +55,28 @@ def test_problem_note_revisions_are_immutable_and_adopt_hands_the_note_to_the_fo
     # A revision after adoption reopens the draft; the charter is a formulator proposal the researcher confirms separately.
     command(client, "problem_note.revise", "demo", {"note_id": "note_demo", "sections": {"noise": {"text": "fabrication tolerance"}}}, formulating["version"])
     assert workspace.store.get("note_demo", "problem_note")["status"] == "drafting"
+
+
+def test_the_formulator_reads_the_researchers_own_words_verbatim_beside_the_note(workspace, formulating, monkeypatch):
+    from balsamic.notes import service
+    table = "| 주문 | 굽는 시간 | 픽업 시각 |\n| --- | --- | --- |\n| 식빵 | 40분 | 9:05 |\n| 타르트 | 35분 | 6:45 |"
+    def said(i, role, origin, text, **extra):
+        workspace.store.put("message", {"id": f"message_{i}", "campaign_id": "demo", "thread_id": MAIN, "role": role, "origin": origin,
+                                        "content": text, "created_at": f"2026-10-27T02:{i:02d}:00+00:00", **extra})
+    said(1, "assistant", "setup", "What would you like this campaign to find out?", setup_id="setup_1")
+    said(2, "user", "researcher", "손님들이 기다린 시간의 합계가 가장 작아지는 굽는 순서\n\n" + table, setup_id="setup_1")
+    said(3, "assistant", "agent", "Drafted the note.")
+    said(4, "user", "researcher", "Pickup times are soft deadlines.")
+    words = service.researcher_words(workspace, "demo")
+    assert table in words and "What would you like" in words and "soft deadlines" in words
+    assert words.index("What would you like") < words.index(table) < words.index("soft deadlines")
+    assert "Drafted the note." not in words, "the lead's account is the note itself"
+    # Too long: the setup conversation stays, the oldest later messages go, and the document says so.
+    for i in range(5, 9):
+        said(i, "user", "researcher", f"later remark {i} " + "x" * 300)
+    monkeypatch.setattr(service, "WORDS_LIMIT", len(words) + 700)
+    words = service.researcher_words(workspace, "demo")
+    assert table in words and "later remark 8" in words and "soft deadlines" not in words and "older messages are left out" in words
 
 
 def test_note_ask_lookup_and_quick_never_reach_the_bus(client, workspace, formulating):
@@ -130,6 +156,7 @@ def test_adopt_hands_the_formulator_the_installed_problem_the_tasks_run_on(clien
     created = []
     monkeypatch.setattr(workspace.problem_imports, "create", lambda values: created.append(values) or {"id": "import_1", "status": "collecting"})
     monkeypatch.setattr(workspace.problem_imports, "start", lambda import_id: None)
+    monkeypatch.setattr(workspace.problem_imports, "add_document", lambda *args: None)
     command(client, "problem_note.adopt", "demo", {"note_id": "note_demo", "revision": 1}, campaign["version"])
     # The formulator is told what the tasks already run on, with the example whose charter it builds from, and not to ask about it.
     statement = created[0].statement

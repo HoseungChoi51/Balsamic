@@ -120,9 +120,12 @@ def resolve(charter, overrides: dict | None = None) -> dict:
 def show(value, units: str = "", spec: str | None = None) -> str:
     if value is None:
         return "—"
+    if isinstance(value, list) and value and all(isinstance(row, dict) for row in value):
+        # A table in prose reads as what it is; its rows are on the Charter page.
+        return f"a table of {len(value)} rows ({', '.join(dict.fromkeys(key for row in value for key in row))})"
     if isinstance(value, (list, dict)):
         import json
-        text = json.dumps(value)
+        text = json.dumps(value, ensure_ascii=False)
         return text if len(text) <= 80 else text[:77] + "…"
     if isinstance(value, bool):
         text = "yes" if value else "no"

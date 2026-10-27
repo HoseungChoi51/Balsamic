@@ -339,3 +339,21 @@ test('a suggested edit applies computed changes as the researcher, in one click'
   await expect.poll(() => posts.map(p => p.path)).toContain('edit');
   expect(posts.find(p => p.path === 'edit')!.body).toMatchObject({ expected_revision: 2, rationale: 'Discrete variables written as ranges the evaluator rounds', changes: [{ path: 'variables.0.representation', value: 'continuous' }, { path: 'variables.0.lower', value: 1 }, { path: 'variables.0.upper', value: 5 }] });
 });
+
+test('values the material gave that are not one number show as they are, never as empty number fields; the summary reads with values', async ({ page }) => {
+  await mockWorkspace(page, { [`/api/v1/campaigns/${CAMPAIGN_ID}/problem-note`]: f.adoptedNoteView });
+  const view = JSON.parse(JSON.stringify(f.charterView));
+  view.charter.summary = 'Bake the orders in {order_data} from {start_clock}.';
+  view.rendered = { ...view.rendered, summary: 'Bake the orders in a table of 2 rows (name, duration_min) from {"hour": 6, "minute": 0}.' };
+  view.charter.quantities.start_clock = { description: 'Start', kind: 'data', role: 'input', value: { hour: 6, minute: 0 }, expression: null, units: '', range: null, origin: 'source', accepted: false };
+  view.charter.quantities.order_data = { description: 'Orders', kind: 'data', role: 'input', value: [{ name: '식빵', duration_min: 40 }, { name: '타르트', duration_min: 35 }],
+    expression: null, units: '', range: null, origin: 'source', accepted: false };
+  await page.route('**/api/v1/problem-charters/charter_1**', route => route.fulfill({ json: view }));
+  await page.goto(`/#t/${THREAD_ID}/note/charter`);
+  await expect(page.getByTestId('charter-summary')).toHaveText(view.rendered.summary);
+  const orders = page.locator('[data-testid="quantity"][data-name="order_data"]');
+  await expect(orders.getByTestId('data-value')).toContainText('타르트');
+  await expect(orders.getByTestId('data-value').locator('tr')).toHaveCount(3);
+  await expect(orders.locator('input')).toHaveCount(0);
+  await expect(page.locator('[data-testid="quantity"][data-name="start_clock"]').getByTestId('data-value')).toHaveText('hour 6, minute 0');
+});

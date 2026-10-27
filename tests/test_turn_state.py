@@ -49,6 +49,7 @@ def open_gate(env):
     command(env.client, "problem_note.revise", "demo", {"note_id": "note_demo", "sections": FULL}, version(env))
     env.monkeypatch.setattr(w.problem_imports, "create", lambda values: {"id": "import_1", "status": "collecting"})
     env.monkeypatch.setattr(w.problem_imports, "start", lambda import_id: None)
+    env.monkeypatch.setattr(w.problem_imports, "add_document", lambda *args: None)
     command(env.client, "problem_note.adopt", "demo", {"note_id": "note_demo", "revision": w.store.get("note_demo", "problem_note")["current_revision"]}, version(env))
     w.store.put(KIND, {"id": "charter_x", "campaign_id": "demo", "status": "confirmed", "revision": 1, "charter": {}, "created_at": now()})
     note = w.store.get("note_demo", "problem_note"); note["charter_id"] = "charter_x"; w.store.put("problem_note", note)

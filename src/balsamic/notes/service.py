@@ -257,6 +257,42 @@ def markdown(revision, skipped=None):
     return "\n".join(lines)
 
 
+WORDS_LIMIT = 60000
+
+
+def researcher_words(workspace, campaign_id):
+    """The researcher's own words on the campaign so far, verbatim and in time order: the objective recorded at setup, the setup
+    conversation (its questions too, so a short answer reads in context) and every message they sent the agents. The note is the
+    lead's account of these; the formulator reads both, so nothing the researcher said is lost in the retelling. None when there
+    is nothing to read."""
+    campaign = workspace.store.get(campaign_id, "campaign")
+    titles = {thread["id"]: thread.get("title") or thread.get("name") or thread["id"] for thread in workspace.store.list("thread", campaign_id)}
+    said = [m for m in sorted(workspace.store.list("message", campaign_id), key=lambda m: m.get("created_at") or "")
+            if (m.get("content") or "").strip() and (m.get("origin") == "setup" or (m.get("role") == "user" and m.get("origin", "researcher") == "researcher"))]
+
+    def turn(m):
+        who = "Setup assistant" if m.get("origin") == "setup" else "Researcher"
+        return f"**{who}** ({titles.get(m.get('thread_id'), 'no thread')}, {(m.get('created_at') or '')[:16].replace('T', ' ')}):\n\n{m['content'].strip()}\n"
+    head = ["# The researcher's own words", "",
+            "Verbatim and in time order: the setup conversation and the researcher's messages to the agents, before this adoption.", ""]
+    if (campaign.get("objective") or "").strip():
+        head += ["## Objective recorded at setup", "", campaign["objective"].strip(), ""]
+    turns = [turn(m) for m in said]
+    # Too much to read: the setup conversation stays (it states the problem), the oldest later messages go first.
+    left_out = 0
+    while turns and len("\n".join(head + turns)) > WORDS_LIMIT:
+        later = next((i for i, m in enumerate(said) if not m.get("setup_id")), None)
+        if later is None:
+            break
+        del turns[later], said[later]
+        left_out += 1
+    if left_out:
+        head += [f"({left_out} older messages are left out for length.)", ""]
+    if not turns and len(head) == 4:
+        return None
+    return "\n".join(head + (["## Conversation", ""] if turns else []) + turns)[:WORDS_LIMIT]
+
+
 def adopt(workspace, identity, revision_number, *, actor):
     if actor != "researcher":
         raise ValueError("Only the researcher adopts the note")
@@ -275,6 +311,9 @@ def adopt(workspace, identity, revision_number, *, actor):
     # The installed problem the tasks already run on goes with the note: the formulator builds on it instead of asking whether to.
     statement = markdown(revision, held_skips(workspace, note)) + "\n\n" + installed.statement(installed.problems_of(workspace, note["campaign_id"]))
     record = imports.create(ImportCreate(title=revision["title"][:200], statement=statement.strip()[:50000], notes=f"Adopted from problem note {identity} revision {revision_number}"))
+    words = researcher_words(workspace, note["campaign_id"])
+    if words:
+        imports.add_document(record["id"], "researcher.md", words.encode())
     imports.start(record["id"])
     with workspace.lock:
         note = workspace.store.get(identity, "problem_note")

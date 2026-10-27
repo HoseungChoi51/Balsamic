@@ -44,6 +44,7 @@ def adopted(client, workspace, formulating, team, monkeypatch):
     """The researcher's case: a note adopted with its objective alone, the charter confirmed, the tasks installed."""
     monkeypatch.setattr(workspace.problem_imports, "create", lambda values: {"id": "import_1", "status": "collecting"})
     monkeypatch.setattr(workspace.problem_imports, "start", lambda import_id: None)
+    monkeypatch.setattr(workspace.problem_imports, "add_document", lambda *args: None)
     monkeypatch.setattr(workspace.problem_imports, "sync", lambda import_id: {"id": import_id, "status": "ready", "charter_id": None, "error": None, "reply": None})
     client.get("/api/v1/campaigns/demo/problem-note")
     command(client, "problem_note.adopt", "demo", {"note_id": "note_demo", "revision": 1}, formulating["version"])

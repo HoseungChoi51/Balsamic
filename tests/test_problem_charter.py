@@ -505,3 +505,9 @@ def test_a_data_quantity_fed_to_a_declared_evaluator_compiles_and_never_breaks_t
     properties = built.configuration_schema["properties"]
     assert properties["rolling_limits"]["type"] == "array" and properties["workload"]["type"] == "object"
     assert built.configuration["rolling_limits"] == [{"window_hours": 5, "limit_tu": 100}]
+
+
+def test_a_table_or_a_clock_in_charter_prose_reads_as_what_it_is():
+    from optimization_framework.problem_charter.charter import show
+    assert show([{"name": "식빵", "duration_min": 40}, {"name": "타르트", "duration_min": 35}]) == "a table of 2 rows (name, duration_min)"
+    assert show({"hour": 6, "minute": 0}) == '{"hour": 6, "minute": 0}' and show(["식빵"]) == '["식빵"]'   # never \uXXXX escapes
