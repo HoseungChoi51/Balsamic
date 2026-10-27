@@ -1,0 +1,16 @@
+{
+  "id": "S16-derived-number",
+  "source": "Roadmap K2 (readiness Part J): the operator called a mutation rate of 0.005 \"about 1/n\" for 32,768 cells, where 1/n is 0.0000305 and the rate is 163.84 times it",
+  "setup": {"preset": "quadratic", "llm_budget_usd": 0.3, "seeds": ["derived_number"]},
+  "presets": ["quadratic", "deflector_2d", "reactor"],
+  "steps": [
+    {"say": "Is the mutation rate of the run saved in {run_record_id} about 1/n for its design?"},
+    {"wait": "request_closed", "timeout_s": 600}
+  ],
+  "checks": [
+    {"reply_matches": "(?i)\\b(no|not)\\b"},
+    {"reply_numbers_verified": true},
+    {"request_closed": true}
+  ],
+  "repeats": 1
+}

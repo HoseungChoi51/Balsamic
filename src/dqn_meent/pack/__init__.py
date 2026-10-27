@@ -1,10 +1,10 @@
 """MEENT's problem pack (decision 17): what the grating problems bring besides their evaluators.
 
-Each roadmap part that adds to it writes a module of its own, ``<part>_<topic>.py`` (``n4_tools.py``: MEENT's agent tools and
-commands, whose code is ``tools.py``), defining ``CONTRIBUTION``, a mapping of ``ProblemPack`` fields. ``pack()`` assembles
-the modules in name order: lists are joined, mappings merged, and a key two modules both set is refused, naming both, so
-parts built in parallel never edit the same file. The roadmap's N3 and N5 to N8 move MEENT's procedures, estimators, racing
-ladder, references and legacy hooks out of the core this way.
+Each roadmap part that adds to it writes a module of its own, ``<part>_<topic>.py`` (``n3_procedures.py``: MEENT's
+procedures and cell labels; ``n4_tools.py``: its agent tools and commands, whose code is ``tools.py``), defining
+``CONTRIBUTION``, a mapping of ``ProblemPack`` fields. ``pack()`` assembles the modules in name order: lists are joined,
+mappings merged, and a key two modules both set is refused, naming both, so parts built in parallel never edit the same
+file. The roadmap's N5 to N8 move MEENT's estimators, racing ladder, references and legacy hooks out of the core this way.
 """
 import importlib
 import pkgutil

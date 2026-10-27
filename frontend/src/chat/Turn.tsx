@@ -1,6 +1,6 @@
 import type { Message } from '../api/types';
 import { Markdown } from './render/Markdown';
-import { Pill, when } from '../primitives/ui';
+import { Pill, UnverifiedNumbers, when } from '../primitives/ui';
 import { formatHash, withThread } from '../router/routes';
 import { useRead } from '../api/queries';
 import type { Panel } from '../api/types';
@@ -34,6 +34,7 @@ export function Turn({ message, thread, aliases, onFork, onEdit }: { message: Me
         {message.refs?.length ? <span className="faint">· {message.refs.length} refs</span> : null}
         {message.merge_of_thread_id ? <Pill>merged branch</Pill> : null}
         {message.edited_from_message_id ? <Pill title="An edited resend; the original stays in the parent thread">edited</Pill> : null}
+        {message.unverified_numbers?.length ? <UnverifiedNumbers numbers={message.unverified_numbers} /> : null}
         {onFork && !lab ? <button className="btn quiet small" onClick={() => onFork(message)} title="Start a branch of the conversation from this message" data-testid="fork-here">Fork here</button> : null}
         {onEdit && user ? <button className="btn quiet small" onClick={() => onEdit(message)} title="Edit and resend as a new branch" data-testid="edit-resend">Edit</button> : null}
       </div>
