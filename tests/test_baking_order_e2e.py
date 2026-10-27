@@ -247,11 +247,10 @@ def lead_turn(workspace, campaign_id, comparisons):
             proposals.append(receipt["outcome"]["hypothesis_id"])
         runs = [{"task_id": task["id"], "hypothesis_id": h, "seeds": SEEDS, "wall_seconds": RUN_SECONDS, "max_evaluations": cap}
                 for h, cap in zip(proposals, EVALUATIONS)]
-        tools("campaign_command", {"operation": "approval.request", "request_key": "plan", "payload": {
-            "kind": "compute", "plan": "Implement the four methods in one coding workspace, then run each on 2 seeds",
-            "rationale": "Compare the four orders at matched cost", "wall_seconds": 1800,
+        tools("mandate_propose", {"template": "screen", "plan": "Implement the four methods in one coding workspace, then run each on "
+            "2 seeds, to compare the four orders at matched cost", "wall_seconds": 1800,
             "worker_seconds": 900 + len(runs) * len(SEEDS) * RUN_SECONDS, "coding_workspaces": 1, "hypothesis_ids": proposals,
-            "meanwhile": "Read the charter's data", "runs": runs}})
+            "meanwhile": "Read the charter's data", "runs": runs})
         reply = "I recorded four proposals and asked for one go-ahead covering the coding workspace and the 8 runs."
         tools("yield_work", {"disposition": "complete", "report": reply, "summary": "proposed and asked", "evidence_ids": []})
         return reply
@@ -345,9 +344,9 @@ def test_the_baking_order_goes_from_a_charter_to_ranked_results(client, workspac
     assert [h["title"] for h in proposals] == [title for title, _ in METHODS]
     assert all(h["requested_by"]["message_id"] == "message_" + ask["id"] for h in proposals), "asked for by the researcher"
 
-    # 3. One compute plan, the workspace and 4 x 2 runs, approved by the researcher's one decision.
+    # 3. One Screen mandate, the workspace and 4 x 2 runs, approved by the researcher's one decision.
     [decision] = [d for d in workspace.store.list("decision", cid) if d.get("status") == "pending"]
-    assert [o["label"] for o in decision["options"]] == ["Start now", "Not now"]
+    assert [o["label"] for o in decision["options"]] == ["Approve", "Approve as Explore only", "Decline"]
     command(client, "decision.resolve", cid, {"decision_id": decision["id"], "choice": "0", "comment": "", "expected_resolution_revision": 0},
             version())
     [consent] = workspace.store.list("compute_consent", cid)
