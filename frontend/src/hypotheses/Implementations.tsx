@@ -76,8 +76,10 @@ function WorkspaceCard({ workspace: w, thread, labels, focused }: { workspace: W
         ...(w.tests ? [['Tests', <span>{testsText(w.tests)} <span className="faint small">at the latest checkpoint</span></span>] as [string, React.ReactNode]] : []),
         ['CPU', w.cpu_budget_seconds ? <div style={{ maxWidth: 260 }}><Meter total={w.cpu_budget_seconds} segments={[{ value: used, tone: used >= w.cpu_budget_seconds ? 'bad' : 'info', title: `${used.toFixed(0)} s used` }]} label="CPU used of the allowance" />
           <span className="small faint">{used.toFixed(0)} of {w.cpu_budget_seconds.toFixed(0)} s</span></div> : <span className="small">{used.toFixed(0)} s, no allowance set</span>],
+        ...walls(w),
       ]} />
       {w.error ? <div className="callout attention small" role="alert" data-testid="workspace-error">{w.error}</div> : null}
+      {w.desired_status === 'paused' && w.deadline_at && new Date(w.deadline_at).getTime() <= Date.now() ? <GoOn workspace={w} /> : null}
       {w.questions?.length ? <div className="callout attention small" data-testid="workspace-question"><strong>The coding agent asks:</strong> {w.questions[0].question}</div> : null}
       {w.outcome ? <OutcomeBox workspace={w} labels={labels} thread={thread} /> : null}
       {latest ? <div className="small" data-testid="workspace-checkpoint" style={{ marginTop: 6 }}>
@@ -91,6 +93,18 @@ function WorkspaceCard({ workspace: w, thread, labels, focused }: { workspace: W
       <History workspace={w} live={live} open={focused} />
     </article>
   );
+}
+
+/** The box's walls: when it pauses, what it may use, and the only hosts it can reach. */
+function walls(w: Workspace): [string, React.ReactNode][] {
+  const rows: [string, React.ReactNode][] = [];
+  if (w.deadline_at) rows.push(['Deadline', <span data-testid="workspace-deadline">{new Date(w.deadline_at).toLocaleString()}
+    {new Date(w.deadline_at).getTime() > Date.now() ? <span className="faint small"> · pauses then, in {minutes(new Date(w.deadline_at).getTime() - Date.now())}</span> : <span className="faint small"> · passed</span>}</span>]);
+  else rows.push(['Deadline', <span className="small" data-testid="workspace-deadline">{w.wall_seconds ? `${minutes(w.wall_seconds * 1000)} from its first start` : 'none'}</span>]);
+  if (w.limits) rows.push(['Limits', <span className="small" data-testid="workspace-limits">{w.limits.cpus} CPUs · {w.limits.memory_gb} GB memory · {w.limits.gpus ? `${w.limits.gpus} GPU${w.limits.gpus > 1 ? 's' : ''}` : 'no GPU'}</span>]);
+  if (w.egress) rows.push(['Network', <span className="small" data-testid="workspace-egress" title="The only hosts the workspace can reach; every other host is refused">
+    only {[...w.egress.model.map(h => `${h} (model)`), ...w.egress.package_index.map(h => `${h} (packages)`), ...w.egress.named.map(h => `${h} (approved)`)].join(', ')}</span>]);
+  return rows;
 }
 
 function History({ workspace: w, live, open: initial }: { workspace: Workspace; live: boolean; open: boolean }) {
@@ -230,6 +244,32 @@ function InstallBox({ workspace: w, submission }: { workspace: Workspace; submis
 }
 
 /** A word to the coding agent: the researcher's instruction takes precedence over the lead's. */
+/** Past its deadline a workspace goes on only with the researcher's new go-ahead: how long it may run from now. */
+function GoOn({ workspace: w }: { workspace: Workspace }) {
+  const [hours, setHours] = useState(1);
+  const [state, setState] = useState<string | null>(null);
+  const queryClient = useQueryClient();
+  const resume = async () => {
+    setState('sending');
+    try {
+      await api(`/api/campaigns/${w.campaign_id}/implementation-workspaces/${w.id}/controls`, { method: 'POST',
+        body: JSON.stringify({ action: 'resume', wall_seconds: hours * 3600, expected_revision: w.control_revision ?? 0, request_key: `researcher-resume-${Date.now()}` }) });
+      setState('resuming');
+      await queryClient.invalidateQueries();
+    } catch (e) { setState(String((e as Error).message || e)); }
+  };
+  return (
+    <div className="row" style={{ marginTop: 6 }} data-testid="workspace-go-on">
+      <span className="small">Let it go on for</span>
+      <select value={hours} onChange={e => setHours(Number(e.target.value))} aria-label="Hours it may run from now">
+        {[1, 2, 4, 8].map(h => <option key={h} value={h}>{h} h</option>)}
+      </select>
+      <button className="btn small" disabled={state === 'sending'} onClick={() => void resume()}>Resume</button>
+      {state && state !== 'sending' ? <span className="small faint">{state}</span> : null}
+    </div>
+  );
+}
+
 function MessageAgent({ workspace: w }: { workspace: Workspace }) {
   const [text, setText] = useState('');
   const [state, setState] = useState<string | null>(null);

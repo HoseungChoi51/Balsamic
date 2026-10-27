@@ -314,3 +314,21 @@ def test_a_consent_stays_in_force_while_its_workspace_builds_and_for_three_wall_
     assert compute_consent.consents(workspace, cid) == []
     with pytest.raises(ValueError, match="No approved plan has time left"):
         compute_consent.require(workspace, cid, "A run", 590, hypothesis_ids=["H1"])
+
+
+def test_the_hosts_a_coding_workspace_reaches_beyond_its_model_and_index_are_approved_with_the_plan(lab):
+    workspace, campaign, task = lab
+    cid = campaign["id"]
+    ask = {"kind": "compute", "plan": "A coding workspace for H13", "rationale": "Build H13", "wall_seconds": 3600,
+           "worker_seconds": 600, "coding_workspaces": 1, "meanwhile": "Read the results", "egress_hosts": ["github.com"]}
+    with pytest.raises(ValueError, match="egress_hosts are for the coding workspaces"):
+        send(workspace, cid, "ask_none", "approval.request", {**ask, "coding_workspaces": 0})
+    with pytest.raises(ValueError, match="lowercase DNS name"):
+        send(workspace, cid, "ask_url", "approval.request", {**ask, "egress_hosts": ["https://github.com/x"]})
+    send(workspace, cid, "ask", "approval.request", ask)
+    decision = workspace.store.list("decision", cid)[-1]
+    assert "Its coding workspaces may also reach github.com, beyond their model and the package index." in decision["proposal"]
+    send(workspace, cid, "approve", "decision.resolve", {"decision_id": decision["id"], "choice": "0", "comment": "",
+        "expected_resolution_revision": 0}, actor="researcher")
+    [consent] = workspace.store.list("compute_consent", cid)
+    assert consent["egress_hosts"] == ["github.com"] and consent["used_wall_seconds"] == 0

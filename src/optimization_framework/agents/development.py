@@ -9,9 +9,17 @@ from typing import Literal
 
 from pydantic import Field, model_validator
 from optimization_framework.contracts.base import Contract, content_hash, field_names, lenient
+from optimization_framework.contracts.commands import HOSTNAME
 from optimization_framework.storage.sqlite import atomic_json, now
-from .development_runtime import IMAGE, LEGACY_MODEL, DockerWorkspace
+from .development_runtime import IMAGE, LEGACY_MODEL, LIMITS, DockerWorkspace, ceilings, egress
 from .models import LEAD, NOTICE
+
+
+class WorkspaceLimits(Contract):
+    """What the box's container may use, within the researcher's ceilings (development_runtime.ceilings)."""
+    cpus: float = Field(default=LIMITS["cpus"], gt=0, le=128)
+    memory_gb: float = Field(default=LIMITS["memory_gb"], gt=0, le=1024)
+    gpus: int = Field(default=0, ge=0, le=16)
 
 
 class WorkspaceCreate(Contract):
@@ -22,6 +30,19 @@ class WorkspaceCreate(Contract):
     evidence_ids: list[str] = Field(default_factory=list, max_length=100)
     request_key: str = Field(min_length=1, max_length=200)
     cpu_budget_seconds: float | None = Field(default=None, gt=0, le=86400)
+    # The box's walls (H5): its wall-clock deadline from its first start (an agent's defaults to its go-ahead's wall time),
+    # its limits, and the hosts beyond its model and the package index it may reach (an agent's must be approved with it).
+    wall_seconds: float | None = Field(default=None, gt=0, le=604800)
+    limits: WorkspaceLimits | None = None
+    egress_hosts: list[str] = Field(default_factory=list, max_length=20)
+
+    @model_validator(mode="after")
+    def hostnames(self):
+        import re
+        bad = [host for host in self.egress_hosts if not re.fullmatch(HOSTNAME, host)]
+        if bad:
+            raise ValueError("egress_hosts: name each host by its lowercase DNS name, without scheme, port or path: " + ", ".join(bad))
+        return self
 
 
 class WorkspaceMessage(Contract):
@@ -35,6 +56,8 @@ class WorkspaceControl(Contract):
     action: Literal["pause", "resume", "stop"]
     request_key: str = Field(min_length=1, max_length=200)
     expected_revision: int = Field(ge=0)
+    # resume: a new deadline, this long from now; past the deadline, going on is a new go-ahead and needs one.
+    wall_seconds: float | None = Field(default=None, gt=0, le=604800)
 
 
 class SubmissionManifest(Contract):
@@ -160,6 +183,17 @@ def plain(value):
     return value
 
 
+def past(at):
+    """Whether a recorded time has come."""
+    return bool(at) and datetime.fromisoformat(at) <= datetime.now(timezone.utc)
+
+
+def after(seconds):
+    """The time this many seconds from now, as records keep it."""
+    from datetime import timedelta
+    return (datetime.now(timezone.utc) + timedelta(seconds=seconds)).isoformat()
+
+
 BLOCKED_FAILS_SECONDS = 1800
 LIVE = {"queued", "starting", "running", "resuming", "pausing", "stopping"}
 SUBMISSION_STATES = {"submitted": "delivered", "validating": "validating", "validated": "validated", "needs_revision": "needs_revision"}
@@ -205,8 +239,9 @@ class WorkspaceEnvelope(Contract):
 def request_hash(values):
     """The create request's identity; a request without other proposals hashes as it did before they could be named."""
     dump = values.model_dump()
-    if not dump.get("hypothesis_ids"):
-        dump.pop("hypothesis_ids", None)
+    for key in ("hypothesis_ids", "wall_seconds", "limits", "egress_hosts"):
+        if not dump.get(key):
+            dump.pop(key, None)
     return content_hash(dump)
 
 
@@ -214,7 +249,7 @@ def request_hash(values):
 PUT_EVENTS = {"ready": "development.progress", "agent_start": "development.progress", "agent_settled": "development.progress",
               "message": "development.progress", "tool": "development.progress", "checkpoint": "development.checkpoint"}
 # Events that are errors in their own right; a failed tool call is one when the event says so.
-ERROR_EVENTS = {"bridge_error", "host_blocked", "budget_reached"}
+ERROR_EVENTS = {"bridge_error", "host_blocked", "budget_reached", "deadline_reached"}
 
 
 class DevelopmentWorkspaces:
@@ -265,7 +300,7 @@ class DevelopmentWorkspaces:
         runtime = record.get("runtime") or {}
         events = self.workspace_events(record) if events is None else events
         errors = [e["occurred_at"] for e in events if e["type"] in ERROR_EVENTS or (e["type"] == "tool" and e["payload"].get("error"))]
-        return {**{k: v for k, v in record.items() if k not in {"runtime", "cpu_last", "event_files", "request_hash"}},
+        return {**{k: v for k, v in record.items() if k not in {"runtime", "cpu_last", "wall_last", "event_files", "request_hash"}},
             "hypothesis_ids": record.get("hypothesis_ids") or [record["hypothesis_id"]],
             # Every checkpoint, not only the latest: what the coding agent said it had done, and when.
             "checkpoints": [{"at": e["occurred_at"], **e["payload"]} for e in events if e["type"] == "checkpoint"][-20:],
@@ -342,6 +377,8 @@ class DevelopmentWorkspaces:
                 raise ValueError("Activate the campaign lead agent before creating an implementation workspace")
             # The coding agent runs on the campaign's own model, as its agents do.
             default = (config.get("models") or {}).get("default") or LEGACY_MODEL
+            model = {key: default.get(key) for key in ("provider", "model", "effort")}
+            walls = self.walls(values, consent, model)
             record = {"id": identity, "campaign_id": campaign_id, "hypothesis_id": values.hypothesis_id, "hypothesis_ids": served,
                 "title": hypothesis["title"], "parent_agent_id": config["lead_id"], "created_at": now(),
                 "opened_by": {"actor": actor, **(opener or {})}, "request_root": root,
@@ -350,9 +387,8 @@ class DevelopmentWorkspaces:
                 "objective": values.objective, "evidence_ids": values.evidence_ids,
                 "request_key": values.request_key, "request_hash": request_hash(values),
                 "status": "queued", "desired_status": "running", "control_revision": 0,
-                "guidance_revision": 0, "cpu_budget_seconds": values.cpu_budget_seconds,
-                "model": {key: default.get(key) for key in ("provider", "model", "effort")},
-                "usage": {"container_cpu_seconds": 0, "subscription_calls": 0, "input": 0, "output": 0,
+                "guidance_revision": 0, "cpu_budget_seconds": values.cpu_budget_seconds, "model": model, **walls,
+                "usage": {"container_cpu_seconds": 0, "wall_seconds": 0, "subscription_calls": 0, "input": 0, "output": 0,
                           "billing_mode": "subscription", "api_cost_usd": 0}, "event_files": [], "cursor": 0}
             self.store.put("development_workspace", record, "development.created")
             if actor != "researcher":
@@ -363,6 +399,27 @@ class DevelopmentWorkspaces:
                 "Use campaign_checkpoint for progress, questions, and blockers. Continue authorized development until a concrete submission or genuine blocker.",
                 "request_key": "initial-" + values.request_key, "mode": "follow_up"}, actor=actor)
             return self.public(self.get(campaign_id, identity))
+
+    def walls(self, values, consent, model):
+        """The box's walls (H5) from its request, checked: limits within the researcher's ceilings; for an agent, a deadline and
+        hosts within the go-ahead it opens under (its wall time, its approved hosts). Refused before anything is recorded."""
+        limits = (values.limits or WorkspaceLimits()).model_dump(exclude={"schema_version"})
+        if values.limits is None:   # today's default, lowered to the researcher's ceilings
+            limits.update(cpus=min(limits["cpus"], ceilings()["cpus"]), memory_gb=min(limits["memory_gb"], ceilings()["memory_gb"]))
+        over = [f"{key} {limits[key]:g} (ceiling {ceiling:g})" for key, ceiling in ceilings().items() if limits[key] > ceiling]
+        if over:
+            raise ValueError("The workspace's limits are above the researcher's ceilings: " + ", ".join(over) + ". Ask for less, or ask "
+                             "the researcher to raise the ceilings (development_max_cpus, development_max_memory_gb, development_max_gpus)")
+        wall = values.wall_seconds
+        if consent is not None:
+            wall = wall or consent["wall_seconds"]
+            if wall > consent["wall_seconds"]:
+                raise ValueError(f"The workspace's deadline ({wall:.0f} s) is past the go-ahead's wall time ({consent['wall_seconds']:.0f} s)")
+            unapproved = sorted(set(values.egress_hosts) - set(consent.get("egress_hosts") or []))
+            if unapproved:
+                raise ValueError("The go-ahead did not approve these hosts for the workspace: " + ", ".join(unapproved) + ". Name them in "
+                                 "the compute request's egress_hosts, so the researcher approves them with it")
+        return {"limits": limits, "wall_seconds": wall, "deadline_at": None, "egress": egress(model, values.egress_hosts)}
 
     def evidence(self, campaign_id, identity):
         entry = self.store.get_entry(identity)
@@ -426,6 +483,11 @@ class DevelopmentWorkspaces:
                 raise ValueError("Workspace control changed; refresh before continuing")
             if values.action == "resume" and record.get("cpu_budget_seconds") is not None and record["usage"]["container_cpu_seconds"] >= record["cpu_budget_seconds"]:
                 raise ValueError("Development CPU allowance is exhausted; retain the checkpoint and explicitly extend the allowance")
+            if values.action == "resume":
+                if values.wall_seconds is None and past(record.get("deadline_at")):
+                    raise ValueError("The workspace's deadline has passed. Going on is a new go-ahead: resume with wall_seconds, the time it may run from now")
+                if values.wall_seconds is not None:
+                    record.update(wall_seconds=values.wall_seconds, deadline_at=after(values.wall_seconds), deadline_reached=None)
             record.update(desired_status={"resume": "running", "pause": "paused", "stop": "stopped"}[values.action],
                 control_revision=record["control_revision"] + 1, control_requested_at=now(),
                 status="resuming" if values.action == "resume" else "pausing" if values.action == "pause" else "stopping")
@@ -526,6 +588,8 @@ class DevelopmentWorkspaces:
                 record.pop("blocked_since", None)
                 if record["status"] in {"queued", "blocked", "resuming", "stopped"}:
                     record["status"] = "starting"
+                if record.get("wall_seconds") and not record.get("deadline_at"):   # the deadline runs from the box's first start
+                    record["deadline_at"] = after(record["wall_seconds"])
                 self.store.put("development_workspace", record)
                 if recovered:
                     self.event(record, f"host_recovered_{record['cursor']}", "host_recovered", {})
@@ -539,6 +603,7 @@ class DevelopmentWorkspaces:
                 record["usage"]["container_cpu_seconds"] += cpu - old if cpu >= old else cpu
                 record["cpu_last"] = cpu
                 self.store.put("development_workspace", record)
+            self.charge_wall(record)
         # Host-authored commands are mounted read-only in the container.
         for command in self.store.list("development_command", cid):
             if command["workspace_id"] != identity or command["status"] != "queued":
@@ -551,7 +616,9 @@ class DevelopmentWorkspaces:
         record = self.get(cid, identity)
         budget = record.get("cpu_budget_seconds")
         used = record["usage"]["container_cpu_seconds"]
-        if budget is not None and used >= budget and record["desired_status"] == "running":
+        if past(record.get("deadline_at")) and record["desired_status"] == "running":
+            record = self.reach_deadline(record)
+        elif budget is not None and used >= budget and record["desired_status"] == "running":
             with self.workspace.lock:
                 record.update(desired_status="paused", status="pausing", control_requested_at=now(),
                               error="Development CPU allowance reached. Workspace and session are saved.")
@@ -567,7 +634,7 @@ class DevelopmentWorkspaces:
             self.event(record, "budget_warning_" + str(budget), "budget_warning", {"used": used, "budget": budget})
         if record["desired_status"] in {"paused", "stopped"}:
             elapsed = (datetime.now(timezone.utc) - datetime.fromisoformat(record.get("control_requested_at", record["created_at"]))).total_seconds()
-            if record.get("control_acknowledged") or elapsed >= 5 or (budget is not None and used >= budget):
+            if record.get("control_acknowledged") or elapsed >= 5 or (budget is not None and used >= budget) or record.get("deadline_reached"):
                 if record["desired_status"] == "paused":
                     self.driver.pause(record)
                 else:
@@ -577,6 +644,39 @@ class DevelopmentWorkspaces:
                     current["status"] = record["desired_status"]
                     current.pop("control_acknowledged", None)
                     self.store.put("development_workspace", current)
+
+    def charge_wall(self, record):
+        """Count the wall time the box has been running since the last sync, on the workspace and on the go-ahead it opened
+        under (the mandate after R3). A paused, stopped or blocked box is not charged."""
+        at = datetime.now(timezone.utc)
+        running = record["desired_status"] == "running" and record["status"] not in {"queued", "blocked"}
+        last = record.get("wall_last")
+        if running and last:
+            spent = max(0.0, (at - datetime.fromisoformat(last)).total_seconds())
+            record["usage"]["wall_seconds"] = record["usage"].get("wall_seconds", 0) + spent
+            consent_id = (record.get("consent") or {}).get("id")
+            if consent_id and spent:
+                consent = self.store.get(consent_id, "compute_consent")
+                consent["used_wall_seconds"] = consent.get("used_wall_seconds", 0) + spent
+                self.store.put("compute_consent", consent)
+        record["wall_last"] = at.isoformat() if running else None
+        self.store.put("development_workspace", record)
+
+    def reach_deadline(self, record):
+        """At its deadline the box is paused, not removed: its session and worktree are kept, the coding agent's last state is
+        recorded, and whoever opened it and the researcher are told once. Going on is a new go-ahead (control resume)."""
+        with self.workspace.lock:
+            record = self.get(record["campaign_id"], record["id"])
+            last = {"phase": record.get("phase"), "activity": (record.get("activity") or "")[:2000],
+                    "checkpoint": excerpt((record.get("checkpoint") or {}).get("summary")), "tests": record.get("tests")}
+            record.update(desired_status="paused", status="pausing", control_requested_at=now(), deadline_reached=last,
+                          error=f"The workspace reached its deadline ({record['deadline_at'][:16].replace('T', ' ')} UTC) and is paused. "
+                                "Its session and work are saved; going on is a new go-ahead.")
+            self.store.put("development_workspace", record, "development.deadline_reached")
+            self.event(record, "deadline_reached_" + record["deadline_at"], "deadline_reached",
+                       {"deadline_at": record["deadline_at"], "wall_seconds": record.get("wall_seconds"), **last})
+            self.notify(record, "deadline_" + record["deadline_at"], record["error"])
+            return record
 
     def receive(self, record):
         root = self.driver.root(record)
@@ -796,8 +896,8 @@ packages with `python -m pip install --user ...`. Code runs in this workspace's
 container. `/references/flrl` contains the author's reference code when available;
 `/references/paper.txt` and `/references/paper.pdf` contain the supplied paper.
 The host campaign database, private files, protected validation fixtures, and
-Docker socket are outside this environment. Public network access is available;
-new connections to host, TailNet, and private network services are blocked.
+Docker socket are outside this environment. The network reaches only your model's
+endpoint, the package index and the hosts your workspace names; others are refused.
 
 The developer and the campaign lead agent can steer this same session. Explicit
 developer direction takes precedence over conflicting lead-agent guidance. Reread files changed by
@@ -838,7 +938,8 @@ passing (`uv run pytest libraries/<name>`); a proposal then runs by naming its m
 Use a new commit for each repair. Whether the method performs well is for the
 campaign's experiments and the researcher, not something the implementation proves.
 
-This session has no programming wall-clock deadline. Container CPU usage is
-measured separately; an optional development CPU allowance is shown in the
-campaign. Existing experiment and protected validation allocations still apply.
+At its deadline, if it has one (shown in the campaign), the workspace pauses with
+your session saved; checkpoint before it. Container CPU usage is measured
+separately against an optional allowance. Experiment and protected validation
+allocations still apply.
 """

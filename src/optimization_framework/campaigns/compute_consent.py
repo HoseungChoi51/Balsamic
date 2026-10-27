@@ -231,6 +231,7 @@ def grant(workspace, decision, request):
     return workspace.store.put("compute_consent", {"id": identifier("compute_consent"), "campaign_id": decision["campaign_id"],
         "decision_id": decision["id"], "plan": request["plan"], "worker_seconds": request["worker_seconds"],
         "wall_seconds": request["wall_seconds"], "coding_workspaces": request.get("coding_workspaces", 0), "used_seconds": 0.0,
+        "egress_hosts": list(request.get("egress_hosts") or []), "used_wall_seconds": 0.0,
         "used_workspaces": 0, "hypothesis_ids": list(dict.fromkeys(value for value in named if value)), "runs": list(request.get("runs") or []),
         "request_root": decision.get("request_root"), "workspace_ids": [], "launched": [], "granted_at": now(),
         "expires_at": (granted + timedelta(seconds=max(3600, 3 * request["wall_seconds"]))).isoformat()}, "compute.consent_granted")

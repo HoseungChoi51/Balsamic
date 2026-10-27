@@ -746,6 +746,8 @@ class CommandService:
                         raise ValueError(f"Proposal {identity} belongs to another campaign")
                 if values.hypothesis_ids:
                     request["hypothesis_ids"] = list(dict.fromkeys(values.hypothesis_ids))
+                if values.egress_hosts:
+                    request["egress_hosts"] = sorted(set(values.egress_hosts))
                 if values.runs:
                     # The experiments' plan, from the records: what the researcher reads before approving.
                     from .experiment_plan import plan as experiment_plan
@@ -755,7 +757,9 @@ class CommandService:
                 title, approve = f"Start this work now? About {_minutes(values.wall_seconds)} until results", "Start now"
                 proposal = (f"{asker} asks to start: {values.plan}\nIt takes about {_minutes(values.wall_seconds)} until results and uses up to "
                     f"{_minutes(values.worker_seconds)} of worker time{coding}.\nMeanwhile: {values.meanwhile}" +
-                    (f"\nIt covers only the work for {', '.join(named)}." if named else ""))
+                    (f"\nIt covers only the work for {', '.join(named)}." if named else "") +
+                    (f"\nIts coding workspaces may also reach {', '.join(request['egress_hosts'])}, beyond their model and the package index."
+                     if values.egress_hosts else ""))
                 from .compute_consent import request_root
                 root = request_root(self.workspace, command.origin)
             else:

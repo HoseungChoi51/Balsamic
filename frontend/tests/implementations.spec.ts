@@ -47,6 +47,32 @@ test('a coding workspace is a card with what it is for, how it is going and its 
   await expect(card.getByTestId('history-older')).toHaveCount(0);
 });
 
+test('the card shows the workspace\'s walls: its deadline, its limits and the only hosts it can reach', async ({ page }) => {
+  const deadline = new Date(Date.now() + 50 * 60_000).toISOString();
+  await mockWorkspace(page, { [`/api/campaigns/${CAMPAIGN_ID}/implementation-workspaces`]: { enabled: true, workspaces: [
+    { ...workspace, wall_seconds: 3600, deadline_at: deadline, limits: { cpus: 4, memory_gb: 8, gpus: 0 },
+      egress: { model: ['chatgpt.com'], package_index: ['pypi.org', 'files.pythonhosted.org'], named: ['github.com'] } },
+    { ...workspace, id: 'development_paused', title: 'Paused one', status: 'paused', desired_status: 'paused', deadline_at: '2026-10-27T04:10:40Z',
+      error: 'The workspace reached its deadline (2026-10-27 04:10 UTC) and is paused. Its session and work are saved; going on is a new go-ahead.' }] } });
+  await page.goto(`/#t/${THREAD_ID}/hypotheses/implementations`);
+  const card = page.locator(`[data-workspace="${WID}"]`);
+  await expect(card.getByTestId('workspace-deadline')).toContainText(/pauses then, in (49|50) min/);
+  await expect(card.getByTestId('workspace-limits')).toHaveText('4 CPUs · 8 GB memory · no GPU');
+  await expect(card.getByTestId('workspace-egress')).toHaveText('only chatgpt.com (model), pypi.org (packages), files.pythonhosted.org (packages), github.com (approved)');
+  const paused = page.locator('[data-workspace="development_paused"]');
+  await expect(paused.getByTestId('workspace-deadline')).toContainText('passed');
+  await expect(paused.getByTestId('workspace-error')).toContainText('reached its deadline');
+  await expect(card.getByTestId('workspace-go-on')).toHaveCount(0);
+  // Going on is the researcher's new go-ahead: how long it may run from now.
+  let sent: Record<string, unknown> | null = null;
+  await page.route(`**/api/campaigns/${CAMPAIGN_ID}/implementation-workspaces/development_paused/controls`, route => {
+    sent = route.request().postDataJSON(); return route.fulfill({ json: {} });
+  });
+  await paused.getByTestId('workspace-go-on').locator('select').selectOption('2');
+  await paused.getByTestId('workspace-go-on').getByRole('button', { name: 'Resume' }).click();
+  await expect.poll(() => sent).toMatchObject({ action: 'resume', wall_seconds: 7200 });
+});
+
 test('a link to a workspace opens its card with its history', async ({ page }) => {
   await mockWorkspace(page, { [`/api/campaigns/${CAMPAIGN_ID}/implementation-workspaces`]: { enabled: true, workspaces: [workspace] } });
   await page.route(`**/api/campaigns/${CAMPAIGN_ID}/implementation-workspaces/${WID}/timeline**`, route => route.fulfill({ json: { entries, next_before: null } }));

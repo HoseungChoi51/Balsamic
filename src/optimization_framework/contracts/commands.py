@@ -268,6 +268,10 @@ class PlannedRun(Contract):
     device: Literal["cuda", "cpu"] | None = None
 
 
+# A host a coding workspace may reach (agents/development.py), as a lowercase DNS name.
+HOSTNAME = r"^(?=.{1,253}$)[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?(\.[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?)+$"
+
+
 class ApprovalRequestInput(Contract):
     """Ask the researcher for something only they grant. On approval it is applied as the researcher's own command; a compute
     approval is the go-ahead for a plan of work longer than the researcher's go-ahead threshold (campaigns/compute_consent.py)."""
@@ -285,6 +289,8 @@ class ApprovalRequestInput(Contract):
     hypothesis_ids: list[str] = Field(default_factory=list, max_length=50, description="compute: the proposals the plan is for. "
         "The go-ahead then covers only their workspaces, runs and commissions, with those its runs name; work for no proposal is "
         "covered in this request only. A plan that names none covers any work in the campaign")
+    egress_hosts: list[str] = Field(default_factory=list, max_length=20, description="compute: hosts its coding workspaces may reach "
+        "beyond their model and the package index (lowercase DNS names); the researcher approves them with the plan")
     meanwhile: str | None = Field(default=None, min_length=1, max_length=2000, description="compute: what the researcher can do while it runs")
     runs: list[PlannedRun] = Field(default_factory=list, max_length=50, description="compute for experiments: each planned experiment, "
         "so the researcher reads the plan (speed, evaluations, outputs and disk use, measured on earlier runs) before approving")
@@ -297,8 +303,14 @@ class ApprovalRequestInput(Contract):
             raise ValueError("Give exactly the fields of the chosen kind: limits, requirement_id with evidence_ids, workers, or a compute plan")
         if self.kind == "compute" and (self.wall_seconds is None or self.worker_seconds is None or self.meanwhile is None):
             raise ValueError("A compute plan states wall_seconds, worker_seconds and what the researcher can do meanwhile")
-        if (self.runs or self.hypothesis_ids) and self.kind != "compute":
-            raise ValueError("Planned runs and the proposals a plan is for belong to a compute request")
+        if (self.runs or self.hypothesis_ids or self.egress_hosts) and self.kind != "compute":
+            raise ValueError("Planned runs, the proposals a plan is for and the hosts its workspaces reach belong to a compute request")
+        if self.egress_hosts and not self.coding_workspaces:
+            raise ValueError("egress_hosts are for the coding workspaces a plan opens: set coding_workspaces")
+        import re
+        bad = [host for host in self.egress_hosts if not re.fullmatch(HOSTNAME, host)]
+        if bad:
+            raise ValueError("egress_hosts: name each host by its lowercase DNS name, without scheme, port or path: " + ", ".join(bad))
         if set(self.limits) - set(LIMITS):
             raise ValueError("Unknown campaign limit: " + ", ".join(sorted(set(self.limits) - set(LIMITS))))
         if self.kind == "waiver" and not self.evidence_ids:

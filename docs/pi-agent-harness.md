@@ -19,7 +19,23 @@ validation still requires a submitted implementation and an authorized grant.
 The coding agent runs on the campaign's model: the workspace gets that provider's
 sign-in from `auth.json` and, for a custom provider (a LiteLLM router), its endpoint
 from the Pi `models.json`, and refuses a provider on a private address, which the
-container cannot reach. Workspaces are off unless `GRATING_DEVELOPMENT_ENABLED=true`;
+container cannot reach. That sign-in is the only secret in the box; another harness
+added later follows the same rule, and protected fixtures are never mounted.
+
+The box's walls are code (roadmap H5). Its network reaches DNS and only the hosts on
+its record: the model's endpoint, the package index (pypi.org and
+files.pythonhosted.org, or the mirror in `GRATING_PACKAGE_INDEX_URL`) and any host
+the request names (`egress_hosts`; an agent's must be in the go-ahead's
+`egress_hosts`, which the approval card shows). `network.sh` resolves them when the
+container starts, so a host whose addresses change needs a restart. Its limits
+(`limits`: CPUs, memory in GB, GPUs) default to 4 CPUs and 8 GB and stay within the
+researcher's ceilings, the launcher's `development_max_cpus`,
+`development_max_memory_gb` and `development_max_gpus` (no GPU unless set). Its
+deadline (`wall_seconds`, by default the go-ahead's wall time) runs from its first
+start; at the deadline it is paused, not removed, its last state is recorded and
+whoever opened it is told once. The researcher resumes it with a new `wall_seconds`.
+Its running wall time is charged to the go-ahead (`used_wall_seconds`). The card
+shows the deadline, the limits and the hosts. Workspaces are off unless `GRATING_DEVELOPMENT_ENABLED=true`;
 while they are off, the refusal tells the agents to commission the implementation
 and the researcher how to turn workspaces on. Either way the test designer, builders
 and reviewer see the specification alone, so a specification whose name, mechanism

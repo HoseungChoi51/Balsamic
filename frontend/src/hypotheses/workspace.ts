@@ -19,6 +19,8 @@ export interface Workspace {
   opened_by?: { actor?: string; role?: string }; questions?: { id: string; question: string }[];
   phase?: string; tests?: Tests; estimate?: { remaining_minutes: number; given_at: string; source: string };
   outcome?: Outcome | null; finished_at?: string | null; submissions?: Submission[]; installs?: Install[];
+  control_revision?: number; wall_seconds?: number | null; deadline_at?: string | null; limits?: { cpus: number; memory_gb: number; gpus: number };
+  egress?: { model: string[]; package_index: string[]; named: string[] };
 }
 export const LIVE = new Set(['queued', 'starting', 'resuming', 'running', 'pausing', 'stopping']);
 export const VERDICT: Record<string, [string, string]> = { ready: ['ready', 'clear'], ready_with_limits: ['ready, with limits', 'attention'],
