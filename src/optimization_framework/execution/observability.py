@@ -14,7 +14,7 @@ import subprocess
 import threading
 import time
 
-from optimization_framework.evaluation.packs import hook, problem_pack
+from optimization_framework.evaluation.packs import resolve_hook, problem_pack
 from optimization_framework.execution.resources import ACTIVE
 
 
@@ -467,7 +467,7 @@ class ResourceObservability:
         historical = predictions[-1] if predictions else {}
         racing, estimate = (pack.racing, pack.estimators.memory) if pack is not None else (None, None)
         if racing is not None and racing.cost_model and samples:
-            growth = hook(racing.cost_model)
+            growth = resolve_hook(racing.cost_model)
             measured = max(samples, key=lambda row: (growth(row["fidelity"], samples[0]["fidelity"]), row["peak_rss_bytes"]))
         else:
             measured = max(samples, key=lambda row: row["peak_rss_bytes"], default={})
@@ -486,7 +486,7 @@ class ResourceObservability:
                         "fits_now": predicted + headroom <= available if predicted is not None and available is not None else None,
                         "historical_reason": manifest.get("waiting_reason")}
         checks = []
-        estimator = hook(estimate) if estimate else None
+        estimator = resolve_hook(estimate) if estimate else None
         fidelities = manifest.get("fidelities", []) + (racing.memory_checks if racing is not None else [])
         for fidelity in fidelities[:16]:
             if any(row["fidelity"] == fidelity for row in checks):

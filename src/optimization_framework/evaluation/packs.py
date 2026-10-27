@@ -2,14 +2,26 @@
 from __future__ import annotations
 
 from importlib import import_module
+import threading
 
 from optimization_framework.contracts.packs import PackRacing, ProblemPack
+
+
+def resolve_hook(hook: str):
+    """The callable a ``module:attribute`` hook names."""
+    module, attribute = hook.split(":", 1)
+    target = import_module(module)
+    for part in attribute.split("."):
+        target = getattr(target, part)
+    return target
 
 
 class CampaignPacks:
     def __init__(self, workspace, registry=None):
         self.workspace = workspace
         self._registry = registry
+        self._activated: set[str] = set()   # the tool hooks already called in this workspace
+        self._lock = threading.RLock()
 
     @property
     def registry(self):
@@ -20,7 +32,7 @@ class CampaignPacks:
 
     def for_campaign(self, campaign_id) -> list[ProblemPack]:
         """Each pack once, in the order of the campaign's tasks. A task on a generated evaluator, or on a problem that is
-        no longer installed, brings none."""
+        no longer installed, brings none. The packs' tool hooks have run in this workspace when it returns."""
         installed, result = set(self.registry.ids()), []
         for task in self.workspace.current_tasks(campaign_id):
             problem = task.get("problem") or {}
@@ -29,7 +41,25 @@ class CampaignPacks:
             pack = self.registry.pack(problem["definition_id"])
             if pack is not None and pack not in result:
                 result.append(pack)
+        for pack in result:
+            self.activate(pack)
         return result
+
+    def packages(self, campaign_id) -> set[str]:
+        """The packages of the campaign's packs: what a tool or operation a pack registered is keyed by (roadmap N4)."""
+        try:
+            return {pack.package for pack in self.for_campaign(campaign_id)}
+        except KeyError:   # no such campaign (yet)
+            return set()
+
+    def activate(self, pack: ProblemPack):
+        """Call the pack's tool and operation hooks, once each in this workspace: each registers what the pack's campaigns
+        are offered, keyed by the pack's package, and other campaigns are not."""
+        with self._lock:
+            for hook in (*pack.tools.agent_tools, *pack.tools.operations):
+                if hook not in self._activated:
+                    resolve_hook(hook)(self.workspace)
+                    self._activated.add(hook)
 
 
 def problem_pack(definition_id, registry=None) -> ProblemPack | None:
@@ -52,12 +82,3 @@ def racing_for(definition_id, fidelity) -> PackRacing | None:
 def task_racing(task) -> PackRacing | None:
     problem = (task or {}).get("problem") or {}
     return None if (task or {}).get("evaluator_manifest") else racing_for(problem.get("definition_id"), problem.get("fidelity"))
-
-
-def hook(name: str):
-    """The callable a pack's ``module:attribute`` hook names."""
-    module, attribute = name.split(":", 1)
-    value = import_module(module)
-    for part in attribute.split("."):
-        value = getattr(value, part)
-    return value

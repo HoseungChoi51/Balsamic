@@ -18,7 +18,7 @@ from optimization_framework.contracts.base import content_hash
 from optimization_framework.contracts.packs import PackRacing
 from optimization_framework.contracts.racing import RaceCreateInput, RaceControlInput, RaceDecisionInput
 from optimization_framework.contracts.requests import ControlInput, RecipeInput, StudyInput, TrialInput
-from optimization_framework.evaluation.packs import hook, task_racing
+from optimization_framework.evaluation.packs import resolve_hook, task_racing
 from optimization_framework.execution.resources import ACTIVE
 from optimization_framework.storage.sqlite import atomic_json, identifier, now
 
@@ -741,7 +741,7 @@ class AdaptiveRacing:
         racing = self._racing(race)
         if racing is None or not racing.ladder:
             return self._declared_fidelity_plan(race, identity, current, parameters)
-        growth = hook(racing.cost_model)
+        growth = resolve_hook(racing.cost_model)
         accepted = race.get("preflight", {}).get("highest_fidelities", []) or [current]
         highest_accepted = max(accepted, key=lambda fidelity: growth(fidelity, current))
         declared = parameters.get("fidelities", racing.ladder)
