@@ -1,20 +1,39 @@
-"""Compute waits for the researcher's go-ahead: no agent starts anything that computes for more than a minute until the
-researcher has approved it, knowing what will run, why, how long it takes and what they can do meanwhile.
+"""Compute is the researcher's to start, at every step, under two thresholds they set per campaign (campaign.update; by default a
+minute and five minutes of worker time). An agent's work up to the notice threshold starts freely. Work up to the go-ahead
+threshold starts too, with a notice to the researcher that stays in the inbox until they acknowledge it, unless an approved plan
+covers it. Anything longer, and any coding workspace, waits for the researcher's go-ahead, knowing what will run, why, how long
+it takes and what they can do meanwhile.
 
 The agent asks with approval.request (kind compute); the researcher's approval records a compute consent for that plan's
 worker time (and the coding workspaces it opens). The command bus refuses an agent's work-starting command that is not
-covered (guard) and charges what it starts to the consent (listener); coding workspaces and their validations are checked
-where they start. The researcher's own commands are never checked, and autopilot's compute cap, which the researcher set
-when switching it on, is autopilot's go-ahead. A request to do some work is not a go-ahead for its compute.
+covered (guard) and charges what it starts to the consent, or records the notice (listener); coding workspaces, their
+validations and analysis scripts are checked where they start. The researcher's own commands are never checked, and autopilot's
+compute cap, which the researcher set when switching it on, is autopilot's go-ahead. A request to do some work is not a go-ahead
+for its compute.
 """
 from datetime import datetime, timedelta, timezone
 
 from optimization_framework.storage.sqlite import identifier, now
 
-SHORT_SECONDS = 60
+NOTICE_SECONDS, GATE_SECONDS = 60.0, 300.0   # the defaults of a campaign's two thresholds
 UNKNOWN = float("inf")
 SAME = {"trial.create": 60, "trial.continue": 60, "fixed_mask.run": 60, "validation.run": 120, "validation.execute": 120,
         "inference.run": 120, "evaluator.equivalence": 120}
+
+
+# What a notice calls the work an operation starts.
+WORDS = {"trial.create": "a run", "trial.continue": "a run's continuation", "fixed_mask.run": "a fixed-mask run", "draft.launch": "a run from a draft",
+         "validation.run": "a validation", "validation.execute": "a validation", "inference.run": "an inference run",
+         "evaluator.equivalence": "an evaluator equivalence check", "hypothesis.allocate": "an allocation", "intervention.batch": "a batch of work",
+         "runtime.profile": "a runtime profile", "implementation.commission": "an implementation job", "evaluator.commission": "an evaluator job",
+         "implementation.revalidate": "a revalidation", "study.race.create": "a race"}
+
+
+def thresholds(workspace, campaign_id):
+    """The researcher's (notice, go-ahead) thresholds for this campaign, in worker seconds."""
+    campaign = workspace.store.get(campaign_id, "campaign")
+    notice, gate = campaign.get("compute_notice_seconds"), campaign.get("compute_gate_seconds")
+    return (float(NOTICE_SECONDS if notice is None else notice), float(GATE_SECONDS if gate is None else gate))
 
 
 def estimate(workspace, operation, payload):
@@ -66,19 +85,20 @@ def _minutes(seconds):
 
 
 def refusal(workspace, campaign_id, what, seconds=None):
+    gate = _minutes(thresholds(workspace, campaign_id)[1])
     left = [f"{_minutes(row['worker_seconds'] - row['used_seconds'])} of worker time and {row['coding_workspaces'] - row['used_workspaces']} "
             f"coding workspaces for \"{row['plan'][:80]}\"" for row in consents(workspace, campaign_id)]
-    return (f"{what} would compute for {'about ' + _minutes(seconds) if seconds is not None else 'more than a minute'}, and the researcher "
-            "has not given the go-ahead for it. Nothing that computes for more than a minute starts without it, even when a request "
-            "implies the work. File approval.request with kind compute: plan (what will run and why), wall_seconds (how long until "
-            "results), worker_seconds, coding_workspaces, meanwhile (what the researcher can do while it runs), and for experiments "
+    return (f"{what} would compute for {'about ' + _minutes(seconds) if seconds is not None else 'an unknown time'}, and the researcher "
+            f"has not given the go-ahead for it. Nothing that computes for more than {gate} (the researcher's go-ahead threshold), and no "
+            "coding workspace, starts without it, even when a request implies the work. File approval.request with kind compute: plan "
+            "(what will run and why), wall_seconds (how long until results), worker_seconds, coding_workspaces, meanwhile (what the researcher can do while it runs), and for experiments "
             "runs (each: task_id, hypothesis_id or algorithm, seeds, wall_seconds, max_evaluations, device), so the researcher reads "
             "their measured speed, outputs and disk use; start once they approve. " + ("Approved and unused: " + "; ".join(left) + "." if left else "No approved plan has time left."))
 
 
 def require(workspace, campaign_id, what, seconds=0.0, *, coding=0):
-    """The consent that covers this work, or ValueError with the refusal; short work needs none."""
-    if not coding and seconds is not None and seconds <= SHORT_SECONDS:
+    """The consent that covers this work, or ValueError with the refusal; work up to the go-ahead threshold needs none."""
+    if not coding and seconds is not None and seconds <= thresholds(workspace, campaign_id)[1]:
         return None
     consent = covering(workspace, campaign_id, seconds or 0.0, coding=coding)
     if consent is None:
@@ -86,15 +106,33 @@ def require(workspace, campaign_id, what, seconds=0.0, *, coding=0):
     return consent
 
 
-def charge(workspace, campaign_id, seconds=0.0, *, coding=0):
-    """Count started work against the consent that covers it."""
-    if not coding and (seconds is None or seconds <= SHORT_SECONDS):
+def charge(workspace, campaign_id, seconds=0.0, *, coding=0, what="work", origin=None, subjects=()):
+    """Count started work against the consent that covers it. Work between the two thresholds that no consent covers is not
+    charged: it starts with a notice to the researcher (a compute_notice, in the inbox until they acknowledge it)."""
+    if not coding and seconds is None:
+        return
+    notice, gate = thresholds(workspace, campaign_id)
+    if not coding and seconds <= notice:
         return
     with workspace.lock:
-        consent = covering(workspace, campaign_id, seconds or 0.0, coding=coding) or next(iter(consents(workspace, campaign_id)), None)
+        consent = covering(workspace, campaign_id, seconds or 0.0, coding=coding)
+        if consent is None and not coding and seconds <= gate:
+            origin = origin or {}
+            workspace.store.put("compute_notice", {"id": identifier("compute_notice"), "campaign_id": campaign_id, "what": what,
+                "seconds": seconds, "agent_id": origin.get("agent_id"), "thread_id": origin.get("thread_id"), "subjects": list(subjects),
+                "thresholds": {"notice_seconds": notice, "gate_seconds": gate}, "created_at": now()}, "compute.notice")
+            return
+        consent = consent or next(iter(consents(workspace, campaign_id)), None)
         if consent is not None:
             consent.update(used_seconds=consent["used_seconds"] + (seconds or 0.0), used_workspaces=consent["used_workspaces"] + coding)
             workspace.store.put("compute_consent", consent, "compute.consent_used")
+
+
+def _subjects(outcome):
+    """The records a started command names, for the notice's links."""
+    outcome = outcome if isinstance(outcome, dict) else {}
+    found = [outcome[key] for key in ("trial_id", "draft_id", "validation_id", "profile_id", "grant_id") if isinstance(outcome.get(key), str)]
+    return found + [value for value in outcome.get("trial_ids") or [] if isinstance(value, str)]
 
 
 def grant(workspace, decision, request):
@@ -121,7 +159,8 @@ def register(bus):
     def listener(record):
         if record.get("actor") == "manager" and record.get("status") == "completed":
             request = record["request"]
-            charge(workspace, request["campaign_id"], estimate(workspace, request["operation"], request["payload"]))
+            charge(workspace, request["campaign_id"], estimate(workspace, request["operation"], request["payload"]),
+                   what=WORDS.get(request["operation"], request["operation"]), origin=record.get("origin"), subjects=_subjects(record.get("outcome")))
 
     bus.guards.append(guard)
     bus.listeners.append(listener)

@@ -1,5 +1,6 @@
-"""Nothing that computes for more than a minute starts from an agent without the researcher's go-ahead, at any step: the agent
-asks with approval.request (kind compute), the researcher's approval covers that plan's worker time, and nothing beyond it."""
+"""Compute is the researcher's to start, at any step, under two thresholds they set per campaign: an agent's work up to the first
+starts freely, up to the second with a notice in their inbox, and anything longer waits for their go-ahead. The agent asks with
+approval.request (kind compute), the researcher's approval covers that plan's worker time, and nothing beyond it."""
 import pytest
 
 from optimization_framework.contracts.commands import Command
@@ -27,16 +28,17 @@ def run(task, seconds):
     return {"task_id": task["id"], "algorithm": "coordinate", "max_steps": 5, "wall_seconds": seconds}
 
 
-def test_an_agent_starts_nothing_over_a_minute_without_the_researchers_go_ahead(lab):
+def test_an_agent_starts_nothing_over_the_go_ahead_threshold_without_the_researchers_go_ahead(lab):
     workspace, campaign, task = lab
     cid = campaign["id"]
     with pytest.raises(ValueError, match="approval.request with kind compute") as refused:
         send(workspace, cid, "screen_1", "trial.create", run(task, 590))
-    assert "about 10 min" in str(refused.value) and "even when a request implies the work" in str(refused.value)
-    send(workspace, cid, "short_probe", "trial.create", run(task, 30))           # a minute or less needs no go-ahead
+    assert "about 10 min" in str(refused.value) and "more than 5 min (the researcher's go-ahead threshold)" in str(refused.value)
+    assert "even when a request implies the work" in str(refused.value)
+    send(workspace, cid, "short_probe", "trial.create", run(task, 30))           # up to the go-ahead threshold needs no go-ahead
     send(workspace, cid, "researcher_run", "trial.create", run(task, 590), actor="researcher")   # the researcher's own run
     with pytest.raises(ValueError, match="approval.request with kind compute"):
-        send(workspace, cid, "profile", "runtime.profile", {"task_id": task["id"]})   # every step, not only experiments
+        send(workspace, cid, "profile", "runtime.profile", {"task_id": task["id"], "probe_seconds": 300})   # every step, not only experiments
 
     send(workspace, cid, "ask", "approval.request", {"kind": "compute", "plan": "Two screening runs of H13, seeds 0 and 1",
         "rationale": "Screen H13 against H12 at matched cost", "wall_seconds": 600, "worker_seconds": 1200,
@@ -54,6 +56,56 @@ def test_an_agent_starts_nothing_over_a_minute_without_the_researchers_go_ahead(
     assert workspace.store.get(consent["id"], "compute_consent")["used_seconds"] == 1180
     with pytest.raises(ValueError, match="Approved and unused: 20 s of worker time"):
         send(workspace, cid, "screen_4", "trial.create", run(task, 590))
+
+
+def test_work_between_the_thresholds_starts_with_a_notice_that_stays_until_the_researcher_acknowledges_it(lab):
+    from balsamic.monitor.rows import acknowledge, inbox_view
+    workspace, campaign, task = lab
+    cid = campaign["id"]
+    send(workspace, cid, "probe", "trial.create", run(task, 30))              # up to the notice threshold: nothing to say
+    assert workspace.store.list("compute_notice", cid) == []
+    receipt = send(workspace, cid, "screen", "trial.create", run(task, 240))  # four minutes: it starts, with a notice
+    [notice] = workspace.store.list("compute_notice", cid)
+    assert notice["what"] == "a run" and notice["seconds"] == 240 and notice["subjects"] == [receipt["outcome"]["trial_id"]]
+    [item] = inbox_view(workspace, cid)["unacknowledged"]
+    assert item["kind"] == "notice" and item["title"] == "An agent started a run, about 4 min of compute"
+    acknowledge(workspace, cid, [item["key"]])
+    view = inbox_view(workspace, cid)
+    assert view["unacknowledged"] == [] and [row["id"] for row in view["notices"]] == [notice["id"]]   # seen, still listed
+    assert view["thresholds"] == {"notice_seconds": 60.0, "gate_seconds": 300.0}
+    send(workspace, cid, "mine", "trial.create", run(task, 240), actor="researcher")   # the researcher's own run: no notice
+    assert len(workspace.store.list("compute_notice", cid)) == 1
+
+
+def test_work_an_approved_plan_covers_is_charged_to_it_without_a_notice(lab):
+    workspace, campaign, task = lab
+    cid = campaign["id"]
+    send(workspace, cid, "ask", "approval.request", {"kind": "compute", "plan": "Four short screening runs", "rationale": "Screen H13",
+        "wall_seconds": 240, "worker_seconds": 960, "meanwhile": "Read the H12 results"})
+    decision = workspace.store.list("decision", cid)[-1]
+    send(workspace, cid, "approve", "decision.resolve", {"decision_id": decision["id"], "choice": "0", "comment": "",
+        "expected_resolution_revision": 0}, actor="researcher")
+    send(workspace, cid, "screen", "trial.create", run(task, 240))
+    [consent] = workspace.store.list("compute_consent", cid)
+    assert consent["used_seconds"] == 240 and workspace.store.list("compute_notice", cid) == []
+
+
+def test_the_researcher_sets_the_two_thresholds_for_the_campaign(lab):
+    workspace, campaign, task = lab
+    cid = campaign["id"]
+    send(workspace, cid, "tighten", "campaign.update", {"compute_notice_seconds": 0, "compute_gate_seconds": 120,
+        "rationale": "An expensive problem: tell me about every run"}, actor="researcher")
+    with pytest.raises(ValueError, match=r"more than 2 min \(the researcher's go-ahead threshold\)"):
+        send(workspace, cid, "screen", "trial.create", run(task, 240))
+    send(workspace, cid, "probe", "trial.create", run(task, 30))   # a notice threshold of zero: every run comes with a notice
+    assert [row["seconds"] for row in workspace.store.list("compute_notice", cid)] == [30]
+    [amendment] = workspace.store.list("campaign_budget_amendment", cid)
+    assert amendment["limits"] == {"compute_notice_seconds": 0, "compute_gate_seconds": 120} and amendment["authority"] == "researcher"
+    with pytest.raises(ValueError, match="at most the go-ahead threshold"):
+        send(workspace, cid, "inverted", "campaign.update", {"compute_notice_seconds": 600, "rationale": "Inverted"}, actor="researcher")
+    with pytest.raises(ValueError):   # an agent asks for a change with approval.request; it cannot make one
+        send(workspace, cid, "loosen", "campaign.update", {"compute_gate_seconds": 3600, "rationale": "Fewer interruptions"})
+    assert workspace.store.get(cid, "campaign")["compute_gate_seconds"] == 120
 
 
 def test_autopilot_runs_within_the_cap_the_researcher_set(lab):

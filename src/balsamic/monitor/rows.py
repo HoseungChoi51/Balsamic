@@ -12,11 +12,31 @@ def inbox_view(workspace, campaign_id):
     # What the lead closed as no longer holding stays in view with its reason (the latest 30); the researcher can reopen it.
     closed = sorted((row for row in store.list("manager_issue", campaign_id) if row.get("status") == "resolved" and row.get("resolved_by") == "lead"),
                     key=lambda row: row.get("resolved_at") or "")[-30:]
-    items = inbox_items(decisions, issues, questions, closed)
+    notices = compute_notices(workspace, campaign_id)
+    items = inbox_items(decisions, issues, questions, closed, notices)
     seen = set(acknowledged(workspace, campaign_id))
+    from optimization_framework.campaigns.compute_consent import thresholds
+    notice_seconds, gate_seconds = thresholds(workspace, campaign_id)
     return {"decisions": decisions, "issues": issues, "questions": questions,
             "resolved": [row for row in store.list("decision", campaign_id) if row.get("status") == "resolved"][-20:],
-            "closed_by_lead": closed, "unacknowledged": [item for item in items if item["key"] not in seen]}
+            "closed_by_lead": closed, "notices": notices, "thresholds": {"notice_seconds": notice_seconds, "gate_seconds": gate_seconds},
+            "unacknowledged": [item for item in items if item["key"] not in seen]}
+
+
+def compute_notices(workspace, campaign_id, limit=30):
+    """Work an agent started between the researcher's two thresholds, without waiting for their go-ahead (the latest 30), each
+    with who started it."""
+    store = workspace.store
+    roles = {row["id"]: row.get("role") for row in store.list("agent_session", campaign_id)}
+    rows = sorted(store.list("compute_notice", campaign_id), key=lambda row: row.get("created_at") or "")[-limit:]
+    rows = [{**row, "role": roles.get(row.get("agent_id"))} for row in rows]
+    return [{**row, "title": notice_title(row)} for row in rows]
+
+
+def notice_title(row):
+    from optimization_framework.campaigns.compute_consent import _minutes
+    who = "The " + row["role"].replace("_", " ") if row.get("role") else "An agent"
+    return f"{who} started {row['what']}, about {_minutes(float(row['seconds']))} of compute"
 
 
 def _first_line(text, limit=160):
@@ -24,7 +44,7 @@ def _first_line(text, limit=160):
     return line if len(line) <= limit else line[:limit].rsplit(" ", 1)[0] + "…"
 
 
-def inbox_items(decisions, issues, questions, closed):
+def inbox_items(decisions, issues, questions, closed, notices=()):
     """Everything in the inbox, newest first, each under a key that changes when the item changes: what the researcher
     acknowledged once comes back when it is raised again or revised."""
     items = [{"key": f"{row['id']}:{row.get('resolution_revision', 0)}", "kind": "decision", "id": row["id"], "title": _first_line(row.get("title")),
@@ -35,6 +55,7 @@ def inbox_items(decisions, issues, questions, closed):
                "at": row.get("created_at")} for row in questions]
     items += [{"key": f"{row['id']}:{row.get('revision', 1)}", "kind": "closed", "id": row["id"], "title": _first_line(row.get("comment")),
                "at": row.get("resolved_at")} for row in closed]
+    items += [{"key": row["id"], "kind": "notice", "id": row["id"], "title": notice_title(row), "at": row.get("created_at")} for row in notices]
     return sorted(items, key=lambda item: item["at"] or "", reverse=True)
 
 
@@ -49,7 +70,7 @@ def acknowledge(workspace, campaign_id, keys):
     """Record that the researcher saw these inbox items; only keys of items still in the inbox are kept."""
     from optimization_framework.storage.sqlite import now
     view = inbox_view(workspace, campaign_id)
-    live = {item["key"] for item in inbox_items(view["decisions"], view["issues"], view["questions"], view["closed_by_lead"])}
+    live = {item["key"] for item in inbox_items(view["decisions"], view["issues"], view["questions"], view["closed_by_lead"], view["notices"])}
     keys = sorted(live & (set(acknowledged(workspace, campaign_id)) | set(keys)))
     return workspace.store.put("inbox_seen", {"id": f"inbox_seen_{campaign_id}", "campaign_id": campaign_id, "keys": keys[-500:],
                                               "updated_at": now()}, "inbox.acknowledged")

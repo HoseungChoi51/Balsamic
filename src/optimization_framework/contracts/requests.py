@@ -108,6 +108,10 @@ class CampaignUpdate(Model):
     delegated_trial_seconds: float | None = Field(default=None, gt=0, le=86400)
     validation_reserve_seconds: float | None = Field(default=None, ge=0)
     implementation_compute_budget_seconds: float | None = Field(default=None, ge=0, le=604800)
+    # The researcher's compute thresholds (campaigns/compute_consent.py): an agent's work longer than the first starts with a notice
+    # to them, longer than the second waits for their go-ahead.
+    compute_notice_seconds: float | None = Field(default=None, ge=0, le=86400)
+    compute_gate_seconds: float | None = Field(default=None, gt=0, le=86400)
 
 
 class TrialInput(Model):

@@ -444,7 +444,8 @@ class DevelopmentWorkspaces:
             idempotency_key="development-" + content_hash([identity, values.request_key])[:24],
             package=submission["package"], accounting_mode="execution_v1")
         if actor != "researcher":
-            compute_consent.charge(self.workspace, campaign_id, values.compute_seconds)
+            compute_consent.charge(self.workspace, campaign_id, values.compute_seconds, what="a validation of a coding workspace's submission",
+                                   subjects=[identity])
         submission.update(grant_id=grant["id"], status="validating")
         self.store.put("development_submission", submission, "development.validation_requested")
         return {"submission_id": submission["id"], "grant_id": grant["id"]}

@@ -252,7 +252,8 @@ class JournalCompactionRequestInput(JournalCompactInput):
     rationale: str = Field(min_length=1, max_length=4000)
 
 
-LIMITS = ("compute_budget_seconds", "llm_budget_usd", "delegated_trial_seconds", "implementation_compute_budget_seconds", "validation_reserve_seconds")
+LIMITS = ("compute_budget_seconds", "llm_budget_usd", "delegated_trial_seconds", "implementation_compute_budget_seconds", "validation_reserve_seconds",
+          "compute_notice_seconds", "compute_gate_seconds")
 
 
 class PlannedRun(Contract):
@@ -269,7 +270,7 @@ class PlannedRun(Contract):
 
 class ApprovalRequestInput(Contract):
     """Ask the researcher for something only they grant. On approval it is applied as the researcher's own command; a compute
-    approval is the go-ahead for a plan of work that computes for more than a minute (campaigns/compute_consent.py)."""
+    approval is the go-ahead for a plan of work longer than the researcher's go-ahead threshold (campaigns/compute_consent.py)."""
     kind: Literal["campaign_limits", "waiver", "worker_ceiling", "compute"]
     rationale: str = Field(min_length=1, max_length=5000, description="What the change makes possible and the measurement behind it")
     limits: dict[str, float] = Field(default_factory=dict, description="campaign_limits: the new value of each limit to change, among " + ", ".join(LIMITS))

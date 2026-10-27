@@ -350,17 +350,30 @@ researcher's own command (`campaign.update`, `validation.waive` or `workers.set`
 changes nothing. A changed worker ceiling holds until the services restart, when the launcher
 configuration's `workers` applies again. The per-experiment limit may be set up to 86,400 s.
 
-So is compute, at every step (`campaigns/compute_consent.py`). No agent starts anything that computes
-for more than a minute (a run, an allocation, a runtime profile, a validation, an implementation job,
-a race, a coding workspace) until the researcher has given the go-ahead, even when a request implies the
-work. The agent files `approval.request` kind `compute`: the plan (what runs and why), how long until
-results, the worker time, any coding workspaces, and what the researcher can do meanwhile. The inbox
-asks "Start this work now?" with the time until results; Start now records a consent for that worker
-time (and those workspaces), which the work it starts is charged against, for at most an hour or three
-times the stated wall time; Not now changes nothing. The command bus refuses an agent's work-starting
-command that no consent covers and names what is left; coding workspaces and their validations are
-checked where they start. The researcher's own commands are never checked, and autopilot runs within
-the compute cap the researcher set when switching it on. The per-experiment limit still applies.
+So is compute, at every step (`campaigns/compute_consent.py`), under two thresholds the researcher
+sets per campaign on Monitor, Resources (`campaign.update`: `compute_notice_seconds`, by default a
+minute, and `compute_gate_seconds`, by default five minutes; the notice threshold is at most the
+go-ahead threshold). They count the worker time of each thing an agent starts: a run, an allocation, a
+runtime profile, a validation, an implementation job, a race, an analysis script.
+
+- Up to the notice threshold, it starts freely.
+- Up to the go-ahead threshold, it starts and a `compute_notice` goes to the inbox ("The experiment
+  operator started a run, about 4 min of compute"). It stays in front of the researcher until they
+  acknowledge it, and listed in the inbox after. Work an approved plan covers is charged to that plan
+  instead, without a notice.
+- Longer, and any coding workspace, waits for the researcher's go-ahead, even when a request implies
+  the work. The agent files `approval.request` kind `compute`: the plan (what runs and why), how long
+  until results, the worker time, any coding workspaces, and what the researcher can do meanwhile.
+  The inbox asks "Start this work now?" with the time until results; Start now records a consent for
+  that worker time (and those workspaces), which the work it starts is charged against, for at most
+  an hour or three times the stated wall time; Not now changes nothing.
+
+The command bus refuses an agent's work-starting command over the go-ahead threshold that no consent
+covers and names what is left; coding workspaces, their validations and analysis scripts are checked
+where they start. Every standing agent's state block states the two thresholds. The researcher's own
+commands are never checked, and autopilot runs within the compute cap the researcher set when
+switching it on. The per-experiment limit still applies. An agent may ask for other thresholds with
+`approval.request` kind `campaign_limits`; it cannot set them.
 
 For experiments, the request lists its `runs`: per run, the task, the hypothesis or method, seeds, wall
 time, evaluation cap and device. The workspace computes their plan from the records

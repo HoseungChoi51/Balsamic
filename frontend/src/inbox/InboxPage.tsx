@@ -4,8 +4,9 @@ import { useQueryClient } from '@tanstack/react-query';
 import type { PageProps } from '../shell/StagePanel';
 import { useInbox, useSummary } from '../api/queries';
 import { send } from '../commands/bus';
-import { Empty, Failed, Loading, Pill, Section, when } from '../primitives/ui';
-import type { Decision, Issue, Question } from '../api/types';
+import { Empty, Failed, Loading, Pill, Section, duration, when } from '../primitives/ui';
+import type { ComputeNotice, ComputeThresholds, Decision, Issue, Question } from '../api/types';
+import { formatHash } from '../router/routes';
 import { ExtensionDialog, isExtensionDialog } from '../chat/ExtensionDialog';
 import { Composer } from '../chat/Composer';
 import { Markdown } from '../chat/render/Markdown';
@@ -24,6 +25,7 @@ export default function InboxPage({ campaignId, route }: PageProps) {
   if (inbox.error) return <Failed error={inbox.error} />;
   const { decisions, issues, questions, resolved } = inbox.data;
   const closed = inbox.data.closed_by_lead || [];
+  const notices = inbox.data.notices || [];
   const unseen = inbox.data.unacknowledged || [];
   const fresh = new Set(unseen.map(item => item.id));
   return (
@@ -42,6 +44,9 @@ export default function InboxPage({ campaignId, route }: PageProps) {
       {closed.length ? <Section title={`Closed by the lead (${closed.length})`}>
         <p className="why">Issues the lead found no longer hold, with its reason. Reopen one if you disagree.</p>
         {closed.slice().reverse().map(i => <ClosedIssue key={i.id} issue={i} version={version} campaignId={campaignId} onDone={after} isNew={fresh.has(i.id)} thread={route.thread} />)}</Section> : null}
+      {notices.length ? <Section title={`Started with a notice (${notices.length})`}>
+        <Thresholds thresholds={inbox.data.thresholds} thread={route.thread} />
+        {notices.slice().reverse().map(n => <NoticeRow key={n.id} notice={n} isNew={fresh.has(n.id)} thread={route.thread} />)}</Section> : null}
       {resolved.length ? <Section title="Recently resolved">{resolved.slice(-10).reverse().map(d => <div key={d.id} className="row small"><span className="grow">{d.title}</span><Pill>{String(d.choice ?? d.status)}</Pill><span className="faint">{when(d.resolved_at)}</span></div>)}</Section> : null}
     </div>
   );
@@ -97,6 +102,27 @@ function IssueCard({ issue, version, campaignId, onDone, isNew, thread }: { issu
       {actions.length ? <div className="faint small">{actions.map(item => `${item.label}: ${item.description}`).join(' ')}</div> : null}
       {error ? <div className="pill bad">{error}</div> : null}
     </article>
+  );
+}
+
+/** The researcher's two thresholds, said where their effect shows; they change them on Monitor, Resources. */
+function Thresholds({ thresholds, thread }: { thresholds?: ComputeThresholds; thread: string | null }) {
+  if (!thresholds) return null;
+  return (
+    <p className="why" data-testid="compute-thresholds">Agents start work of up to {duration(thresholds.gate_seconds)} without waiting for you; whatever is longer than {duration(thresholds.notice_seconds)} is listed here.
+      Longer than {duration(thresholds.gate_seconds)}, and any coding workspace, waits for your go-ahead. <a href={formatHash({ page: 'monitor', sub: 'resources' }, thread)}>Change the thresholds</a></p>
+  );
+}
+
+function NoticeRow({ notice, isNew, thread }: { notice: ComputeNotice; isNew: boolean; thread: string | null }) {
+  const trial = notice.subjects.find(id => id.startsWith('trial_'));
+  return (
+    <div className="row small" data-testid="compute-notice">
+      {isNew ? NEW : null}
+      <span className="grow">{notice.title}
+        {trial ? <> · <a href={formatHash({ page: 'experiments', id: trial, sel: trial }, thread)} className="mono">{trial}</a></> : null}</span>
+      <span className="faint">{when(notice.created_at)}</span>
+    </div>
   );
 }
 

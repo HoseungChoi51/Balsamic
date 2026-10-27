@@ -457,6 +457,9 @@ class Workspace:
                     tasks_changed = any(any(existing_tasks[task.id].get(key) != value
                         for key, value in task.model_dump(mode="json", exclude={"id"}).items()) for task in request.tasks)
             proposed = {**campaign, **changes}
+            from optimization_framework.campaigns.compute_consent import GATE_SECONDS, NOTICE_SECONDS
+            if proposed.get("compute_notice_seconds", NOTICE_SECONDS) > proposed.get("compute_gate_seconds", GATE_SECONDS):
+                raise ValueError("The notice threshold is at most the go-ahead threshold")
             if proposed["validation_reserve_seconds"] > proposed["compute_budget_seconds"]:
                 raise ValueError("Validation reserve exceeds compute budget")
             used_reserved = self.allocated_seconds(campaign_id)

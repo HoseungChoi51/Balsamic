@@ -104,6 +104,9 @@ def test_turn_state_reflects_changes_immediately(env):
     assert state["lead"].startswith(HEADER) and "Gate: closed. Next: complete the problem note (#note). Not written yet: Knobs" in state["lead"]
     assert "Autopilot: off." in state["lead"] and "Library" not in state["lead"] and "Turn: a request" in state["lead"]
     assert "experiment rules (revision 0)" in state["experiment_operator"] and "balanced resource level" in state["resource_planner"]
+    rule = ("Compute thresholds (the researcher's): work up to 60 s starts freely; up to 5 min, it starts with a notice to them; "
+            "longer than 5 min (the go-ahead threshold), and any coding workspace, waits for their go-ahead.")
+    assert all(rule in text for text in state.values()), "every standing agent reads the researcher's compute thresholds"
     expected = {"gate closed -> open": ("lead", "Gate: open; the problem is defined."), "autopilot off -> on": ("lead", "Autopilot: on, cap 600 worker seconds"),
                 "a library entry added": ("lead", "Library (strategies that won earlier campaigns of this problem): Winner (library_winner, best 0.91, same problem"),
                 "an experiment-rules revision": ("experiment_operator", "Short runs are allotted less than 900 seconds"),

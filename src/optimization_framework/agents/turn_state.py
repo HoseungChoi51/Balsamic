@@ -46,7 +46,17 @@ def common(tools, agent, run):
         lines += [f"- {q['id']}: {one_line(q.get('question'))}" for q in pending[:QUESTIONS]]
     else:
         lines.append("Open questions to the researcher: none.")
+    lines.append(compute_rule(tools, agent["campaign_id"]))
     return lines
+
+
+def compute_rule(tools, campaign_id):
+    """The researcher's two compute thresholds, as they set them for this campaign."""
+    from optimization_framework.campaigns.compute_consent import _minutes, thresholds
+    notice, gate = thresholds(tools.workspace, campaign_id)
+    return (f"Compute thresholds (the researcher's): work up to {_minutes(notice)} starts freely; "
+            + (f"up to {_minutes(gate)}, it starts with a notice to them; " if gate > notice else "")
+            + f"longer than {_minutes(gate)} (the go-ahead threshold), and any coding workspace, waits for their go-ahead.")
 
 
 def experiment_rules(tools, agent):

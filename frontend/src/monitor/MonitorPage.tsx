@@ -68,6 +68,7 @@ function Resources({ campaignId }: { campaignId: string }) {
           ['GPU', gpus.length ? gpus.map(([name, g]) => `${name}: ${String(g.utilization_percent)} %`).join(' · ') : <span className="faint">not reported</span>], ['Workers', `${String(busy ?? '?')} running of ${String(limit ?? '?')}`]]} />
       </Section>
       {data.slots ? <SlotSettings slots={data.slots as SlotsView} gpuReported={gpus.length > 0} /> : null}
+      <ComputeThresholds campaignId={campaignId} />
       <Section title="Resource level" right={<span className="small faint">yours alone; agents plan within it{admission.set_by ? ` · set by ${String(admission.set_by)} ${when(admission.updated_at)}` : ''}</span>}>
         <div className="level-grid" data-testid="resource-levels" data-level={level}>
           {levels.map(option => <button key={option.id} type="button" className={'level' + (level === option.id ? ' chosen' : '')} aria-pressed={level === option.id} onClick={() => setLevel(option.id)} data-testid={`level-${option.id}`}>
@@ -209,6 +210,46 @@ function Guidance({ campaignId }: { campaignId: string }) {
       </Section>
       <Section title="Notes">{guidance.data.notes.length ? guidance.data.notes.slice().reverse().map(n => <div key={String(n.id)} className="small" style={{ marginBottom: 6 }}><Pill>{String(n.kind)}</Pill> {String(n.content).slice(0, 300)} <span className="faint">{when(n.created_at)}</span></div>) : <Empty>No note yet.</Empty>}</Section>
     </>
+  );
+}
+
+const NOTICE_SECONDS = 60, GATE_SECONDS = 300;   // the defaults (campaigns/compute_consent.py)
+
+/** The researcher's two compute thresholds for this campaign: an agent's work longer than the first starts with a notice in the
+ * inbox, longer than the second (and any coding workspace) waits for their go-ahead. A campaign limit, set with campaign.update. */
+function ComputeThresholds({ campaignId }: { campaignId: string }) {
+  const summary = useSummary(campaignId);
+  const queryClient = useQueryClient();
+  const campaign = summary.data?.campaign;
+  const savedNotice = Number(campaign?.compute_notice_seconds ?? NOTICE_SECONDS), savedGate = Number(campaign?.compute_gate_seconds ?? GATE_SECONDS);
+  const [notice, setNotice] = useState<number | null>(null);
+  const [gate, setGate] = useState<number | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  if (!campaign) return null;
+  const noticeMinutes = notice ?? savedNotice / 60, gateMinutes = gate ?? savedGate / 60;
+  const changed = noticeMinutes * 60 !== savedNotice || gateMinutes * 60 !== savedGate;
+  const apply = async () => {
+    setError(null);
+    try {
+      await send({ operation: 'campaign.update', campaignId, expectedRevision: campaign.version, payload: {
+        compute_notice_seconds: Math.round(noticeMinutes * 60), compute_gate_seconds: Math.round(gateMinutes * 60), rationale: 'Compute thresholds set on the Resources page' } });
+      setNotice(null); setGate(null);
+      await queryClient.invalidateQueries({ queryKey: ['summary', campaignId] });
+      await queryClient.invalidateQueries({ queryKey: ['inbox', campaignId] });
+    } catch (e) { setError(String((e as Error).message || e)); }
+  };
+  return (
+    <Section title="Compute thresholds" right={<span className="small faint">yours, for this campaign; agents' work only, never your own</span>}>
+      <p className="small" data-testid="thresholds-now">Now: up to {duration(savedNotice)} starts freely; up to {duration(savedGate)} starts with a notice in your inbox; longer waits for your go-ahead.</p>
+      <div className="row wrap" style={{ gap: 12 }}>
+        <label className="small">Notice above <input type="number" min={0} step={0.5} value={noticeMinutes} onChange={e => setNotice(Number(e.target.value))} style={{ width: 70 }} data-testid="threshold-notice" /> min</label>
+        <label className="small">Go-ahead above <input type="number" min={0.5} step={0.5} value={gateMinutes} onChange={e => setGate(Number(e.target.value))} style={{ width: 70 }} data-testid="threshold-gate" /> min</label>
+        <button className="btn small primary" disabled={!changed || noticeMinutes > gateMinutes} onClick={() => void apply()} data-testid="thresholds-apply">Apply</button>
+      </div>
+      <p className="why">Worker time of each thing an agent starts: a run, a profile, a validation, an implementation job, an analysis script. A coding workspace always waits for your go-ahead, and work an approved plan covers starts without a notice.
+        {noticeMinutes > gateMinutes ? ' The notice threshold cannot be above the go-ahead threshold.' : ''}</p>
+      {error ? <div className="pill bad">{error}</div> : null}
+    </Section>
   );
 }
 

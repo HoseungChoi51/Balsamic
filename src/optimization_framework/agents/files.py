@@ -186,8 +186,11 @@ def analysis_run(tools, agent, args):
     seconds = min(args.get("seconds", 60), ANALYSIS_SECONDS_PER_CAMPAIGN - used)
     if seconds <= 0:
         raise ValueError(f"This campaign's agents have used their {ANALYSIS_SECONDS_PER_CAMPAIGN:g} s of analysis time")
+    from optimization_framework.campaigns import compute_consent   # an analysis is compute like any other, under the researcher's thresholds
+    compute_consent.require(tools.workspace, agent["campaign_id"], "An analysis script", seconds)
     if not shutil.which("bwrap"):
         raise ValueError("Sandboxed analysis requires bubblewrap on this server")
+    compute_consent.charge(tools.workspace, agent["campaign_id"], seconds, what="an analysis script", origin={"agent_id": agent["id"]})
     command = ["bwrap", "--die-with-parent", "--unshare-all", "--new-session", "--proc", "/proc", "--dev", "/dev", "--tmpfs", "/tmp"]
     for root in dict.fromkeys(["/usr", "/lib", "/lib64", "/bin", *interpreter(), str(REPOSITORY / "src")]):
         if Path(root).exists():

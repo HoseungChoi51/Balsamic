@@ -513,6 +513,16 @@ open("result.txt", "w").write("kept")
     assert 'error' in invoke(prepared, 'analysis_run', {'path': '../look.py'}, 'outside')
 
 
+def test_an_analysis_is_compute_under_the_researchers_thresholds(prepared):
+    from optimization_framework.contracts.requests import CampaignUpdate
+    w, c, *_ = prepared
+    w.update_campaign(c['id'], CampaignUpdate(compute_gate_seconds=120))
+    invoke(prepared, 'workspace_write', {'path': 'long.py', 'content': 'print(1)\n'}, 'write')
+    refused = invoke(prepared, 'analysis_run', {'path': 'long.py', 'seconds': 240}, 'long')
+    assert "An analysis script would compute for about 4 min" in refused['error'] and "go-ahead threshold" in refused['error']
+    assert w.store.list('compute_notice', c['id']) == []
+
+
 def test_what_only_the_researcher_grants_is_asked_for_and_applied_on_approval(prepared, monkeypatch):
     w, c, *_ = prepared
     cid = c['id']

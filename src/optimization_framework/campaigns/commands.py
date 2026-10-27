@@ -59,7 +59,7 @@ class CommandService:
         self.listeners = []
         # Checked before an agent's command runs: guard(command, actor, campaign) raises to refuse (autopilot's cap).
         self.guards = []
-        # Nothing that computes for more than a minute starts from an agent without the researcher's go-ahead.
+        # Nothing that computes longer than the researcher's go-ahead threshold starts from an agent without their go-ahead.
         from .compute_consent import register as register_compute_consent
         register_compute_consent(self)
         # Set by the service layer: thread_revision(command) -> the current revision of the command's origin thread.
@@ -377,7 +377,7 @@ class CommandService:
                 campaign = self.workspace.update_campaign(command.campaign_id,
                     CampaignUpdate(**values.model_dump(exclude={"rationale"}, exclude_none=True)))
                 limits = ("compute_budget_seconds", "llm_budget_usd", "delegated_trial_seconds",
-                    "validation_reserve_seconds", "implementation_compute_budget_seconds")
+                    "validation_reserve_seconds", "implementation_compute_budget_seconds", "compute_notice_seconds", "compute_gate_seconds")
                 changed = [key for key in limits if previous.get(key) != campaign.get(key)]
                 if changed:
                     self.store.put_immutable("campaign_budget_amendment", {
