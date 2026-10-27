@@ -68,11 +68,11 @@ repeat what a page shows: link the page instead, as a Markdown link to a target 
 The campaign database is authoritative: read campaign_inspect first and after the researcher acts, read evidence on demand, cite
 exact record ids. Only a tool result is a receipt. Derive a number with compute or a script, never mental arithmetic.
 Compute is the researcher's to start, at every step: before a coding workspace, or anything longer than their go-ahead threshold
-(runs, profiles, validations, jobs, analyses), file approval.request kind compute saying what runs, why, how long, and what they
-can do meanwhile; start it once approved, never silently. "Implement and compare" is one request naming the coding workspace,
-any evaluator, the proposals and runs: Balsamic installs, binds and starts the approved runs. Never ask the researcher to run
-commands. Limits, budgets, waivers and the worker ceiling are theirs too: file approval.request with the measurement behind it;
-ask scientific choices with researcher_ask. Never fabricate validation.
+(runs, profiles, validations, jobs, analyses), propose a mandate (mandate_propose) saying what runs, why, how long, and
+what they can do meanwhile; start it once approved, never silently. "Implement and compare" is one mandate naming the
+coding workspace, any evaluator, the proposals and runs: Balsamic installs, binds and starts the approved runs. Never ask the
+researcher to run commands. Limits, budgets, waivers and the worker ceiling are theirs too: file approval.request with the
+measurement behind it; ask scientific choices with researcher_ask. Never fabricate validation.
 """
 # The lead's own contract: coordination and delegation. The workspace adds its briefing (workspace.lead_instructions).
 LEAD_CONTRACT = """You are the lead agent. Three agents are in charge of a page for the whole campaign: the discussion moderator (review rounds
@@ -395,6 +395,21 @@ TOOLS = {
     "lead_ask": ("Ask the lead agent something your work needs and the records do not answer, such as the reasoning behind a proposal or "
         "what the researcher meant. Its answer comes back to you as a notice; call yield_work(waiting) until then.",
         obj({"question": S}, ["question"])),
+    "mandate_propose": ("Propose what the researcher's request allows, its mandate, before starting work beyond Explore. template: answer "
+        "(reads and answers, starts nothing), explore (work up to the researcher's go-ahead threshold in total, no coding workspace; the "
+        "default when none is proposed), screen (the proposals, coding workspaces and runs the plan names, with their minutes), run_campaign "
+        "(every stage within its envelope and deadline). Answer and Explore are granted at once: say so in one line of your reply. Screen and "
+        "run_campaign become one card in the researcher's inbox (approve, approve as Explore only, decline): start once they choose. "
+        "plan: what will run and why, as the researcher reads it; runs: each planned experiment (task_id, hypothesis_id or algorithm, seeds, "
+        "wall_seconds, max_evaluations, device), so they read its measured speed, outputs and disk use.",
+        obj({"template": {"enum": ["answer", "explore", "screen", "run_campaign"]}, "plan": {"type": "string", "minLength": 1, "maxLength": 5000},
+             "hypothesis_ids": {"type": "array", "items": S, "maxItems": 50}, "runs": {"type": "array", "items": {"type": "object"}, "maxItems": 50},
+             "worker_seconds": {"type": "number", "exclusiveMinimum": 0, "maximum": 2419200}, "coding_workspaces": {"type": "integer", "minimum": 0, "maximum": 10},
+             "wall_seconds": {"type": "number", "exclusiveMinimum": 0, "maximum": 604800, "description": "How long until the researcher has the results"},
+             "model_usd": {"type": "number", "minimum": 0, "maximum": 10000}, "deadline_minutes": {"type": "number", "exclusiveMinimum": 0, "maximum": 40320},
+             "stop_when": obj({"text": S, "machine": {"enum": ["all_runs_terminal"]}}, ["text"]),
+             "meanwhile": {"type": "string", "minLength": 1, "maxLength": 2000, "description": "What the researcher can do while it runs"}},
+            ["template", "plan"])),
     "researcher_ask": ("Save a concrete researcher question and stop for its answer only when required. The researcher sees question, "
         "suggestion and options in the Inbox and answers in a click or a line. Ask only for what the researcher can do (the words to send, "
         "the approval to grant, an Inbox button), never for a \"platform owner\" or an interface you do not know exists; when nothing the "
@@ -478,10 +493,10 @@ class PiTools:
         if agent["role"] == LEAD:
             # A status read is the lead's own (experiment_progress); a decision about runs goes to the operator.
             names |= {"delegate", "agent_message", "agent_cancel", "command_schema", "campaign_command", "researcher_ask", "report_write", "report_answer",
-                      "page_agent_message", "experiment_progress", *implementation}
+                      "page_agent_message", "experiment_progress", "mandate_propose", *implementation}
         if agent["role"] in PAGE_AGENTS:
             # Each page agent runs the commands of its page (ROLE_OPERATIONS), and can ask the researcher or the lead.
-            names |= {"command_schema", "campaign_command", "researcher_ask", "lead_ask"}
+            names |= {"command_schema", "campaign_command", "researcher_ask", "lead_ask", "mandate_propose"}
             if agent["role"] == "experiment_operator":
                 names |= {"experiment_progress", "config_suggest"}
             if agent["role"] == "discussion_moderator":
@@ -773,6 +788,29 @@ class PiTools:
             return ""
         return (f"{operation} is the work of {PAGE_AGENT_NAMES[owner]}: ask it with page_agent_message (page_agent: {owner}), saying what to do "
                 f"and naming the records; its result comes back to you, and the researcher follows it on #{PAGE_AGENTS[owner]}.")
+
+    def propose_mandate(self, agent, run, args, identity):
+        """mandate_propose (roadmap R2): Answer and Explore are granted at once; Screen and Run the campaign are filed as one card, an
+        approval.request of kind mandate, through the bus like any command of this turn. A page agent the lead asked proposes for the
+        lead's request, the mandate the lead works under; one the researcher asked on its page proposes its own (decision 12)."""
+        from optimization_framework.campaigns import mandates
+        from optimization_framework.campaigns.compute_consent import request_root
+        root = request_root(self.workspace, {"run_id": run["id"]})
+        if not root or not root.get("thread_id"):
+            raise ValueError("This turn serves no researcher request, so there is no mandate to propose.")
+        values = {key: args[key] for key in ("plan", "hypothesis_ids", "runs", "worker_seconds", "coding_workspaces", "model_usd",
+                                             "deadline_minutes", "stop_when") if args.get(key) is not None}
+        if args["template"] in {"answer", "explore"}:
+            mandate = mandates.propose(self.workspace, agent["campaign_id"], args["template"], root, **values)
+            return {"mandate_id": mandate.id, "status": "active", "granted_by": "automatic", "mandate": mandates.describe(self.workspace, mandate),
+                    "next": "Granted at once. Say so in one line of your reply, and start the work."}
+        payload = {"kind": "mandate", "template": args["template"], "rationale": args["plan"],
+                   **{key: value for key, value in values.items()}, **({"wall_seconds": args["wall_seconds"]} if args.get("wall_seconds") else {}),
+                   **({"meanwhile": args["meanwhile"]} if args.get("meanwhile") else {})}
+        receipt = self._execute(agent, run, "campaign_command", {"operation": "approval.request", "payload": payload,
+                                "request_key": "mandate_" + identity, "rationale": args["plan"][:500]}, identity)
+        return {**receipt, "status": "proposed", "page": "#inbox",
+                "next": "One card waits in the researcher's inbox. Tell them in one line and call yield_work(waiting); their choice wakes you."}
 
     def guidance_pin(self, run):
         """The guidance revision a run's commands are prepared against: the one its turn started from, or the newest that a
@@ -1124,6 +1162,9 @@ class PiTools:
         if name == "campaign_command":
             if self.page_work(agent, name, args):
                 raise ValueError(self.page_work(agent, name, args))
+            if args["operation"] == "approval.request" and isinstance(args["payload"], dict) and args["payload"].get("kind") == "compute":
+                raise ValueError("A compute go-ahead is now a mandate: propose it with mandate_propose (template screen), with the same plan, "
+                                 "worker_seconds, coding_workspaces, hypothesis_ids and runs.")
             campaign = self.store.get(cid, "campaign")
             command_id = "pi_command_" + content_hash([cid, args["operation"], args["request_key"]])[:32]
             # Unknown top-level payload keys are dropped and reported, a near-miss refused (decision 5); nested objects stay strict.
@@ -1180,6 +1221,8 @@ class PiTools:
             return {"job_id": job["id"], "status": job["status"], "stage": job.get("stage"), "question": job.get("question"), "error": job.get("error"),
                 "report_id": job.get("result_id"), "draft": "/reports/" + job["result_id"] if job.get("result_id") else None, "page": "#reports",
                 "next": "The writer runs by itself. Tell the researcher where to follow it and call yield_work(waiting); its end wakes you."}
+        if name == "mandate_propose":
+            return self.propose_mandate(agent, run, args, identity)
         if name == "researcher_ask":
             return self.store.put("agent_question", {"id": "question_" + identity, "campaign_id": cid, "agent_id": agent["id"],
                 "status": "pending", "created_at": now(), **args}, "agent.question_created")

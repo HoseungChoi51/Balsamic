@@ -12,7 +12,7 @@ proposal's specification and is then used like any third-party method, as `mask-
 Whether the method performs well is a question for experiments and the researcher. The implementation does not have to prove
 it, and no experiment waits for such proof.
 
-Asked to implement methods and compare them, file one compute request (`approval.request` kind compute): the coding workspace
+Asked to implement methods and compare them, propose one Screen mandate (`mandate_propose`, template screen): the coding workspace
 (`coding_workspaces`), any evaluator to commission (in `plan`), the proposals (`hypothesis_ids`) and the runs (`runs`, each:
 task_id, hypothesis_id, seeds, wall_seconds, max_evaluations, device). That one go-ahead covers all of it: building,
 installing, binding and running. Do not ask again at each step, and never ask the researcher to run commands.

@@ -112,7 +112,7 @@ def test_turns_under_a_spent_envelope_hold_with_one_card_and_go_on_once_it_is_ra
     mandate = mandates.grant(workspace, cid, "explore", root=root, model_usd=1.0)
     first.update(status="running"); workspace.store.put("agent_run", first)
     state = PiTools(workspace.pi).turn_state(lead["id"], first["id"])["text"]
-    assert f"Mandate: explore ({mandate.id}); model spend $1.00 left of $1.00." in state
+    assert f"Mandate: explore ({mandate.id}); model spend $1.00 left of $1.00;" in state
     receive(workspace, lead["id"], call(1, 1.0))
     first.update(status="completed"); workspace.store.put("agent_run", first)
     assert mandates.read(workspace, workspace.store.get(mandate.id, "mandate")).status == "exhausted"
@@ -163,4 +163,4 @@ def test_a_mandate_without_an_envelope_never_holds_and_the_state_block_says_the_
     receive(workspace, lead["id"], call(1, 3.0, run_id=first["id"]))
     assert mandates.hold(workspace, cid, root) is None
     state = build(PiTools(workspace.pi), lead, first)["text"]
-    assert f"Mandate: explore ({mandate.id}); model spend without an envelope of its own (the campaign's cap applies)." in state
+    assert f"Mandate: explore ({mandate.id}); model spend without an envelope of its own (the campaign's cap applies);" in state

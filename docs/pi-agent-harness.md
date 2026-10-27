@@ -369,11 +369,16 @@ runtime profile, a validation, an implementation job, a race, an analysis script
   acknowledge it, and listed in the inbox after. Work an approved plan covers is charged to that plan
   instead, without a notice.
 - Longer, and any coding workspace, waits for the researcher's go-ahead, even when a request implies
-  the work. The agent files `approval.request` kind `compute`: the plan (what runs and why), how long
-  until results, the worker time, any coding workspaces, and what the researcher can do meanwhile.
-  The inbox asks "Start this work now?" with the time until results; Start now records a consent for
-  that worker time (and those workspaces), which the work it starts is charged against, for at most
-  an hour or three times the stated wall time; Not now changes nothing.
+  the work. The agent proposes the request's mandate with `mandate_propose` (template `screen` or
+  `run_campaign`; `approval.request` kind `mandate`, which replaces kind `compute` for agents): the plan
+  (what runs and why), how long until results, the worker time, any coding workspaces, a model-spend
+  envelope, a deadline, a stop condition and what the researcher can do meanwhile. The inbox card has
+  three choices. Approve records the mandate with a consent for that worker time (and those
+  workspaces), which the work it starts is charged against, for at most an hour or three times the
+  stated wall time; Approve as Explore only records Explore; Decline changes nothing. An Answer or
+  Explore mandate within the thresholds is granted at once, and a request with none has Explore from
+  its first work-starting command. The state block names the request's mandate and what is left of it.
+  Decisions filed as kind `compute` before mandates stay readable and are resolved as before.
 
 The command bus refuses an agent's work-starting command over the go-ahead threshold that no consent
 covers and names what is left; coding workspaces, their validations and analysis scripts are checked

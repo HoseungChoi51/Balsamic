@@ -241,6 +241,11 @@ class PiController:
         agent.update(request_open=True, requested_by=requested_by, request_changed_at=now())
         if requested_by == "researcher":
             agent.pop("assignment_origin", None)   # answered on the desk, not in a lead request's side conversation
+            # The researcher's request on the page is the agent's own: the root its mandate serves (decision 12).
+            agent["desk_root"] = {"thread_id": (origin or {}).get("thread_id") or "desk_" + agent["role"],
+                                  "message_id": (origin or {}).get("message_id") or "message_" + identity.removeprefix("pi_run_"), "run_id": identity}
+        else:
+            agent.pop("desk_root", None)
         self.store.put("agent_session", agent, "agent.request_opened")
         return self.enqueue(agent, identity, text, mode="steer", origin=origin)
 
@@ -945,7 +950,7 @@ class PiController:
             return None
         with self.store.connection() as db:
             row = db.execute("SELECT json_extract(data,'$.agent_id') FROM records WHERE kind='agent_tool_receipt' AND campaign_id=? "
-                "AND json_extract(data,'$.tool') IN ('campaign_command','implementation_workspace_create','implementation_workspace_validate') "
+                "AND json_extract(data,'$.tool') IN ('campaign_command','mandate_propose','implementation_workspace_create','implementation_workspace_validate') "
                 "AND instr(json_extract(data,'$.result'), ?) > 0 ORDER BY rowid LIMIT 1", (campaign_id, record_id)).fetchone()
         if row and row[0]:
             return self.store.get(row[0], "agent_session")

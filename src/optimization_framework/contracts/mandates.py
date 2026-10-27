@@ -6,7 +6,7 @@ from typing import Literal
 from pydantic import Field
 
 from .base import Contract
-from .commands import PlannedRun
+from .commands import PlannedRun, StopCondition
 
 MandateClass = Literal["answer", "propose", "review", "implement", "run", "validate", "decide", "record", "configure", "ask"]
 TemplateName = Literal["answer", "explore", "screen", "run_campaign"]
@@ -18,12 +18,6 @@ class RequestRoot(Contract):
     thread_id: str
     message_id: str | None = None
     run_id: str | None = None
-
-
-class StopCondition(Contract):
-    """When the request's work is done: in words, and optionally a condition the code can check."""
-    text: str = Field(min_length=1, max_length=2000)
-    machine: Literal["all_runs_terminal"] | None = None
 
 
 class MandateCompute(Contract):

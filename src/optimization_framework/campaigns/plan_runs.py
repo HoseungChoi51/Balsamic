@@ -221,7 +221,7 @@ def _spent(workspace, consent):
     started = sum(1 for index, seed, run in planned(consent) if run_of(workspace.store, consent, run, seed, index))
     _tell(workspace, consent, "spent", f"The go-ahead {consent['decision_id']} (\"{consent['plan'][:120]}\") has no worker time left: "
           f"Balsamic started {started} of its {total} approved runs and stopped there. Ask the researcher for a new go-ahead "
-          "(approval.request, kind compute) for the rest.")
+          "(a mandate, mandate_propose) for the rest.")
 
 
 def _finished(workspace, consent):
