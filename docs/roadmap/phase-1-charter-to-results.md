@@ -1,13 +1,12 @@
-# Plan v2: after the charter, no harder than a script and a local coding agent
+# Phase 1 — Charter to results: no harder than a script and a local coding agent
 
 | Item | Detail |
 |---|---|
-| Target | `kc-ml2/balsamic`, branch `workspace-rebuild` |
-| Date | 2026-10-27 |
-| Replaces | `docs/charter-to-results-plan.md` (`cc0e693`). Same goal, same decisions 1–3, same phases, now split into PR-sized parts and checked against the code at `cc0e693` |
-| Also includes | `docs/suggestions.md` S2 (part A4) and the design review's coding-box proposal (optional track H) |
-| Status | Plan, not started. A1 fixes a live bug. Decisions 1–3 are settled; D4–D9 are open, each with a recommended default |
-| How to work | One part = one branch = one PR into `workspace-rebuild`. Parts in the same wave can run in parallel (§5) |
+| Part of | [The Balsamic roadmap](README.md). Read its §0 (instructions), §1 (principles) and §2 (decisions) first |
+| Replaces | `docs/charter-to-results-plan.md` (`cc0e693`): the same goal, the same decisions 1–3 and the same phases, split into PR-sized parts and checked against the code at `cc0e693` |
+| Also includes | `docs/suggestions.md` S2 (part A4) |
+| Decisions it needs | 4–7 and 9 (README §2.2) |
+| Status | Not started. A1 fixes a live bug: do it first |
 
 ## Summary
 
@@ -21,12 +20,12 @@ Size: S is under about 200 changed lines including tests, M about 200–600, L m
 | A3 | A method that finishes | A method that stops on its own counts as a failed run, and shrinks every method's matched cost | — | M | 1 |
 | A4 | Checkpoints go to whoever opened the workspace, as notices | Every checkpoint wakes the lead with raw JSON (suggestions.md S2) | — | S | 1 |
 | **B** | **One go-ahead per request** (decisions 2 and 3) | | | | |
-| B1 | No concept review for proposals the researcher asked for or approved | The review gate blocks runs the researcher asked for | D7 | S | 1 |
-| B2 | A consent names what it covers | Consents are campaign-wide; nothing records which proposals, workspaces and runs a go-ahead was for | D4 | M | 1 |
+| B1 | No concept review for proposals the researcher asked for or approved | The review gate blocks runs the researcher asked for | decision 7 | S | 1 |
+| B2 | A consent names what it covers | Consents are campaign-wide; nothing records which proposals, workspaces and runs a go-ahead was for | decision 4 | M | 1 |
 | B3 | The implementation allocation becomes an optional ceiling | Every commission needs a separate allocation raise on top of the go-ahead | — | S | 1 |
-| B4 | Proposals are bound to delivered methods automatically | After an install the lead must bind each proposal by hand; binding also voids a concept review | D6 | S–M | 1 |
-| B5 | Approved runs start by themselves | Approved runs wait for the lead to notice the install, bind and launch | B2, B4, D6 | M | 2 |
-| B6 | Unknown fields reported, not refused, at agent boundaries | Two submissions refused for an extra field; agent commands refused the same way | D5 | S–M | 1 |
+| B4 | Proposals are bound to delivered methods automatically | After an install the lead must bind each proposal by hand; binding also voids a concept review | decision 6 | S–M | 1 |
+| B5 | Approved runs start by themselves | Approved runs wait for the lead to notice the install, bind and launch | B2, B4, decision 6 | M | 2 |
+| B6 | Unknown fields reported, not refused, at agent boundaries | Two submissions refused for an extra field; agent commands refused the same way | decision 5 | S–M | 1 |
 | B7 | The lead's instructions and the supervision procedure | Prose still tells the lead to bind and to raise allocations | B1, B2, B4, B5 | S | 4 |
 | **C** | **Problems that are orders** | | | | |
 | C1 | Permutation representation | No permutation type, so built-in random draws invalid orders and fails | — | M | 1 |
@@ -50,37 +49,6 @@ Size: S is under about 200 changed lines including tests, M about 200–600, L m
 | **G** | **End to end** | | | | |
 | G1 | Baking order replayed offline | Nothing checks the whole path | most of A–F (listed in G1) | M | 6 |
 | G2 | The same flow as a live quality scenario | Nothing measures it with a real model | G1 | S | 6 |
-| **H** | **Optional: any coding harness in the workspace** | | | | |
-| H1 | The workspace bridge as an MCP server and a CLI | Only Pi can talk to Balsamic from the container | — (after F4 is best) | M | opt. |
-| H2 | A second harness in the workspace | The coding agent is limited to Pi | H1, D8 | M–L | opt. |
-| H3 | Bring your own session | The researcher cannot deliver from their own coding agent | H1, F2 | M | opt. |
-
----
-
-## 0. Instructions for coding agents (read first)
-
-1. Work on one part at a time. One part = one branch = one PR into `workspace-rebuild`.
-2. Before a part, read §2 (principles), §3 (decisions) and the part itself. Then read its "Read first" files (plan mode recommended).
-3. Line numbers refer to `cc0e693`. Code moves; find it by function name. A path such as `agents/development.py` is under
-   `src/optimization_framework/`; paths starting with `src/balsamic/`, `frontend/`, `tests/`, `docs/` or `agent-harness/` are
-   from the repository root.
-4. If a decision the part depends on is still open (§3), ask Hoseung before implementing.
-5. Write or update the tests first, then implement. A part closes only when every "Done when" item holds.
-6. Live evals follow `docs/suggestions.md` §0.5: the dev profile's default provider (Centinels) needs no approval; any other provider needs Hoseung's.
-7. The core (`src/optimization_framework`) never imports the service layer (`src/balsamic`); see `tests/balsamic/test_layering.py`. For Balsamic-specific behavior the service layer registers a hook on `workspace`.
-8. Prompt text is under the size ratchet in `tests/test_harness_contract.py` (`LEAD_WORDS` and `SPECIALIST_WORDS` + 10%). A part that adds instruction text removes as much elsewhere.
-9. Never ask the researcher to run commands, and never change the live lab by hand. The live checks named below are Hoseung's.
-10. Before opening the PR, rebase on the latest `workspace-rebuild`. Parts that share a file (§5.2) are merged one after another.
-11. When closing a part, add a Part to `docs/lead-agent-readiness.md` in its format (What was wrong / What changed / Checked / Not done). The last one is Part S, so the first new one is Part T.
-12. Commit messages follow the log: `feat(scope): …`, `fix(scope): …`, `docs(scope): …`.
-
-Test commands:
-
-```bash
-GRATING_LLM_DISABLED=true uv run pytest -q          # tests/test_tracking.py is known to be flaky: rerun it alone
-(cd agent-harness && npm test)
-(cd frontend && npx tsc -b && npx playwright test)   # when the UI changes
-```
 
 ---
 
@@ -118,60 +86,18 @@ Every claim of the earlier plan was checked against the code at `cc0e693`. It ho
 |---|---|---|
 | 1 Install | A1, unchanged in scope | In the code: `changed_packages()` returns every removed package, so a reinstall at the same version (`-x==1.0`, `+x==1.0`) counts as a change. `name @ url` lines are not parsed at all |
 | 2 Ranking and finishing | Split into A2 and A3 (different files) | Also `worker.py` L456: `scientific_complete = primary_count >= completion["count"]`, so a finished method would still be reported as censored |
-| 3 One go-ahead | Split into B1–B7 | `covering()` lets any plan's leftover time cover any work (D4). The bus guard already requires a consent for agent commissions, so the separate allocation is a second gate (B3). `_execute` accepts only researcher, manager and autopilot, so automatic binding and launching need a named system actor (D6) |
+| 3 One go-ahead | Split into B1–B7 | `covering()` lets any plan's leftover time cover any work (decision 4). The bus guard already requires a consent for agent commissions, so the separate allocation is a second gate (B3). `_execute` accepts only researcher, manager and autopilot, so automatic binding and launching need a named system actor (decision 6) |
 | 4 Permutations | C1, C2, plus C3 | `CharterPanel.tsx` has no representation picker; it only displays the representation (set by the formulator). `PackagedPlugin.methods()` defaults every library method to `["binary"]` |
 | 5 Plain functions | Split into D1–D3 | The data fix is one line: `EvaluatorManifest.public_configuration_keys` exists, `charter.manifest()` never sets it |
 | 6 Problem libraries | Split into E1–E5 | Optimizer plug-ins already re-check installs every second (`optimizers/plugins.py`); only problems do not. The `evaluator_requirement_satisfaction` record is new |
 | 7 Scaffold and export | Split into F1–F4; the standalone generator and the export need nothing else and can ship first | The coding agent's brief carries only the first proposal (`development.py` L460) and no charter; `DEVELOPMENT_INSTRUCTIONS` names `/references/flrl` and `libraries/grating-mask-search` |
 | 8 End to end | G1, plus a live scenario G2 | — |
 | — | A4 added | suggestions.md S2: `_apply_event` wakes the lead on every checkpoint |
-| — | Track H added (optional) | The design review's coding box: the bridge becomes harness-independent |
+| — | Track H moved to Phase 4 | The design review's coding box: the bridge becomes harness-independent ([phase-4-coding-box.md](phase-4-coding-box.md)) |
 
 ---
 
-## 2. Principles
-
-1. **Three researcher actions.** Confirm, ask, approve. Everything after the go-ahead is Balsamic's, until the comparison.
-2. **Free inside, strict at the walls.** The coding agent and the methods may do anything inside their sandbox. What enters
-   the lab is checked by code: the exact commit, the manifest, the generated tests, conformance, and the comparison of the
-   library's problem with the charter.
-3. **Every automatic step is a receipted action within an approval.** Installing, binding and starting runs are done by a
-   named system actor (`balsamic`), each with a receipt naming the install or the consent it acts under, and never more
-   than the plan approved.
-4. **One meaning per number.** "Best" follows the objective's direction everywhere. A method that finished holds its final
-   value.
-5. **No domain in the generic path.** No grating names, defaults or references in what a new problem goes through.
-6. **Prompts shrink as code takes over.** When code does a step, the prose that told the agent to do it goes.
-
----
-
-## 3. Decisions
-
-### 3.1 Settled (Hoseung, 2026-10-27)
-
-1. **Where the evaluator comes from:** from the library. The coding agent writes the scoring function into the same library
-   as the algorithms. Balsamic generates the boilerplate and the tests from the charter, and once the library is installed
-   the task uses it like any installed problem. No separate evaluator commissioning on the default path.
-2. **Concept review:** it does not gate runs of proposals the researcher asked for or approved. Review happens on request
-   and is shown when done; proposals agents create on their own still need it.
-3. **Approvals:** one go-ahead per request, covering the coding workspace, the evaluator and the runs, with their minutes.
-   Implementation compute counts against it, with no separate allocation to raise. The go-ahead threshold still holds; work
-   beyond what was approved asks again.
-
-### 3.2 Open (Hoseung to confirm)
-
-| ID | Question | Recommended default | Needed by |
-|---|---|---|---|
-| D4 | What a consent covers | Only work for the proposals and workspaces its plan names. A plan that names none stays campaign-wide (today's behavior, and every consent recorded before this change) | B2 |
-| D5 | Where unknown fields are tolerated | Agent paths only: the coding agent's manifest and the top level of agent command payloads. The researcher's HTTP API and nested objects stay strict, and a near-miss is always refused | B6 |
-| D6 | The system actor | `balsamic`, allowed exactly two operations: `implementation.bind_builtin` after an install, and `trial.create` for a run an approved plan lists, under that consent. Every use has a receipt | B4, B5 |
-| D7 | What "asked for" means | A proposal created in a lead turn whose request root (`controller.request_root`) is a researcher message. Not autopilot turns, not notices without such a root | B1 |
-| D8 | Which other coding harnesses, on whose credentials | Claude Code second, on the researcher's own subscription mounted read-only, opt-in per workspace | H2 |
-| D9 | Which generated files the coding agent may change | `charter.json` and `data.py` are fixed (the install refuses edits). Everything else is the agent's; the install lists the generated files it changed | F4 |
-
----
-
-## 4. Parts
+## 2. Parts
 
 ### A1 — Install without a false "needs confirmation"
 
@@ -216,15 +142,16 @@ Every claim of the earlier plan was checked against the code at `cc0e693`. It ho
 **Today**
 - Within a run, `best_objective` is already correct: the worker sorts its archive by `utility` (worker.py L425), and each
   result carries `objective_definition` with its direction (L447).
-- Across runs, every reader takes the largest value: `ledger.py` L91 (`score > best`), `api/evolution.py` L35 (`max`),
-  `panels/service.py` L230 (`max(..., key=best_objective)`), `EvolutionPage.tsx` L83 (`b.best.score - a.best.score`).
+- Across runs, every reader takes the largest value: `ledger.py` L91 (`score > best`), `src/balsamic/api/evolution.py` L35
+  (`max`), `src/balsamic/panels/service.py` L230 (`max(..., key=best_objective)`), `EvolutionPage.tsx` L83
+  (`b.best.score - a.best.score`).
 - `analysis/general.py` method summaries have a mean and a median but no order.
 
 **Change**
 1. Ledger: take the direction from the run's `result.objective_definition` (falling back to its task's primary objective)
    and choose the best with `Objective.better`. Each row's `best` carries `direction`.
-2. `api/evolution.py` `best_so_far` and `panels/service.py` `_chart_points`: the same rule. If a campaign's rows disagree on
-   direction, there is no single best (return `None`), never a mixed comparison.
+2. `src/balsamic/api/evolution.py` `best_so_far` and `src/balsamic/panels/service.py` `_chart_points`: the same rule. If
+   a campaign's rows disagree on direction, there is no single best (return `None`), never a mixed comparison.
 3. `EvolutionPage.tsx`: sort by the row's direction and say "lower is better" beside the column when minimizing.
 4. `analysis/general.py`: each group gets `direction`; each method summary gets `rank` (1 is best by mean under that
    direction; ties share a rank; methods without an observed value have none).
@@ -304,7 +231,7 @@ the horizon at L185–190), `docs/optimizer-plugins.md`.
 
 ### B1 — No concept review for proposals the researcher asked for or approved
 
-**Depends on:** D7. **Size:** S.
+**Depends on:** decision 7. **Size:** S.
 
 **Read first:** `campaigns/proposals.py`, `campaigns/commands.py` L341–352, `src/balsamic/library/service.py` L95–105,
 `campaigns/drafts.py` L84–91, `execution/service.py` L564–576, `agents/controller.py` `request_root()`,
@@ -318,7 +245,7 @@ the horizon at L185–190), `docs/optimizer-plugins.md`.
 
 **Change**
 1. On `hypothesis.create` by the manager: when the command's run (`origin.run_id`) has a request root that is a
-   researcher message (D7), record `requested_by = {thread_id, message_id}`.
+   researcher message (decision 7), record `requested_by = {thread_id, message_id}`.
 2. On the go-ahead of a compute plan (`approvals.resolve`, the `compute` branch), set `approved_by = {decision_id,
    consent_id}` on each proposal the plan names (`hypothesis_ids` from B2, else the `runs[].hypothesis_id` already in the
    request).
@@ -336,7 +263,7 @@ the horizon at L185–190), `docs/optimizer-plugins.md`.
 
 ### B2 — A consent names what it covers
 
-**Depends on:** D4. **Size:** M.
+**Depends on:** decision 4. **Size:** M.
 
 **Read first:** `campaigns/compute_consent.py` (all of it, 166 lines), `campaigns/approvals.py` `resolve()` L30–95,
 `contracts/commands.py` `ApprovalRequestInput` L271–300 and `PlannedRun` L259, `agents/development.py` `create()`.
@@ -353,7 +280,7 @@ the horizon at L185–190), `docs/optimizer-plugins.md`.
 2. `grant()` stores `hypothesis_ids` (plus those its `runs` name), `runs`, the request root of the asking turn, and empty
    `workspace_ids` and `launched` lists.
 3. `charge()` appends what it charged to: workspace ids for coding workspaces, trial ids for runs.
-4. `covering()` and `require()` take the proposals the work is for. Under D4, a consent that names proposals covers only work
+4. `covering()` and `require()` take the proposals the work is for. Under decision 4, a consent that names proposals covers only work
    for them: a workspace whose `hypothesis_ids` it names, a run or commission of a proposal it names. Work for no proposal
    (a runtime profile, a validation) is covered by a consent of the same request root. A consent that names no proposals
    covers anything, as today. Callers pass the proposals: the bus guard (from the payload's `hypothesis_id`, or the draft's),
@@ -400,7 +327,7 @@ the horizon at L185–190), `docs/optimizer-plugins.md`.
 
 ### B4 — Proposals are bound to delivered methods automatically
 
-**Depends on:** D6. **Size:** S–M.
+**Depends on:** decision 6. **Size:** S–M.
 
 **Read first:** `agents/library_install.py` `install()` L195–216, `campaigns/method_catalog.py` (`served()`,
 `methods_for()`, `development_readiness()`), `implementations/builtin.py` (`BuiltinBindingInput`, `bind()`),
@@ -414,7 +341,7 @@ the horizon at L185–190), `docs/optimizer-plugins.md`.
 - `_execute()` accepts only `researcher`, `manager` and `autopilot`.
 
 **Change**
-1. Add the `balsamic` system actor (D6): accepted by `_execute()` for `implementation.bind_builtin` and (B5) `trial.create`
+1. Add the `balsamic` system actor (decision 6): accepted by `_execute()` for `implementation.bind_builtin` and (B5) `trial.create`
    only; `CommandOrigin.actor` gains `"balsamic"`.
 2. After a successful install, for each proposal the submission serves: if exactly one of its methods is installed and
    runnable on a current task (`capability_reason` is `None`), bind it through the bus as `balsamic`, citing the install.
@@ -436,7 +363,7 @@ the horizon at L185–190), `docs/optimizer-plugins.md`.
 
 ### B5 — Approved runs start by themselves
 
-**Depends on:** B2, B4, D6. **Size:** M.
+**Depends on:** B2, B4, decision 6. **Size:** M.
 
 **Read first:** `campaigns/compute_consent.py`, `contracts/commands.py` `PlannedRun`, `agents/development.py` `sync()`
 L428–447, the `trial.create` path in `campaigns/commands.py`, `campaigns/method_catalog.py`.
@@ -469,7 +396,7 @@ install, bind, hand the runs to the operator, and the operator launches.
 
 ### B6 — Unknown fields reported, not refused, at agent boundaries
 
-**Depends on:** D5. **Size:** S–M.
+**Depends on:** decision 5. **Size:** S–M.
 
 **Read first:** `contracts/base.py` (`Contract`, `extra="forbid"`), `agents/development_runtime.py` `snapshot()` L231–252,
 `agents/development.py` `SubmissionManifest` L39–44 and `capture_submission()`, the agent command tool in
@@ -528,7 +455,7 @@ payload has one is refused.
 **Read first:** `contracts/problems.py` `CandidateSchema` L42–75, `contracts/capabilities.py` L46,
 `contracts/problem_charter.py` `DecisionVariable` L78–89, `problem_charter/charter.py` (`findings()` L440–458,
 `evaluator_findings()` L715–789, `manifest()` L1021–1078, `from_setups()` L1144–1150), `optimizers/lifecycle.py`
-(`BoundedSearch.ask()`, the dtype in `observe()` L41), `optimizers/registry.py` (`BUILTINS`, L128, L159, L228),
+(`BoundedSearch.ask()`, the dtype in `observe()` L41), `optimizers/registry.py` (`BUILTINS` L13; the representation checks at L128, L159 and L228),
 `frontend/src/note/CharterPanel.tsx` L262–270 and L372–380, `problem_import/guideline.md` L41,
 `src/balsamic/procedures/problem-formulation/SKILL.md`, `agents/roles/methodology_specialist.md` L11.
 
@@ -702,7 +629,7 @@ Optimizer plug-ins already re-check at most once a second, reload changed ones a
 
 **Change**
 1. Move the installed-package helpers (`pick_up_installs`, the entry-point and version snapshot, the module dropping) to a
-   shared module, e.g. `optimization_framework/installed.py`, used by both registries.
+   shared module, e.g. `src/optimization_framework/installed.py`, used by both registries.
 2. A discovered `ProblemRegistry` re-checks on `ids()` and `get()` at most once per second, updating itself in place (other
    modules hold a reference to `problems`): it adds new loaders, and for a changed entry or version it drops the cached
    adapter and the package's modules. Never the lab's own package.
@@ -785,7 +712,7 @@ declared problem.
 3. A new command `campaign.adopt_problem` (researcher or lead; it starts no compute) calls it. That is baking order's path,
    since its old task already has an evaluator.
 4. `current_tasks()` leaves superseded tasks out; B4 and B5 then work on the new task.
-5. Check the code that re-validates archived declared tasks through `TaskInput` (risk in §6).
+5. Check the code that re-validates archived declared tasks through `TaskInput` (risk in §4).
 
 **Tests**
 - Adopting creates a new task with `provided_by`, supersedes the old one and bumps the campaign version once.
@@ -894,7 +821,7 @@ function: the same charter revision always gives the same bytes. No generated fi
 
 ### F4 — Coding workspaces start from the generated library
 
-**Depends on:** F3, D9. **Size:** M.
+**Depends on:** F3, decision 9. **Size:** M.
 
 **Read first:** `agents/development_runtime.py` `prepare()` L119–175, `agents/development.py` (`_sync_one()` L449–470,
 `DEVELOPMENT_INSTRUCTIONS` L726–779, `create()`), `agents/library_install.py` `prepare()`.
@@ -914,7 +841,7 @@ function: the same charter revision always gives the same bytes. No generated fi
    `pytest libraries/<name>` pass; commit; `campaign_submit` with the report; raise the version on every redelivery. One
    paragraph keeps the optimizer_v1 route for methods that need it, pointing to `docs/optimizer-plugins.md`.
 4. References are mentioned only when present: the generic brief names no grating repository or paper.
-5. Under D9 the install refuses a library whose `charter.json` or `data.py` differ from the generated ones ("the library's
+5. Under decision 9 the install refuses a library whose `charter.json` or `data.py` differ from the generated ones ("the library's
    data no longer matches the charter revision"), and lists every other generated file the agent changed
    (`changed_generated_files`).
 
@@ -969,74 +896,11 @@ earliest due date, swap search and exact enumeration, and compare them".
 
 **Done when** the scenario passes on Centinels (no approval needed) and its time is in the summary.
 
-### H1 — The workspace bridge as an MCP server and a CLI (optional)
-
-**Depends on:** nothing; after F4 is best. **Size:** M.
-
-**Read first:** `agent-harness/extensions/implementation.ts`, `deploy/implementation-workspace/{Dockerfile,start.sh,network.sh}`,
-`agents/development.py` (`receive()` L523–557, `_apply_event()`), `docs/pi-implementation-workspace-plan.md`.
-
-**Today** the coding agent reaches Balsamic only through two Pi tools (`campaign_checkpoint`, `campaign_submit`) defined in
-the Pi extension, which write files into `outgoing/events/` and read `incoming/results/`. No other harness can use them.
-
-**Change**
-1. A small CLI and stdio MCP server in the image, `balsamic-workspace`: `checkpoint`, `ask`, `submit <commit>`, `check`
-   (runs the library's tests and `test_contract.py` and returns the counts for the report), `evidence` (only what
-   `.campaign/evidence.json` names).
-2. They write the same event files the extension writes; the file bridge stays the transport and the host side does not
-   change.
-3. The Pi extension keeps working; a parity test pins that both write the same events for the same inputs.
-
-**Tests**
-- The CLI and the extension write identical events for the same inputs; `receive()` accepts them.
-- The MCP server lists the five tools.
-
-**Done when** the tests pass.
-
-### H2 — A second harness in the workspace (optional)
-
-**Depends on:** H1, D8. **Size:** M–L.
-
-**Change**
-1. A harness setting per workspace (default Pi), read by `start.sh`.
-2. A thin adapter per harness, in two modes: headless for agent-driven work (for Claude Code, `-p --output-format
-   stream-json`), and the tmux TUI for the researcher to attach to.
-3. The adapter maps the harness's event stream to the existing event kinds (`agent_start`, `agent_settled`, `message` with
-   usage), and configures H1's MCP server for it.
-4. Credentials are mounted read-only per D8. The egress allowlist (`network.sh`) adds that harness's model endpoint only.
-
-**Tests**
-- A fake harness binary's stream maps to the workspace record.
-- Host and private networks stay blocked.
-
-**Live check** (with Hoseung's approval): the same proposal built by Pi and by the second harness against the same generated
-tests; compare the time to `ready` and conformance.
-
-**Done when** the tests pass and the live comparison is recorded.
-
-### H3 — Bring your own session (optional)
-
-**Depends on:** H1, F2. **Size:** M.
-
-**Change**
-1. The researcher works in their own coding agent on the exported project (F2) or on the workspace's branch, and runs
-   `balsamic-workspace submit` from their machine.
-2. It sends the commit as a git bundle to a new endpoint for that workspace, authenticated with a per-workspace token shown
-   on the workspace card.
-3. The host takes the same path as `capture_submission()`: the exact commit, never loose files. Validation, install, binding
-   and runs do not care who wrote it.
-
-**Tests**
-- A bundle submitted from outside the container installs and binds like one from inside.
-- A wrong token, or a bundle without the commit, is refused.
-
-**Done when** the tests pass.
-
 ---
 
-## 5. Order and parallel work
+## 3. Order and parallel work
 
-### 5.1 Waves
+### 3.1 Waves
 
 ```
 Wave 1  A1 (first) · A2 · A3 · A4 · B1 · B2 · B3 · B4 · B6 · C1 · C3 · D3 · E1 · E3 · F1
@@ -1045,13 +909,13 @@ Wave 3  D2 (D1) · E4 (E2, E3)
 Wave 4  F3 (F1, D2, E2, C1) · B7 (B1, B2, B4, B5) · E5 (E4)
 Wave 5  F4 (F3)
 Wave 6  G1, then G2
-Optional, any time after F4: H1, then H2 (D8) and H3 (F2)
+Later: Phase 4 (the coding box) starts after F3 and F4
 ```
 
 The critical path is A3 → D1 → D2 → F3 → F4 → G1. F1 and F2 meet the researcher's bar on their own (export the charter and
 work locally), so they are worth shipping early.
 
-### 5.2 Shared files: merge these parts one after another
+### 3.2 Shared files: merge these parts one after another
 
 | File | Parts |
 |---|---|
@@ -1070,7 +934,7 @@ work locally), so they are worth shipping early.
 
 ---
 
-## 6. Risks
+## 4. Risks
 
 - **Replay on resume** (D1): resuming costs the method's own compute again, and hidden nondeterminism only shows then. The
   hash check refuses the resume rather than continuing wrongly.
@@ -1089,7 +953,7 @@ work locally), so they are worth shipping early.
 - **Lenient fields** (B6): a near-miss is always refused, so a misspelled field cannot silently change a run.
 - **Prompt size:** new lead lines need offsetting cuts (B7, F4).
 
-## 7. Verification
+## 5. Verification
 
 - **Per part:** its tests; then `GRATING_LLM_DISABLED=true uv run pytest -q` (rerun `tests/test_tracking.py` alone if it
   fails), `(cd agent-harness && npm test)`, and Playwright when the UI changed.
@@ -1097,15 +961,16 @@ work locally), so they are worth shipping early.
 - **Live, after wave 5** (Hoseung): a new small campaign goes from charter to ranked results with three researcher actions;
   G2 records the time.
 
-## 8. Out of scope here
+## 6. Out of scope here
 
 - `docs/suggestions.md` S1 and S3–S7, except S2 (A4) and S7's scenario format (G2).
-- Evidence gates on strategy stops and promotions, problem packs, and a mandate for every request (the design review's
-  suggestions B, C and A). B2 is the part of the mandate that this stage needs.
+- A mandate for every request (Phase 3). B2 is the part of it this phase needs.
+- The invariant register and the trap evals (Phase 2), the coding box for any harness (Phase 4), evidence gates (Phase 5),
+  problem packs (Phase 6), one-shot roles and claim checks (Phase 7).
 - The grating fallbacks in the core: `execution/service.py` L649, L941, L955 (`problems.resolve("meent_grating", …)`),
-  L1362 (`dqn_meent.workspace.worker`), and `execution/rcwa_memory.py`.
+  L1362 (`dqn_meent.workspace.worker`), and `execution/rcwa_memory.py` (Phase 6, N5 and N7).
 
-## 9. Critical files
+## 7. Critical files
 
 - `src/optimization_framework/agents/library_install.py`, `agents/development.py`, `agents/development_runtime.py`
 - `src/optimization_framework/execution/worker.py`, `optimizers/packaged.py`, new `optimizers/finish.py`,
@@ -1120,4 +985,3 @@ work locally), so they are worth shipping early.
   `analysis/general.py`
 - `agents/tools.py` (`INSTRUCTIONS`), `src/balsamic/procedures/implementation-supervision/SKILL.md`
 - `frontend/src/note/CharterPanel.tsx`, `frontend/src/evolution/EvolutionPage.tsx`, `frontend/src/hypotheses/Implementations.tsx`
-- Optional track H: `agent-harness/extensions/implementation.ts`, `deploy/implementation-workspace/`

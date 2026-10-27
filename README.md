@@ -304,8 +304,9 @@ only them. `tests/fake_harness.py` is a scripted stand-in for the Pi harness wit
   [strategy-library.md](docs/strategy-library.md), [problem-setup.md](docs/problem-setup.md),
   [lead-agent-readiness.md](docs/lead-agent-readiness.md), [pi-agent-harness.md](docs/pi-agent-harness.md),
   [resource-allocation.md](docs/resource-allocation.md), [adaptive-algorithm-testing.md](docs/adaptive-algorithm-testing.md),
-  [report-review.md](docs/report-review.md), [server-control.md](docs/server-control.md); documents of the earlier
-  workspace carry a "Superseded" banner.
+  [report-review.md](docs/report-review.md), [server-control.md](docs/server-control.md), and the development plan in
+  phases for coding agents, [roadmap/](docs/roadmap/README.md); documents of the earlier workspace carry a "Superseded"
+  banner.
 
 ## The reference problem
 
