@@ -285,6 +285,24 @@ def test_an_agent_opens_a_coding_workspace_only_with_the_researchers_go_ahead(se
     assert development.create(cid, {**request, 'hypothesis_id': 'hypothesis_other'})['id']   # the researcher's own
 
 
+def test_a_go_ahead_for_named_proposals_opens_workspaces_only_for_them(setup):
+    from optimization_framework.campaigns import compute_consent
+    workspace, campaign, development, driver = setup
+    cid = campaign['id']
+    workspace.store.put('hypothesis', {'id': 'hypothesis_other', 'campaign_id': cid, 'title': 'Other method', 'status': 'proposed',
+                                       'mechanism': 'Another', 'algorithm': 'custom', 'algorithm_config': {}})
+    consent = compute_consent.grant(workspace, {'id': 'decision_go', 'campaign_id': cid}, {'plan': 'Implement the first method',
+        'wall_seconds': 3600, 'worker_seconds': 600, 'coding_workspaces': 2, 'hypothesis_ids': ['hypothesis_dev']})
+    request = {'hypothesis_id': 'hypothesis_other', 'objective': 'Implement', 'request_key': 'agent'}
+    with pytest.raises(ValueError, match='No approved plan covers work for hypothesis_other'):
+        development.create(cid, request, actor='lead')
+    with pytest.raises(ValueError, match='No approved plan covers work for hypothesis_dev, hypothesis_other'):
+        development.create(cid, {**request, 'hypothesis_id': 'hypothesis_dev', 'hypothesis_ids': ['hypothesis_other']}, actor='lead')
+    record = development.create(cid, {**request, 'hypothesis_id': 'hypothesis_dev'}, actor='lead')
+    saved = workspace.store.get(consent['id'], 'compute_consent')
+    assert record['consent']['id'] == consent['id'] and saved['workspace_ids'] == [record['id']] and saved['used_workspaces'] == 1
+
+
 def test_the_history_of_a_workspace_reads_newest_first_from_what_it_recorded(setup, monkeypatch):
     from optimization_framework.agents.development_timeline import timeline
     from optimization_framework.campaigns import compute_consent
