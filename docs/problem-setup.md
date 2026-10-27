@@ -67,7 +67,7 @@ agreed design. The last part says what exists in the code and what does not.
 | Quantity | A named value in the charter, with its kind, units and allowed range. |
 | Input | A quantity whose value is typed in (wavelength, temperature, layer thickness). The optimizer does not change it. |
 | Derived quantity | A quantity computed from other quantities by a stated relation: an expression, possibly using a table of data. It is not typed in. |
-| Decision variable | What the optimizer searches over, with its representation (binary, discrete, continuous), size and bounds. |
+| Decision variable | What the optimizer searches over, with its representation (binary, discrete, continuous, permutation), size and bounds. |
 | Constraint | A condition a design or the setup must meet. It is **hard** (breaking it makes a design invalid) or **soft** (breaking it is penalised or flagged). Its form is a test on quantities, a linear condition on the decision variables, a condition the evaluator enforces, or words only (**qualitative**). |
 | Objective | The one number the optimizer improves, with its direction, its units and how it is computed. |
 | Recorded metric | Another number measured for every design but not optimized. |

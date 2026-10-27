@@ -43,7 +43,7 @@ class InferenceDescriptor(Contract):
     id: str = Field(pattern=r"^[A-Za-z0-9_.-]+:v[1-9][0-9]*$")
     title: str = Field(min_length=1, max_length=200)
     artifact: ArtifactFormat
-    representations: list[Literal["binary", "discrete", "continuous"]] = Field(min_length=1)
+    representations: list[Literal["binary", "discrete", "continuous", "permutation"]] = Field(min_length=1)
     constraints: bool = False
     adaptation: Literal["forbidden"] = "forbidden"
     parameter_schema: dict[str, Any]

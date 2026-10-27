@@ -456,6 +456,13 @@ def findings(charter, registry=None) -> list[dict]:
                 out.append(finding("variable.bounds", "blocking", variable.name, f"{variable.name}'s lower bound is not below its upper bound.", [variable.name]))
         if variable.representation == "discrete" and not variable.values:
             out.append(finding("variable.values", "blocking", variable.name, f"{variable.name} is discrete and needs its permitted values.", [variable.name]))
+        if variable.representation == "permutation":
+            if len(variable.shape) != 1:
+                out.append(finding("variable.shape", "blocking", variable.name, f"{variable.name} is an order and needs a "
+                    "one-dimensional shape: the number of items it orders.", [variable.name]))
+            if variable.lower is not None or variable.upper is not None or variable.values:
+                out.append(finding("variable.permutation", "blocking", variable.name, f"{variable.name} is an order of items and takes "
+                    "no bounds or permitted values; remove them.", [variable.name]))
     if not charter.variables:
         out.append(finding("variable.missing", "blocking", "variables", "No decision variable: state what the optimizer changes.", []))
     # Constraints
@@ -634,6 +641,12 @@ def constraint_findings(charter, values, tables, sizes):
                 out.append(finding("constraint.variable", "blocking", constraint.id, f"Constraint {constraint.id} uses {', '.join(missing)}, "
                     "which are not decision variables.", missing))
                 continue
+            ordered = [term.variable for term in constraint.terms if variables[term.variable].representation == "permutation"]
+            if ordered:
+                out.append(finding("constraint.permutation", "blocking", constraint.id, f"Constraint {constraint.id} is linear in "
+                    f"{', '.join(ordered)}, an order of items; the lab cannot enforce a linear condition on an order. State it as a "
+                    "condition the evaluator checks.", ordered))
+                continue
             wrong = [term.variable for term in constraint.terms
                      if term.weights is not None and term.variable in sizes and len(term.weights) != sizes[term.variable]]
             if wrong:
@@ -730,7 +743,11 @@ def evaluator_findings(charter, values, errors, sizes, registry, settled=True):
         kinds = {variable.representation for variable in charter.variables}
         if len(kinds) > 1:
             out.append(finding("evaluator.mixed_variables", "blocking", "variables", "A declared problem's decision variables must share "
-                "one representation (binary, discrete or continuous); encode the others, or ask for an evaluator that accepts them.", []))
+                "one representation (binary, discrete, continuous or permutation); encode the others, or ask for an evaluator that accepts them.", []))
+        ordered = [variable.name for variable in charter.variables if variable.representation == "permutation"]
+        if len(ordered) > 1:
+            out.append(finding("evaluator.permutations", "blocking", "variables", "A declared problem takes one order of items, and "
+                f"{', '.join(ordered)} are separate orders. State them as one order, or ask for an evaluator that accepts several.", ordered))
         discrete = [variable for variable in charter.variables if variable.representation == "discrete"]
         if len({tuple(variable.values) for variable in discrete}) > 1:
             grids = "; ".join(f"{variable.name} takes {grid(variable.values)}" for variable in discrete)
@@ -1141,6 +1158,8 @@ def from_setups(title: str, setups: list[dict], *, text: str = "", summary: str 
     single = [name for name in whole if quantities[name]["value"] == schema.dimensions]
     pairs = [[a, b] for i, a in enumerate(whole) for b in whole[i + 1:] if quantities[a]["value"] * quantities[b]["value"] == schema.dimensions]
     shape = [single[0]] if len(single) == 1 else pairs[0][::-1] if len(pairs) == 1 and not single else [schema.dimensions]
+    if schema.representation == "permutation" and len(shape) != 1:   # an order of items has one dimension
+        shape = [schema.dimensions]
     variable = {"name": "design", "description": f"The candidate {problem_id} evaluates", "representation": schema.representation,
                 "shape": shape}
     if schema.representation == "continuous" and schema.bounds:
