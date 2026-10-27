@@ -137,13 +137,13 @@ calibration or optimization job that has never been created.
 
 ## Plan an order without running MEENT
 
-[rcwa_memory.py](../src/optimization_framework/execution/rcwa_memory.py) uses only
+[memory.py](../src/dqn_meent/pack/memory.py), MEENT's memory estimator in its problem pack (roadmap N5), uses only
 the Python standard library. It does not import Torch or MEENT, allocate the
 predicted arrays, sample performance with a solver, or change campaign state.
 From the repository root:
 
 ```bash
-.venv/bin/python -m optimization_framework.execution.rcwa_memory \
+.venv/bin/python -m dqn_meent.pack.memory \
   --order-x 22 --order-y 11 --grid-x 256 --grid-y 128
 ```
 
@@ -151,7 +151,7 @@ To reuse existing measurements and compare against a specified amount of
 available RAM:
 
 ```bash
-.venv/bin/python -m optimization_framework.execution.rcwa_memory \
+.venv/bin/python -m dqn_meent.pack.memory \
   --order-x 22 --order-y 11 \
   --samples runs/pilots/adaptive-20261001/preflight/preflight.json \
   --available-gib 17.64
@@ -162,6 +162,10 @@ lower bounds, the separately labeled heuristic forecast, observed reference peak
 and fidelity, measurement provenance, headroom, and estimated safe concurrency.
 Without measurements, it uses the existing conservative 5 GiB planning allowance
 at `(14, 7)`; that allowance already includes conservatism and is not doubled.
+
+The resource view asks the race's problem pack for this estimator, the extra orders to forecast and the cost model that
+scales a measured peak. A race on a problem whose pack declares none (or none for the task's fidelity) shows only the
+measured peaks of its manifest's fidelities, with no forecast.
 
 The source-based planner cannot establish the Fourier order necessary for a
 particular grating's numerical convergence, exact optimizer runtime, or exact

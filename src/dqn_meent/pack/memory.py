@@ -1,4 +1,4 @@
-"""Plan MEENT 0.13.2 CPU memory without importing or executing a simulator.
+"""Plan MEENT 0.13.2 CPU memory without importing or executing a simulator: the pack's memory estimator.
 
 Array sizes are analytical lower bounds. The RSS extrapolation is a separate,
 conservative planning heuristic, not a measurement of the requested order.
@@ -189,6 +189,13 @@ def estimate_rcwa_memory(
             "A numerical convergence requirement cannot be determined from memory sizes.",
         ],
     }
+
+
+def estimate(fidelity, samples=(), *, configuration=None, **options) -> dict[str, Any]:
+    """The pack's memory hook: the forecast for a task's configuration, whose grid sets the Fourier workspace."""
+    configuration = configuration or {}
+    return estimate_rcwa_memory(fidelity, samples, grid_x=configuration.get("grid_x", 256),
+                                grid_y=configuration.get("grid_y", 128), **options)
 
 
 def main() -> int:
