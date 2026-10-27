@@ -2,7 +2,7 @@
 import pytest
 
 from optimization_benchmarks.problems import ContinuousProblem
-from optimization_framework.contracts.packs import PackCost, PackReference, PackTools, ProblemPack
+from optimization_framework.contracts.packs import PackCost, PackEstimators, PackRacing, PackReference, PackTools, ProblemPack
 from optimization_framework.contracts.requests import CampaignInput, TaskInput
 from optimization_framework.evaluation.registry import ProblemRegistry, problems
 from optimization_framework.execution.service import Workspace
@@ -114,12 +114,17 @@ def test_a_reinstalled_problem_s_pack_is_read_again(fixture_package):
 
 def test_meents_pack_is_assembled_from_one_module_per_part_as_it_was_written_before():
     """The pack's parts write a module each (pack/<part>_<topic>.py), so parallel parts never edit one file; assembled, it is the
-    pack as N4 wrote it in pack/__init__.py, field by field, with the parts added since (N11's cost)."""
+    pack as N4 wrote it in pack/__init__.py, field by field, with the parts added since (N5's estimators and racing, N11's cost)."""
     from dqn_meent import pack as meent
-    assert [name for name, _ in meent.contributions()] == ["n11_cost", "n4_tools"]
+    from dqn_meent.pack import racing
+    assert [name for name, _ in meent.contributions()] == ["n11_cost", "n4_tools", "n5_racing"]
     expected = ProblemPack(package="dqn_meent.pack", problem_ids=["meent_grating", "meent_2d_dual_polarization_deflector"],
                            tools=PackTools(agent_tools=["dqn_meent.pack.tools:register_agent_tools"],
                                            operations=["dqn_meent.pack.tools:register_operations"]),
+                           estimators=PackEstimators(memory="dqn_meent.pack.memory:estimate"),
+                           racing=PackRacing(ladder=racing.LADDER, limit=racing.LIMIT, step=racing.STEP,
+                                             memory_checks=racing.MEMORY_CHECKS, cost_model="dqn_meent.pack.racing:growth",
+                                             preferred_methods=racing.PREFERRED),
                            cost=PackCost(access="oracle", cost_axis="worker_seconds"))   # N11
     assembled = meent.pack()
     for field in ProblemPack.model_fields:

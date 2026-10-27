@@ -52,6 +52,7 @@ def setup_race(tmp_path):
     workspace = FakeWorkspace(tmp_path)
     workspace.store.put("campaign", {"id": "campaign", "active_study_id": "study", "version": 1})
     workspace.store.put("task", {"id": "task", "campaign_id": "campaign", "split": "development", "problem": {
+        "definition_id": "meent_2d_dual_polarization_deflector",
         "configuration": {"wavelength_nm": 1050}, "fidelity": {"rcwa_order_x": 10, "rcwa_order_y": 5}}})
     workspace.store.put("trial", {"id": "old", "campaign_id": "campaign", "task_id": "task", "algorithm": "motif_surgery",
         "algorithm_config": {}, "seed": 17, "execution_seconds": 540., "wall_seconds": 540., "max_steps": 100000,

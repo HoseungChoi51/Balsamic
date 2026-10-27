@@ -34,7 +34,10 @@ for methods that need longer learning horizons.
 Stage A comes first. Select one median-performing design from each configuration,
 plus Adam's unusually high-scoring, asymmetric design. Evaluate orders
 `(10,5) -> (12,6) -> (14,7)` and extend the ladder when necessary and memory
-permits. Require the final two settings to agree within 0.005 in mean, TE, and TM,
+permits. The ladder, its ceiling `(34,17)`, the step above the search orders, the
+memory cost model and the methods tried first are MEENT's, declared in its problem
+pack (`src/dqn_meent/pack/racing.py`, roadmap N5); a problem without a racing section
+races at its declared fidelity and ends with its confirmation. Require the final two settings to agree within 0.005 in mean, TE, and TM,
 with existing energy-conservation checks. Repeat the final setting and require
 agreement within 1e-6. This checks consistency over the tested truncations, not
 independent-solver correctness.

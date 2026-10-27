@@ -4,7 +4,7 @@ from __future__ import annotations
 from importlib import import_module
 import threading
 
-from optimization_framework.contracts.packs import ProblemPack
+from optimization_framework.contracts.packs import PackRacing, ProblemPack
 
 
 def resolve_hook(hook: str):
@@ -60,3 +60,25 @@ class CampaignPacks:
                 if hook not in self._activated:
                     resolve_hook(hook)(self.workspace)
                     self._activated.add(hook)
+
+
+def problem_pack(definition_id, registry=None) -> ProblemPack | None:
+    """The pack of an installed problem; none for a problem without one or that is not installed."""
+    if registry is None:
+        from optimization_framework.evaluation.registry import problems as registry
+    if not definition_id or definition_id not in set(registry.ids()):
+        return None
+    return registry.pack(definition_id)
+
+
+def racing_for(definition_id, fidelity) -> PackRacing | None:
+    """The racing section that applies to a task on this problem at this fidelity: its pack's, when it names the
+    fidelity's keys; none otherwise, and the race then runs at the task's declared fidelity with no ladder."""
+    pack = problem_pack(definition_id)
+    racing = pack.racing if pack is not None else None
+    return racing if racing is not None and racing.applies_to(fidelity) else None
+
+
+def task_racing(task) -> PackRacing | None:
+    problem = (task or {}).get("problem") or {}
+    return None if (task or {}).get("evaluator_manifest") else racing_for(problem.get("definition_id"), problem.get("fidelity"))
