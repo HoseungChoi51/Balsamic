@@ -122,7 +122,8 @@ const submit = defineTool({
       if (fs.existsSync(reply)) {
         const result = JSON.parse(fs.readFileSync(reply, 'utf8'));
         if (result.error) throw new Error(result.error);
-        return {content: [{type: 'text' as const, text: `Submitted ${result.submission_id}. Independent validation has not been run yet.`}], details: result};
+        const ignored = result.ignored_fields?.length ? ` The manifest's unknown fields were ignored: ${result.ignored_fields.join(', ')}.` : '';
+        return {content: [{type: 'text' as const, text: `Submitted ${result.submission_id}.${ignored} Independent validation has not been run yet.`}], details: result};
       }
       await new Promise(resolve => setTimeout(resolve, 500));
     }
