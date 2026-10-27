@@ -94,4 +94,4 @@ class PreparedWorkspace:
                     "test_summary": "The prepared library"}
         package = {"contract": "optimizer_v1", "entrypoint": manifest["entrypoint"],
                    "files": [{"path": path, "content": (self.repository / path).read_text()} for path in files]}
-        return package, manifest
+        return package, manifest, []   # no manifest keys ignored
