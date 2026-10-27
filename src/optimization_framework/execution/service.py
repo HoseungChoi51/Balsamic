@@ -467,7 +467,7 @@ class Workspace:
             used_reserved = self.allocated_seconds(campaign_id)
             if proposed["compute_budget_seconds"] < used_reserved:
                 raise ValueError(f"Existing spent/reserved compute is {used_reserved:.1f}s; stop or finish work before lowering this cap")
-            if proposed.get("implementation_compute_budget_seconds", 0) < self.implementations.compute_committed(campaign_id):
+            if 0 < (proposed.get("implementation_compute_budget_seconds") or 0) < self.implementations.compute_committed(campaign_id):
                 raise ValueError("Existing implementation allocations exceed the proposed implementation compute cap")
             from optimization_framework.llm.providers import api_spend
             api_committed = self.implementations.api_committed(campaign_id) + sum(api_spend(r.get("usage")) for r in self.store.list("research_run", campaign_id))
