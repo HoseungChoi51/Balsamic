@@ -1118,7 +1118,7 @@ The suite of Part L, 12 scenarios with three repeats each, on the dev profile's 
 - The fixture is uv's output from a reproduction, not the live record's `log_tail`. The live check is Hoseung's: baking
   order's pending install completes, and its four methods appear on the Implementations page.
 
-## Part U — A method that finishes (roadmap A3)
+## Part U — A method that finishes (27 October 2026; roadmap A3)
 
 ### What was wrong
 
