@@ -5,10 +5,12 @@ The exact submitted commit's `libraries/<name>/` is read from the workspace's ow
 filter, hook or attribute of a repository the coding agent could write runs on the host), checked against what was
 submitted, and copied into the lab's `libraries/<name>/`. The root pyproject.toml pins it in the `libraries` extra as an
 editable path dependency, `uv lock` and `uv sync --inexact --extra libraries` install it, and the running lab picks its
-methods up at the next listing. A dry run first: a change to any package already installed waits for the researcher's
+methods and problems up at the next listing. A library provides methods (`optimization_framework.optimizers` entry points),
+problems (`optimization_framework.problems`), or both; a method or problem id another installed package provides is refused
+before uv runs. A dry run first: a change to any package already installed waits for the researcher's
 confirmation (it could affect their other campaigns); a reinstall and the lab's own projects are no change. Every file this
 touched is put back when it stops or fails. Each install is a `library_install` record: who (balsamic or the researcher),
-when, what (package, version, commit, workspace, submission), the methods it added, and how it ended.
+when, what (package, version, commit, workspace, submission), the methods and problems it added, and how it ended.
 """
 from __future__ import annotations
 
@@ -20,10 +22,13 @@ import threading
 import tomllib
 from pathlib import Path, PurePosixPath
 
+from importlib import metadata
+
 from optimization_framework.contracts.base import content_hash
 from optimization_framework.storage.sqlite import now
 
 GROUP = "optimization_framework.optimizers"
+PROBLEMS = "optimization_framework.problems"
 MAX_FILE_BYTES = 5 * 1024 * 1024
 MAX_TOTAL_BYTES = 50 * 1024 * 1024
 TIMEOUT_SECONDS = 600
@@ -35,6 +40,16 @@ GIT_ENV = {**os.environ, "GIT_CONFIG_NOSYSTEM": "1", "GIT_CONFIG_GLOBAL": os.dev
 _lock = threading.Lock()
 
 
+def normal(name):
+    """A distribution name as packaging compares it."""
+    return re.sub(r"[-_.]+", "-", name).lower()
+
+
+def providers(group):
+    """{entry-point name: the installed distribution that provides it} of a group (None for an entry with no distribution)."""
+    return {entry.name: entry.dist.name if entry.dist else None for entry in metadata.entry_points(group=group)}
+
+
 def run(args, cwd, timeout=TIMEOUT_SECONDS):
     """(exit code, combined output) of a command."""
     done = subprocess.run(args, cwd=cwd, capture_output=True, text=True, timeout=timeout)
@@ -42,14 +57,18 @@ def run(args, cwd, timeout=TIMEOUT_SECONDS):
 
 
 class Installer:
-    def __init__(self, workspace, development, root, runner=run, uv=None, plugins=None):
-        """runner runs uv (tests give their own); Git always runs directly, read-only."""
+    def __init__(self, workspace, development, root, runner=run, uv=None, plugins=None, problems=None, providers=providers):
+        """runner runs uv (tests give their own); Git always runs directly, read-only. providers(group) names the installed
+        distribution of each entry point of a group."""
+        from optimization_framework.evaluation.registry import problems as registry
         from optimization_framework.optimizers import plugins as installed
         self.workspace, self.store, self.development = workspace, workspace.store, development
         self.root = Path(root)
         self.runner = runner
         self.uv = uv or shutil.which("uv")
         self.plugins = plugins or installed.installed
+        self.problems = problems or registry
+        self.providers = providers
 
     # Checks -----------------------------------------------------------------------------------------------------------
     def _git(self, record, *args):
@@ -102,11 +121,13 @@ class Installer:
             raise ValueError(f"libraries/{name} has no pyproject.toml")
         project = tomllib.loads(pyproject.decode()).get("project") or {}
         package, version = project.get("name"), str(project.get("version") or "")
-        entries = (project.get("entry-points") or {}).get(GROUP) or {}
+        groups = project.get("entry-points") or {}
+        entries, problems = groups.get(GROUP) or {}, groups.get(PROBLEMS) or {}
         if not package or not version:
             raise ValueError(f"libraries/{name}/pyproject.toml names no project name and version")
-        if not entries:
-            raise ValueError(f"libraries/{name}/pyproject.toml names no {GROUP} entry point, so it adds no method")
+        if not entries and not problems:
+            raise ValueError(f"libraries/{name}/pyproject.toml names no {GROUP} or {PROBLEMS} entry point, so it adds no method or problem")
+        self._refuse_clashes(package, entries, problems, report)
         target = self.root / "libraries" / name
         if (target / "pyproject.toml").exists():
             current = tomllib.loads((target / "pyproject.toml").read_text()).get("project") or {}
@@ -116,8 +137,27 @@ class Installer:
                         and "__pycache__" not in path.parts and not any(part.endswith(".egg-info") for part in path.parts)}
             if str(current.get("version")) == version and existing != files:
                 raise ValueError(f"{package} {version} is installed with other code; the coding agent has to raise the version for the lab to load the new code")
-        return {"name": name, "package": package, "version": version, "entry_points": entries, "files": files, "report": report,
-                "record": record, "submission": submission}
+        return {"name": name, "package": package, "version": version, "entry_points": entries, "problem_entry_points": problems,
+                "files": files, "report": report, "record": record, "submission": submission}
+
+    def _refuse_clashes(self, package, entries, problems, report):
+        """A problem id, plug-in name or method id that another installed distribution (the lab's own included) provides is
+        refused before uv runs: the registries would keep the first one loaded, or stop listing either. The library's own
+        earlier version is no clash."""
+        from optimization_framework.optimizers.registry import BUILTIN_IDS
+        theirs = lambda distribution: distribution is None or normal(distribution) != normal(package)
+        for kind, group, ids in (("problem", PROBLEMS, problems), ("optimizer plug-in", GROUP, entries)):
+            installed = self.providers(group)
+            for identity in sorted(ids):
+                if identity in installed and theirs(installed[identity]):
+                    raise ValueError(f"{kind} {identity} is provided by {installed[identity] or 'the lab'}")
+        origin = getattr(self.plugins, "origin", lambda method_id: None)
+        for method_id in sorted({item.get("method_id") for item in report.get("methods", []) if item.get("method_id")}):
+            if method_id in BUILTIN_IDS:
+                raise ValueError(f"method {method_id} is provided by the lab (a built-in method)")
+            found = origin(method_id)
+            if found and theirs(found.get("distribution")):
+                raise ValueError(f"method {method_id} is provided by {found.get('distribution') or 'the lab'}")
 
     # Install ----------------------------------------------------------------------------------------------------------
     def automatic(self, campaign_id, workspace_id, submission, *, background=True):
@@ -135,9 +175,9 @@ class Installer:
             identity = "library_install_" + content_hash([submission["id"], "automatic"])[:24]
             record = self.store.put("library_install", {"id": identity, "campaign_id": campaign_id, "workspace_id": workspace_id,
                 "submission_id": submission["id"], "commit": submission["commit"], "package": None, "version": None,
-                "path": f"libraries/{library_of(submission)}", "entry_points": {}, "actor": "balsamic", "status": "failed",
-                "requested_at": now(), "finished_at": now(), "error": str(exc)[:2000], "methods_added": [], "missing_methods": [],
-                "changes": [], "log_tail": ""}, "library.install_failed")
+                "path": f"libraries/{library_of(submission)}", "entry_points": {}, "problem_entry_points": {}, "actor": "balsamic",
+                "status": "failed", "requested_at": now(), "finished_at": now(), "error": str(exc)[:2000], "methods_added": [],
+                "missing_methods": [], "problems_added": [], "missing_problems": [], "changes": [], "log_tail": ""}, "library.install_failed")
             self.development.notify(self.development.get(campaign_id, workspace_id), identity, f"Balsamic could not install the library "
                 f"from commit {submission['commit'][:7]}: {exc} Have the coding agent fix it and deliver again.", "installs")
             return record
@@ -173,8 +213,9 @@ class Installer:
             pass
         install = {"id": identity, "campaign_id": campaign_id, "workspace_id": workspace_id, "submission_id": submission_id,
                    "commit": plan["submission"]["commit"], "package": plan["package"], "version": plan["version"], "path": f"libraries/{plan['name']}",
-                   "entry_points": plan["entry_points"], "actor": actor, "status": "queued", "requested_at": now(),
-                   "confirm_changes": confirm_changes, "methods_added": [], "missing_methods": [], "changes": [], "log_tail": "",
+                   "entry_points": plan["entry_points"], "problem_entry_points": plan["problem_entry_points"], "actor": actor, "status": "queued",
+                   "requested_at": now(), "confirm_changes": confirm_changes, "methods_added": [], "missing_methods": [], "problems_added": [],
+                   "missing_problems": [], "changes": [], "log_tail": "",
                    **({"retry_of": retry_of} if retry_of else {})}
         self.store.put("library_install", install, "library.install_requested")
         if background:
@@ -198,6 +239,7 @@ class Installer:
             try:
                 self._update(identity, status="installing")
                 before = {method["id"] for method in self.plugins.methods()}
+                problems_before = set(self.problems.ids())
                 for path, content in plan["files"].items():
                     destination = staging / Path(path).relative_to(f"libraries/{name}")
                     destination.parent.mkdir(parents=True, exist_ok=True)
@@ -223,18 +265,15 @@ class Installer:
                 if code:
                     raise ValueError("uv sync failed: " + output.strip()[-800:])
                 after = {method["id"] for method in self.plugins.methods()}
+                problems_after = set(self.problems.refresh() if hasattr(self.problems, "refresh") else self.problems.ids())
                 reported = [method["method_id"] for method in plan["report"].get("methods", [])]
                 if backup.exists():
                     shutil.rmtree(backup)
                 record = self._update(identity, "library.installed", status="installed", finished_at=now(), changes=changes,
                                       methods_added=sorted(after - before), missing_methods=sorted(set(reported) - after),
+                                      problems_added=sorted(problems_after - problems_before),
+                                      missing_problems=sorted(set(plan["problem_entry_points"]) - problems_after),
                                       log_tail="\n".join(log)[-4000:])
-                who = "The researcher" if self.store.get(identity, "library_install")["actor"] == "researcher" else "Balsamic"
-                self.development.notify(plan["record"], identity, f"{who} installed {plan['package']} {plan['version']} from commit "
-                    f"{plan['submission']['commit'][:7]}: methods {', '.join(record['methods_added']) or 'none new'}"
-                    + (f"; not found: {', '.join(record['missing_methods'])}" if record["missing_methods"] else "")
-                    + ". Bind each proposal to its method (implementation.bind_builtin) and tell the researcher which can run now.", "installs")
-                return record
             except Exception as exc:   # every failure is recorded and the lab is put back as it was
                 self._restore(saved, target, backup, created)
                 return self._update(identity, "library.install_failed", status="failed", finished_at=now(), error=str(exc)[:2000],
@@ -242,6 +281,16 @@ class Installer:
             finally:
                 if staging.exists():
                     shutil.rmtree(staging)
+        # The library is in: what Balsamic does next never undoes the install.
+        try:
+            record = self._update(identity, **after_install(self.workspace, record))
+        except Exception as exc:
+            record = self._update(identity, bindings=[], skipped=[], after_install_error=f"{type(exc).__name__}: {exc}"[:500])
+        who = "The researcher" if record["actor"] == "researcher" else "Balsamic"
+        self.development.notify(plan["record"], identity, f"{who} installed {plan['package']} {plan['version']} from commit "
+            f"{plan['submission']['commit'][:7]}: {added(record)}."
+            + (" " + bound_text(record) + " Tell the researcher which proposals can run now." if plan["entry_points"] else ""), "installs")
+        return record
 
     def _restore(self, saved, target, backup, created):
         """pyproject.toml and uv.lock as they were, and the library directory as it was (the previous copy, or none)."""
@@ -272,6 +321,107 @@ class Installer:
             end = match.start(1) + len(match.group(1).rstrip("\n"))   # after the table's last line
             text = text[:end] + "\n" + source + text[end:]
         path.write_text(text)
+
+
+def added(record):
+    """What an install added, as its notice and the monitor name it: methods, problems (when it provides any), and what was
+    not found."""
+    parts = [f"methods {', '.join(record.get('methods_added') or []) or 'none new'}"] if record.get("entry_points") or not record.get("problem_entry_points") else []
+    if record.get("problem_entry_points") or record.get("problems_added"):
+        parts.append(f"problems {', '.join(record.get('problems_added') or []) or 'none new'}")
+    missing = [*(record.get("missing_methods") or []), *(record.get("missing_problems") or [])]
+    return "; ".join(parts) + (f"; not found: {', '.join(missing)}" if missing else "")
+
+
+def after_install(workspace, install):
+    """What Balsamic does by itself once a library is installed, always in this order: adopt its problem (E5), bind the
+    proposals it serves (bind_served), start the approved runs (B5). {bindings, skipped} for the install record."""
+    return bind_served(workspace, install)
+
+
+def bind_served(workspace, install):
+    """Bind each proposal the install's submission serves to its method, through the bus as Balsamic's system actor (decision
+    6), citing the install: only when exactly one of the methods the delivery reports for it is installed and runnable on a
+    current task. A proposal someone bound, one using another method and one with several candidate methods are skipped,
+    each with its reason."""
+    from optimization_framework.campaigns.method_catalog import methods_for, served
+    from optimization_framework.contracts.commands import Command, CommandOrigin
+    from optimization_framework.execution.service import algorithms
+    from optimization_framework.optimizers.registry import capability_reason
+    store, campaign_id = workspace.store, install["campaign_id"]
+    submission = store.get(install["submission_id"], "development_submission")
+    installed = {method["id"] for method in algorithms()}
+    tasks = [task for task in workspace.current_tasks(campaign_id) if task.get("problem")]
+    bindings, skipped = [], []
+    for hypothesis_id in served(submission):
+        try:
+            hypothesis = store.get(hypothesis_id, "hypothesis")
+        except KeyError:
+            skipped.append({"hypothesis_id": hypothesis_id, "reason": "No such proposal"})
+            continue
+        methods = methods_for(submission, hypothesis_id)
+        runnable, reasons = {}, []
+        for method in methods:
+            if method not in installed:
+                reasons.append(f"{method} is not installed")
+                continue
+            why = [capability_reason(method, task["problem"]) for task in tasks]
+            if None in why:
+                runnable[method] = tasks[why.index(None)]
+            else:
+                reasons += sorted(set(why)) or [f"{method}: the campaign has no task with a problem definition"]
+        reason = None
+        if hypothesis.get("campaign_id") != campaign_id:
+            reason = "The proposal belongs to another campaign"
+        elif hypothesis.get("status") == "archived":
+            reason = "The proposal is stopped"
+        elif hypothesis.get("implementation_version_id"):
+            reason = "The proposal runs a published implementation"
+        elif hypothesis.get("builtin_binding_id"):
+            try:
+                binding = store.get(hypothesis["builtin_binding_id"], "builtin_binding")
+            except KeyError:
+                binding = {}
+            by = {"researcher": "the researcher", "balsamic": "Balsamic"}.get(binding.get("authority"), "an agent" if binding.get("authority") else "earlier")
+            reason = f"Already bound to {hypothesis['algorithm']} by {by}" if by != "earlier" else f"Already bound to {hypothesis['algorithm']}"
+        elif hypothesis.get("algorithm_chosen") is not False and hypothesis.get("algorithm") in installed:
+            reason = f"It uses {hypothesis['algorithm']}" + (", already installed" if hypothesis["algorithm"] in methods else ", another method")
+        elif not methods:
+            reason = "The delivery reports no method for it"
+        elif not runnable:
+            reason = "; ".join(reasons)
+        elif len(runnable) > 1:
+            reason = f"Several methods could serve it ({', '.join(sorted(runnable))}); the lead chooses one"
+        if reason:
+            skipped.append({"hypothesis_id": hypothesis_id, "reason": reason})
+            continue
+        (method, task), = runnable.items()
+        campaign = store.get(campaign_id, "campaign")
+        command = Command(id="balsamic_bind_" + content_hash([install["id"], hypothesis_id])[:24], campaign_id=campaign_id,
+            operation="implementation.bind_builtin", expected_revision=campaign["version"],
+            origin=CommandOrigin(actor="balsamic", rationale=f"After installing {install['package']} {install['version']} ({install['id']})"),
+            payload={"hypothesis_id": hypothesis_id, "task_id": task["id"], "algorithm": method, "parameters": {},
+                     "expected_algorithm": hypothesis.get("algorithm"),
+                     "expected_configuration_hash": content_hash(hypothesis.get("algorithm_config", {})), "install_id": install["id"],
+                     "reason": f"{install['package']} {install['version']}, installed from commit {install['commit'][:7]}, provides {method}, "
+                               "the one method its delivery reports for this proposal that runs on a current task."})
+        try:
+            receipt = workspace.commands.execute(command, actor="balsamic")
+        except ValueError as exc:
+            skipped.append({"hypothesis_id": hypothesis_id, "reason": str(exc)[:300]})
+            continue
+        bindings.append({"hypothesis_id": hypothesis_id, "title": hypothesis.get("short_title") or hypothesis.get("title") or hypothesis_id,
+                         "method": method, "task_id": task["id"], "binding_id": receipt["outcome"]["binding_id"], "command_id": receipt["id"]})
+    return {"bindings": bindings, "skipped": skipped}
+
+
+def bound_text(install):
+    """The install notice's line on what Balsamic bound and what it left."""
+    done = "; ".join(f"{row['hypothesis_id']} to {row['method']}" for row in install.get("bindings") or [])
+    left = "; ".join(f"{row['hypothesis_id']} ({row['reason']})" for row in install.get("skipped") or [])
+    return ((f"Balsamic bound {done}." if done else "Balsamic bound no proposal.")
+            + (f" Not bound: {left}." if left else "")
+            + (f" Binding stopped: {install['after_install_error']}." if install.get("after_install_error") else ""))
 
 
 def lab_projects(root):

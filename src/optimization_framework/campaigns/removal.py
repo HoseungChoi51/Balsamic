@@ -20,6 +20,7 @@ import re
 import shutil
 import threading
 
+from optimization_framework.campaigns.findings import normalized
 from optimization_framework.storage.sqlite import now
 
 KEEP = ("nothing", "summary", "records")
@@ -279,8 +280,8 @@ class CampaignRemoval:
             "hypotheses": [{key: trimmed(item.get(key)) for key in ("id", "title", "mechanism", "rationale", "assumptions", "risks", "sources",
                 "algorithm", "algorithm_config", "status", "origin", "parent_ids", "created_at")} for item in hypotheses.values()],
             "runs": runs,
-            "findings": [{key: note.get(key) for key in ("id", "kind", "content", "interpretation", "problem_scope", "limitations",
-                "counterevidence_for", "author", "created_at")} for note in store.list("manager_note", campaign_id)
+            "findings": [{key: note.get(key) for key in ("id", "kind", "content", "statement", "interpretation", "problem_scope", "limitations",
+                "counterevidence_for", "links", "author", "created_at")} for note in map(normalized, store.list("manager_note", campaign_id))
                 if note.get("kind") in {"finding", "counterevidence"}],
             "runtime_profiles": [{key: trimmed(profile.get(key)) for key in ("id", "task_id", "status", "ceiling", "parameters", "levels", "summary",
                 "created_at", "finished_at")} for profile in store.list("runtime_profile", campaign_id)],

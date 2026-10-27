@@ -1,4 +1,4 @@
-"""Installed prelude, run with isolated Python startup before captured imports."""
+"""Installed prelude, run with isolated Python startup (standard library only on sys.path) before captured imports."""
 import array
 import json
 import os
@@ -19,7 +19,7 @@ def main():
             os.close(descriptor)
         if connection.recv(1) != b'R':
             raise RuntimeError('The host did not prepare this bounded attempt')
-    # Until this point, -I -S and the installed prelude prevent a capture from
+    # Until this point, -s -P -S with no PYTHONPATH and the installed prelude prevent a capture from
     # shadowing standard-library modules used by resource setup or the handshake.
     sys.path[:0] = json.loads(search_path)
     sys.argv = [module, *arguments]

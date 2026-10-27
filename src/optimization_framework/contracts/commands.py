@@ -19,10 +19,11 @@ Operation = Literal["agent.activate", "agent.message", "agent.control", "agent.r
 
 
 class CommandOrigin(Contract):
-    """Where a command came from: the thread and message of the conversation, and who acted. Shown on every page."""
+    """Where a command came from: the thread and message of the conversation, and who acted. Shown on every page.
+    balsamic is Balsamic's own system actor (decision 6), acting after an install."""
     thread_id: str | None = None
     message_id: str | None = None
-    actor: Literal["researcher", "lead", "page_agent", "autopilot"] = "researcher"
+    actor: Literal["researcher", "lead", "page_agent", "autopilot", "balsamic"] = "researcher"
     agent_id: str | None = None
     run_id: str | None = None
     rationale: str | None = Field(default=None, max_length=5000)
@@ -353,21 +354,30 @@ class ConfirmationScheduleInput(Contract):
     reuse_decision_ids: list[str] = Field(default_factory=list)
 
 
+class FindingLink(Contract):
+    id: str = Field(min_length=1)
+    relation: Literal["supports", "contradicts", "supersedes", "qualifies"]
+
+
 class FindingInput(Contract):
     content: str = Field(min_length=1, max_length=20000)
     source_ids: list[str] = Field(min_length=1)
+    # A promise says why something may work, evidence what was measured, a decision what was chosen and why.
+    # Agents must say which; the researcher's findings without one read as unspecified.
+    statement: Literal["promise", "evidence", "decision"] | None = None
     interpretation: Literal["observation", "interpretation", "researcher_endorsed", "counterevidence"] = "interpretation"
     problem_scope: str = Field(default="", max_length=4000)
     study_ids: list[str] = Field(default_factory=list)
     limitations: list[str] = Field(default_factory=list, max_length=30)
     counterevidence_for: list[str] = Field(default_factory=list)
+    links: list[FindingLink] = Field(default_factory=list, max_length=30)
     publish: bool = False
 
     @model_validator(mode="after")
     def reusable_scope(self):
         if self.publish and (not self.problem_scope.strip() or not self.limitations or not all(item.strip() for item in self.limitations)):
             raise ValueError("A reusable finding requires its problem scope and explicit limitations")
-        if self.interpretation == "counterevidence" and not self.counterevidence_for:
+        if self.interpretation == "counterevidence" and not self.counterevidence_for and not any(link.relation == "contradicts" for link in self.links):
             raise ValueError("Counterevidence must name the earlier finding it qualifies")
         return self
 

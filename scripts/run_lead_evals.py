@@ -8,6 +8,7 @@ thread), talks to it as the researcher does (commands through the bus), and grad
   uv run python scripts/run_lead_evals.py --scenarios S3 --repeats 3     # the real harness on the dev profile's model
   uv run python scripts/run_lead_evals.py --model deepseek/deepseek-v4-flash:low --suite-cap 5
   uv run python scripts/run_lead_evals.py --source ../balsamic-a7e89b8 --record-baseline   # another checkout's code
+  uv run python scripts/run_lead_evals.py --preset deflector_2d --record-baseline          # the scenarios that support another problem
 
 Real runs call a model and cost money. See evals/lead/README.md.
 """
@@ -42,6 +43,12 @@ PRESETS = {
                       "tasks": [{"name": "Trap", "problem_id": "fidelity_trap", "configuration": {}, "fidelity": {"resolution": "coarse"}}]},
     "knapsack": {"objective": "Choose the items of most total value that fit the capacity", "compute_budget_seconds": 600,
                  "tasks": [{"name": "Knapsack", "problem_id": "knapsack_dp", "configuration": {}}]},
+    # A second problem (J2): the 2D deflector at its installed example's configuration (MEENT, binary), and a declared problem
+    # from another field, the flow reactor, made from its confirmed charter (no installed evaluator, so nothing runs).
+    "deflector_2d": {"objective": "Find a better optimizer for this two-dimensional beam deflector", "compute_budget_seconds": 600,
+                     "delegated_trial_seconds": 60, "example": "flrl_2d_deflector_1050nm_75deg"},
+    "reactor": {"objective": "Find the conditions of highest isolated yield for this flow reaction", "compute_budget_seconds": 600,
+                "validation_reserve_seconds": 0, "charter": "flow-reactor.json"},
 }
 ACTIVE = {"queued", "submitted", "running"}
 TOOL_RESULT_BYTES = 256 * 1024
@@ -639,6 +646,7 @@ def transcript(ctx, result):
     """Messages, run inputs and a summary of tool receipts, for reading why a check failed."""
     agents = ctx.agents()
     lines = [f"# {ctx.scenario['id']} (repeat {result['repeat']})", "", f"- Campaign: `{ctx.campaign_id}`", f"- Status: **{result['status']}**",
+             f"- Preset: {result['preset']} ({', '.join(result['problems']) or 'no task'})",
              f"- Source: {ctx.scenario.get('source', '')}", "", "## Steps", ""]
     lines += [f"- `{json.dumps(item, ensure_ascii=False)[:400]}`" for item in ctx.timeline]
     lines += ["", "## Checks", ""]
@@ -667,14 +675,40 @@ def transcript(ctx, result):
     return "\n".join(lines) + "\n"
 
 
-def run_scenario(stack, scenario, repeat, *, model, scale, fakes):
+def supported_presets(scenario):
+    """The presets a scenario may run on: its own `presets`, or only the one its set-up names."""
+    return scenario.get("presets") or [scenario.get("setup", {}).get("preset", "quadratic")]
+
+
+def campaign_preset(stack, name):
+    """campaign.create's fields for a preset: an installed example's instances become the tasks, and a charter file is created
+    and confirmed (as the researcher does on the Problem page) so the campaign is made from it."""
+    preset = dict(PRESETS[name])
+    example_id = preset.pop("example", None)
+    if example_id:
+        examples = {row["id"]: row for row in stack.http.get("/api/v1/problem-examples").raise_for_status().json()["examples"]}
+        if example_id not in examples:
+            raise RuntimeError(f"Preset {name} needs the installed example {example_id}, which is not installed")
+        preset["tasks"] = [{key: instance[key] for key in ("name", "problem_id", "configuration", "fidelity") if key in instance}
+                           for instance in examples[example_id]["instances"]]
+    charter_file = preset.pop("charter", None)
+    if charter_file:
+        charters = stack.workspace.charters
+        record = charters.create(json.loads((EVALS / "charters" / charter_file).read_text()), source={"kind": "lead_eval", "preset": name})
+        preset["charter"] = charters.confirm(record["id"])["charter"]
+    return preset
+
+
+def run_scenario(stack, scenario, repeat, *, model, scale, fakes, preset=None):
     setup = scenario.get("setup", {})
     campaign_id = f"eval_{scenario['id'].split('-', 1)[0].lower()}_r{repeat}_{uuid.uuid4().hex[:6]}"
-    preset = dict(PRESETS[setup.get("preset", "quadratic")])
-    stack.command(campaign_id, "campaign.create", {"name": f"Eval {scenario['id']} #{repeat}", **preset, "llm_budget_usd": setup.get("llm_budget_usd", 0.3)})
+    preset = preset or setup.get("preset", "quadratic")
+    stack.command(campaign_id, "campaign.create", {"name": f"Eval {scenario['id']} #{repeat}", **campaign_preset(stack, preset),
+                                                   "llm_budget_usd": setup.get("llm_budget_usd", 0.3)})
     ctx = Context(stack, scenario, campaign_id, scale)
     stack.fake_play = fakes.get(scenario["id"]) if fakes is not None else None
-    result = {"repeat": repeat, "campaign_id": campaign_id, "checks": [], "error": None}
+    problems = [task["problem"]["definition_id"] for task in stack.workspace.current_tasks(campaign_id)]
+    result = {"repeat": repeat, "campaign_id": campaign_id, "preset": preset, "problems": problems, "checks": [], "error": None}
     try:
         for name in setup.get("seeds", []):
             ctx.timeline.append(step_seed(ctx, name))
@@ -724,23 +758,36 @@ def summarize(scenario, repeats):
             "passes": passes, "repeats": len(repeats), "passed": passed, "status": status, "metrics_mean": mean, "runs": repeats}
 
 
-def summary_markdown(results, baseline=None):
+def baseline_label(baseline):
+    """A baseline's column heading: its commit, model and preset (an older baseline names no model: the profile's default)."""
+    model = baseline.get("model_id") or baseline.get("model") or "profile default"
+    return " · ".join([baseline.get("commit", "?"), model] + ([baseline["preset"]] if baseline.get("preset") else []))
+
+
+def summary_markdown(results, baselines=None):
+    if isinstance(baselines, dict):
+        baselines = [baselines]
+    baselines = baselines or []
     lines = [f"# Lead evals · {results['mode']} · {results['commit']}", "",
-             f"- Started {results['started_at']}, {results['seconds']} s; model {results['model'] or 'profile default'}",
+             f"- Started {results['started_at']}, {results['seconds']} s; model {results.get('model_id') or results['model'] or 'profile default'}",
+             f"- Preset: {results.get('preset') or 'each scenario on its own'}",
              f"- Model use: ${results['cost_usd']:.4f} (suite cap ${results['suite_cap']:.2f})", ""]
     header = "| Scenario | Status | Passes | Lead turns | pi_continue | Model calls | Cost | cacheRead |"
     rule = "|---|---|---|---|---|---|---|---|"
-    if baseline:
-        header += " Baseline |"; rule += "---|"
+    for baseline in baselines:
+        header += f" {baseline_label(baseline)} |"; rule += "---|"
     lines += [header, rule]
     for row in results["scenarios"]:
         m = row["metrics_mean"]
         line = (f"| {row['id']} | {row['status']} | {row['passes']}/{row['repeats']} ({row['scoring']}) | {m.get('lead_turns', 0):g} | "
                 f"{m.get('continue_turns', 0):g} | {m.get('model_calls', 0):g} | ${m.get('cost_usd', 0):.4f} | {m.get('cache_read_tokens', 0):g} |")
-        if baseline:
+        for baseline in baselines:
             old = baseline.get("scenarios", {}).get(row["id"])
             line += (" — |" if not old else f" {old['passes']}/{old['repeats']}{' **regressed**' if old['passed'] and not row['passed'] else ''} |")
         lines.append(line)
+    unsupported = results.get("unsupported") or []
+    if unsupported:
+        lines += ["", f"## Not run on {results['preset']}", ""] + [f"- {row['id']}: {row['reason']}" for row in unsupported]
     skipped = results.get("skipped") or []
     if skipped:
         lines += ["", "Skipped at the suite cap: " + ", ".join(skipped)]
@@ -756,8 +803,28 @@ def summary_markdown(results, baseline=None):
     return "\n".join(lines) + "\n"
 
 
+def profile_model(profile):
+    """The dev profile's default provider/model, which a run without --model uses."""
+    try:
+        settings = json.loads((Path(profile) / "settings.json").read_text())
+    except (OSError, ValueError):
+        return None
+    if settings.get("defaultProvider") and settings.get("defaultModel"):
+        return f"{settings['defaultProvider']}/{settings['defaultModel']}"
+    return None
+
+
+def baseline_path(results):
+    """baselines/<commit>-<provider>-<model>[-<preset>].json: a baseline names what it measured, so two models' or two
+    presets' runs of one commit sit side by side. A run of the scripted harness is <commit>-fake."""
+    model = "fake" if results["mode"] == "fake" else (results.get("model_id") or "unknown-model")
+    parts = [results["commit"], model] + ([results["preset"]] if results.get("preset") else [])
+    return EVALS / "baselines" / (re.sub(r"[^A-Za-z0-9._-]+", "-", "-".join(parts)) + ".json")
+
+
 def baseline_record(results):
-    return {"commit": results["commit"], "mode": results["mode"], "model": results["model"], "recorded_at": results["started_at"],
+    return {"commit": results["commit"], "mode": results["mode"], "model": results["model"], "model_id": results.get("model_id"),
+            "preset": results.get("preset"), "recorded_at": results["started_at"],
             "scenarios": {row["id"]: {key: row[key] for key in ("passes", "repeats", "passed", "status", "metrics_mean")} for row in results["scenarios"]}}
 
 
@@ -773,8 +840,10 @@ def main(argv=None):
     parser.add_argument("--profile", type=Path, help="Pi dev profile (default <source>/agent-harness/profiles/dev)")
     parser.add_argument("--secrets", default=os.environ.get("BALSAMIC_SECRETS", str(Path.home() / ".config/balsamic/secrets.env")))
     parser.add_argument("--time-scale", type=float, help=f"factor on 'seconds' waits (default 1, or {FAKE_TIME_SCALE} with --fake)")
-    parser.add_argument("--record-baseline", nargs="?", const="", help="also write the summary to evals/lead/baselines/<commit>.json (or the path given)")
-    parser.add_argument("--compare", type=Path, help="a baseline file to compare with in summary.md")
+    parser.add_argument("--preset", choices=sorted(PRESETS), help="run every selected scenario on this preset; scenarios that do not list it are not run")
+    parser.add_argument("--record-baseline", nargs="?", const="",
+                        help="also write the summary to evals/lead/baselines/<commit>-<provider>-<model>[-<preset>].json (or the path given)")
+    parser.add_argument("--compare", type=Path, nargs="+", help="baseline files to compare with in summary.md, a column each")
     args = parser.parse_args(argv)
     scenarios = load_scenarios(EVALS / "scenarios", args.scenarios)
     if not scenarios:
@@ -786,11 +855,19 @@ def main(argv=None):
     scale = args.time_scale if args.time_scale is not None else FAKE_TIME_SCALE if args.fake else 1.0
     fakes = load_module(EVALS / "fakes.py", "lead_eval_fakes").FAKES if args.fake else None
     source = args.source.resolve()
+    profile = args.profile or source / "agent-harness" / "profiles" / "dev"
     results = {"mode": "fake" if args.fake else "real", "commit": git_commit(source), "source": str(source), "model": args.model,
-               "started_at": time.strftime("%Y-%m-%dT%H:%M:%S%z"), "suite_cap": args.suite_cap, "scenarios": [], "skipped": []}
+               "model_id": None if args.fake else args.model or profile_model(profile), "preset": args.preset,
+               "started_at": time.strftime("%Y-%m-%dT%H:%M:%S%z"), "suite_cap": args.suite_cap, "scenarios": [], "skipped": [], "unsupported": []}
+    if args.preset:
+        for scenario in [s for s in scenarios if args.preset not in supported_presets(s)]:
+            reason = f"supports {', '.join(supported_presets(scenario))}, not {args.preset}"
+            results["unsupported"].append({"id": scenario["id"], "reason": reason})
+            print(f"{scenario['id']}: not run ({reason})", flush=True)
+        scenarios = [s for s in scenarios if args.preset in supported_presets(s)]
     started = time.monotonic()
     with tempfile.TemporaryDirectory(prefix="lead-evals-") as root, \
-            Stack(root, fake=args.fake, source=source, profile=args.profile or source / "agent-harness" / "profiles" / "dev",
+            Stack(root, fake=args.fake, source=source, profile=profile,
                   secrets_file=args.secrets, log=print) as stack:
         spent = 0.0
         for scenario in scenarios:
@@ -799,7 +876,7 @@ def main(argv=None):
                 if spent >= args.suite_cap:
                     results["skipped"].append(f"{scenario['id']} #{repeat}")
                     continue
-                result, ctx = run_scenario(stack, scenario, repeat, model=model, scale=scale, fakes=fakes)
+                result, ctx = run_scenario(stack, scenario, repeat, model=model, scale=scale, fakes=fakes, preset=args.preset)
                 spent += result["metrics"]["cost_usd"]
                 (out / "transcripts" / f"{scenario['id']}-r{repeat}.md").write_text(transcript(ctx, result))
                 print(f"{scenario['id']} #{repeat}: {result['status']}" + (f" ({result['error']})" if result["error"] else ""), flush=True)
@@ -813,11 +890,11 @@ def main(argv=None):
                 (out / "harness.log").write_text(log.read_text()[-200000:])
     results["seconds"] = round(time.monotonic() - started, 1)
     results["cost_usd"] = round(sum(run["metrics"]["cost_usd"] for row in results["scenarios"] for run in row["runs"]), 6)
-    baseline = json.loads(args.compare.read_text()) if args.compare else None
+    baselines = [json.loads(path.read_text()) for path in args.compare or []]
     (out / "results.json").write_text(json.dumps(results, indent=2, default=str))
-    (out / "summary.md").write_text(summary_markdown(results, baseline))
+    (out / "summary.md").write_text(summary_markdown(results, baselines))
     if args.record_baseline is not None:
-        path = Path(args.record_baseline) if args.record_baseline else EVALS / "baselines" / f"{results['commit']}.json"
+        path = Path(args.record_baseline) if args.record_baseline else baseline_path(results)
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(json.dumps(baseline_record(results), indent=2) + "\n")
         print(f"baseline: {path}")

@@ -353,6 +353,13 @@ is the only writable place, and there is no network, no GPU, and nothing else of
 the workspace database, not the user's configuration or keys). A script runs for at most 300 s
 and a campaign's agents for 7,200 s in all; the last 12 kB of its output is returned.
 
+`compute` does arithmetic for the lead, the page agents and the specialists whose role files list
+it (roadmap K1): an expression of the charter's evaluator (`problem_charter/expressions.py`, parsed
+and walked node by node, never passed to `eval`) over at most 50 values, each a number or a number
+read from a record of the agent's own campaign at a JSON pointer. The result, which is also the
+call's receipt, holds the expression, each input with its record and pointer (none for a literal),
+and the value. The protected implementation roles do not have it.
+
 Whatever an agent reads is sent to its model provider. The repository root therefore exposes the
 committed code and documents of this checkout to that provider; nothing outside the two roots is
 reachable.

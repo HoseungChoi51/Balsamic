@@ -164,7 +164,7 @@ def entries(store, record):
                                {"installed": f"Installed {install.get('package')} {install.get('version') or ''}".strip(),
                                 "failed": "Install failed", "needs_confirmation": "Install waits for your confirmation: it would change installed packages"
                                 }.get(state, "Install requested"),
-                               install.get("error") or ", ".join(install.get("methods_added") or []), "ok" if state == "installed" else "bad" if state == "failed" else "",
+                               install.get("error") or ", ".join([*(install.get("methods_added") or []), *(install.get("problems_added") or [])]), "ok" if state == "installed" else "bad" if state == "failed" else "",
                                install["id"]))
     for issue in store.list("manager_issue", cid):
         if issue.get("code") == "coding_quiet" and issue.get("affected", "").startswith(wid):
