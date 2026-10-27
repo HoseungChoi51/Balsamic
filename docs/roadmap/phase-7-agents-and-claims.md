@@ -107,7 +107,7 @@ reviewer's tools L466–467), `campaigns/proposals.py` (`hypothesis_revision()` 
 - The `agent_call` record holds the exact input.
 - `--fake`: S12 passes.
 
-**Done when** the tests pass, live S12 passes as at the baseline or better, and the readiness Part gives the cost, the
+**Done when** the tests pass, live S12 passes as at the baseline or better, and its readiness file gives the cost, the
 latency and the share of valid outputs of a review before and after. It closes Part R's "Optional independence".
 
 ### T2 — The moderator's synthesis is checked
@@ -155,7 +155,7 @@ The concept-review gate still keeps a proposal with an objection from running.
 - `--fake` S12: the moderator records a synthesis matching the reject verdict. A new check, `synthesis_matches_tally`,
   passes.
 
-**Done when** the tests pass, and live S12 records a synthesis with no standing against the tally (or the readiness Part
+**Done when** the tests pass, and live S12 records a synthesis with no standing against the tally (or its readiness file
 says why). It closes Part R's last "Not done" item.
 
 ### T3 — Review specialists as one-shot calls; decide the harness plan's D2
@@ -196,7 +196,7 @@ and `*.schema.json`, `agents/calls.py` (T1), `docs/harness-update-plan.md` (D2 L
 - The switch returns a role to a session.
 - `tests/test_roles.py` still passes for the session roles.
 
-**Done when** the tests pass, the comparison is in the readiness Part, and the ADR records the choice.
+**Done when** the tests pass, the comparison is in its readiness file, and the ADR records the choice.
 
 ### T4 — Do the operator and the moderator still need their own sessions?
 
@@ -433,4 +433,4 @@ Wave 4  T4 (the baseline, after T1–T3)
 
 - `GRATING_LLM_DISABLED=true uv run pytest -q`, `scripts/run_lead_evals.py --fake`, Playwright for K3 and K4.
 - Live (Centinels): S12, S14 and S16 for T1–T3 and K2, against the Phase 2 baseline; the whole suite and the J2 presets for
-  T4. The comparisons go in the phase's readiness Parts, and T3's and T4's results in ADRs.
+  T4. The comparisons go in the parts' readiness files, and T3's and T4's results in ADRs.

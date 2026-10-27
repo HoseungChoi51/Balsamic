@@ -279,4 +279,4 @@ Wave 4  R4 · R6
 ## Verification
 
 - `GRATING_LLM_DISABLED=true uv run pytest -q`, `(cd frontend && npx playwright test)`, `scripts/run_lead_evals.py --fake`.
-- Live (Centinels): S1–S15 before and after the phase, compared with the Phase 2 baseline, in the phase's readiness Part.
+- Live (Centinels): S1–S15 before and after the phase, compared with the Phase 2 baseline, in the readiness file of the phase's last part.

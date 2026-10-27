@@ -247,4 +247,4 @@ Wave 4  V5 (V1, V2, V3)
 ## Verification
 
 - `GRATING_LLM_DISABLED=true uv run pytest -q`, Playwright for V5.
-- Live (Centinels): S12–S15 against the Phase 2 baseline, in the phase's readiness Part.
+- Live (Centinels): S12–S15 against the Phase 2 baseline, in the readiness file of the phase's last part.
