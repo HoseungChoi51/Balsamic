@@ -57,7 +57,7 @@ DOMAIN = re.compile(r"(?:(?<![A-Za-z])|(?<=[a-z])(?=[A-Z]))(?i:meent|rcwa|gratin
 ENVIRONMENT = re.compile(r"\bGRATING_\w*")
 NAMES_A_DOMAIN = {
     "agents/development_runtime.py", "agents/roles/results_analyst.md", "analysis/comparison.py",
-    "assets/service_costs.py", "campaigns/experiment_rules.py", "contracts/racing.py", "contracts/requests.py",
+    "assets/service_costs.py", "contracts/racing.py", "contracts/requests.py",
     "evaluation/legacy_confirmation.py", "execution/observability.py", "execution/racing.py", "execution/worker.py",
     "implementations/api.py", "implementations/bridge.py", "implementations/client.py", "implementations/models.py",
     "implementations/protected_diagnostics.py", "implementations/runtime.py", "installed.py", "optimizers/binary.py",

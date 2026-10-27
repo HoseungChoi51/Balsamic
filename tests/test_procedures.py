@@ -37,7 +37,9 @@ def team(tmp_path, monkeypatch):
 def test_every_procedure_is_a_valid_skill_for_real_roles_and_every_hint_names_one():
     catalog = Procedures()
     assert {"report-brief", "problem-formulation", "proposal-fields", "journal-cleanup", "recording-findings", "runtime-profiling",
-            "implementation-supervision", "panels", "analysis-scripts", "rcwa-convergence-check", "meent-problem-setup"} <= set(catalog.items)
+            "implementation-supervision", "panels", "analysis-scripts"} <= set(catalog.items)
+    # A problem's own procedures are in its pack (roadmap N3), not among the generic ones.
+    assert not {"rcwa-convergence-check", "meent-problem-setup"} & set(catalog.items)
     for name, item in catalog.items.items():
         assert item["roles"] and item["roles"] <= set(ROLES), name
         assert len(item["description"]) <= 1024 and item["body"].startswith("# "), name
@@ -97,3 +99,51 @@ def test_a_workflow_started_without_its_procedure_is_told_once_per_run(team):
     again = team.turn("And another.")
     assert propose("fourth", again["id"])["procedure"] == "proposal-fields", "a new run is told again"
     assert "procedure_read" in EXTRA_TOOLS and "lead" in EXTRA_TOOLS["procedure_read"]["roles"]
+
+
+MEENT_PROCEDURES = ("meent-problem-setup", "rcwa-convergence-check")
+
+
+def meent_campaign(team, monkeypatch, campaign_id="meent"):
+    task = {"name": "Grating", "problem_id": "meent_grating", "configuration": {}}
+    campaign = command(team.client, "campaign.create", campaign_id, {"name": "Grating", "objective": "Find a better grating", "tasks": [task],
+                                                                     "compute_budget_seconds": 600}, 0)["outcome"]["campaign"]
+    lead = activate_team(team.client, team.workspace, campaign, monkeypatch)
+    version = team.workspace.store.get(campaign_id, "campaign")["version"]
+    run = submitted(team.workspace, "pi_run_" + command(team.client, "agent.message", campaign_id, {"message": "Hello", "thread_id": "thread_main_" + campaign_id},
+                                                       version, origin={"thread_id": "thread_main_" + campaign_id})["id"])
+    return lead, run
+
+
+def test_a_meent_campaign_is_given_its_packs_procedures_and_another_campaign_is_refused_them(team, monkeypatch):
+    """Roadmap N3: MEENT's procedures come with its pack. The cached role catalogs stay generic; the state block of a MEENT
+    campaign lists them, procedure_read serves them there only, and a bounded_continuous campaign neither sees nor reads them."""
+    lead, run = meent_campaign(team, monkeypatch)
+    manifest = team.tools.manifest(lead["id"], run["id"])
+    assert not any(name in manifest["instructions"] for name in MEENT_PROCEDURES), "the static catalog stays generic"
+    state = team.tools.turn_state(lead["id"], run["id"])["text"]
+    assert "Procedures for this campaign's problem" in state and all(f"- {name}: " in state for name in MEENT_PROCEDURES)
+    for name in MEENT_PROCEDURES:
+        read = team.tools.call(lead["id"], run["id"], "read_" + name, "procedure_read", {"name": name})
+        assert read["name"] == name and read["text"].startswith("# "), read
+    # A specialist of the MEENT campaign has no other state, but is told of the procedures for its role.
+    child = team.tools.call(lead["id"], run["id"], "delegate", "delegate", {"role": "empirical_assessor", "objective": "Check", "request_key": "k"})
+    child_run = submitted(team.workspace, child["run_id"])
+    assert "- rcwa-convergence-check: " in team.tools.turn_state(child["agent_id"], child_run["id"])["text"]
+    assert team.tools.call(child["agent_id"], child_run["id"], "spec", "procedure_read", {"name": "rcwa-convergence-check"})["name"] == "rcwa-convergence-check"
+    # The quadratic campaign: not listed, refused, and the specialists' state stays empty.
+    plain = team.turn("Hello")
+    assert "Procedures for this campaign's problem" not in team.tools.turn_state(team.lead["id"], plain["id"])["text"]
+    for name in MEENT_PROCEDURES:
+        assert "No procedure" in team.tools.call(team.lead["id"], plain["id"], "nope_" + name, "procedure_read", {"name": name})["error"]
+    other = team.tools.call(team.lead["id"], plain["id"], "delegate", "delegate", {"role": "empirical_assessor", "objective": "Check", "request_key": "k"})
+    assert team.tools.turn_state(other["agent_id"], submitted(team.workspace, other["run_id"])["id"])["text"] == ""
+
+
+def test_a_pack_procedure_may_not_take_a_generic_procedure_s_name(team, tmp_path, monkeypatch):
+    folder = tmp_path / "pack" / "report-brief"
+    folder.mkdir(parents=True)
+    (folder / "SKILL.md").write_text("---\nname: report-brief\ndescription: A clash.\nmetadata:\n  roles: lead\n---\n\n# Clash\n")
+    monkeypatch.setattr(team.workspace.packs, "procedure_folders", lambda campaign_id: [tmp_path / "pack"])
+    with pytest.raises(ValueError, match="has the name of a generic one"):
+        team.workspace.procedures.campaign(team.workspace, "demo")
