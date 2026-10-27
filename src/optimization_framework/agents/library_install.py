@@ -17,6 +17,7 @@ when, what (package, version, commit, workspace, submission), the methods and pr
 from __future__ import annotations
 
 import hashlib
+import logging
 import os
 import re
 import shutil
@@ -273,29 +274,36 @@ class Installer:
             compute_consent.spend(self.workspace, consent, seconds, subjects=[identity])
 
     def _feedback(self, identity, plan):
-        """The host's results to the coder, once per install: a result file in the box (protected tests by name and outcome
-        only) and one message pointing at it."""
+        """The host's results to the coder, once per install, when something failed: a result file in the box (protected tests
+        by name and outcome only) and one message pointing at it. Whether it was sent; failing to send it never stops the
+        install or what follows it."""
         install, record = self.store.get(identity, "library_install"), plan["record"]
         host = install.get("host_validation")
         if not host or (not install.get("refused_methods") and install["status"] != "failed"):
-            return
+            return False
         name = f"host-validation-{identity}.json"
-        atomic_json(self.development.driver.root(record) / "incoming/results" / name, {"install_id": identity,
-            "commit": plan["submission"]["commit"], "status": install["status"], "error": install.get("error"), **host})
         what = (f"Nothing was installed: {install.get('error')}" if install["status"] == "failed"
                 else f"Methods not installed: {refused_text(install['refused_methods'])}")
-        self.development.message(record["campaign_id"], record["id"], {"message": f"Balsamic validated commit {plan['submission']['commit'][:7]} "
-            f"outside the box. {what} The results are in incoming/results/{name}. Fix them in a new commit, raise the version, and deliver again.",
-            "request_key": "host-validation-" + identity, "mode": "follow_up"}, actor="system")
+        try:
+            atomic_json(self.development.driver.root(record) / "incoming/results" / name, {"install_id": identity,
+                "commit": plan["submission"]["commit"], "status": install["status"], "error": install.get("error"), **host})
+            self.development.message(record["campaign_id"], record["id"], {"message": f"Balsamic validated commit "
+                f"{plan['submission']['commit'][:7]} outside the box. {what} The results are in incoming/results/{name}. Fix them in a "
+                "new commit, raise the version, and deliver again.", "request_key": "host-validation-" + identity, "mode": "follow_up"},
+                actor="system")
+        except Exception as exc:
+            logging.getLogger(__name__).warning("Telling the coding agent what failed outside the box failed: %s", exc)
+            return False
+        return True
 
     def install(self, identity, plan, confirm_changes):
         try:
             judged = self._validate(identity, plan)
         except Exception as exc:   # nothing of it is installed; the coder and the lead are told what failed
             record = self._update(identity, "library.install_failed", status="failed", finished_at=now(), error=str(exc)[:2000])
-            self._feedback(identity, plan)
+            told = self._feedback(identity, plan)
             self.development.notify(plan["record"], identity, f"Balsamic did not install the library from commit "
-                f"{plan['submission']['commit'][:7]}: {exc} The coding agent has the results.", "installs")
+                f"{plan['submission']['commit'][:7]}: {exc}" + (" The coding agent has the results." if told else ""), "installs")
             return record
         refused = {row["method_id"] for row in judged["refused_methods"]}
         with _lock:

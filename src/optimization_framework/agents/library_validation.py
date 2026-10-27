@@ -29,6 +29,7 @@ from optimization_framework.storage.sqlite import now
 TIMEOUT_SECONDS = 600
 MEMORY_BYTES = 4 * 1024**3
 RESULT_BYTES = 4 * 1024**2
+FAILURES = 200   # the failing tests an install record keeps, each with why
 PROTECTED = "development_protected_test"
 # Inside the sandbox.
 LIBRARY, TESTS, OUT = "/library", "/protected", "/out"
@@ -180,10 +181,13 @@ def verdict(result, report):
 
 
 def public(result):
-    """The host's result as the coder and the records see it: protected tests by name and outcome only."""
-    protected = result.get("protected")
-    return {**{key: value for key, value in result.items() if key != "protected"},
-            "protected": None if protected is None else {**{k: protected[k] for k in ("passed", "failed", "skipped")},
+    """The host's result as the coder and the records see it: the library's tests counted, with each failing one and why (at
+    most FAILURES of them); protected tests by name and outcome only."""
+    tests, protected = result.get("tests"), result.get("protected")
+    return {**{key: value for key, value in result.items() if key not in {"tests", "protected"}},
+            "tests": None if tests is None else {**{k: tests.get(k, 0) for k in ("passed", "failed", "skipped")},
+                                                 "results": [row for row in tests.get("results", []) if row["outcome"] == "failed"][:FAILURES]},
+            "protected": None if protected is None else {**{k: protected.get(k, 0) for k in ("passed", "failed", "skipped")},
                                                          "results": [{"test": row["test"], "outcome": row["outcome"]} for row in protected.get("results", [])]}}
 
 
