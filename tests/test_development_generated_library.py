@@ -11,7 +11,7 @@ from optimization_framework.agents.development import DEVELOPMENT_INSTRUCTIONS, 
 from optimization_framework.agents.development_runtime import references_note, write_library
 from optimization_framework.agents.library_install import Installer
 from optimization_framework.problem_charter.scaffold import scaffold
-from test_library_install import PYPROJECT, Plugins, Problems, git
+from test_library_install import PYPROJECT, Plugins, Problems, git, passing
 from test_pi_development_workspaces import Driver, setup  # noqa: F401  (the fixture)
 from test_problem_charter_scaffold import METHODS, OBJECTIVE, ovens
 
@@ -189,8 +189,9 @@ def delivered(tmp_path):
         if args[1:] == ["sync", "--inexact", "--extra", "libraries"]:
             plugins.synced = True
         return 0, " Would make no changes\n" if "--dry-run" in args else "ok"
+    # The validator is stubbed here: these tests change generated files in ways the library's own tests refuse.
     installer = Installer(workspace, development, root, runner=runner, uv="uv", plugins=plugins,
-                          problems=Problems(plugins, ("oven_trays",)), providers=lambda group: {})
+                          problems=Problems(plugins, ("oven_trays",)), providers=lambda group: {}, validator=passing)
     return workspace, campaign["id"], record, installer, deliver, root
 
 

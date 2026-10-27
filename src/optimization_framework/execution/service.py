@@ -620,7 +620,12 @@ class Workspace:
         selected_task = self.store.get(request.task_id, "task")
         if selected_task["campaign_id"] != request.campaign_id:
             raise ValueError("Select a task belonging to this campaign")
-        protocol = self.store.get(request.confirmation_protocol_id, "confirmation_protocol") if request.confirmation_protocol_id else None
+        if captured_source is None and frozen_prototype_id is None:
+            # A method that failed validation outside the box was not installed (roadmap H6): it does not run on the lab's code.
+            from optimization_framework.agents.library_validation import refused_reason
+            if (refused := refused_reason(self.store, request.algorithm)) is not None:
+                raise ValueError(refused)
+        protocol =self.store.get(request.confirmation_protocol_id, "confirmation_protocol") if request.confirmation_protocol_id else None
         evaluator_study_id = ((validation or {}).get("study_id") or (protocol or {}).get("study_id")
             or (execution or {}).get("study_id") or self.store.get(request.campaign_id, "campaign").get("active_study_id"))
         evaluator_bundle = self.evaluators.prepare(selected_task, study_id=evaluator_study_id)
