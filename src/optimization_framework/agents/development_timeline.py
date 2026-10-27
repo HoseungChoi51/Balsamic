@@ -128,6 +128,8 @@ def entries(store, record):
         elif kind == "budget_reached":
             found.append(entry(at, "budget", f"CPU allowance used up ({payload.get('budget', 0):.0f} s): paused",
                                "The workspace and its session are saved; resuming needs a larger allowance.", "bad"))
+        elif kind == "harness_error":   # a headless run of the coding agent that failed (H2)
+            found.append(entry(at, "harness", "The coding agent's run failed: " + _first_line(payload.get("error")), payload.get("error", ""), "bad"))
     if spell is not None:
         found.append(entry(events[-1]["occurred_at"], "work", f"Working since {spell['start'][11:16]} UTC · {spell['tools']} tool calls so far"
                            + (f" · {len(spell['failed'])} failed" if spell["failed"] else ""), spell["last"][-1500:], "agent", None, spell["failed"][:20]))

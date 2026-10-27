@@ -114,6 +114,9 @@ def configuration(path, no_llm=False):
         gpus = key == "development_max_gpus"
         if value is not None and (type(value) not in (int, float) or value < 0 or (not gpus and value == 0) or (gpus and type(value) is not int)):
             raise LauncherError(f"{key} must be a positive number (a nonnegative whole number for GPUs), or null for the default.")
+    # How new coding workspaces run Pi (roadmap H2): its terminal UI (the default) or headless.
+    if config.get("development_harness_mode") not in (None, "tui", "headless"):
+        raise LauncherError("development_harness_mode must be tui or headless, or null for the default (tui).")
     if config.get("development_public_url"):
         parsed = urlparse(str(config["development_public_url"]))
         # Tailscale's authenticated HTTP listener is encrypted on the TailNet
@@ -243,6 +246,9 @@ def service_environment(config):
         env.pop("GRATING_DEVELOPMENT_MAX_" + key.upper(), None)
         if config.get("development_max_" + key) is not None:
             env["GRATING_DEVELOPMENT_MAX_" + key.upper()] = str(config["development_max_" + key])
+    env.pop("GRATING_DEVELOPMENT_HARNESS_MODE", None)
+    if config.get("development_harness_mode"):
+        env["GRATING_DEVELOPMENT_HARNESS_MODE"] = config["development_harness_mode"]
     # The scheduler sets each worker's device; a variable left in the calling shell must not.
     env.pop("GRATING_DEVICE", None)
     if config.get("cuda_mps"):

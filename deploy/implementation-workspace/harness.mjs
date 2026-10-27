@@ -45,8 +45,14 @@ const pi = {
   configure(home = process.env.HOME) {
     const file = path.join(home, '.pi', 'agent', 'mcp.json');
     let config = {};
-    try { config = JSON.parse(fs.readFileSync(file, 'utf8')); } catch { /* none yet, or unreadable: written afresh */ }
-    if (!config || typeof config !== 'object' || Array.isArray(config)) config = {};
+    if (fs.existsSync(file)) {
+      try { config = JSON.parse(fs.readFileSync(file, 'utf8')); } catch { config = null; }
+      if (!config || typeof config !== 'object' || Array.isArray(config)) {
+        // Someone's own edit: kept as it is, and Pi starts without the MCP server rather than without their file.
+        console.error(`harness: ${file} is not a JSON object; left as it is, without the balsamic MCP server`);
+        return file;
+      }
+    }
     config.mcpServers = {...(config.mcpServers || {}), balsamic: {command: process.execPath,
       args: [path.join(path.dirname(self), 'balsamic-workspace.mjs'), 'mcp'], exposure: 'direct',
       toolExposure: {checkpoint: 'hidden', submit: 'hidden'},
@@ -225,10 +231,11 @@ export async function runHeadless(harness, flags, {once = false, log = line => c
   };
 
   const shutdown = () => { stopping = true; interrupt(); };
+  // Someone attached to the tmux pane to watch: Ctrl+C would end the runner, not the instruction.
+  const ignore = () => log('Ctrl+C does not stop a headless workspace: pause or stop it from Balsamic');
   process.on('SIGTERM', shutdown);
   process.on('SIGHUP', shutdown);
-  // Someone attached to the tmux pane to watch: Ctrl+C would end the runner, not the instruction.
-  process.on('SIGINT', () => log('Ctrl+C does not stop a headless workspace: pause or stop it from Balsamic'));
+  process.on('SIGINT', ignore);
   emit('ready', {session_id: harness.session(), harness: harness.name, mode: 'headless'});
   log(`headless ${harness.name}: waiting for instructions`);
   scan();
@@ -244,6 +251,7 @@ export async function runHeadless(harness, flags, {once = false, log = line => c
     clearInterval(timer);
     process.off('SIGTERM', shutdown);
     process.off('SIGHUP', shutdown);
+    process.off('SIGINT', ignore);
   }
 }
 
