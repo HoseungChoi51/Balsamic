@@ -12,7 +12,7 @@ from optimization_framework.contracts.templates import TemplateFreezeInput, Exec
 from optimization_framework.contracts.references import ReferenceImportInput
 from optimization_framework.contracts.bundles import BundleExportInput, BundleInspectInput, BundlePublishInput
 from optimization_framework.contracts.commands import EvaluatorCommissionInput, EvaluatorAttachInput, ImplementationControlInput, WaiverRevocationInput, RevalidationInput, ExecutableReuseInput, RuntimeResolutionInput
-from optimization_framework.contracts.commands import CampaignUpdateInput, ContextEditInput, IssueResolveInput, TrialControlInput, TrialValidationInput
+from optimization_framework.contracts.commands import CampaignUpdateInput, ContextEditInput, ProblemAdoptionInput, IssueResolveInput, TrialControlInput, TrialValidationInput
 from optimization_framework.contracts.commands import TrialExtensionRequestInput, JournalCompactInput, JournalCompactionRequestInput
 from optimization_framework.contracts.commands import ApprovalRequestInput, WorkerCeilingInput
 from optimization_framework.contracts.commands import HypothesisReviewInput, HypothesisStatusInput, HypothesisNominateInput
@@ -47,8 +47,11 @@ DELEGATED.update({"resources.plan", "resources.estimate"})
 # The lead works the evolution graph on request (docs/ui-workspace.md): allocations, batched interventions, new rounds, library reuse.
 DELEGATED.update({"hypothesis.allocate", "intervention.batch", "research.generate", "library.apply"})
 # Balsamic's own system actor (decision 6) runs only these, each citing what it acts under: binding a proposal to a method an
-# install delivered (B4). Its receipts name it as their origin.
-SYSTEM_OPERATIONS = frozenset({"implementation.bind_builtin"})
+# install delivered (B4), starting a run an approved plan lists, under that consent (B5), and adopting the problem an install
+# provides for tasks nothing ran yet (E5). Its receipts name it as their origin.
+SYSTEM_OPERATIONS = frozenset({"implementation.bind_builtin", "trial.create", "campaign.adopt_problem"})
+# The lead may have the campaign's tasks adopt an installed library's problem (roadmap E4): it starts no compute.
+DELEGATED.add("campaign.adopt_problem")
 
 
 class CommandService:
@@ -154,7 +157,7 @@ class CommandService:
         models = {"agent.activate": Activate, "agent.message": Message, "agent.control": Control, "agent.rollback": Rollback,
             "agent.configure": Configure, "agent.question_dismiss": QuestionDismiss, "agent.ui_respond": UiRespond,
             "comparison.report": ComparisonReportInput, "campaign.create": CampaignInput, "campaign.update": CampaignUpdateInput,
-            "context.edit": ContextEditInput, "issue.resolve": IssueResolveInput,
+            "campaign.adopt_problem": ProblemAdoptionInput, "context.edit": ContextEditInput, "issue.resolve": IssueResolveInput,
             "hypothesis.create": HypothesisInput, "hypothesis.review": HypothesisReviewInput,
             "hypothesis.status": HypothesisStatusInput, "hypothesis.nominate": HypothesisNominateInput,
             "trial.create": TrialInput, "trial.control": TrialControlInput, "trial.extension_request": TrialExtensionRequestInput, "trial.validate": TrialValidationInput, "inference.run": InferenceRunInput,
@@ -241,6 +244,8 @@ class CommandService:
         for key in ("origin", "expected_thread_revision"):
             if request.get(key) is None:
                 request.pop(key, None)
+        if request.get("origin") and request["origin"].get("consent_id") is None:
+            request["origin"].pop("consent_id")
         request_hash = content_hash({"command": request, "actor": actor})
         # A receipt hashed with those fields present but unset (written between the two conventions) still matches.
         full_hash = content_hash({"command": command.model_dump(mode="json"), "actor": actor})
@@ -273,6 +278,9 @@ class CommandService:
                     authority = self.authority_hash(campaign)
                     if command.expected_authority_hash is not None and command.expected_authority_hash != authority:
                         raise ValueError("The command's resource grant changed")
+                if actor == "balsamic":
+                    for guard in self.guards:
+                        guard(command, actor, campaign)
                 if actor in {"manager", "autopilot"}:
                     if command.expected_guidance_revision is None or command.expected_authority_hash is None:
                         raise ValueError("Manager commands must pin guidance and delegated authority")
@@ -302,7 +310,7 @@ class CommandService:
                 outcome = self._apply(command, actor, prepared=prepared) if prepared is not None else self._apply(command, actor)
                 record = {"id": command.id, "campaign_id": command.campaign_id, "request_hash": request_hash,
                     "request": command.model_dump(mode="json"), "actor": actor, "authority_hash": authority,
-                    "origin": command.origin.model_dump(mode="json") if command.origin else None,
+                    "origin": command.origin.model_dump(mode="json", exclude={"consent_id"} if command.origin.consent_id is None else None) if command.origin else None,
                     "status": "completed", "outcome": outcome, "created_at": now(), "finished_at": now(),
                     # The payload's unknown top-level keys an agent sent, dropped before it ran (decision 5).
                     **({"ignored_fields": list(ignored_fields)} if ignored_fields else {})}
@@ -519,6 +527,9 @@ class CommandService:
             self._target(command, "draft_id", "experiment_draft")
             launched = self.workspace.drafts.launch(command.campaign_id, DraftLaunchInput(**payload), authority=actor)
             return {"draft_id": launched["draft_id"], "trial_id": launched["trial_id"]}
+        if command.operation == "campaign.adopt_problem":
+            values = ProblemAdoptionInput(**payload)
+            return self.workspace.adopt_library_problem(command.campaign_id, values.install_id, authority=actor)
         if command.operation == "implementation.bind_builtin":
             from optimization_framework.implementations.builtin import bind
             return bind(self.workspace, command.campaign_id, payload, command.id, actor=actor)
@@ -795,7 +806,7 @@ class CommandService:
             decision = {"id": "approval_" + command.id, "campaign_id": command.campaign_id, "charter_version": campaign["version"],
                 "guidance_revision": self.workspace.memory.state(command.campaign_id)["guidance_revision"],
                 "question": title, "title": title, "rationale": values.rationale, "context": values.rationale, "proposal": proposal,
-                "options": [{"id": "0", "label": approve, "description": "The requester starts it at once." if values.kind == "compute" else "Applied at once as your own command."},
+                "options": [{"id": "0", "label": approve, "description": "The requester starts it at once; Balsamic starts each listed run once its proposal can run." if values.kind == "compute" else "Applied at once as your own command."},
                             {"id": "1", "label": "Not now" if values.kind == "compute" else "Leave it as it is", "description": "The requester is told and nothing changes."}],
                 "recommendation": "0", "approval_request": request,
                 "requested_by": "lead" if self.workspace.pi.owns(command.campaign_id) else "manager", "audience": "researcher",

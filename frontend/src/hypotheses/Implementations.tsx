@@ -220,12 +220,15 @@ function InstallBox({ workspace: w, submission }: { workspace: Workspace; submis
           {latest.problems_added?.length ? ` · problems ${latest.problems_added.join(', ')}` : null}
           {[...latest.missing_methods, ...(latest.missing_problems || [])].length
             ? <span className="pill bad"> not found: {[...latest.missing_methods, ...(latest.missing_problems || [])].join(', ')}</span> : null}</span> : null}
+        {latest?.changed_generated_files?.length ? <span className="small faint" data-testid="install-changed-generated">
+          changed from the generated library: {latest.changed_generated_files.map(path => path.split('/').slice(2).join('/')).join(', ')}</span> : null}
         {!open && latest?.status !== 'installing' && latest?.status !== 'queued' ? <button className="btn small primary" onClick={() => setOpen(true)} data-testid="install-open">
           {latest?.status === 'installed' ? 'Install again…' : 'Install…'}</button> : null}
       </div>
-      {latest?.status === 'installed' && (latest.bindings?.length || latest.skipped?.length) ? <div className="small" data-testid="install-bindings">
+      {latest?.status === 'installed' && (latest.bindings?.length || latest.skipped?.length || latest.launched?.length) ? <div className="small" data-testid="install-bindings">
         {latest.bindings?.map(b => <div key={b.binding_id}><span className="pill good">bound</span> {b.title || b.hypothesis_id} → <code>{b.method}</code> by Balsamic</div>)}
-        {latest.skipped?.map(s => <div key={s.hypothesis_id} className="faint"><span className="pill">not bound</span> {s.hypothesis_id}: {s.reason}</div>)}</div> : null}
+        {latest.skipped?.map(s => <div key={s.hypothesis_id} className="faint"><span className="pill">not bound</span> {s.hypothesis_id}: {s.reason}</div>)}
+        {latest.launched?.map(r => <div key={r.trial_id}><span className="pill good">started</span> {r.hypothesis_id} seed {r.seed}: an approved run, by Balsamic</div>)}</div> : null}
       {latest?.status === 'failed' ? <details className="small"><summary className="pill bad" style={{ whiteSpace: 'normal' }}>{latest.error}</summary><pre>{latest.log_tail}</pre></details> : null}
       {latest?.status === 'needs_confirmation' ? <div className="callout attention small" data-testid="install-changes">
         <span className="grow">Installing it would change packages the lab already has: {latest.changes.map(c => `${c.name} ${c.from} → ${c.to || 'removed'}`).join(', ')}.</span>

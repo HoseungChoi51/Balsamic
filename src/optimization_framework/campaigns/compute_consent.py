@@ -14,7 +14,8 @@ for its compute.
 A consent covers only the work its plan names (decision 4): a coding workspace for a proposal it names, a run or commission of
 such a proposal, and work for no proposal (a runtime profile, a validation) asked in the same researcher request. A plan that
 names no proposals, as every consent recorded before plans named them, covers any work in the campaign. A consent stays in force
-while a coding workspace it opened runs, and for three times its wall time after the last one stops.
+while a coding workspace it opened runs, and for three times its wall time after the last one stops. The runs a plan lists
+start by themselves once their proposals can run (plan_runs.py), each charged to the consent it ran under.
 
 A consent is the compute part of a mandate (campaigns/mandates.py): one that no mandate names reads as a Screen mandate.
 """
@@ -255,6 +256,14 @@ def register(bus):
     workspace = bus.workspace
 
     def guard(command, actor, campaign):
+        if actor == "balsamic" and command.operation == "trial.create":
+            from .plan_runs import check
+            return check(workspace, command)
+        if actor in {"manager", "autopilot"} and command.operation == "trial.create":
+            from .plan_runs import started_by_balsamic
+            if (trial := started_by_balsamic(workspace, command.campaign_id, command.payload)) is not None:
+                raise ValueError(f"Balsamic already started this approved run ({trial['id']}, seed {trial.get('seed', 0)}); "
+                                 "use another seed to run the proposal again")
         if actor != "manager":
             return
         seconds = estimate(workspace, command.operation, command.payload)
@@ -263,6 +272,9 @@ def register(bus):
                     hypothesis_ids=proposals(workspace, command.operation, command.payload), root=request_root(workspace, command.origin))
 
     def listener(record):
+        if record.get("actor") == "balsamic" and record["request"]["operation"] == "trial.create":
+            from .plan_runs import charge as charge_planned
+            return charge_planned(workspace, record)
         if record.get("actor") == "manager" and record.get("status") == "completed":
             request = record["request"]
             charge(workspace, request["campaign_id"], estimate(workspace, request["operation"], request["payload"]),
