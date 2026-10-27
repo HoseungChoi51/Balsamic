@@ -2,7 +2,7 @@
 
 The list is a versioned file, agent-harness/extensions/allowlist.json (GRATING_PI_EXTENSIONS names another one, as the
 evals do). It is part of the manifest, so a runtime keeps the set it was made with. The Balsamic extension is not listed:
-the harness loads it first in every session but an implementation grant's. Grant roles load nothing at all.
+the harness loads it first in every session.
 
     {"extensions": {"<name>": {"path": "session/<name>/index.ts", "tools": {"<tool>": {"read_only": true}}}},
      "roles": {"<role>": ["<name>", ...]}}
@@ -13,7 +13,6 @@ import re
 from functools import lru_cache
 from pathlib import Path
 
-GRANT_ROLES = frozenset({"implementation_builder", "implementation_test_designer", "implementation_validator"})
 DEFAULT = Path(__file__).resolve().parents[3] / "agent-harness" / "extensions" / "allowlist.json"
 NAME = re.compile(r"[a-z0-9][a-z0-9-]{0,63}")
 TOOL = re.compile(r"[a-zA-Z0-9_-]{1,64}")
@@ -50,8 +49,9 @@ def _load(path, mtime):
 
 
 def hosts_extensions(agent):
-    """Whether the agent's session loads the Balsamic extension (and any): every role but an implementation grant's."""
-    return not agent.get("grant_id") and agent["role"] not in GRANT_ROLES
+    """Whether the agent's session loads the Balsamic extension (and any): every agent's but one recorded for an implementation
+    grant before roadmap H8, which never runs again (agents/tools.py refuses its turns)."""
+    return not agent.get("grant_id")
 
 
 def for_agent(agent):

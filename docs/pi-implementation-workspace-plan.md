@@ -6,6 +6,13 @@ protected test envelope is frozen. Its first run exposed a rank-zero JSON shape
 bug in the protected invariant checker; the checker has been corrected and the
 same immutable submission is ready for another bounded validation grant.
 
+Since roadmap H8 coding workspaces are the one route that builds code, and the
+service validation this page describes for the pilot (frozen envelopes and
+validation grants, `implementation_workspace_validate`) is retired: a submission
+is validated outside the box with its ticket's protected tests (H6). The pilot's
+records stay readable. [Open items after H8](#open-items-after-roadmap-h8) says
+what became of each item below.
+
 The browser IDE is available through the existing TailNet route at
 `http://strixhalo.tail096b61.ts.net:8765`. In the campaign's PI panel, select
 **Implementation workspaces** and open the H12 workspace. The integrated
@@ -78,10 +85,10 @@ The current integration constrains that work:
 - [Implementation tools](../src/optimization_framework/agents/tools.py) expose
   a restricted file interface and a Python-only `workspace_run` operation capped
   at 30 seconds, with network access disabled.
-- [The implementation adapter](../src/optimization_framework/agents/implementation.py)
-  applies a grant deadline across the development exchange, including model and
-  transport waits. A persistent session can outlive that exchange, but the job
-  still exits when its deadline expires.
+- The implementation adapter (`agents/implementation.py`, removed in roadmap H8)
+  applied a grant deadline across the development exchange, including model and
+  transport waits. A persistent session could outlive that exchange, but the job
+  still exited when its deadline expired.
 - A blocked host prerequisite can repeatedly return the user to a request for
   action without giving the implementation agent a usable development workspace.
 
@@ -113,7 +120,7 @@ questions, and results.
 | Developer ↔ implementation agent | Supply instructions and context; inspect messages, tool calls, command output, and diffs; answer questions; steer ongoing work; interrupt, resume, and edit files. |
 | PI ↔ implementation agent | Delegate a task with acceptance criteria; provide evidence and repository references; send corrections; receive progress, blockers, checkpoints, and submitted revisions. |
 | Implementation agent ↔ development environment | Use normal Pi file and shell tools, Git, dependency installation, tests, debugging commands, long-running processes, project instructions, and skills. |
-| Implementation ↔ validation service | Submit an exact revision and dependency identity; receive validation results; repair failures and submit a new revision. |
+| Implementation ↔ validation outside the box | Submit an exact revision and dependency identity; receive validation results (H6: the ticket's protected tests, run on the host); repair failures and submit a new revision. |
 
 The developer must be able to discuss implementation decisions with the agent
 throughout the task. A final-result form or a sequence of short script requests
@@ -128,7 +135,7 @@ flowchart LR
     PI[Campaign PI] <--> Bridge[Pi campaign extension]
     Bridge <--> Pi
     Pi <--> Work[Git worktree and development environment]
-    Work -->|Submitted commit and dependencies| Validation[Independent validation service]
+    Work -->|Submitted commit and dependencies| Validation[Validation outside the box]
     Validation -->|Report and repair feedback| PI
     PI -->|Validated version| Campaign[Campaign experiments]
 ```
@@ -234,7 +241,8 @@ A commission opens the same workspace with Pi headless (roadmap H7, `agents/deve
 holds the commission's frozen specification, its deadline is the commission's compute time, and its protected tests
 are the commissioner's (and an evaluator's independent fixtures), written before the box opens. Nobody attaches to it;
 its questions go to whoever commissioned it, and its delivery is validated and installed as any workspace's.
-`docs/implementation-service.md` says which commissions still run as service jobs.
+Since roadmap H8 it is the only way a commission builds code: one that cannot open a box is refused with what to do
+instead (`docs/implementation-service.md`).
 
 Each delegated programming task gets its own focused session and worktree. The
 PI receives progress summaries, blockers, artifact references, and commits. It
@@ -264,8 +272,8 @@ validation fixtures or access unrelated personal files, service credentials, or
 reviewer sessions. Provision the model authentication it needs without exposing
 credentials through campaign artifacts or browser responses.
 
-Preserve the independent validation service. Validate the submitted commit and
-captured dependencies in a clean execution environment; development test results
+Preserve independent validation: since H6 it runs outside the box, on the host.
+Validate the submitted commit and captured dependencies in a clean execution environment; development test results
 are useful evidence but do not establish protected validation or effectiveness.
 Repairs create new revisions, and campaign experiments pin the resulting
 validated version.
@@ -340,6 +348,30 @@ Roll out the new implementation session path behind a configuration switch.
 Preserve existing sessions, artifacts, grants, and validation records. A rollback
 stops new launches through the new path while retaining its worktrees and history
 for inspection or later continuation.
+
+## Open items after roadmap H8
+
+Roadmap H8 left one route that builds code, the coding workspace, and closed or
+moved what this plan left open:
+
+- **The grant deadline across the exchange, and the 30-second `workspace_run`
+  interface**: closed. The implementation adapter and the grant roles that used
+  them (builder, test designer, validator) were removed; a workspace's deadline
+  is its own wall time, within the go-ahead (H5).
+- **Validation and campaign handoff (phase 4)**: closed by H6. A submission is
+  validated outside the box with its ticket's protected tests, then installed and
+  bound; the service validation of a submission (`implementation_workspace_validate`)
+  and its frozen envelopes are retired. A validation requested before still
+  finishes, and its result reaches the coding agent once.
+- **Migration of grants and usage**: closed. Nothing is migrated: grants, jobs,
+  envelopes and validation results recorded before stay readable on the pages and
+  to the agents, and a grant still running can be cancelled or closed.
+- **The configuration switch and rollback**: `GRATING_DEVELOPMENT_ENABLED`. With
+  workspaces off nothing builds code; a commission is refused with the switch
+  that turns them on.
+- **The H12 pilot (phase 5)**: moved. Its envelope and validation grant are
+  retired with the route; carrying it on means a coding workspace for H12 with its
+  checks as protected tests on the ticket, which is the researcher's decision.
 
 ## References
 

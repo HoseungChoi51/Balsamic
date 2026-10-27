@@ -1,5 +1,5 @@
 /** The Implementations tab: each coding workspace as a card (what it is for, how it is going, and its history), and the
- *  library versions validated through commissions. Everything here comes from what the workspace recorded; nothing is guessed. */
+ *  validated versions of the implementation library. Everything here comes from what the workspace recorded; nothing is guessed. */
 import { useEffect, useRef, useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { api } from '../api/client';

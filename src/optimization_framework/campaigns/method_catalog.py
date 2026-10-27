@@ -109,8 +109,12 @@ def catalog(workspace, campaign_id, *, other_limit=40):
             evaluator = workspace.evaluators.readiness(task, wait=False)
         except (KeyError, ValueError) as exc:
             evaluator = {"runnable": False, "reason": str(exc)}
-        task_rows.append({"id": task["id"], "name": task.get("name") or task["id"], "problem_id": task.get("problem_id"),
-                          "blocker": None if evaluator.get("runnable") else evaluator.get("reason") or "Its evaluator is not ready."})
+        blocker = None if evaluator.get("runnable") else evaluator.get("reason") or "Its evaluator is not ready."
+        task_rows.append({"id": task["id"], "name": task.get("name") or task["id"], "problem_id": task.get("problem_id"), "blocker": blocker,
+                          # The one route that builds code (roadmap H8): a coding workspace's library, commissioned or not.
+                          "next_action": None if blocker is None or not task.get("evaluator_requirement_id") or evaluator.get("state") == "building" else
+                          {"owner": "lead", "text": "Build its evaluator in a coding workspace's library (evaluator.commission opens one "
+                                                    "for a problem the charter declares), or attach a validated evaluator version"}})
     hypotheses = [row for row in store.list("hypothesis", campaign_id) if row.get("status") != "archived"]
     installs = {row.get("submission_id"): row for row in store.list("library_install", campaign_id) if row.get("status") == "installed"}
     submissions = latest_submissions(store, campaign_id)

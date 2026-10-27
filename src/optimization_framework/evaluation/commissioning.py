@@ -130,7 +130,7 @@ class EvaluatorService:
             grants = [grant for grant in self.store.list("implementation_grant", task["campaign_id"]) if grant.get("task_id") == task["id"]]
             grant = grants[-1] if grants else None
             return {"state": (grant or {}).get("status", "missing"), "runnable": False,
-                "reason": (grant or {}).get("error") or "This problem requires a validated evaluator. Commission one or attach a compatible library version.",
+                "reason": (grant or {}).get("error") or "This problem needs its evaluator: a library built for it in a coding workspace provides it once installed (for a problem the charter declares, evaluator.commission opens one), or attach a validated evaluator version.",
                 "requirement_id": task["evaluator_requirement_id"], "grant_id": (grant or {}).get("id")}
         try:
             version = (self.workspace.implementations.client.version(binding["version_id"]) if refresh else

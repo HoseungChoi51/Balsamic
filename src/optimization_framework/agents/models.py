@@ -16,9 +16,11 @@ STANDING = {LEAD, *PAGE_AGENTS}
 # The assistants the moderator asks for views and verdicts in a review round.
 DISCUSSION_ROLES = ("literature_specialist", "methodology_specialist", "cross_domain_explorer", "skeptical_domain_analyst",
                     "empirical_assessor", "proposal_reviewer", "results_analyst")
+# The implementation service's builder, test designer and validator are no longer roles (roadmap H8): code is built in a coding box
+# (agents/development_commission.py). Agents recorded under them keep their records and never run again.
 ROLES = (LEAD, "literature_specialist", "methodology_specialist", "cross_domain_explorer",
-         "skeptical_domain_analyst", "empirical_assessor", "proposal_reviewer", "implementation_builder",
-         "implementation_test_designer", "implementation_validator", "results_analyst", *PAGE_AGENTS)
+         "skeptical_domain_analyst", "empirical_assessor", "proposal_reviewer", "results_analyst", *PAGE_AGENTS)
+RETIRED_ROLES = frozenset({"implementation_builder", "implementation_test_designer", "implementation_validator"})
 # The standing assignment of each page agent.
 PAGE_OBJECTIVES = {
     "discussion_moderator": "Run the review of this campaign's proposals when the researcher or the lead agent asks: ask specialists and "

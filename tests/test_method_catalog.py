@@ -106,3 +106,17 @@ def test_balsamic_binds_after_an_install_and_the_lead_binds_only_what_it_left(ca
     workspace.store.put('library_install', {**install, 'bindings': [], 'skipped': [{'hypothesis_id': 'hypothesis_dp', 'reason': 'Several candidate methods'}]})
     assert step() == {'owner': 'lead', 'text': 'Bind hypothesis_dp to it (implementation.bind_builtin); Balsamic left it: Several candidate methods'}
     assert reason() == 'Installed: random. Bind this proposal to its method (implementation.bind_builtin); Balsamic left it: Several candidate methods.'
+
+
+def test_a_task_waiting_for_its_evaluator_names_the_one_route_that_builds_code(tmp_path):
+    """Roadmap H8: a coding workspace's library is the one route that builds code, and the catalog's next step for a task whose
+    evaluator is missing says so, beside attaching a validated version."""
+    from test_framework_evaluators import specification
+    manifest = specification().manifest
+    workspace = Workspace(tmp_path)
+    cid = workspace.create_campaign(CampaignInput(name='Evaluator', compute_budget_seconds=100, validation_reserve_seconds=10,
+        tasks=[TaskInput(name='Declared quadratic', problem_id=manifest.id, evaluator_manifest=manifest)]))['id']
+    [row] = catalog(workspace, cid)['tasks']
+    assert row['blocker'] and row['next_action']['owner'] == 'lead'
+    assert 'coding workspace' in row['next_action']['text'] and 'evaluator.commission' in row['next_action']['text']
+    assert unavailable(workspace, cid)['tasks_blocked'] == [row]

@@ -127,7 +127,7 @@ def test_persistent_workspace_receipts_and_replay(setup):
     assert driver.prepared == 1
 
 
-def test_questions_submissions_and_independent_validation_grant(setup, monkeypatch):
+def test_questions_submissions_and_a_validation_grant_recorded_before_h8(setup, monkeypatch):
     workspace, campaign, development, driver = setup
     cid = campaign['id']
     record = development.create(cid, {'hypothesis_id': 'hypothesis_dev', 'objective': 'Implement',
@@ -150,33 +150,11 @@ def test_questions_submissions_and_independent_validation_grant(setup, monkeypat
     submission = development.public(development.get(cid, record['id']))['submissions'][0]
     assert submission['commit'] == commit
     assert 'package' not in submission
-    captured = {}
-    def reserve(hypothesis_id, spec, **options):
-        captured.update(hypothesis_id=hypothesis_id, spec=spec, **options)
-        grant = {'id': 'grant_dev', 'campaign_id': cid, 'status': 'dispatching', 'compute_seconds': 0,
-                 'request': {'compute_seconds': options['compute_seconds']}}
-        workspace.store.put('implementation_grant', grant)
-        return grant
-    monkeypatch.setattr(workspace.implementations, 'reserve_commission', reserve)
-    monkeypatch.setattr('optimization_framework.agents.capabilities.implementation_execution',
-                        lambda: {'available': True})
-    # The implementation module imports the capability function at invocation time.
-    frozen = development.freeze_envelope(cid, record['id'], {'request_key': 'freeze',
-        'spec': {'name': 'Test method', 'mechanism': 'Seeded search',
-                 'acceptance_criteria': ['Seeded replay'], 'dependencies': {}}})
-    assert frozen['checks'] == {'behavior': 0, 'mechanism': 0, 'diagnostic': 0}
-    assert development.freeze_envelope(cid, record['id'], {'request_key': 'freeze',
-        'spec': {'name': 'Test method', 'mechanism': 'Seeded search',
-                 'acceptance_criteria': ['Seeded replay'], 'dependencies': {}}})['id'] == frozen['id']
-    assert 'spec' not in development.public(development.get(cid, record['id']))['validation_envelopes'][0]
-    result = development.validate(cid, record['id'], {'submission_id': submission['id'],
-        'envelope_id': frozen['id'],
-        'compute_seconds': 20, 'request_key': 'validate'})
-    assert result['grant_id'] == 'grant_dev'
-    assert captured['accounting_mode'] == 'execution_v1'
-    assert captured['package']['files'][0]['content'].startswith('def create_optimizer')
-
-    grant = workspace.store.get('grant_dev', 'implementation_grant')
+    # A service validation of the submission requested before roadmap H8 retired it (implementation_workspace_validate): its
+    # grant still finishes, and its result is recorded on the submission and told to the coding agent, redacted.
+    saved = workspace.store.get(submission['id'], 'development_submission')
+    workspace.store.put('development_submission', {**saved, 'grant_id': 'grant_dev', 'status': 'validating', 'feedback_sent': False})
+    grant = {'id': 'grant_dev', 'campaign_id': cid, 'status': 'dispatching', 'compute_seconds': 0, 'request': {'compute_seconds': 20}}
     grant.update(status='failed', error='Independent check failed', attempts=[{'report': {'checks': [
         {'name': 'successful private reference', 'passed': True, 'detail': 'withheld expected design'},
         {'name': 'seed replay', 'passed': False, 'detail': 'replay diverged'}]},
@@ -288,17 +266,14 @@ def test_a_specification_must_state_what_it_cites(setup):
     cid = campaign['id']
     artifact = 'artifact_pi_tool_86f8269f855f5ffdb0b6c927c295bc7c'
     workspace.store.put('agent_artifact', {'id': artifact, 'campaign_id': cid, 'content': 'R4-A: the normative mechanism'})
-    record = development.create(cid, {'hypothesis_id': 'hypothesis_dev', 'objective': 'Implement', 'request_key': 'cite'})
     spec = {'name': 'Test method', 'mechanism': f'Freeze {artifact} verbatim', 'acceptance_criteria': ['Seeded replay'],
-            'dependencies': {}, 'provenance': [{'id': artifact}]}
-    # The test designer sees the specification alone: an id it cannot read is refused before any model call.
+            'problem_id': 'bounded_continuous', 'dependencies': {}, 'provenance': [{'id': artifact}]}
+    # The coding agent sees the specification alone (a commission's ticket): an id it cannot read is refused.
     with pytest.raises(ValueError, match=f'campaign records \\({artifact}\\).*cannot read'):
-        development.freeze_envelope(cid, record['id'], {'request_key': 'cited', 'spec': spec})
-    with pytest.raises(ValueError, match='cannot read'):
-        workspace.implementations.reserve_commission('hypothesis_dev', spec, compute_seconds=10, idempotency_key='cited')
+        workspace.implementations.check_self_contained(spec)
     # Stated in full, with the record cited in provenance (and an id that names no record left alone), it is accepted.
     spec['mechanism'] = 'R4-A: the normative mechanism, written out; pi_tool_86f8269f855f5ffdb0b6c927c295bc7c'
-    assert development.freeze_envelope(cid, record['id'], {'request_key': 'stated', 'spec': spec})['id']
+    workspace.implementations.check_self_contained(spec)
 
 
 def test_an_agent_opens_a_coding_workspace_only_with_the_researchers_go_ahead(setup):
@@ -467,21 +442,22 @@ def test_each_validation_of_a_submission_has_its_result_recorded(setup, monkeypa
     outgoing(driver, record, 's', 'submission', {'commit': 'd' * 40, 'manifest_path': 'implementation-manifest.json', 'report': REPORT})
     development.sync(cid)
     submission = workspace.store.list('development_submission', cid)[0]
-    grants = iter(['grant_one', 'grant_two'])
-    def reserve(hypothesis_id, spec, **options):
-        return workspace.store.put('implementation_grant', {'id': next(grants), 'campaign_id': cid, 'status': 'dispatching', 'compute_seconds': 0})
-    monkeypatch.setattr(workspace.implementations, 'reserve_commission', reserve)
-    monkeypatch.setattr('optimization_framework.agents.capabilities.implementation_execution', lambda: {'available': True})
-    request = {'submission_id': submission['id'], 'spec': {'name': 'Test method', 'mechanism': 'Seeded search', 'acceptance_criteria': ['Seeded replay'], 'dependencies': {}},
-               'compute_seconds': 20}
+
+    def validate(grant_id):
+        """A service validation of the submission as implementation_workspace_validate requested one before roadmap H8 retired it:
+        its grant, and the submission waiting for it."""
+        workspace.store.put('implementation_grant', {'id': grant_id, 'campaign_id': cid, 'status': 'dispatching', 'compute_seconds': 0})
+        current = workspace.store.get(submission['id'], 'development_submission')
+        workspace.store.put('development_submission', {**current, 'grant_id': grant_id, 'status': 'validating', 'feedback_sent': False})
+
     def finish(grant_id, status):
         workspace.store.put('implementation_grant', {**workspace.store.get(grant_id, 'implementation_grant'), 'status': status,
                                                     'finished_at': '2026-10-27T05:00:00+00:00', 'attempts': []})
         development.validation_feedback(development.get(cid, record['id']))
-    development.validate(cid, record['id'], {**request, 'request_key': 'first'})
+    validate('grant_one')
     finish('grant_one', 'failed')
     assert workspace.store.get(submission['id'], 'development_submission')['status'] == 'needs_revision'
-    development.validate(cid, record['id'], {**request, 'request_key': 'second'})
+    validate('grant_two')
     assert workspace.store.get(submission['id'], 'development_submission')['status'] == 'validating'
     finish('grant_two', 'completed')
     saved = workspace.store.get(submission['id'], 'development_submission')

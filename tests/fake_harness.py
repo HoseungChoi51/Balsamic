@@ -66,7 +66,6 @@ class SessionTree:
         return walk(None)
 
 
-GRANT_ROLES = {"implementation_builder", "implementation_test_designer", "implementation_validator"}
 REMINDER = "End the turn with yield_work: complete with the answer in report, or waiting if work you started is still running."
 
 
@@ -176,7 +175,8 @@ class FakeHarness:
             tree.append("message", run["prompt"], role="user")
             tools = Tools(self, agent, run)
             reply = self.script(agent, run, tools)
-            host = (agent.get("manifest") or {}).get("extension_host", (agent.get("spec") or {}).get("role") not in GRANT_ROLES)
+            # As the harness: a manifest that says nothing of it hosts the extension (the grant roles that did not were retired in H8).
+            host = (agent.get("manifest") or {}).get("extension_host", True)
             if not tools.yielded and host:
                 # The Balsamic extension's agent_before_settle: one continuation in the same run.
                 self._event(agent, "turn.continued", run_id=run["id"], summary="The run was ending without yield_work")

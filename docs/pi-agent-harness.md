@@ -7,15 +7,15 @@ with the launcher's `pi_provider` (`GRATING_PI_PROVIDER`). Activation without ei
 and without an explicit model, is refused. The optional development container image
 (`deploy/implementation-workspace`) installs the Pi CLI 1.3.0. With `openai-codex`
 as the locked provider, the PI uses `gpt-6-astra`; specialists use `gpt-6-sol`;
-proposal and implementation reviewers use Astra.
+proposal reviewers use Astra.
 All sessions currently use `xhigh` reasoning. Models are pinned for each session;
 historical chat/discovery model settings do not alter a Pi session. No paid API
 fallback is configured.
 
 The [full Pi implementation workspace](pi-implementation-workspace-plan.md)
 documents the browser IDE, native Pi CLI sessions, developer and PI interaction,
-development accounting, and the active H12 pilot. Its independent protected
-validation still requires a submitted implementation and an authorized grant.
+development accounting, and the H12 pilot. A coding workspace is the one route
+that builds code (roadmap H8); what it submits is validated outside the box.
 The coding agent runs on the campaign's model: the workspace gets that provider's
 sign-in from `auth.json` and, for a custom provider (a LiteLLM router), its endpoint
 from the Pi `models.json`, and refuses a provider on a private address, which the
@@ -38,12 +38,11 @@ whoever opened it is told once. The researcher resumes it with a new `wall_secon
 Its running wall time is charged to the go-ahead (`used_wall_seconds` on the consent
 that is its mandate's compute part). The card
 shows the deadline, the limits and the hosts. Workspaces are off unless `GRATING_DEVELOPMENT_ENABLED=true`;
-while they are off, the refusal tells the agents to commission the implementation
-and the researcher how to turn workspaces on. Either way the test designer, builders
-and reviewer see the specification alone, so a specification whose name, mechanism
-or acceptance criteria name a campaign record instead of stating it is refused
-before any model call (`ImplementationBridge.check_self_contained`); provenance may
-cite records.
+while they are off nothing builds code: a workspace and a commission are refused with the
+switch that turns them on (roadmap H8). A commission's coding agent sees the specification
+alone, so a specification whose name, mechanism or acceptance criteria name a campaign
+record instead of stating it is refused before the box opens
+(`ImplementationBridge.check_self_contained`); provenance may cite records.
 
 ## Deployment and sign-in
 
@@ -75,9 +74,10 @@ path. Campaign compute allocations and protected validation reserves still apply
 their artifacts/costs/unfinished states, pins existing H labels, and creates the lead
 agent. It starts no turn: the lead agent waits for the researcher (see the next section).
 One workspace lease and one Pi session serialize each campaign's manager. The
-PI delegates focused assignments; independent implementation roles are created
-by the library under a frozen grant, with separate sessions and private workspaces.
-Builders cannot read protected fixtures or reviewer sessions. Generated code is
+PI delegates focused assignments. Code is built in coding workspaces, whose coding
+agent cannot read the protected tests kept on the host (the implementation grant roles
+that once built in the library, builder, test designer and validator, were retired in
+roadmap H8; an agent recorded under one takes no more turns). Generated code is
 executed inside bubblewrap; protected validation and publication stay in Python.
 
 Exact run IDs, tool intents and receipts reconcile retries after a lost reply.
@@ -306,13 +306,13 @@ the finished experiments' journals.
 
 ### The contract and the procedures
 
-The system prompt is a short contract: what every agent but an implementation grant's is told (`INSTRUCTIONS` in
+The system prompt is a short contract: what every agent is told (`INSTRUCTIONS` in
 `agents/tools.py`, at most 350 words: the researcher decides, requests and notices, the narrow reading with three short
 examples, the `yield_work` protocol, replies and links, evidence ids, the researcher's limits), the role and assignment
 lines, the lead's contract (`LEAD_CONTRACT`: the page agents and delegation), the workspace briefing
 (`balsamic/lead/instructions.py`: links, threads, the state block, the gate in two lines, proposals, names) and the role's
 procedure catalog. The lead's comes to under 900 words (2,889 at `a7e89b8`); a test pins both limits and a ratchet
-(`tests/test_harness_contract.py`). An implementation grant's roles keep the instructions they had before (`GRANT_INSTRUCTIONS`).
+(`tests/test_harness_contract.py`). The implementation grant roles' own instructions (`GRANT_INSTRUCTIONS`) went with the roles (H8).
 
 Workflow procedures are files in the Agent Skills format, `src/balsamic/procedures/<name>/SKILL.md` (frontmatter `name`,
 `description`, `metadata.roles`; bundled files under `references/`), usable from the Pi CLI or Claude Code too. The service
@@ -447,8 +447,9 @@ allowlist `agent-harness/extensions/allowlist.json` (`GRATING_PI_EXTENSIONS` nam
 `agents/extensions.py`). Being part of the manifest, the set is fixed for a runtime's life. Locked mode discovers nothing:
 an empty agent directory of the session's own, no `~/.pi`, no working-directory resources, no skills, prompts or context
 files; only the allowlisted paths load. Dev mode keeps loading the profile's extensions for experiments. In both modes the
-Balsamic extension loads first, and an implementation grant's roles (builder, test designer, validator) load nothing
-(`extension_host: false`). The allowlist is empty for now (D8): every session loads the Balsamic extension only.
+Balsamic extension loads first (a manifest may say `extension_host: false`, and then the runtime loads nothing; the
+implementation grant roles that did were retired in H8). The allowlist is empty for now (D8): every session loads the
+Balsamic extension only.
 
 **The Balsamic extension** (`agent-harness/src/gateway-extension.ts`, one per session):
 
@@ -509,8 +510,8 @@ launch is reconciled or charged as interrupted rather than replayed.
 On strixhalo, the kernel audit log reports AppArmor denying bubblewrap's
 `setpcap` and `net_admin` operations under `unprivileged_userns`. This blocks
 generated package execution. Existing MEENT and bundled optimizer evaluation
-remain runnable. The PI checks this prerequisite before reserving an
-implementation grant.
+remain runnable. Validation outside the box needs it too, so a coding workspace's
+delivery waits for it.
 
 A scoped profile is prepared in `deploy/grating-bwrap.apparmor` and passes the
 AppArmor parser's offline syntax check. An administrator must load it:

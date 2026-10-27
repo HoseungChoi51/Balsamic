@@ -10,7 +10,8 @@ from optimization_framework.implementations.api import create_app
 from optimization_framework.implementations.evaluator_validation import current
 from optimization_framework.implementations.models import JobRequest, Package, RevalidationRequest, parse_job_request
 from optimization_framework.implementations.service import ImplementationService, JobInterrupted
-from test_framework_evaluators import MockReviewer, SOURCE, contract_specification, package, request, specification
+from framework_fixtures import library_job
+from test_framework_evaluators import SOURCE, contract_specification, package, request, specification
 from test_framework_packages import SOURCE as OPTIMIZER_SOURCE, spec as optimizer_specification
 
 
@@ -32,12 +33,11 @@ def no_model(**kwargs):
 
 
 def test_contract_only_version_gains_numerical_evidence_without_changing_its_executable(tmp_path, monkeypatch):
-    service = ImplementationService(tmp_path, adapter_factory=MockReviewer)
+    service = ImplementationService(tmp_path)
     original = publish(service, spec=contract_specification())
     bundle = service.artifact(original["id"])
     artifact_file = tmp_path / "artifacts" / original["artifact_digest"] / "artifact.json"
     saved = artifact_file.read_bytes()
-    service.adapter_factory = no_model
     monkeypatch.setattr("optimization_framework.implementations.service.prepare_runtime", no_model)
     value = check_request(original, checks={"kind": "evaluator", "rationale": "Add analytical references independently of the supplied source",
         "correctness_cases": [case.model_dump() for case in specification().correctness_cases]})
@@ -67,10 +67,9 @@ def test_contract_only_version_gains_numerical_evidence_without_changing_its_exe
 
 
 def test_counterexample_blocks_use_and_cannot_be_hidden_by_rechecking_a_smaller_scope(tmp_path):
-    service = ImplementationService(tmp_path, adapter_factory=MockReviewer)
+    service = ImplementationService(tmp_path)
     bad_source = SOURCE.replace('value = round(value,', 'value = round(value + (1 if candidate == [2, 2] else 0),')
     original = publish(service, source=bad_source)
-    service.adapter_factory = no_model
     checks = {"kind": "evaluator", "rationale": "Independent counterexample outside the initial fixture set", "correctness_cases": [
         {"name": "new corner", "basis": "2*(2-1.5)^2-2 = -1.5", "candidate": [2, 2], "objectives": {"energy": -1.5}}]}
     result = service.run_job(service.submit(check_request(original, checks=checks))["id"])
@@ -94,9 +93,8 @@ def test_counterexample_blocks_use_and_cannot_be_hidden_by_rechecking_a_smaller_
 
 def test_revalidation_interrupt_retains_partial_cost_and_resumes_the_same_job(tmp_path, monkeypatch):
     from optimization_framework.implementations.evaluator_runtime import PackageEvaluator
-    service = ImplementationService(tmp_path, adapter_factory=MockReviewer)
+    service = ImplementationService(tmp_path)
     original = publish(service)
-    service.adapter_factory = no_model
     job = service.submit(check_request(original))
     evaluate = PackageEvaluator.evaluate
     def stop_after_one(self, candidate):
@@ -110,7 +108,7 @@ def test_revalidation_interrupt_retains_partial_cost_and_resumes_the_same_job(tm
     assert stopped["attempts"][0]["report"]["costs"]["evaluation_requests"] == 1
     assert not stopped["attempts"][0]["complete_report"]
     assert service.version(original["id"]) == original
-    service = ImplementationService(tmp_path, adapter_factory=no_model)
+    service = ImplementationService(tmp_path)
     service.control(job["id"], "resume")
     complete = service.run_job(job["id"])
     assert complete["status"] == "completed" and len(complete["attempts"]) == 2
@@ -129,9 +127,8 @@ def test_revalidation_interrupt_retains_partial_cost_and_resumes_the_same_job(tm
 
 def test_completed_report_survives_interruption_before_publication_without_rerunning_checks(tmp_path, monkeypatch):
     import optimization_framework.implementations.revalidation as revalidation
-    service = ImplementationService(tmp_path, adapter_factory=MockReviewer)
+    service = ImplementationService(tmp_path)
     original = publish(service)
-    service.adapter_factory = no_model
     job = service.submit(check_request(original))
     def interrupt(*args):
         raise JobInterrupted("Injected interruption after saving the complete report")
@@ -139,7 +136,7 @@ def test_completed_report_survives_interruption_before_publication_without_rerun
         patch.setattr(revalidation, "publish", interrupt)
         stopped = service.run_job(job["id"])
     assert stopped["status"] == "interrupted" and stopped["attempts"][0]["complete_report"]
-    service = ImplementationService(tmp_path, adapter_factory=no_model)
+    service = ImplementationService(tmp_path)
     service.control(job["id"], "resume")
     with monkeypatch.context() as patch:
         patch.setattr("optimization_framework.implementations.evaluator_validation.validate_package", no_model)
@@ -150,12 +147,11 @@ def test_completed_report_survives_interruption_before_publication_without_rerun
 
 
 def test_optimizer_revalidation_reuses_original_behavior_and_semantic_evidence(tmp_path, monkeypatch):
-    service = ImplementationService(tmp_path, adapter_factory=MockReviewer)
+    service = ImplementationService(tmp_path)
     submitted = service.submit(request(spec=optimizer_specification(), package=Package(files=[{"path": "optimizer.py", "content": OPTIMIZER_SOURCE}])))
     built = service.run_job(submitted["id"])
     assert built["status"] == "completed", built
     original = service.version(built["version_id"])
-    service.adapter_factory = no_model
     monkeypatch.setattr("optimization_framework.implementations.service.prepare_runtime", no_model)
     checked = service.run_job(service.submit(check_request(original))["id"])
     assert checked["status"] == "completed", checked
@@ -166,10 +162,9 @@ def test_optimizer_revalidation_reuses_original_behavior_and_semantic_evidence(t
 
 
 def test_http_revalidation_is_authenticated_idempotent_and_preserves_legacy_envelopes(tmp_path):
-    app = create_app(tmp_path, token="test", start_workers=False, adapter_factory=MockReviewer)
+    app = create_app(tmp_path, token="test", start_workers=False)
     service = app.state.service
     original = publish(service)
-    service.adapter_factory = no_model
     payload = check_request(original).model_dump()
     path = f"/v1/versions/{original['id']}/validations"
     with TestClient(app) as client:
@@ -192,26 +187,25 @@ def test_http_revalidation_is_authenticated_idempotent_and_preserves_legacy_enve
 
 
 def test_library_migration_preserves_historical_version_and_receipt_hashes(tmp_path):
-    service = ImplementationService(tmp_path, adapter_factory=MockReviewer)
+    service = ImplementationService(tmp_path)
     original = publish(service)
     jobs = service.store.list("implementation_job")
     with service.store.connection() as db:
         db.execute("DELETE FROM records WHERE kind='implementation_validation'")
         db.execute("DELETE FROM implementation_migrations")
-    service = ImplementationService(tmp_path, adapter_factory=no_model)
+    service = ImplementationService(tmp_path)
     assert service.version(original["id"]) == original
     assert service.store.list("implementation_job") == jobs
     report = service.store.list("implementation_validation")[0]
     assert report["report"] == original["validation_report"]
     assert report["job_id"] == jobs[0]["id"] and report["origin"] == "historical_library_projection"
-    again = ImplementationService(tmp_path, adapter_factory=no_model)
+    again = ImplementationService(tmp_path)
     assert again.store.list("implementation_validation") == [report]
 
 
 def test_missing_exact_runtime_blocks_revalidation_without_erasing_passing_evidence(tmp_path):
-    service = ImplementationService(tmp_path, adapter_factory=MockReviewer)
+    service = ImplementationService(tmp_path)
     original = publish(service)
-    service.adapter_factory = no_model
     bundle = service.artifact(original["id"])
     runtime = Path(bundle["runtime_root"]) / "site-packages"
     unavailable = runtime.with_name("unavailable-dependencies")
@@ -242,21 +236,18 @@ def campaign_fixture(tmp_path, source=SOURCE, *, spec=None):
     from optimization_framework.contracts.commands import Command
     from optimization_framework.contracts.requests import CampaignInput, TaskInput
     from optimization_framework.execution.service import Workspace
-    service = ImplementationService(tmp_path / "library", adapter_factory=MockReviewer)
+    service = ImplementationService(tmp_path / "library")
     workspace = Workspace(tmp_path / "workspace", implementation_client=Client(service))
     spec = spec or contract_specification()
     campaign = workspace.create_campaign(CampaignInput(name="Independent revalidation campaign", compute_budget_seconds=100,
         implementation_compute_budget_seconds=120, validation_reserve_seconds=0,
         tasks=[TaskInput(name="Unverified quadratic", problem_id=spec.manifest.id, evaluator_manifest=spec.manifest)]))
     task = workspace.current_tasks(campaign["id"])[0]
-    receipt = workspace.commands.execute(Command(id="build", campaign_id=campaign["id"], expected_revision=1,
-        operation="evaluator.commission", payload={"task_id": task["id"], "spec": spec.model_dump(mode="json"),
-            "package": package(source).model_dump(mode="json"), "compute_seconds": 30, "max_calls": 1}))
-    grant = workspace.store.get(receipt["outcome"]["grant_id"], "implementation_grant")
-    job = service.run_job(grant["job_id"])
-    assert job["status"] == "completed", job
-    workspace.implementations.reconcile()
-    service.adapter_factory = no_model
+    # The library checks and publishes the supplied evaluator through its own API (roadmap H8); the researcher binds it to the task.
+    job = library_job(service, spec, package(source), key="build", campaign_id=campaign["id"], workspace_id=workspace.implementations.workspace_id,
+                      compute_seconds=30)
+    workspace.commands.execute(Command(id="build", campaign_id=campaign["id"], expected_revision=1, operation="evaluator.attach",
+        payload={"task_id": task["id"], "version_id": job["version_id"], "rationale": "The evaluator the library checked"}))
     return workspace, service, campaign, workspace.current_tasks(campaign["id"])[0]
 
 
@@ -307,8 +298,8 @@ def test_campaign_revalidation_authorizes_new_experiments_and_preserves_a_frozen
     new = finish(workspace, workspace.create_trial(TrialInput(campaign_id=campaign["id"], task_id=task["id"], algorithm="coordinate", max_steps=4, wall_seconds=10)))
     assert new["evaluator_eligibility"]["basis"] == "numerical_validation"
     assert new["evaluator_eligibility"]["validation_report_id"] == checked["validation_report_id"]
-    assert workspace.assets.attributed_costs(completed_old["latest_output_asset_ids"])["quantities"]["evaluation_requests"]["total"] == 24
-    assert workspace.assets.attributed_costs(new["latest_output_asset_ids"])["quantities"]["evaluation_requests"]["total"] == 64
+    assert workspace.assets.attributed_costs(completed_old["latest_output_asset_ids"])["quantities"]["evaluation_requests"]["known"] == 24
+    assert workspace.assets.attributed_costs(new["latest_output_asset_ids"])["quantities"]["evaluation_requests"]["known"] == 64
     workspace.validations.revoke(WaiverRevocation(id="revoke-original", campaign_id=campaign["id"],
         waiver_id=waiver["outcome"]["waiver_id"], rationale="Later numerical evidence is available", authority="researcher", created_at=now()))
     with pytest.raises(ValueError, match="frozen evaluator authorization"):

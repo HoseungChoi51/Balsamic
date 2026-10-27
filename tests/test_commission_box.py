@@ -3,7 +3,7 @@ evaluator.commission) through the bus opens a coding workspace in which Pi runs 
 commission's frozen specification, behind the box's walls; its protected acceptance tests are written outside the box and kept
 there; what it delivers is a submission like any other, validated outside the box (H6) and installed. Its compute is the
 commission's, charged to the go-ahead once. A commission that cannot open a box (coding workspaces off, a package to import, an
-evaluator no charter declares) is the implementation service's job until H8, and old jobs stay readable.
+evaluator no charter declares) is refused with what to do instead since H8, and old jobs stay readable.
 
 The box is a fake driver over real Git stores (no Docker here), and the test plays its coding agent; validation outside the box
 is real (bubblewrap); uv is faked as in test_library_install."""
@@ -405,34 +405,41 @@ def test_a_failed_headless_run_tells_whoever_commissioned_it(lab):
     assert told[0]["origin"]["root"] == ROOT
 
 
-def test_a_commission_that_cannot_open_a_box_is_the_implementation_services_job_as_before(lab, monkeypatch):
-    from optimization_framework.agents.development_commission import declared, opens_box
+def test_a_commission_that_cannot_open_a_box_is_refused_with_what_to_do_instead(lab, monkeypatch):
+    """Since roadmap H8 a coding box is the only place a commission builds code: one that cannot open a box is refused with the
+    text that says what to do instead (turn coding workspaces on, deliver the code you have as a library or give it to a workspace
+    as reference code, attach a validated evaluator), and nothing reserves an implementation service job for it."""
+    from optimization_framework.agents.development_commission import PACKAGE, UNDECLARED, declared, refusal
     store = lab.workspace.store
-    # A package to import goes to the service, with workspaces on; so would a ticket, which the service has no use for.
     package = {"contract": "optimizer_v1", "entrypoint": "optimizer:create_optimizer",
                "files": [{"path": "optimizer.py", "content": "def create_optimizer(context):\n    raise NotImplementedError\n"}]}
-    assert not opens_box(lab.workspace, "implementation.commission", {"package": package})
-    with pytest.raises(ValueError, match="A ticket goes with a commission that opens a coding box"):
-        commission(lab, "imported", package=package)
-    receipt = commission(lab, "imported_bare", package=package, ticket=None)
-    [grant] = store.list("implementation_grant", lab.cid)
-    assert receipt["outcome"] == {"grant_id": grant["id"]} and grant["request"]["package"]["files"][0]["path"] == "optimizer.py"
-    # With coding workspaces off, every commission is a service job, as before H7.
+    assert refusal(lab.workspace, "implementation.commission", {"hypothesis_id": "hypothesis_dev"}) is None
+    assert refusal(lab.workspace, "implementation.commission", {"package": package}) == PACKAGE
+    with pytest.raises(ValueError) as imported:
+        commission(lab, "imported", package=package, ticket=None)
+    assert str(imported.value) == PACKAGE
+    # With coding workspaces off, a commission is refused with the switch that turns them on.
     monkeypatch.setenv("GRATING_DEVELOPMENT_ENABLED", "false")
-    assert not opens_box(lab.workspace, "implementation.commission", {"hypothesis_id": "hypothesis_dev"})
-    off = commission(lab, "off", ticket=None, compute_seconds=300)
-    assert off["outcome"]["grant_id"] in {row["id"] for row in store.list("implementation_grant", lab.cid)}
-    assert store.list("development_workspace", lab.cid) == [] and len(lab.service.jobs) == 2
-    # An evaluator opens a box only for a task whose problem the campaign's charter declares.
+    with pytest.raises(ValueError) as off:
+        commission(lab, "off", compute_seconds=300)
+    assert str(off.value) == lab.development.disabled() and "GRATING_DEVELOPMENT_ENABLED=true" in str(off.value)
+    # An evaluator is built only for a task whose problem the campaign's charter declares.
     monkeypatch.setenv("GRATING_DEVELOPMENT_ENABLED", "true")
     task = declared_task(lab)
     assert declared(lab.workspace, task["id"])["id"] == task["id"]
+    spec = evaluator_spec(lab, task)
     store.put("task", {**task, "evaluator_manifest": {**task["evaluator_manifest"], "id": "another_problem"}})
-    assert declared(lab.workspace, task["id"]) is None and not opens_box(lab.workspace, "evaluator.commission", {"task_id": task["id"]})
+    assert declared(lab.workspace, task["id"]) is None
+    with pytest.raises(ValueError) as undeclared:
+        lab.command("evaluator.commission", {"task_id": task["id"], "spec": spec, "compute_seconds": 600}, "undeclared")
+    assert str(undeclared.value) == UNDECLARED
+    assert store.list("implementation_grant", lab.cid) == [] and store.list("development_workspace", lab.cid) == []
+    assert lab.service.jobs == {} and not [row for row in store.list("outbox", lab.cid) if row["kind"] == "implementation_submit"]
+    assert lab.consent()["used_seconds"] == 0   # a refused command charges nothing
 
 
 def test_old_implementation_jobs_stay_readable(lab):
-    """A job the service ran before H7 is neither migrated nor hidden: its grant still answers the proposal's readiness, reads as
+    """A job the service ran before H7 (or H8) is neither migrated nor hidden: its grant still answers the proposal's readiness, reads as
     evidence, and is exported with the campaign; a commission's box beside it leaves it as it was."""
     from balsamic.api.campaigns import export_markdown
     from optimization_framework.agents.tools import PiTools
