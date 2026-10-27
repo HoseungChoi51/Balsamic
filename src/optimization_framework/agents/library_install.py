@@ -285,10 +285,12 @@ class Installer:
         try:
             record = self._update(identity, **after_install(self.workspace, record))
         except Exception as exc:
-            record = self._update(identity, bindings=[], skipped=[], after_install_error=f"{type(exc).__name__}: {exc}"[:500])
+            record = self._update(identity, adopted=[], adoption_skipped=None, bindings=[], skipped=[],
+                                  after_install_error=f"{type(exc).__name__}: {exc}"[:500])
         who = "The researcher" if record["actor"] == "researcher" else "Balsamic"
+        adoption = adoption_text(record)
         self.development.notify(plan["record"], identity, f"{who} installed {plan['package']} {plan['version']} from commit "
-            f"{plan['submission']['commit'][:7]}: {added(record)}."
+            f"{plan['submission']['commit'][:7]}: {added(record)}." + (" " + adoption if adoption else "")
             + (" " + bound_text(record) + " Tell the researcher which proposals can run now." if plan["entry_points"] else ""), "installs")
         return record
 
@@ -334,9 +336,57 @@ def added(record):
 
 
 def after_install(workspace, install):
-    """What Balsamic does by itself once a library is installed, always in this order: adopt its problem (E5), bind the
-    proposals it serves (bind_served), start the approved runs (B5). {bindings, skipped} for the install record."""
-    return bind_served(workspace, install)
+    """What Balsamic does by itself once a library is installed, always in this order: adopt its problem (adopt_provided), bind
+    the proposals it serves (bind_served), start the approved runs (B5). {adopted, adoption_skipped, bindings, skipped} for the
+    install record."""
+    return {**adopt_provided(workspace, install), **bind_served(workspace, install)}
+
+
+def adopt_provided(workspace, install):
+    """When the install provides the problem its campaign's charter declares, the campaign's declared tasks adopt it (E4),
+    through the bus as Balsamic's system actor, citing the install: only when no such task has a bound evaluator or live runs.
+    Otherwise it is skipped with the reason, for the lead to adopt with campaign.adopt_problem. Replaying adopts nothing more.
+    {adopted: [{old_task_id, new_task_id}], adoption_skipped: {problem_id, reason} or None}."""
+    from optimization_framework.contracts.commands import Command, CommandOrigin
+    store, campaign_id = workspace.store, install["campaign_id"]
+    nothing = {"adopted": [], "adoption_skipped": None}
+    provided = (set(install.get("problems_added") or []) | set(install.get("problem_entry_points") or {})) - set(install.get("missing_problems") or [])
+    campaign = store.get(campaign_id, "campaign")
+    if not provided or not campaign.get("charter"):
+        return nothing
+    binding = workspace.charters.revision(campaign["charter"]["id"], campaign["charter"]["revision"])["charter"].get("evaluator") or {}
+    problem_id = binding.get("problem_id")
+    if binding.get("kind") != "declared" or problem_id not in provided:
+        return nothing
+    old = [task for task in workspace.current_tasks(campaign_id) if (task.get("evaluator_manifest") or {}).get("id") == problem_id]
+    if not old:
+        return nothing
+    reason = workspace.unused(old)
+    if not reason:
+        command = Command(id="balsamic_adopt_" + content_hash([install["id"], campaign_id])[:24], campaign_id=campaign_id,
+            operation="campaign.adopt_problem", expected_revision=campaign["version"],
+            origin=CommandOrigin(actor="balsamic", rationale=f"After installing {install['package']} {install['version']} ({install['id']})"),
+            payload={"install_id": install["id"], "rationale": f"{install['package']} {install['version']}, installed from commit "
+                     f"{install['commit'][:7]}, provides {problem_id}, the problem the charter declares, and nothing ran on its tasks yet."})
+        try:
+            receipt = workspace.commands.execute(command, actor="balsamic")
+        except ValueError as exc:
+            reason = str(exc)[:300]
+        else:
+            return {"adopted": [{"old_task_id": row["old_task_id"], "new_task_id": row["new_task_id"]} for row in receipt["outcome"]["adopted"]],
+                    "adoption_skipped": None}
+    return {"adopted": [], "adoption_skipped": {"problem_id": problem_id, "reason": reason}}
+
+
+def adoption_text(install):
+    """The install notice's line on the campaign's tasks adopting its problem, or why Balsamic left that to the lead."""
+    if install.get("adopted"):
+        return f"Balsamic had {len(install['adopted'])} task{'s' if len(install['adopted']) > 1 else ''} adopt its problem."
+    skipped = install.get("adoption_skipped")
+    if skipped:
+        return (f"Balsamic did not adopt {skipped['problem_id']} for the campaign's tasks: {skipped['reason']}. Adopt it when that is "
+                f"settled with campaign.adopt_problem (install_id {install['id']}).")
+    return ""
 
 
 def bind_served(workspace, install):

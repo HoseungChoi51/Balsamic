@@ -117,7 +117,7 @@ def test_balsamic_runs_no_other_operation(lab, operation, payload):
     campaign = workspace.store.get(cid, "campaign")
     command = Command(id="balsamic_" + operation.replace(".", "_"), campaign_id=cid, expected_revision=campaign["version"],
                       operation=operation, origin=CommandOrigin(actor="balsamic"), payload=payload)
-    with pytest.raises(ValueError, match="Balsamic's system actor runs only implementation.bind_builtin"):
+    with pytest.raises(ValueError, match="Balsamic.s system actor runs only campaign.adopt_problem, implementation.bind_builtin"):
         workspace.commands.execute(command, actor="balsamic")
     assert workspace.store.list("command_rejection")[-1]["actor"] == "balsamic"
 

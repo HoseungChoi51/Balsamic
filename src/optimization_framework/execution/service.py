@@ -510,7 +510,8 @@ class Workspace:
         declared task is replaced by a new task: one campaign version and one new study for the whole adoption. An old task is
         never rebound: it is archived with superseded_by_task_id, the new one names what provides it (provided_by), and an
         immutable evaluator_requirement_satisfaction links the old evaluator requirement to the install. Adopting again
-        changes nothing."""
+        changes nothing. Balsamic's own adoption (authority balsamic, E5) is refused for a task with a bound evaluator or
+        live runs: unused() says why."""
         from optimization_framework.contracts.requests import CharterReference
         with self.lock, self.store.transaction():
             campaign = self.store.get(campaign_id, "campaign")
@@ -528,6 +529,8 @@ class Workspace:
                                  + (f" ({problem_id})" if binding.get("kind") == "declared" else " (its evaluator is not a declared problem)"))
             old = [task for task in self.store.list("task", campaign_id) if not task.get("archived")
                    and (task.get("evaluator_manifest") or {}).get("id") == problem_id]
+            if authority == "balsamic" and (reason := self.unused(old)):
+                raise ValueError(f"Balsamic adopts a library's problem only for tasks nothing ran yet: {reason}")
             if not old:
                 return {"adopted": [], "problem_id": problem_id, "install_id": install_id, "campaign_version": campaign["version"],
                         "study_id": campaign.get("active_study_id")}
@@ -563,6 +566,17 @@ class Workspace:
                                         "tasks": self.current_tasks(campaign_id)})
             return {"adopted": adopted, "problem_id": problem_id, "install_id": install_id, "campaign_version": campaign["version"],
                     "study_id": study.id}
+
+    def unused(self, tasks):
+        """Why a task cannot be adopted by Balsamic alone: it has a bound evaluator, or runs not yet finished. None when neither."""
+        for task in tasks:
+            if self.evaluators.binding(task):
+                return f"the task {task['name']} has a bound evaluator"
+            live = [trial["id"] for trial in self.store.list("trial", task["campaign_id"])
+                    if trial.get("task_id") == task["id"] and trial.get("status") in ACTIVE | {"paused"}]
+            if live:
+                return f"the task {task['name']} has {len(live)} live run{'s' if len(live) > 1 else ''}"
+        return None
 
     def current_tasks(self, campaign_id):
         """The campaign's tasks now: neither archived nor superseded by a task that adopted a library's problem (E4)."""

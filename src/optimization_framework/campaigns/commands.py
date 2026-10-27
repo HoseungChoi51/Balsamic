@@ -47,8 +47,8 @@ DELEGATED.update({"resources.plan", "resources.estimate"})
 # The lead works the evolution graph on request (docs/ui-workspace.md): allocations, batched interventions, new rounds, library reuse.
 DELEGATED.update({"hypothesis.allocate", "intervention.batch", "research.generate", "library.apply"})
 # Balsamic's own system actor (decision 6) runs only these, each citing what it acts under: binding a proposal to a method an
-# install delivered (B4). Its receipts name it as their origin.
-SYSTEM_OPERATIONS = frozenset({"implementation.bind_builtin"})
+# install delivered (B4), and adopting the problem an install provides for tasks nothing ran yet (E5). Its receipts name it as their origin.
+SYSTEM_OPERATIONS = frozenset({"implementation.bind_builtin", "campaign.adopt_problem"})
 # The lead may have the campaign's tasks adopt an installed library's problem (roadmap E4): it starts no compute.
 DELEGATED.add("campaign.adopt_problem")
 
