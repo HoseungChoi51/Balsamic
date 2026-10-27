@@ -6,9 +6,9 @@ filter, hook or attribute of a repository the coding agent could write runs on t
 submitted, and copied into the lab's `libraries/<name>/`. The root pyproject.toml pins it in the `libraries` extra as an
 editable path dependency, `uv lock` and `uv sync --inexact --extra libraries` install it, and the running lab picks its
 methods up at the next listing. A dry run first: a change to any package already installed waits for the researcher's
-confirmation (it could affect their other campaigns), and every file this touched is put back when it stops or fails. Each
-install is a `library_install` record: who (balsamic or the researcher), when, what (package, version, commit, workspace,
-submission), the methods it added, and how it ended.
+confirmation (it could affect their other campaigns); a reinstall and the lab's own projects are no change. Every file this
+touched is put back when it stops or fails. Each install is a `library_install` record: who (balsamic or the researcher),
+when, what (package, version, commit, workspace, submission), the methods it added, and how it ended.
 """
 from __future__ import annotations
 
@@ -27,7 +27,9 @@ GROUP = "optimization_framework.optimizers"
 MAX_FILE_BYTES = 5 * 1024 * 1024
 MAX_TOTAL_BYTES = 50 * 1024 * 1024
 TIMEOUT_SECONDS = 600
-CHANGE = re.compile(r"^\s*([-+~])\s+([A-Za-z0-9_.\-]+)==(\S+)")
+# A dry run's package line: ` - name==version`, ` - name==version (from url)` or ` + name @ url`.
+CHANGE = re.compile(r"^\s*([-+~])\s+([A-Za-z0-9_.\-]+)(?:\[[^\]]*\])?\s*(?:==\s*(\S+)(?:\s+\(from\s+([^)\s]+)\))?|@\s+(\S+))\s*$")
+DRY_RUN = "$ sync --dry-run"
 # Git reads the workspace's store as plain objects; the user's and the system's Git settings play no part.
 GIT_ENV = {**os.environ, "GIT_CONFIG_NOSYSTEM": "1", "GIT_CONFIG_GLOBAL": os.devnull, "GIT_TERMINAL_PROMPT": "0"}
 _lock = threading.Lock()
@@ -140,9 +142,26 @@ class Installer:
                 f"from commit {submission['commit'][:7]}: {exc} Have the coding agent fix it and deliver again.")
             return record
 
+    def reparsed(self, campaign_id, submission, *, background=True):
+        """Balsamic's own install that waits for a confirmation it never needed (an older parser counted reinstalls and the lab's
+        own projects as changes), requested once more when its dry run, read again, changes nothing. Never twice."""
+        tries = sorted((row for row in self.store.list("library_install", campaign_id) if row.get("submission_id") == submission["id"]),
+                       key=lambda row: row["requested_at"])
+        if not tries or any(row.get("retry_of") for row in tries):
+            return None
+        latest, log = tries[-1], tries[-1].get("log_tail") or ""
+        # Only a dry run whose output the log still holds from its first line can be read again.
+        if latest.get("actor") != "balsamic" or latest["status"] != "needs_confirmation" or DRY_RUN not in log:
+            return None
+        if changed_packages(log.rsplit(DRY_RUN, 1)[1], latest["package"], lab_projects(self.root)):
+            return None
+        return self.request(campaign_id, latest["workspace_id"], submission["id"], request_key="automatic:reparsed", actor="balsamic",
+                            retry_of=latest["id"], background=background)
+
     def request(self, campaign_id, workspace_id, submission_id, *, request_key, confirm_changes=False, accept_not_ready=False,
-                background=True, actor="researcher"):
-        """Record an install (Balsamic's own, or the researcher's) and start it; the record says how it goes."""
+                background=True, actor="researcher", retry_of=None):
+        """Record an install (Balsamic's own, or the researcher's) and start it; the record says how it goes. retry_of names the
+        install this one tries again."""
         if not self.uv:
             raise ValueError("uv is not available to the lab; install by hand: copy the library into libraries/<name>/, "
                              "add it to the libraries extra in pyproject.toml, and run `uv sync --inexact --extra libraries`")
@@ -155,7 +174,8 @@ class Installer:
         install = {"id": identity, "campaign_id": campaign_id, "workspace_id": workspace_id, "submission_id": submission_id,
                    "commit": plan["submission"]["commit"], "package": plan["package"], "version": plan["version"], "path": f"libraries/{plan['name']}",
                    "entry_points": plan["entry_points"], "actor": actor, "status": "queued", "requested_at": now(),
-                   "confirm_changes": confirm_changes, "methods_added": [], "missing_methods": [], "changes": [], "log_tail": ""}
+                   "confirm_changes": confirm_changes, "methods_added": [], "missing_methods": [], "changes": [], "log_tail": "",
+                   **({"retry_of": retry_of} if retry_of else {})}
         self.store.put("library_install", install, "library.install_requested")
         if background:
             threading.Thread(target=self.install, args=(identity, plan, confirm_changes), daemon=True).start()
@@ -192,7 +212,7 @@ class Installer:
                     log.append(f"$ {' '.join(args[1:])}\n{output}")
                     if code:
                         raise ValueError(f"uv {args[1]} failed: " + output.strip()[-800:])
-                changes = changed_packages(output, plan["package"])
+                changes = changed_packages(output, plan["package"], lab_projects(root))
                 if changes and not confirm_changes:
                     self._restore(saved, target, backup, created)
                     return self._update(identity, "library.install_failed", status="needs_confirmation", changes=changes, finished_at=now(),
@@ -254,14 +274,31 @@ class Installer:
         path.write_text(text)
 
 
-def changed_packages(output, package):
-    """Packages a dry run would remove or change, other than the library itself: [{name, from, to}]."""
+def lab_projects(root):
+    """The lab's own projects: the root pyproject.toml's and each libraries/*/pyproject.toml's name."""
+    root, names = Path(root), set()
+    for path in [root / "pyproject.toml", *sorted((root / "libraries").glob("*/pyproject.toml"))]:
+        try:
+            names.add((tomllib.loads(path.read_text()).get("project") or {}).get("name"))
+        except (OSError, tomllib.TOMLDecodeError):
+            continue
+    return {name for name in names if name}
+
+
+def changed_packages(output, package, own=()):
+    """Packages a dry run would remove or change, other than the library itself and the lab's own projects: [{name, from, to}].
+    A package removed and added again at the same version or from the same url is a reinstall, not a change."""
     normal = lambda value: re.sub(r"[-_.]+", "-", value).lower()
+    skip = {normal(name) for name in [package, *own]}
     removed, added = {}, {}
     for line in output.splitlines():
         if match := CHANGE.match(line):
-            sign, name, version = match.groups()
-            if normal(name) == normal(package):
+            sign, name, version, source, url = match.groups()
+            if normal(name) in skip:
                 continue
-            (removed if sign == "-" else added)[normal(name)] = version
-    return [{"name": name, "from": version, "to": added.get(name)} for name, version in sorted(removed.items())]
+            (removed if sign == "-" else added)[normal(name)] = (version, source or url)
+    def same(old, new):   # what both lines name agrees, and they name something in common
+        pairs = [(a, b) for a, b in zip(old, new or (None, None)) if a and b]
+        return bool(pairs) and all(a == b for a, b in pairs)
+    return [{"name": name, "from": old[0] or old[1], "to": added[name][0] or added[name][1] if name in added else None}
+            for name, old in sorted(removed.items()) if not same(old, added.get(name))]

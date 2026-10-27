@@ -201,7 +201,8 @@ class DevelopmentWorkspaces:
         return os.environ.get("GRATING_AUTO_INSTALL", "true").lower() != "false"
 
     def install_delivered(self, campaign_id):
-        """Install each workspace's latest delivered library that nobody installed or tried to (Installer.automatic)."""
+        """Install each workspace's latest delivered library that nobody installed or tried to (Installer.automatic), and try
+        once more Balsamic's own install that waits for a confirmation its dry run, read again, does not need (Installer.reparsed)."""
         if not self.installing():
             return
         from optimization_framework.campaigns.method_catalog import latest_submissions
@@ -209,8 +210,13 @@ class DevelopmentWorkspaces:
         from .library_install import Installer
         tried = {row.get("submission_id") for row in self.store.list("library_install", campaign_id)}
         for submission in latest_submissions(self.store, campaign_id):
-            if submission["status"] in {"submitted", "validated"} and submission["id"] not in tried:
-                Installer(self.workspace, self, ROOT).automatic(campaign_id, submission["workspace_id"], submission)
+            if submission["status"] not in {"submitted", "validated"}:
+                continue
+            installer = Installer(self.workspace, self, ROOT)
+            if submission["id"] not in tried:
+                installer.automatic(campaign_id, submission["workspace_id"], submission)
+            else:
+                installer.reparsed(campaign_id, submission)
 
     def get(self, campaign_id, identity):
         record = self.store.get(identity, "development_workspace")
