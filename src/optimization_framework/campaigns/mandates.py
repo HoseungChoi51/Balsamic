@@ -230,17 +230,17 @@ def active(workspace, campaign_id, root):
     return next((mandate for mandate in reversed(mandates(workspace, campaign_id)) if mandate.status == "active" and serves(mandate, root)), None)
 
 
-def governing(workspace, campaign_id, root, found=None):
+def governing(workspace, campaign_id, root, found=None, hypothesis_ids=()):
     """The mandate an agent's work for this request is checked against (R3): the request's own newest, ended or not, else the newest
-    campaign-wide standing mandate in force (one for no request that names no proposals, as a consent from before B2); None when
-    neither, and the request has the default, Explore. A consent for named proposals in no request pays for their work (decision
-    4) but governs no request."""
+    standing mandate in force (one for no request) that covers the work: campaign-wide when it names no proposals (as a consent from
+    before B2), else only work for the proposals it names (decision 4); None when neither, and the request has the default, Explore."""
     root = _root(root)
     found = [mandate for mandate in (mandates(workspace, campaign_id) if found is None else found) if mandate.status != "proposed"]
     own = [mandate for mandate in found if root and mandate.root and same_root(mandate.root.model_dump(), root)]
     if own:
         return own[-1]
-    return next((mandate for mandate in reversed(found) if mandate.root is None and mandate.status == "active" and not mandate.hypothesis_ids), None)
+    return next((mandate for mandate in reversed(found) if mandate.root is None and mandate.status == "active" and (not mandate.hypothesis_ids
+                 or (hypothesis_ids and set(hypothesis_ids) <= set(mandate.hypothesis_ids)))), None)
 
 
 def current(workspace, campaign_id, root):
@@ -398,7 +398,7 @@ def require(workspace, campaign_id, root, classes, *, what, hypothesis_ids=(), s
     classes = set(classes)
     if not classes:
         return None
-    mandate = governing(workspace, campaign_id, root)
+    mandate = governing(workspace, campaign_id, root, hypothesis_ids=hypothesis_ids)
     template = mandate.template if mandate is not None else "explore"
     allowed = set(mandate.classes if mandate is not None else TEMPLATES["explore"]["classes"])
     named = (f"this request's {LABELS[template]} mandate ({mandate.id})" if mandate.root is not None else
@@ -489,13 +489,32 @@ def settle(workspace, campaign_id):
                     "(comparison.report when they compare methods); you may answer, ask and record under it.",
                     root=mandate.root.model_dump(exclude={"schema_version"}) if mandate.root else None)
         elif mandate.status in {"expired", "exhausted"} and mandate.granted_by != "automatic" and not row.get("ended_notice_at"):
+            # A quiet end is not news: the researcher is told when it stopped something, an agent's new work or a planned run.
+            unstarted = _unstarted(workspace, mandate)
+            refused = any(f"({mandate.id}) has ended" in (rejection.get("reason") or "") for rejection in workspace.store.list("command_rejection", campaign_id))
+            if not unstarted and not refused:
+                continue
             with workspace.lock:
                 row["ended_notice_at"] = now()
                 workspace.store.put("mandate", row, "mandate.ended")
             workspace.memory.issue(campaign_id, "mandate_ended", f"The {LABELS[mandate.template]} mandate you approved ({mandate.id}: "
-                f"\"{(mandate.plan or '')[:120]}\") has ended: {_ended(mandate)}. The agents start no new work under it; work already running "
-                "goes on. Their next card asks you for more, if the request needs it.", affected=mandate.id)
+                f"\"{(mandate.plan or '')[:120]}\") has ended: {_ended(mandate)}. The agents start no new work under it"
+                + (f", and {len(unstarted)} of its approved runs did not start" if unstarted else "") + "; work already running goes on. "
+                "Their next card asks you for more, if the request needs it.", affected=mandate.id)
+            agent = _owner(workspace, mandate)
+            if unstarted and mandate.status == "expired" and agent is not None:   # spent worker time already tells it (plan_runs)
+                workspace.pi.enqueue(agent, "mandate_ended_" + content_hash(mandate.id)[:24], NOTICE +
+                    f"This request's {LABELS[mandate.template]} mandate ({mandate.id}) has ended ({_ended(mandate)}) before {len(unstarted)} of its "
+                    "approved runs started; Balsamic starts none of them now. Report what ran, and propose a new mandate with mandate_propose "
+                    "if the request needs the rest.", root=mandate.root.model_dump(exclude={"schema_version"}) if mandate.root else None)
     return closed
+
+
+def _unstarted(workspace, mandate):
+    """The runs a mandate's plan lists (through its consent) that never ran."""
+    from .plan_runs import planned, run_of
+    consent = _record(workspace, mandate.consent_id, "compute_consent")
+    return [(index, seed) for index, seed, run in planned(consent or {}) if run_of(workspace.store, consent, run, seed, index) is None]
 
 
 

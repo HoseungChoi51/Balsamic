@@ -85,6 +85,10 @@ def test_after_the_deadline_a_new_run_is_refused_the_running_one_goes_on_and_the
     assert mandates.settle(team.workspace, "demo") == [] and mandates.settle(team.workspace, "demo") == []
     [issue] = [found for found in team.workspace.store.list("manager_issue", "demo") if found["code"] == "mandate_ended"]
     assert issue["affected"] == mandate.id and "has ended: its deadline passed" in issue["message"] and issue["occurrences"] == 1
+    assert "1 of its approved runs did not start" in issue["message"]
+    # The lead, waiting for the planned run, is told once that it will not start.
+    [told] = [found for found in team.workspace.store.list_agent_runs(team.lead["id"]) if found["id"].startswith("mandate_ended_")]
+    assert "before 1 of its approved runs started" in told["input"] and mandates.same_root(told["origin"]["root"], root(team))
     assert launch_ready(team.workspace, "demo") == {"launched": [], "waiting": []}
     campaign = team.workspace.store.get("demo", "campaign")
     with pytest.raises(ValueError, match="that this planned run is approved under has ended"):
