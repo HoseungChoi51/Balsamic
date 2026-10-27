@@ -12,6 +12,8 @@ def agent_state(workspace, campaign_id, agent_id, thread_id):
     disposition = agent.get("disposition") or {}
     return {"threadId": thread_id, "agentId": agent_id, "role": agent["role"], "status": agent["status"], "requestOpen": bool(config.get("request_open")),
             "disposition": disposition.get("disposition"), "summary": disposition.get("summary"),
+            # A failed turn's own error (the controller keeps it as the agent's activity), such as a model the harness cannot reach.
+            "error": agent.get("activity") if agent["status"] == "failed" else None,
             "questions": sum(1 for question in workspace.store.list("agent_question", campaign_id)
                              if question["status"] == "pending" and question.get("agent_id") in {agent_id, None})}
 
@@ -45,7 +47,8 @@ def stream_events(previous, state, entry, messages):
                 if not step["done"]:
                     events.append({"type": "TOOL_CALL_END", "toolCallId": step["id"]})
             failed = state["status"] == "failed"
-            events.append({"type": "RUN_ERROR", "threadId": thread_id, "runId": old_run, "message": state.get("summary") or "The agent's turn failed; its work is saved."}
+            events.append({"type": "RUN_ERROR", "threadId": thread_id, "runId": old_run,
+                           "message": state.get("error") or state.get("summary") or "The agent's turn failed; its work is saved."}
                           if failed else {"type": "RUN_FINISHED", "threadId": thread_id, "runId": old_run})
         if run:
             events.append({"type": "RUN_STARTED", "threadId": thread_id, "runId": run})
