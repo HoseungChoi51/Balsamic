@@ -41,14 +41,14 @@ def compute(workspace, campaign_id, since_event):
             continue   # counted with its batch
         payload = c["request"].get("payload") or {}
         if operation == "hypothesis.status" and payload.get("status") == "archived":
-            stopped.append({"hypothesis_id": payload.get("hypothesis_id"), "reason": payload.get("stop_reason"), "by": (c.get("origin") or {}).get("actor") or c.get("actor")})
+            stopped.append({"hypothesis_id": payload.get("hypothesis_id"), "reason": payload.get("stop_reason"), **_stop(c), "by": (c.get("origin") or {}).get("actor") or c.get("actor")})
         if operation == "hypothesis.nominate" or (operation == "hypothesis.status" and payload.get("status") == "finalist"):
             promoted.append({"hypothesis_id": payload.get("hypothesis_id"), "by": (c.get("origin") or {}).get("actor") or c.get("actor")})
         if operation == "intervention.batch":
             for item in (c.get("outcome") or {}).get("items") or []:
                 inner = store.get(item["command_id"], "work_command") if _exists(store, item["command_id"]) else None
                 if inner and inner["request"]["operation"] == "hypothesis.status" and inner["request"]["payload"].get("status") == "archived":
-                    stopped.append({"hypothesis_id": inner["request"]["payload"].get("hypothesis_id"), "reason": inner["request"]["payload"].get("stop_reason"), "by": "autopilot" if c.get("actor") == "autopilot" else c.get("actor")})
+                    stopped.append({"hypothesis_id": inner["request"]["payload"].get("hypothesis_id"), "reason": inner["request"]["payload"].get("stop_reason"), **_stop(inner), "by": "autopilot" if c.get("actor") == "autopilot" else c.get("actor")})
                 if inner and inner["request"]["operation"] == "hypothesis.nominate":
                     promoted.append({"hypothesis_id": inner["request"]["payload"].get("hypothesis_id"), "by": c.get("actor")})
         if operation in {"trial.create", "draft.launch", "trial.continue", "hypothesis.allocate"}:
@@ -110,3 +110,11 @@ def _exists(store, identity):
         store.get(identity); return True
     except KeyError:
         return False
+
+
+def _stop(receipt):
+    """The stop outcome a status command recorded, in words; a stop from before typed outcomes reads as unspecified."""
+    from optimization_framework.campaigns.hypotheses import stop_of
+    hypothesis = (receipt.get("outcome") or {}).get("hypothesis") or {"status": "archived"}
+    stop = stop_of({**hypothesis, "status": "archived"})
+    return {"outcome": stop["outcome"], "outcome_words": stop["words"]}

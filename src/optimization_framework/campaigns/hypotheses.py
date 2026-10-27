@@ -49,16 +49,52 @@ def nominate(workspace, hypothesis, *, actor):
     return {**nominate_finalist(hypothesis), "promotion": promotion.summary(state, actor=actor, warning=warning)}
 
 
-def set_status(workspace, hypothesis, status, expected_revision, *, stop_reason=None, actor=None):
+AGENT_ACTORS = {"manager", "autopilot"}
+
+
+def stop_of(hypothesis):
+    """A stopped strategy's stop record; one stopped before typed outcomes reads as unspecified."""
+    if hypothesis.get("status") != "archived":
+        return None
+    stop = hypothesis.get("stop") or {"outcome": "unspecified", "evidence_ids": [], "reason": hypothesis.get("stop_reason"),
+                                      "by": None, "at": hypothesis.get("stopped_at")}
+    from optimization_framework.contracts.commands import STOP_WORDS
+    words = STOP_WORDS.get(stop["outcome"], stop["outcome"])
+    return {**stop, "words": words, "label": "stopped: " + words}
+
+
+def stop_record(workspace, hypothesis, *, outcome=None, evidence_ids=(), reason=None, actor="researcher"):
+    """An agent's stop names an outcome and the visible records it rests on; the researcher's may name none."""
+    evidence_ids = list(dict.fromkeys(evidence_ids))
+    if actor in AGENT_ACTORS:
+        if outcome is None or not evidence_ids:
+            raise ValueError("An agent's stop needs a stop outcome and at least one evidence id: the trials, comparisons, "
+                             "validation results or reviews it rests on")
+    if evidence_ids:
+        from .findings import visible_evidence
+        campaign_id = hypothesis["campaign_id"]
+        visible = visible_evidence(workspace, campaign_id)
+        visible.update(review["id"] for item in workspace.store.list("hypothesis", campaign_id) for review in item.get("reviews") or [])
+        hidden = [identity for identity in evidence_ids if identity not in visible]
+        if hidden:
+            raise ValueError(f"A stop cites evidence that is not a visible record of this campaign: {', '.join(hidden[:5])}")
+    return {"outcome": outcome or ("researcher_decision" if actor == "researcher" else "unspecified"), "evidence_ids": evidence_ids,
+            "reason": reason, "by": actor, "at": now()}
+
+
+def set_status(workspace, hypothesis, status, expected_revision, *, stop_reason=None, outcome=None, evidence_ids=(), actor=None):
     revision = hypothesis.get("status_revision", 0)
     if expected_revision is not None and revision != expected_revision:
         raise ValueError("Idea status changed; refresh before changing it again")
+    stop = stop_record(workspace, hypothesis, outcome=outcome, evidence_ids=evidence_ids, reason=stop_reason, actor=actor or "researcher") if status == "archived" else None
     changed = nominate(workspace, hypothesis, actor=actor) if status == "finalist" else {**hypothesis, "status": status}
     if status == "archived":
         changed["stop_reason"] = stop_reason or hypothesis.get("stop_reason") or "stopped without a stated reason"
-        changed["stopped_at"] = now()
+        changed["stopped_at"] = stop["at"]
+        changed["stop"] = {**stop, "reason": changed["stop_reason"]}
     elif hypothesis.get("status") == "archived":
-        changed.pop("stop_reason", None); changed.pop("stopped_at", None)
+        for key in ("stop_reason", "stopped_at", "stop"):
+            changed.pop(key, None)
     if changed != hypothesis:
         changed.update(status_revision=revision + 1, updated_at=now())
         workspace.store.put("hypothesis", changed, "hypothesis.status")

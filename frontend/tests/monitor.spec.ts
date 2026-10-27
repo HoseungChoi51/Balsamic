@@ -18,7 +18,7 @@ test('the monitor drawer shows measured and forecast budget, the GPU row and aut
   await expect(rows.locator('svg.ring')).toHaveCount(2);
   await page.getByTestId('monitor-drawer').getByRole('link', { name: 'Away digest' }).click();
   await expect(page.getByTestId('page-monitor')).toContainText('While you were away');
-  await expect(page.getByTestId('page-monitor')).toContainText('hypothesis_c (worse than the baseline at every rung; autopilot)');
+  await expect(page.getByTestId('page-monitor')).toContainText('hypothesis_c (adequately assessed, deprioritized: worse than the baseline at every rung; autopilot)');
   await expect(page.getByTestId('page-monitor')).toContainText('1 decisions, 0 questions');
   await expect.poll(() => recorded.commands.some((c: any) => c.seen)).toBe(true);
   await expect.poll(async () => { await page.evaluate(() => (window as any).dispatchEvent(new Event('pagehide'))); return recorded.uiEvents.map((e: any) => e.kind); }).toContain('digest.seen');

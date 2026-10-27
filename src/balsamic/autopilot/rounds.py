@@ -12,7 +12,7 @@ from balsamic.autopilot.settings import settings_of
 from balsamic.threads.service import lead_agent
 
 ROUND_PROMPT = ("Autopilot round {round}. Review the evolution graph (campaign_inspect with evolution; the frontier and the live runs). Stop "
-                "strategies that are dominated (hypothesis.status archived with stop_reason), promote finalists (hypothesis.nominate), allocate more "
+                "strategies with a stop outcome and its evidence (hypothesis.status archived), promote finalists (hypothesis.nominate), allocate more "
                 "time to the promising ones (hypothesis.allocate), and ask for new strategies (research.generate) when the frontier is thin; prefer "
                 "intervention.batch for several at once. Every command states its rationale. Then call yield_work(complete) with one paragraph: what "
                 "you did and why, and what the next round should look at.")

@@ -19,14 +19,14 @@ export function HypothesisCard({ id, thread, back, onDiscuss }: { id: string; th
   return (
     <article className="card selected" data-testid="hypothesis-card" data-record-id={id}>
       <div className="row wrap"><a href={back} className="small">← All</a>{row?.label ? <Pill>{row.label}</Pill> : null}<h2 className="grow">{title}</h2>
-        {row ? <Pill tone={STAGE_TONE[row.stage]} title={row.stop_reason || row.stage}>{row.stage}</Pill> : null}<Pill tone={statusTone(String(h.status))}>{String(h.status)}</Pill>
+        {row ? <Pill tone={STAGE_TONE[row.stage]} title={row.stop ? `${row.stop.label}: ${row.stop_reason || ''}` : row.stage}>{row.stage}</Pill> : null}<Pill tone={statusTone(String(h.status))}>{String(h.status)}</Pill>
         {row?.autonomous ? <Pill tone="agent">autopilot</Pill> : null}</div>
       <div className="row wrap" style={{ margin: '6px 0' }}>
         <button className="btn small" onClick={() => navigate(formatHash({ page: 'evolution', sub: 'lineage', sel: id }, thread))} data-testid="open-in-graph">Open in graph</button>
         <button className="btn small" onClick={() => setTrace(true)} data-testid="trace-origin-button">Trace origin</button>
         {onDiscuss ? <button className="btn small" onClick={() => onDiscuss(id, title)} data-testid="discuss">Discuss in a branch</button> : null}
       </div>
-      {row?.stop_reason ? <p className="pill attention">Stopped: {row.stop_reason}</p> : null}
+      {row?.stop ? <p className="pill attention">{row.stop.label[0].toUpperCase() + row.stop.label.slice(1)}{row.stop_reason ? `: ${row.stop_reason}` : ''}{row.stop.evidence_ids.length ? ` (evidence: ${row.stop.evidence_ids.join(', ')})` : ''}</p> : null}
       <Kv rows={[['Family', h.family ? FAMILY[String(h.family)] || String(h.family) : 'not stated'], ['Algorithm', h.algorithm === 'unchosen' ? 'none chosen yet: it cannot run until one is' : String(h.algorithm || 'none yet')], ['Origin', `${String(h.origin || 'unknown')}${row?.actor ? ` (${row.actor})` : ''}`], ['Round', row?.round ?? 'unassigned'],
         ['Parents', parents.length ? parents.map(p => <a key={p.id} href={formatHash({ page: 'hypotheses', id: p.id, sel: p.id }, thread)}>{p.title} </a>) : 'root'],
         ['Children', children.length ? children.map(c => <a key={c.id} href={formatHash({ page: 'hypotheses', id: c.id, sel: c.id }, thread)}>{c.title} </a>) : 'none'],

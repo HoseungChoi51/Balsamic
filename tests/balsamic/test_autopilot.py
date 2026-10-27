@@ -87,8 +87,10 @@ def test_away_digest_counts_rounds_stops_promotions_and_waiting_decisions(client
     enable(client, campaign, cap=1000)
     rounds.tick(workspace)
     run = submitted(workspace, next(r["id"] for r in workspace.store.list("agent_run", "demo") if r.get("autopilot")))
+    workspace.store.put("trial", {"id": "trial_a", "campaign_id": "demo", "hypothesis_id": a["id"], "status": "completed", "created_at": now()})
     tool_call(workspace, team, run, "campaign_command", {"operation": "intervention.batch", "request_key": "b", "rationale": "dominated", "payload": {"rationale": "dominated", "items": [
-        {"operation": "hypothesis.status", "payload": {"hypothesis_id": a["id"], "status": "archived", "expected_status_revision": 0, "stop_reason": "dominated"}}]}})
+        {"operation": "hypothesis.status", "payload": {"hypothesis_id": a["id"], "status": "archived", "expected_status_revision": 0, "stop_reason": "dominated",
+                                                       "outcome": "adequately_assessed_deprioritized", "evidence_ids": ["trial_a"]}}]}})
     workspace.store.put("decision", {"id": "approval_x", "campaign_id": "demo", "title": "Change limits?", "status": "pending", "options": [{"id": "0", "label": "Yes"}, {"id": "1", "label": "No"}],
                                      "created_at": now(), "charter_version": campaign["version"]}, "decision.created")
     finish_run(workspace, run["id"], "Stopped A.", entry_ids={"parent": None, "last": "e3"}, disposition="complete")
@@ -99,7 +101,8 @@ def test_away_digest_counts_rounds_stops_promotions_and_waiting_decisions(client
     body = client.get("/api/v1/campaigns/demo/away-digest").json()
     digest = body["digest"]
     assert digest and digest["rounds_completed"] == 1 and digest["away_minutes"] == 45
-    assert digest["stopped"] == [{"hypothesis_id": a["id"], "reason": "dominated", "by": "autopilot"}] and digest["promoted"] == []
+    assert digest["stopped"] == [{"hypothesis_id": a["id"], "reason": "dominated", "outcome": "adequately_assessed_deprioritized",
+                                  "outcome_words": "adequately assessed, deprioritized", "by": "autopilot"}] and digest["promoted"] == []
     assert [d["id"] for d in digest["decisions_waiting"]] == ["approval_x"]
     assert any(c["operation"] == "intervention.batch" and c["by"] == "autopilot" for c in digest["commands"])
     monitor = client.get("/api/v1/campaigns/demo/monitor").json()

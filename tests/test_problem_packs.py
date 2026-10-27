@@ -118,14 +118,15 @@ def test_meents_pack_is_assembled_from_one_module_per_part_as_it_was_written_bef
     from dqn_meent import pack as meent
     from dqn_meent.pack import racing
     from dqn_meent.pack.n6_references import FLRL
-    assert [name for name, _ in meent.contributions()] == ["n4_tools", "n5_racing", "n6_references"]
+    assert [name for name, _ in meent.contributions()] == ["n4_tools", "n5_racing", "n6_references", "n7_legacy"]
     expected = ProblemPack(package="dqn_meent.pack", problem_ids=["meent_grating", "meent_2d_dual_polarization_deflector"],
                            tools=PackTools(agent_tools=["dqn_meent.pack.tools:register_agent_tools"],
                                            operations=["dqn_meent.pack.tools:register_operations"]),
                            estimators=PackEstimators(memory="dqn_meent.pack.memory:estimate"),
                            racing=PackRacing(ladder=racing.LADDER, limit=racing.LIMIT, step=racing.STEP,
                                              memory_checks=racing.MEMORY_CHECKS, cost_model="dqn_meent.pack.racing:growth",
-                                             preferred_methods=racing.PREFERRED), references=[FLRL])
+                                             preferred_methods=racing.PREFERRED), references=[FLRL],
+                           legacy={"problem": "dqn_meent.pack.legacy:problem", "runtime": "dqn_meent.pack.legacy:runtime"})
     assembled = meent.pack()
     for field in ProblemPack.model_fields:
         assert getattr(assembled, field) == getattr(expected, field), field
