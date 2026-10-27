@@ -5,5 +5,5 @@ from optimization_framework.storage.artifacts import atomic_json as _atomic_json
 from .lifecycle import execute, LOG_FIELDS
 
 
-def train(config, output_dir, resume=None):
-    return execute(config, output_dir, method="dqn", resume=resume)
+def train(config, output_dir, resume=None, tensorboard_dir=None):
+    return execute(config, output_dir, method="dqn", resume=resume, tensorboard_dir=tensorboard_dir)

@@ -29,6 +29,7 @@ def main():
         runner.add_argument("--campaign", help="Use this existing campaign instead of creating a manual CLI campaign")
         runner.add_argument("--task", help="Select the existing task matching --config")
         runner.add_argument("--wall-seconds", type=float, default=3600, help="Recorded experiment time allowance (default: 3600)")
+        runner.add_argument("--tensorboard-dir", type=Path, help="Write live TensorBoard events to this directory")
     evaluate = sub.add_parser("evaluate", help="Reevaluate best design and greedy policy at higher RCWA orders")
     evaluate.add_argument("--run", required=True)
     evaluate.add_argument("--orders", nargs="+", type=int, default=[15, 25, 40, 60])
@@ -67,13 +68,14 @@ def _dispatch(args):
         overrides = {key: value for key, value in (("total_steps", args.steps), ("seed", args.seed)) if value is not None}
         config = replace(config, training=replace(config.training, **overrides))
         return execute(config, Path(args.output), resume=args.resume, workspace=args.workspace,
-            workspace_url=args.workspace_url, campaign_id=args.campaign, task_id=args.task, wall_seconds=args.wall_seconds)
+            workspace_url=args.workspace_url, campaign_id=args.campaign, task_id=args.task, wall_seconds=args.wall_seconds,
+            tensorboard_dir=args.tensorboard_dir)
     from . import experiments
     if args.command == "baseline":
         from .recorded import execute
         return execute(ExperimentConfig.load(args.config), args.output, method=args.method, budget=args.budget, seed=args.seed,
             workspace=args.workspace, workspace_url=args.workspace_url, campaign_id=args.campaign, task_id=args.task,
-            wall_seconds=args.wall_seconds)
+            wall_seconds=args.wall_seconds, tensorboard_dir=args.tensorboard_dir)
     if args.command == "evaluate":
         from .recorded import evaluate
         result = evaluate(args.run, args.orders, args.tolerance, not args.skip_policy, workspace=args.workspace,

@@ -1,0 +1,29 @@
+:root {
+  --bg: #f7f6f2; --panel: #ffffff; --panel-2: #f1efe9; --ink: #1d1c1a; --ink-2: #5b5852; --ink-3: #8a867e;
+  --line: #e2dfd7; --line-2: #cfcbc2; --accent: #2d6a4f; --accent-ink: #ffffff; --accent-soft: #dfeee6;
+  --warn: #b8860b; --warn-soft: #fbf1d6; --bad: #a23b2a; --bad-soft: #f8e2dd; --good: #2d6a4f; --info: #2f5d8a; --info-soft: #e0eaf4;
+  --you: #6b4c9a; --you-soft: #ece4f6; --agent: #2f5d8a; --agent-soft: #e0eaf4;
+  --radius: 10px; --radius-s: 6px; --shadow: 0 1px 2px rgba(0,0,0,.06), 0 4px 16px rgba(0,0,0,.05);
+  --font: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  --rail-w: 168px; --topbar-h: 48px; --chat-w: 42%;
+  --logo-brown: #6b4630; --logo-green: #7e9a73; --logo-green-2: #a3b597; --logo-vein: #5b7551; --logo-cream: #f4ecdc;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #15171a; --panel: #1d2024; --panel-2: #23272c; --ink: #ecebe6; --ink-2: #b6b3ab; --ink-3: #85827a;
+    --line: #2d3137; --line-2: #3a3f46; --accent: #5cb08a; --accent-ink: #0f1a14; --accent-soft: #1f3a2d;
+    --warn: #e0b24a; --warn-soft: #3a3118; --bad: #e07a68; --bad-soft: #3d231f; --good: #5cb08a; --info: #7aa7d6; --info-soft: #1f2d3d;
+    --you: #b79be0; --you-soft: #2d2440; --agent: #7aa7d6; --agent-soft: #1f2d3d;
+    --shadow: 0 1px 2px rgba(0,0,0,.4), 0 4px 16px rgba(0,0,0,.3);
+    --logo-brown: #8a5d40; --logo-green: #8fa985; --logo-green-2: #6f8866; --logo-vein: #5b7551;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #15171a; --panel: #1d2024; --panel-2: #23272c; --ink: #ecebe6; --ink-2: #b6b3ab; --ink-3: #85827a;
+  --line: #2d3137; --line-2: #3a3f46; --accent: #5cb08a; --accent-ink: #0f1a14; --accent-soft: #1f3a2d;
+  --warn: #e0b24a; --warn-soft: #3a3118; --bad: #e07a68; --bad-soft: #3d231f; --good: #5cb08a; --info: #7aa7d6; --info-soft: #1f2d3d;
+  --you: #b79be0; --you-soft: #2d2440; --agent: #7aa7d6; --agent-soft: #1f2d3d;
+  --shadow: 0 1px 2px rgba(0,0,0,.4), 0 4px 16px rgba(0,0,0,.3);
+  --logo-brown: #8a5d40; --logo-green: #8fa985; --logo-green-2: #6f8866; --logo-vein: #5b7551;
+}

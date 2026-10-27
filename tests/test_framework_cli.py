@@ -8,7 +8,7 @@ from fastapi.testclient import TestClient
 
 from dqn_meent.config import ExperimentConfig, PhysicsConfig, TrainConfig
 from dqn_meent.recorded import execute, evaluate
-from optimization_framework.api.app import create_app
+from balsamic.app import create_app
 from optimization_framework.cli import Session
 from optimization_framework.contracts.commands import Command
 from optimization_framework.execution.service import Workspace
@@ -33,7 +33,7 @@ def test_cli_reports_a_stale_export_delivery_instead_of_waiting_forever(tmp_path
             authority="researcher", created_at="historical"))
         with workspace.outbox_lock:
             outcome = session.command("bundle.export", campaign["id"], {"asset_ids": ["finding"]}, identity="export_before_direction_change")
-            current = workspace.memory.sync(campaign["id"])
+            current = workspace.memory.state(campaign["id"])
             workspace.memory.edit(campaign["id"], "Defer this export until its evidence is reviewed.", current["revision"])
         workspace.dispatch_outbox()
         with pytest.raises(ValueError, match="direction changed"):
@@ -42,6 +42,7 @@ def test_cli_reports_a_stale_export_delivery_instead_of_waiting_forever(tmp_path
         assert not list(workspace.directory.glob("bundles/*.zip"))
 
 
+@pytest.mark.meent
 def test_local_cli_records_actual_numerics_and_projects_legacy_outputs(tmp_path, monkeypatch):
     monkeypatch.setenv("GRATING_LLM_DISABLED", "true")
     output = tmp_path / "baseline"
@@ -73,6 +74,7 @@ def test_local_cli_records_actual_numerics_and_projects_legacy_outputs(tmp_path,
 
 
 def test_cli_dqn_and_policy_reevaluation_use_separate_costed_jobs(tmp_path, monkeypatch):
+    pytest.importorskip("torch")
     monkeypatch.setenv("GRATING_LLM_DISABLED", "true")
     output = tmp_path / "dqn"
     result = execute(tiny_config(), output, wall_seconds=30)
@@ -86,6 +88,7 @@ def test_cli_dqn_and_policy_reevaluation_use_separate_costed_jobs(tmp_path, monk
     assert not store.list("research_run")
 
 
+@pytest.mark.meent
 def test_old_standalone_run_is_imported_as_history_before_new_measurements(tmp_path, monkeypatch):
     import numpy as np
     from optimization_framework.storage.artifacts import atomic_json

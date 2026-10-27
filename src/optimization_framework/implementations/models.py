@@ -9,7 +9,7 @@ from typing import Any, Literal
 from pydantic import BaseModel, ConfigDict, Field, model_serializer, model_validator
 from optimization_framework.contracts.capabilities import OptimizerCapabilities
 from optimization_framework.contracts.evaluators import EvaluatorManifest
-from optimization_framework.research.model_policy import ModelPolicy
+from optimization_framework.llm.model_policy import ModelPolicy
 
 
 def digest(value) -> str:
@@ -108,6 +108,11 @@ class BoundOptimizerSpec(ImplementationSpec):
     evaluator_version_id: str = Field(min_length=1)
 
 
+REGENERATE = ("Generated data is not shipped: the package regenerates it where it runs and checks each output against the "
+              "SHA-256 and runtime recorded in a small manifest file on every use, held copies and restored checkpoints "
+              "included, refusing to run on a mismatch.")
+
+
 class SourceFile(Contract):
     path: str
     content: str
@@ -117,8 +122,10 @@ class SourceFile(Contract):
         path = PurePosixPath(self.path)
         if path.is_absolute() or not path.parts or any(p in {"..", "."} for p in path.parts) or "\\" in self.path:
             raise ValueError("Package files must use relative paths without traversal")
-        if self.path != str(path) or len(self.content.encode()) > 262144:
-            raise ValueError("Invalid path or oversized source file")
+        if self.path != str(path):
+            raise ValueError("Invalid package file path")
+        if len(self.content.encode()) > 262144:
+            raise ValueError(f"{self.path} is over 256 KiB. " + REGENERATE)
         return self
 
 
@@ -132,8 +139,10 @@ class Package(Contract):
         import re
         if not re.fullmatch(r"[A-Za-z_]\w*(?:\.[A-Za-z_]\w*)*:[A-Za-z_]\w*", self.entrypoint):
             raise ValueError("Entry point must be module:factory")
-        if len({f.path for f in self.files}) != len(self.files) or sum(len(f.content.encode()) for f in self.files) > 1048576:
-            raise ValueError("Duplicate files or package exceeds 1 MiB")
+        if len({f.path for f in self.files}) != len(self.files):
+            raise ValueError("Duplicate package files")
+        if sum(len(f.content.encode()) for f in self.files) > 1048576:
+            raise ValueError("The package exceeds 1 MiB. " + REGENERATE)
         return self
 
 

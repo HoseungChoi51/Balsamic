@@ -1,5 +1,7 @@
 # Review the real grating discovery run
 
+> **Superseded.** The workspace was rebuilt around the chat-centred UI plan; see [ui-workspace.md](ui-workspace.md). This document describes the earlier service and is kept for history.
+
 Updated 2026-09-28. The previous **Discovery HTTP qualification** campaign was a software test fixture, not a scientific example. Presenting it as the principal research review was a mistake. The current review instance contains a real scientific campaign with actual GPT-6 Luna responses and actual MEENT numerical experiments.
 
 Open **https://x670.tail096b61.ts.net:8449** (or locally **http://127.0.0.1:8791**) and refresh. Select **1D grating inverse design — finding an efficient optimizer**.

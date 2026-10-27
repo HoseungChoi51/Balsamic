@@ -1,170 +1,318 @@
-# Optimization Lab — experimental optimizer research framework
+# Balsamic
 
-A general research harness for users and LLM agents to develop an effective optimizer for the problem at hand. The framework is reusable; finding a universal optimizer is not its goal. It combines durable campaigns, problem/evaluator plugins, literature evidence, independent strategy proposals, numerical experiments, and a separate implementation/validation service.
+Balsamic is a research workspace in which a researcher and a lead agent develop an effective optimizer for the problem
+at hand. The researcher talks to the lead in a chat; the lead runs experiments, asks assistants for reviews, keeps the
+records and links its replies to the pages that show the evidence. Every write is a command the researcher can trace,
+every measurement is labelled as measured or forecast, and nothing is started that the researcher did not ask for
+(autopilot is the one explicit exception, and only the researcher turns it on).
 
-**This is a partial, experimental implementation.** The current branch contains real GPT-6 Luna discovery runs and real numerical experiments, but the complete autonomous analysis → literature → proposal → experiment → critique → revision cycle is not yet qualified. See the [publication checkpoint](docs/publication-checkpoint.md) for working features, test results and known failures.
+The reference application is binary 1D grating inverse design with real MEENT RCWA evaluations; a bounded continuous
+benchmark exercises the general problem interface. Finding a universal optimizer is not the goal: the framework is
+reusable, the strategies are per problem, and the library carries winners from one campaign to the next.
 
-The React dashboard exposes scientific work products and ordinary agent dialogue, tool receipts and append-only logs. The reference scientific application is binary **1D grating inverse design using real MEENT RCWA evaluations**. A bounded continuous benchmark exercises the general problem interface.
+This is research software. The workspace was rebuilt in October 2026 around the chat-centred design in
+[docs/ui-workspace.md](docs/ui-workspace.md); the scientific core (problem adapters, optimizers, scheduler and workers,
+races, confirmation, the implementation service) is the same code as before.
 
-The original reconstruction of the DQN optimization loop in Seo et al., *Structural Optimization of a One-Dimensional Freeform Metagrating Deflector via Deep Reinforcement Learning*, ACS Photonics 9, 452–458 (2022), remains available alongside random search, restart hill climbing, annealing, block tabu, population, and surrogate search. The workspace supports reviewed custom optimizer source. Implementation and smoke tests do not establish a state-of-the-art result.
+## Quick start
 
-## Start here
-
-The only requirements are Linux, Python 3.12 or 3.13, [uv](https://docs.astral.sh/uv/), and Node.js 22.19 or newer with npm. From a fresh clone:
+Linux, Python 3.12 or 3.13, `uv`, Node.js 22.
 
 ```bash
-uv sync --frozen --all-extras
+uv sync --extra dev
+(cd agent-harness && npm ci && npm run build)
 (cd frontend && npm ci && npm run build)
-uv run --no-sync optimization-lab --directory runs/workspace --workers 2 --port 8765
+scripts/start                   # the real Pi harness with your model provider (see "Models and keys")
+scripts/start --fake            # a scripted fake lead answers: no model, no keys needed
 ```
 
-Open **http://127.0.0.1:8765**. Create a campaign, define development configurations and budgets, then launch a small experiment or discuss a hypothesis with the research partner. Data remain in the workspace directory after closing the browser.
+That is all Balsamic needs. MEENT, the solver of the grating problems, is optional: see [MEENT (optional)](#meent-optional).
 
-**No model provider is selected by default.** The dashboard and numerical experiments work immediately, and research requests remain in the campaign's durable inbox until you choose a provider and enable model calls. Research roles accept `codex` (your ChatGPT subscription allowance, tracked separately from paid API spending), `openai_api` or `compatible`, and default to `gpt-6-sol` once a provider is chosen. Pi campaigns need a dev profile with a default model, or a launcher `pi_provider`. Existing `.key` credentials are ignored unless you explicitly enable an API provider, and there is no automatic paid fallback. See the [workspace guide](docs/workspace.md) when you are ready to configure a provider, and for workflows, custom algorithms, and recovery.
+`scripts/start` brings up the three services (the workspace on 8765, the implementation service on 8767, the harness
+on 8768), adds a tailnet-only HTTPS route to the workspace when Tailscale is installed (see "Remote access"), and
+ends with the addresses and the token:
 
-### Optional components
+```
+Balsamic is up (real harness; data and logs in …/runs/dev)
+  local URL:    http://127.0.0.1:8765
+  tailnet URL:  https://<machine>.<tailnet>.ts.net:8444   (tailnet only, never public)
+  service token (workspace <-> harness, …/runs/dev/pi.token):
+    <48 hex characters>
+  implementation service token (…/runs/dev/library/service.token):
+    <token>
+```
 
-Each component below enables one feature; everything else runs without it.
+Open the local or the tailnet URL and start a campaign from `#new`. The service token is what the workspace sends the
+harness (and the harness sends back) as a bearer token; the browser never needs it. `scripts/start` is idempotent
+(running services are left alone); `scripts/stop` stops the services and removes the tailnet route. Options:
+`--no-tailnet` (localhost only), `--dir DIR` (data and logs elsewhere than `runs/dev`); `BALSAMIC_PORT`,
+`BALSAMIC_LIBRARY_PORT`, `BALSAMIC_PI_PORT` and `BALSAMIC_TAILNET_PORT` change the ports. Logs are in `runs/dev/*.log`;
+campaign data stay in `runs/dev/workspace` after the browser closes. For a frontend with hot reload run
+`cd frontend && npm run dev` and open http://127.0.0.1:5173.
+
+Underneath, `scripts/start` calls `scripts/dev-stack up [--real]`, which starts the services and nothing else
+(`scripts/dev-stack down` and `status` are the other verbs). The services can also be run one by one
+(`uv run optimization-lab --directory DIR --port 8765 --workers 2`,
+`uv run optimization-implementations --directory DIR --port 8767`, `npm --prefix agent-harness start`) or from a
+launcher configuration with `scripts/labctl` ([server control](docs/server-control.md)).
+
+## MEENT (optional)
+
+MEENT is the RCWA solver of the two grating problems (`meent_grating`, the 1D metagrating deflector, and
+`meent_2d_dual_polarization_deflector`); the mask methods (`motif_surgery`, `nested_fourier`, `phenotype_de`) and the
+learning-based optimizers are installed with it. Everything else, `bounded_continuous` and the problems you import
+included, runs without it. Where it is missing, a grating task's runs are refused with what to install, and every page
+says so.
+
+```bash
+scripts/install-meent           # PyTorch's CUDA build when nvidia-smi finds a GPU, else its CPU-only build
+scripts/install-meent --cpu     # or choose: --cpu (about 0.2 GB to download) or --cuda (about 2.3 GB)
+```
+
+Then restart (`scripts/stop --keep-tailnet && scripts/start`). The script installs the `meent`, `learners` and `masks`
+extras with the chosen PyTorch build (the `cpu` or `cuda` extra) and checks that both solvers start, the 2D one on each
+device the build has.
+
+- Access: MEENT is the meent-private fork, a private repository. Ask its owner for read access and let git sign in to
+  GitHub (for example `gh auth login && gh auth setup-git`); the script checks access before it installs anything.
+- GPU: the CUDA build needs an NVIDIA driver that supports CUDA 13 (`nvidia-smi` shows the highest version the driver
+  supports). On the CPU build the 2D solver runs on CPU: about 2.2 s per FLRL design on one core, 0.3 s on an RTX 3060.
+- Keeping it: a plain `uv sync` removes what it was not asked for, MEENT included; use `uv sync --inexact`, or run
+  `scripts/install-meent` again afterwards. `uv sync --all-extras` needs `--no-extra cpu` (or `cuda`): the two PyTorch
+  builds cannot both be installed.
+- Tests that need MEENT are marked `meent` and skipped, with the reason, where it is not installed.
+
+## How to use it
+
+### Start a campaign
+
+`#new` is a conversation. The setup assistant asks one thing at a time: a name (the campaign's identity is made from
+it), what you want to find out (a rough sentence is enough, or "let the lead draft it with me"), the problem (an
+installed one, or formulate it with the lead first), the budgets (worker time, model spend, the per-run cap the lead
+may give one run without asking), delegation (delegated, guided, manual) and autopilot (off unless you choose a cap).
+Pick a choice or type; typed answers such as "2 h, $7, runs 120 s" are understood. With a model available the
+assistant phrases the questions and fills the draft from what you write; without one the same questions come scripted.
+The draft page beside the chat shows what is filled, with "change" per field; "Start over" (or typing it) abandons the
+draft. "Create the campaign" records it, and the setup turns become the first turns of its main thread.
+
+### Talk to the lead
+
+The chat on the left is the campaign's conversation with the lead; the page on the right is what the chat is about.
+The lead starts nothing until you ask; the chat suggests the next request by stage (once a problem is set: `/generate 3`). Ask the lead for proposals, not the discussion moderator: the lead records them and the moderator reviews them in rounds. Its replies link records and pages (`trial_…`, `H03`, `#experiments/rules`) as
+chips that open the page in this thread. Slash commands: `/generate 3` (three new strategies), `/generate 2 hybrid of
+H01 H02`, `/evolve H01`, `/review H01`, `/compare`, `/probe`, `/plan`, `/note`, `/fork`, `/park`, `/merge into
+<thread> <note>`, `/help`.
+
+### Confirm the charter
+
+Adopting the note hands it to the formulator, which writes the charter. The **Charter** tab of the Problem note page is
+a form with two kinds of open item. **Checks to pass** are what the charter's own checks found (code, run on every
+revision, no model): a value missing, a bound missing, an assumption not yet accepted, a constraint stated in words only
+that nothing can evaluate. Each has its control right there (accept, type the number, set the bounds) and suggested ways
+out made from the charter itself: a one-click waiver with its reason where waiving is allowed, and a worded request to
+the formulator that one click sends (the "Ask the formulator" box starts from the same words, for editing). **Questions
+from the formulator** are what it could not decide from the sources alone; they come with options, its recommendation
+first, or take an answer in words. Answer what you can and send the rest: the formulator decides each unanswered one from
+your answers and the sources and records it as an assumption you can change later, once a run has shown what it meant.
+Every quantity and bound is an editable field. Confirm is enabled once nothing blocks; it compiles the tasks and
+experiments can start.
+
+### Panels the agents compose
+
+When a fixed page lacks an input or a view a particular problem needs, the lead (any page) or the formulator (the
+charter page) composes a panel from a catalog of Balsamic components: text, bound values, tables of records, number and
+select fields bound to the charter, charts, buttons that issue commands, links. It appears on its page and, when made in
+a conversation, as a card in it. Values are read live and every change carries a receipt. See `docs/panels.md`.
+
+### Find your way
+
+**Overview** (first on the rail) is the campaign at a glance and the place to remove it. Until the charter is confirmed, a
+callout at the top of every page names the step still required (draft the note, adopt it, confirm the charter): no
+experiment runs before that, even though proposals can be recorded. Each page with an agent in charge has that agent's
+desk docked at its bottom; open it to talk to the moderator, the operator, the implementation lead or the resource
+planner. Drag the gutters to resize the three columns; fold the rail with the button at its foot. Flat capsules are
+status and do nothing when clicked; bordered buttons act; dotted mono chips open records.
+
+### Read the chat
+
+Earlier exchanges fold under a one-sentence title (written by the housekeeper once the next exchange begins); the last
+two stay open, and one button expands or folds them all. "Detach" in the chat's header opens the conversation in its own
+window and lets the page fill the main one (a thin strip in the chat's place reattaches it); links the lead writes open
+in the main window. The three suggestion buttons above the composer are written by the housekeeper after each reply of
+the lead, from the campaign's state and the last exchange; stage defaults show only until the lead has spoken. When the lead hands work to
+agents, their conversation with each other goes to a side thread, linked from your thread by one line and listed under
+"Agents' conversations" in the switcher; only the lead's own reply comes back to you.
+
+### Branch the conversation
+
+"Fork here" on any turn starts a branch at that point (a branch of the lead's own session tree, so the lead continues
+from exactly there); "Edit" on your own message resends it as a branch, leaving the original. The thread switcher at the
+top of the chat and the **Branches** page (lanes, summary cards, activity strips) move between them. Park a branch when
+it is done for now (a summary card is written), merge it into another with a note (ask the lead to draft the note from
+the branch), or leave it. A message in one branch never stales the lead's work in another; what another branch did
+arrives as one-line lab events. The **Context** chip opens what the lead sees in this thread: the project layer, the
+branch layer (measured by the harness when it answers), and the records you pinned or excluded.
+
+### Formulate the problem
+
+With no problem instance chosen, the campaign starts in Formulate. Describe the problem in the chat (or `/note`); the
+lead writes the **Problem note** (objective, knobs, observables, noise, constraints, confounders, open questions, with
+math). The note is a draft until you adopt it, and the page says so: every section has **Ask about this** and **Edit**.
+Ask (or select any words in the text) to **Define**, **Explain**, **Challenge** or **Visualize** it: definitions come
+from the glossary, explanations from one cheap model call, challenges and visuals from a turn of the lead, which answers
+as a proposed edit you accept or reject; the note never changes silently. Edit changes a section in your own words,
+saved as a revision in your name; or tell the lead in the chat what to change. **Adopt** hands the note to the formulator, which
+writes the charter (quantities, relations, assumptions); you confirm it on the note's Charter tab, which sets the
+campaign's tasks and ends formulation.
+
+Every section must be written before proposals or experiments, unless it is skipped with your agreement. You don't have
+to decide that alone: click **Ask which can be skipped** on the note (or type `/skip`) and the lead goes through the
+empty sections. Where the confirmed charter already states a section (the design variables, the objective and metrics,
+a deterministic evaluator) or the section does not apply, it proposes a skip with its reason and one statement for you
+to confirm. It asks you about what the records don't settle. You agree or decline on the card in the chat or in the
+section. A skip changes no text, so the note needn't be adopted again; it lapses if the charter stops saying what it cited.
+
+### Watch the strategies evolve
+
+**Hypotheses** lists every strategy with its stage; a round in progress shows "1 of 3 ready". **Evolution** is the
+graph: the frontier table (select several and Stop with a reason, Promote, Allocate time, Hybrid or Revise, Discuss in
+a branch, all as one batch that either applies whole or not at all), the lineage tree (rounds as columns, typed edges:
+revision, variant, hybrid, inspired by the library), the measured score curves, and the races. Stages are proposed,
+reviewed, screening, extended, finalist, confirmed, stopped; stopped is a decision with a reason, never a failure.
+Every card has "Open in graph" and "Trace origin" (the command, the run, the message, the thread, the model).
+**Experiments** shows runs by kind with their curves, logs and checks; **Files** the findings, reports, notebook and
+sources; **Inbox** what waits for you (approvals, issues, the lead's questions).
+
+### Keep an eye on it
+
+The pill in the top bar reads "All clear" unless a row needs attention; it opens the **Monitor** drawer: budget
+(measured use, and a forecast labelled as such), compute (runs, queue, the GPU row), agents, autopilot, needs-you. The
+Monitor's pages add resources (polled only while open), model usage, race progress, the agent team and its log, models,
+guidance, and the away digest. Removing a campaign is on the Resources page (you choose what to keep).
+
+### Autopilot
+
+Off by default, and gated: autopilot, proposal generation, allocations and interventions are refused until the problem is
+fully defined. The gate is passed when every section of the problem note is written (objective, knobs, observables, noise,
+constraints, confounders, open questions, which reads "none remaining" once settled), the note is adopted at its current
+revision, the charter is confirmed and its tasks are installed. The callout at the top of every page, the Overview's
+"Problem definition" row, the autopilot dialog and the lead's briefing all name the same missing step; a note revised after
+adoption closes the gate again until it is adopted again. A campaign set up with autopilot remembers the choice and the lead
+asks you to turn it on once the gate opens. "Autopilot off" in the top bar turns it on with a compute cap and an optional report date. The lead then
+runs rounds by itself in a system thread, within the cap, with a reason on every command and a badge on every row it
+touches; your messages still come first; the last round writes the report. When you come back after half an hour, the
+pill reads "Away digest": what was stopped, promoted, started and finished, and what waits for you.
+
+### Reuse what won
+
+**Library** holds strategies published from finalists (or confirmed ones), with their problem signature and evidence.
+On a new campaign of the same problem the lead's first reply mentions matching entries; "Apply here" makes a root
+strategy inspired by one, reviewed like any other. Ctrl+K searches pages, threads and messages; `g` then a letter jumps
+to a page; threads export as Markdown and the graph as JSON. See [docs/strategy-library.md](docs/strategy-library.md).
+
+## Models and keys
+
+Model calls go through the Pi agent harness; nothing is called without a signed-in provider, and there is no automatic
+paid fallback.
+
+1. **Sign in a provider.** The harness offers the providers your own Pi offers: custom endpoints such as a LiteLLM
+   proxy are read from `~/.pi/agent/models.json` (the profile's own `models.json` takes precedence;
+   `GRATING_PI_MODELS_FILE` names another), with their keys in `~/.pi/agent/auth.json` as `pi /login` leaves them.
+   Key-based providers (DeepSeek, OpenAI API, Anthropic, …) can also take their key from
+   `~/.config/balsamic/secrets.env` (one `NAME=value` per line, mode 600), which `scripts/dev-stack up --real` passes
+   to the harness only. The ChatGPT subscription (`openai-codex`) signs in with a device code from Monitor → Models.
+   Restart the stack after a change.
+2. **The default model** of the harness is in `agent-harness/profiles/dev/settings.json` (`defaultProvider`,
+   `defaultModel`, optional `defaultThinkingLevel`). Every tier starts from it.
+3. **Which model each agent runs on:** **Monitor → Models**. Tiers name a model and a thinking level each; every role
+   (the lead, the review-round specialists, the proposal reviewer, the implementation builder, test designer and
+   validator, the results analyst, the page agents, the problem importer, and the housekeeper, which names branches,
+   labels strategies for the lineage graph and writes branch summaries on the lightest tier) is assigned a tier. Saving applies to running
+   agents within their campaign's model family; others switch at their next campaign. The page also says which
+   providers are signed in; "… is not available from a signed-in Pi provider" means step 1 is missing.
+   The thinking levels are the ones Pi's `/thinking` offers for the model (its `reasoning` and `thinkingLevelMap` in
+   `models.json`: a level mapped to `null` is not offered). "default" runs at the level Pi gives a new session (the profile's
+   `defaultThinkingLevel`, else `medium`), for new and resumed sessions alike; the level an agent's latest call ran at is
+   on Monitor → Model usage.
+
+Model spend per call, agent and model is on **Monitor → Model usage**; API-billed calls count against the campaign's
+model budget, subscription calls do not. Details: [docs/pi-agent-harness.md](docs/pi-agent-harness.md).
+
+## Remote access
+
+The services bind to localhost. On a Tailscale machine, `scripts/start` exposes the workspace to your tailnet only
+(never Funnel) and prints the URL; `scripts/stop` removes the route. What it runs, if you want it by hand:
+
+```bash
+sudo tailscale set --operator=$USER          # once, so that `tailscale serve` needs no sudo
+tailscale serve --bg --https=8444 http://127.0.0.1:8765
+tailscale status --json | jq -r .Self.DNSName   # the <machine>.<tailnet>.ts.net part of the URL
+```
+
+Then open `https://<machine>.<tailnet>.ts.net:8444`. `tailscale serve --https=8444 off` removes the route
+(`BALSAMIC_TAILNET_PORT` chooses another port for both scripts). The implementation service and the harness stay on
+localhost and use their token files.
+
+## Optional components
 
 | Component | Enables | Setup |
 |---|---|---|
-| Codex CLI | Research roles with the `codex` provider | `codex login --device-auth`; see [server control](docs/server-control.md) |
-| Pi agent harness | Pi campaigns and `scripts/pi-dev` | `(cd agent-harness && npm ci && npm run build)`; sign in from the notebook, or put provider keys in `~/.config/balsamic/secrets.env` ([Pi runtime](docs/pi-agent-harness.md)) |
+| Pi agent harness | The lead and its assistants, `scripts/pi-dev` | `(cd agent-harness && npm ci && npm run build)`; a signed-in provider ("Models and keys") |
 | bubblewrap (`bwrap`) | Executing generated and custom optimizer packages | Distribution package; Ubuntu also needs `deploy/grating-bwrap.apparmor` ([Pi runtime](docs/pi-agent-harness.md#host-prerequisite-found-during-rollout)) |
-| Docker | Full development workspaces with a browser IDE | `docker build -t grating-implementation-workspace:pi-0.87.1 deploy/implementation-workspace`, then set `development_enabled` |
-| `mask-optimizers` 0.1.0 | The `motif_surgery`, `nested_fourier` and `phenotype_de` methods | The `masks` extra, included by `--all-extras`, from [kc-ml2/mask-optimizers](https://github.com/kc-ml2/mask-optimizers); see [optimizer plug-ins](docs/optimizer-plugins.md) |
-| Paper and FLRL references | `/references` inside development workspaces | Set `paper_reference` in the launcher JSON or `GRATING_PAPER_REFERENCE`; clone `jLabKAIST/flrl` beside this repository or set `GRATING_FLRL_REFERENCE` |
-| Tailscale and `socat` | Remote access to the dashboard | [Server control](docs/server-control.md) |
+| Docker | Full development workspaces with a browser IDE (without them, implementations are commissioned: builders, test designers and reviewers, no workspace) | `docker build -t grating-implementation-workspace:pi-1.3.0 deploy/implementation-workspace`, then `scripts/stop` and `GRATING_DEVELOPMENT_ENABLED=true scripts/start` (or `development_enabled` in a launcher file). The coding agent runs on the campaign's model with that provider's sign-in and, for a custom provider, its `models.json` endpoint; the container reaches public addresses only |
+| MEENT: the meent-private fork, branch `feature/cuda-acceleration` | Both grating problems. The fork is Torch-only: the 1D solver runs it on CPU, the 2D solver on the GPU or on CPU, wherever the scheduler places each run (about 0.3 s per FLRL design on an RTX 3060, 2.2 s on one CPU core) | `scripts/install-meent`; see [MEENT (optional)](#meent-optional). The `meent` extra, which `pyproject.toml` points at the fork (a private repository) and `uv.lock` pins to a commit; `scripts/install-meent --update` moves it to the branch tip. The PyPI release with the same version number is refused. `scripts/start` runs one GPU slot when PyTorch sees a CUDA device, beside one CPU slot per physical core less one for the system and less the GPU slot (`BALSAMIC_GPU_WORKERS` and `BALSAMIC_WORKERS` change them) |
+| `mask-optimizers` 0.1.0 | The `motif_surgery`, `nested_fourier` and `phenotype_de` methods | The `masks` extra from [kc-ml2/mask-optimizers](https://github.com/kc-ml2/mask-optimizers), which `scripts/install-meent` installs; see [optimizer plug-ins](docs/optimizer-plugins.md) |
+| `torch`, `gymnasium` | The learning-based optimizers, the original DQN loop, and MEENT | The `learners` extra, with PyTorch's CUDA build from PyPI or its CPU-only build (the `cpu` extra); `scripts/install-meent` installs it with the `meent` extra |
+| Paper and FLRL references | `/references` inside development workspaces | `paper_reference` in the launcher JSON or `GRATING_PAPER_REFERENCE`; `jLabKAIST/flrl` beside this repository or `GRATING_FLRL_REFERENCE` |
 | Chrome or Playwright Chromium | Browser tests | `npx playwright install chromium` |
 
-The launcher configurations and service units in `deploy/` describe particular hosts; copy and edit one for a new machine.
+Before any experiment or runtime probe is queued, the lab builds the task's evaluator once in a fresh worker process. If a
+solver or package is missing, the run is refused with the evaluator's own error and what to install. Every page shows the
+same error as the next step, and the lead is told it instead of finding out from a failed probe. The check runs again by
+itself once the installed software changes.
 
-Git does not carry `runs/` (campaign databases, checkpoints and logs), provider credentials (`.key`, `~/.codex`, `~/.pi/agent/auth.json`, `~/.config/balsamic/secrets.env`), or sibling checkouts. To continue existing campaigns on another machine, stop the lab and copy the workspace directory, for example `rsync -a runs/workspace/ other-host:dqn-meent/runs/workspace/`.
+Git does not carry `runs/` (campaign databases, checkpoints and logs), provider credentials (`~/.pi/agent/auth.json`,
+`~/.config/balsamic/secrets.env`) or sibling checkouts.
 
-The [implementation evidence map](docs/implementation-status.md) connects the [research-system plan](docs/agentic-algorithm-discovery-plan.md) to code, tests, and unverified research outcomes.
-
-The [proposal exploration guide](docs/proposal-exploration.md) covers additional ideas, diversification, two-parent hybrids, independent conceptual review, and implementation requests. A [recorded Luna hybrid review](docs/grating-hybrid-review.md) shows the generated mechanism and the reviewer's concrete objections.
-
-The [model control panel](docs/model-control-panel.md) configures campaign defaults and per-role model/reasoning settings, including the separate implementation service.
-
-For the original single-run numerical interface:
+## Testing
 
 ```bash
-uv run --no-sync dqn-meent train --config configs/smoke.json --output runs/smoke
-uv run --no-sync dqn-meent evaluate --run runs/smoke --orders 5 15 25 40
-uv run --no-sync dqn-meent design --run runs/smoke --output runs/smoke/design.png
-uv run --no-sync pytest -q
+GRATING_LLM_DISABLED=true uv run pytest -q          # the core and tests/balsamic (service layer, end to end over the fake harness)
+(cd agent-harness && npm test)                      # the harness, against the pinned Pi SDK
+(cd frontend && npx tsc -b && npx playwright test)  # the workspace, against a mocked backend
 ```
 
-The full test suite takes about 15 minutes on CPU. If you install without the `masks` extra, the tests in `tests/test_mask_library_campaign.py` and one native-confirmation test in `tests/test_framework_racing.py` fail with "Install mask-optimizers 0.1.0".
-
-The lock file pins the environment. PyTorch's default Linux distribution can download several GB of CUDA dependencies even when using CPU. A GPU is **not required**. This setup uses NumPy/complex128 for MEENT and CPU PyTorch by default; `training.device="cuda"` moves only the Q-network, not the optical solver. Small Q-networks and 1D RCWA are often suitable for CPU. The CLI limits BLAS to one thread; training likewise defaults to one PyTorch thread.
-
-The included configurations serve different purposes:
-
-| Config | Cells | RCWA truncation F / harmonics | Interactions | Purpose |
-|---|---:|---:|---:|---|
-| `smoke.json` | 16 | 5 / 11 | 256 | Verify installation, replay updates, checkpoints and evaluation |
-| `starter.json` | 64 | 15 / 31 | 10,000 | Explore training at moderate cost; reevaluate at higher F |
-| `validation64.json` | 64 | 40 / 81 | 4,096 | Short full-geometry run executed for this delivery |
-| `paper_geometry.json` | 64 | 40 / 81 | 200,000 | Larger experiment retaining the paper's geometry; still a modified learning algorithm/budget |
-
-None is a promise that its interaction count is enough to learn a competitive design. F is the **maximum Fourier order**, not the total number of retained harmonics. The number of binary design cells and the RCWA basis size are independent.
-
-## What the agent controls
-
-The default device has a 325 nm patterned silicon layer, 64 binary cells per period, and normally incident TM light from a glass half-space (`n=1.45`). Light exits into air (`n=1`). At wavelength 1100 nm and target angle 50°, the period is `1100/sin(50°)` nm. The objective is **absolute transmitted power in diffraction order +1, divided by incident power**; it is not the fraction of total transmitted power.
-
-The default real silicon index, 3.551726470588235, comes from interpolation of the authors' material table at 1100 nm. Their released simulator discards absorption. Changing wavelength requires supplying the corresponding index too; documented values for 900 and 1000 nm appear in `docs/paper-mapping.md`. Alternatively select `physics.material="meent_green"` for the wavelength-dependent complex Green-2008 table included with MEENT. That is a different material model and includes absorption.
-
-| Component | Implementation |
-|---|---|
-| Design/state | Binary Si/air array; network receives ±1 cells plus remaining episode fraction |
-| Action | Choose a cell and flip its material; repeated flips are legal |
-| Initial design | All silicon, at each episode reset |
-| Forward model | MEENT 0.13.2, NumPy complex128, continuous integration of piecewise-constant cells, TM |
-| Reward | `eta(next)^3`, matching the article's reward |
-| Episode | 128 actions for the 64-cell configuration; clock is observed; terminal transition does not bootstrap |
-| Agent | MLP 128–128 with ReLU, epsilon-greedy actions, replay, Double DQN, target network, Huber loss, Adam, gradient clipping |
-| Output | Best design encountered during search, final policy, full checkpoint, CSV metrics, high-order evaluation |
-
-```mermaid
-flowchart TD
-    A["Binary design + remaining steps"] --> B["Q-network: one value per cell"]
-    B --> C["Epsilon-greedy cell flip"]
-    C --> D["MEENT RCWA or exact-design cache"]
-    D --> E["+1 efficiency and reward"]
-    E --> A
-    E --> F["Replay buffer"]
-    F --> G["Double DQN update + target network"]
-    G --> B
-    D --> H["Best-design archive"]
-    H --> I["Higher-order RCWA reevaluation"]
-```
-
-DQN does not differentiate through RCWA. Only the Q-network's regression loss is differentiated; each discrete design is evaluated by the forward solver. This avoids requiring eigenvalue gradients but does not remove forward-solver accuracy requirements.
-
-The default reward favors repeated occupancy of high-efficiency states; it does **not** optimize only final-state efficiency or the best state seen. We therefore preserve the best discovered design separately and evaluate the final greedy policy separately. The optional `training.reward_mode="difference"`, with `gamma=1`, makes the episode return telescope to final efficiency minus initial efficiency. It changes the objective and is not the paper's reward.
-
-The observed clock and terminal treatment intentionally differ from the original released code, which bootstraps across episode cutoffs. Double DQN is also a deliberate change. See `docs/paper-mapping.md` for the full correspondence and original hyperparameters.
-
-## Run an experiment and compare searches
-
-```bash
-uv run --no-sync dqn-meent train --config configs/starter.json --output runs/dqn-s0 --seed 0
-uv run --no-sync dqn-meent baseline --config configs/starter.json --output runs/random-s0 --method random --budget 10000 --seed 0
-uv run --no-sync dqn-meent baseline --config configs/starter.json --output runs/hillclimb-s0 --method hillclimb --budget 10000 --seed 0
-uv run --no-sync dqn-meent evaluate --run runs/dqn-s0 --orders 15 25 40 60
-uv run --no-sync dqn-meent evaluate --run runs/random-s0 --orders 15 25 40 60
-uv run --no-sync dqn-meent evaluate --run runs/hillclimb-s0 --orders 15 25 40 60
-uv run --no-sync dqn-meent plot --runs runs/dqn-s0 runs/random-s0 runs/hillclimb-s0 --output runs/comparison.png
-```
-
-Random search generates independent uniform binary designs after the initial all-Si design. Hill climbing proposes a random single-cell change and restarts after `2*N` rejected moves; it is not the article's exhaustive depth-1/depth-2 greedy baseline. Use several seeds for each algorithm before making comparative claims. Train a separate model for each wavelength/angle; this initial framework does not claim cross-condition generalization.
-
-A DQN training budget counts actions. Baseline budgets count evaluation requests, including the initial design. DQN also evaluates the initial design on each episode reset; after the first reset these normally hit the cache. The CSV logs both actual RCWA calls and cache hits, so compare actual solver calls and wall time as well as action count. Baseline and training each have separate caches. Higher-order evaluation uses fresh solvers and is a separate validation expense.
-
-**Always reevaluate the discovered geometry.** Training-order conservation of energy does not demonstrate Fourier convergence. `evaluate` reports each order, all transmitted/reflected diffraction efficiencies, and the last-two-order difference. Its 0.005 default tolerance is 0.5 percentage points; passing that one diagnostic is not a proof of convergence. For publication, increase orders further, examine more than one geometry, and compare with an independent solver.
-
-## Outputs and resume
-
-A training run produces:
-
-- `config.json`: exact resolved physics and learning configuration.
-- `metrics.csv`: per-action efficiency, best-so-far efficiency, reward, exploration, loss, solver calls, cache hits and wall time.
-- `best_design.npy` and `best_design.json`: the best encountered geometry (0 = air, 1 = silicon).
-- `checkpoint.pt`: online/target networks, optimizer, replay and resumable state.
-- `summary.json`: final run counts and timing.
-- `evaluation.json` after evaluation: high-order best-design results and a separate greedy-policy rollout.
-
-To resume an **interrupted run with the same configuration and original total-step schedule**:
-
-```bash
-uv run --no-sync dqn-meent train --config configs/starter.json --output runs/dqn-s0 --seed 0 --resume runs/dqn-s0/checkpoint.pt
-```
-
-Do not modify the step count to extend a completed checkpoint: that changes the exploration schedule. Start a new run for a new experimental budget. Checkpoints contain Python/PyTorch objects; load only checkpoints you trust. New runs reject nonempty output directories to protect existing results.
+Tests that need MEENT carry the `meent` marker and are skipped where it is not installed; `uv run pytest -m meent` runs
+only them. `tests/fake_harness.py` is a scripted stand-in for the Pi harness with a session tree; `scripts/start --fake` (and
+`scripts/dev-stack up` without `--real`) uses it.
 
 ## Code map
 
-- `src/dqn_meent/workspace/`: API, persistent records, worker service, adaptive research, literature metadata, statistical comparisons, and isolated custom optimizers.
-- `frontend/`: React/TypeScript dashboard and browser interaction tests.
-- `docs/workspace.md`: installation, research workflows, provider setup, and custom optimizer protocol.
-- `docs/optimizer-plugins.md`: how optimizer libraries are packaged, pinned and registered as plug-ins.
-- `src/dqn_meent/config.py`: validated experiment configuration.
-- `physics.py`: MEENT adapter, material resolution, physical checks and bounded LRU cache.
-- `environment.py`: binary design MDP and Gymnasium interface.
-- `dqn.py`: Q-network, replay, action selection and Double DQN targets.
-- `training.py`: experiment loop, logging and checkpoint/resume.
-- `experiments.py`: baselines, high-order evaluation and plots.
-- `tests/`: Fresnel/energy/symmetry/material checks, environment semantics, Bellman targets and restart behavior.
-- `docs/paper2agent-assessment.md`: the actual Paper2Agent attempt and its limits.
-- `docs/validation.md`: measured results and remaining limitations for this delivered setup.
+- `src/balsamic/`: the workspace service: `app.py` (routes, the command bus boundary), `threads/` (branches of the
+  lead's session, the chat stream), `notes/` (the problem note), `evolution/` (ledger, lineage, interventions,
+  provenance), `monitor/`, `autopilot/`, `library/`, `setup/` (the campaign setup conversation), `telemetry/`.
+- `src/optimization_framework/`: the scientific core: `execution/` (scheduler, workers, admission, races),
+  `evaluation/`, `optimizers/`, `implementations/` (the separate build-and-validate service), `assets/`, `analysis/`,
+  `problem_charter/`, `problem_import/` (the formulator), `reports/` (the staged report writer), `agents/` (the Pi
+  controller and tools; `pages.py` shares `frontend/src/router/pages.json` with the router), `campaigns/`, `llm/`.
+- `agent-harness/`: the Node Pi harness (`supervisor.ts`, `runtime.ts`, `sessions.ts`, `server.ts`), SDK 1.0.4.
+- `frontend/`: React 19 + Vite; `src/shell`, `chat`, `setup`, `note`, `hypotheses`, `evolution`, `experiments`,
+  `files`, `inbox`, `monitor`, `library`, `branches`; `tests/` Playwright specs with `tests/mocks/`.
+- `src/dqn_meent/`: the grating problem adapters and the original DQN reconstruction; `src/optimization_benchmarks/`:
+  the bounded continuous benchmark.
+- `docs/`: [ui-workspace.md](docs/ui-workspace.md) (the workspace, milestone by milestone),
+  [strategy-library.md](docs/strategy-library.md), [problem-setup.md](docs/problem-setup.md),
+  [lead-agent-readiness.md](docs/lead-agent-readiness.md), [pi-agent-harness.md](docs/pi-agent-harness.md),
+  [resource-allocation.md](docs/resource-allocation.md), [adaptive-algorithm-testing.md](docs/adaptive-algorithm-testing.md),
+  [report-review.md](docs/report-review.md), [server-control.md](docs/server-control.md); documents of the earlier
+  workspace carry a "Superseded" banner.
 
-## Paper2Agent and source provenance
+## The reference problem
 
-[Paper2Agent](https://github.com/jmiao24/Paper2Agent) was actually run on the requested PDF: preparation, seven-page extraction, and review-aid generation succeeded. The extraction was not promoted to a fully reviewed reading skill. Its paper-ingestion tooling helped; the scientific training framework was implemented directly around MEENT. This delivery does not require an LLM service or MCP server during numerical training.
-
-Sources: [paper](https://www.janglab.org/documents/publications/2022ACSPhotonics.pdf), [authors' code](https://github.com/dongjin-seo2020/1DFreeFormDQN), [MEENT](https://github.com/kc-ml2/meent), [Double DQN](https://arxiv.org/abs/1509.06461), [Gymnasium termination semantics](https://gymnasium.farama.org/tutorials/gymnasium_basics/handling_time_limits/).
-
-The published reference design in `tests/fixtures/` comes from the authors' MIT-licensed repository; its license and source attribution accompany it. A reference-design agreement validates the solver mapping, not the success of a newly trained agent. The article PDF and third-party repositories are not redistributed in this package.
+The original reconstruction of the DQN optimization loop in Seo et al., *Structural Optimization of a One-Dimensional
+Freeform Metagrating Deflector via Deep Reinforcement Learning*, ACS Photonics 9, 452–458 (2022), remains available as
+a single-run interface (`uv run dqn-meent train --config configs/smoke.json --output runs/smoke`, then `evaluate`).
+Its physics, the differences from the published code and the measured results are in
+[docs/paper-mapping.md](docs/paper-mapping.md), [docs/validation.md](docs/validation.md) and
+[docs/paper2agent-assessment.md](docs/paper2agent-assessment.md). Search scores are not automatically converged at high
+RCWA order; the lab's checks and confirmation runs exist for that reason.

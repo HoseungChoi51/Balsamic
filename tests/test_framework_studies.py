@@ -1,10 +1,8 @@
-"""Frozen science and generic manager context on the independent problem."""
+"""Frozen science on the independent problem."""
 import pytest
 
 from optimization_framework.contracts.requests import CampaignInput, CampaignUpdate, TaskInput, TrialInput, ControlInput
 from optimization_framework.execution.service import Workspace
-from optimization_framework.research.coordinator import ResearchCoordinator
-from optimization_framework.research.engine import _safe_context, _offline
 
 
 def test_new_study_links_scientific_changes_and_amendments_keep_original_spec(tmp_path):
@@ -29,22 +27,3 @@ def test_new_study_links_scientific_changes_and_amendments_keep_original_spec(tm
     assert workspace.store.get(first_study["id"], "study") == first_study
     with pytest.raises(ValueError, match="requires binary"):
         workspace.create_trial(TrialInput(campaign_id=campaign["id"], task_id=task["id"], algorithm="dqn", wall_seconds=10))
-
-
-def test_manager_receives_problem_scope_without_optical_assumptions(tmp_path):
-    workspace = Workspace(tmp_path)
-    campaign = workspace.create_campaign(CampaignInput(name="Quadratic", compute_budget_seconds=100, validation_reserve_seconds=0,
-        tasks=[TaskInput(name="Known analytic problem", problem_id="bounded_continuous", configuration={})]))
-    context = ResearchCoordinator(workspace).context(campaign["id"], "Choose an informative first experiment")
-    safe = _safe_context(context)
-    assert safe["active_study"]["id"] == campaign["active_study_id"]
-    assert safe["problem_definitions"][0]["id"] == "bounded_continuous"
-    assert safe["tasks"][0]["problem"]["primary_objective"]["direction"] == "minimize"
-    response = _offline({"mode": "discuss", "message": "Choose an informative first experiment"}, safe)
-    text = " ".join(message["content"] for message in response["messages"])
-    assert "binary" not in text and "grating" not in text and "+1" not in text
-    assert context["hypotheses"] == []
-    assert {method["id"] for method in context["available_methods"] if "continuous" in method.get("representations", [])
-            and method.get("purpose", "optimization") == "optimization"} == {"random", "coordinate"}
-    memory = workspace.memory.sync(campaign["id"])
-    assert "Active frozen study" in memory["document"] and "minimize" in memory["document"]

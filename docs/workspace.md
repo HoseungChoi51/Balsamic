@@ -1,5 +1,7 @@
 # Grating Lab workspace guide
 
+> **Superseded.** The workspace was rebuilt around the chat-centred UI plan; see [ui-workspace.md](ui-workspace.md). This document describes the earlier service and is kept for history.
+
 For recorded training, baselines, inference, evaluation and generic commands,
 see the [CLI research guide](cli-research.md).
 
@@ -10,7 +12,7 @@ Grating Lab helps a researcher choose useful experiments and improve optimizatio
 The local pilot uses Linux, Python 3.12 or 3.13, `uv`, and Node.js/npm. Run from the repository root:
 
 ```bash
-uv sync --frozen --all-extras
+uv sync --frozen --all-extras --no-extra cpu
 cd frontend
 npm ci
 npm run build
@@ -164,7 +166,7 @@ The campaign manager is the interface for unexpected failures, unresolved capabi
 
 SQLite owns the context revisions, typed findings/decisions, command inbox, issues, and event journal. Projections live at `campaigns/<id>/manager/context.md`, `context.json`, `revisions/`, `records.jsonl`, `records/`, and `journal.jsonl`. The service reconstructs model context from these durable records each turn and retains the exact snapshot it used. Relevant older records are retrieved through SQLite full-text search. The manager memory package is bounded to 96 KiB; large histories use recent and retrieved evidence, while overflowing active constraints produces a visible issue rather than silently dropping them. Locked observations and records derived from them are excluded from development reasoning.
 
-Use `context.import` to submit an edited JSON context with its original revision. Only `narrative_guidance` is writable through that document; authority, evidence and work use their owning commands. Published findings require a problem scope, evidence and limitations. Observations, provisional interpretations, researcher endorsements and counterevidence remain distinguishable. Another campaign reads a published finding only after an explicit manager-evidence reference decision.
+Use `context.import` to submit an edited JSON context with its original revision. Only `narrative_guidance` is writable through that document; authority, evidence and work use their owning commands. Published findings require a problem scope, evidence and limitations. Observations, provisional interpretations, researcher endorsements and counterevidence remain distinguishable. A finding may cite any evidence of its own campaign, including runtime profiles, evaluator equivalence checks, fixed-mask reports and the agents' saved analyses. Another campaign reads a published finding only after an explicit manager-evidence reference decision; its lead agent then sees the finding under `reference_evidence` in `campaign_inspect` and reads it whole with `evidence_read`, while the evidence behind it stays in the campaign that produced it.
 
 Each relevant completion has a durable inbox identity and consumption position. Model output is saved before its messages and proposed actions commit. Accepted commands reconcile before delivery is retried; stale unissued proposals are reconsidered against current guidance. Pending issues block affected actions, while independent authorized work can continue.
 
@@ -172,7 +174,23 @@ Implementation compute has its own charter allocation (zero by default for exist
 
 ## Persistence, verification, and current limits
 
-The workspace directory contains `workspace.sqlite3`, the event/record ledger, a service lock, and `trials/<id>/` artifacts. Trial artifacts include `spec.json`, `metrics.jsonl`, `progress.json`, `result.json`, `archive.json`, `checkpoint.pkl`, logs, and a pinned code snapshot. Checkpoints are trusted local data, not an upload format. Preserve the directory for reproducibility; use a consistent filesystem/database backup procedure when copying a live workspace.
+The workspace directory contains `workspace.sqlite3`, the event/record ledger, a service lock, and `trials/<id>/` artifacts. Trial artifacts include `spec.json`, `metrics.jsonl`, `progress.json`, `result.json`, `archive.json`, `checkpoint.pkl`, logs, and a pinned code snapshot. `metrics.jsonl` has one row of counters and scores per step; a row gives the best design only where it changed and never the archive, which `progress.json` (current) and `result.json` (final) hold. Every evaluated design is in `observations.jsonl` (and, as the request that preceded it, in `requests.jsonl`); a binary design of 128 cells or more is written there as packed bits (`{"packed_bits": …, "cells": n}`, about a twelfth of its list), and `iter_journal`, `read_journal` and `full_row` return it as the list. `result.json` gives `best_objectives`: every objective the evaluator reported for the best design. Older journals repeat the archive and the best design on every row; `python scripts/compact_metrics_journals.py <workspace>/trials` rewrites finished trials' journals to the current form, after checking each one. The two per-evaluation journals are working data: once an experiment's results are analysed and recorded, `journal.compact` removes its evaluated designs except those of its archive, its 32 best evaluations and 32 spread over the run, keeping every row and number. Only the researcher runs it; a manager or lead agent files `journal.compaction_request`, which the researcher approves in the decision inbox. What it removes cannot be brought back. Checkpoints are trusted local data, not an upload format. Preserve the directory for reproducibility; use a consistent filesystem/database backup procedure when copying a live workspace.
+
+### Removing a campaign
+
+"Remove…" under the campaign picker removes the selected campaign from the workspace. The dialog shows what the campaign holds and asks what stays on this computer; there is no default.
+
+| Choice | What stays, under `<workspace>/removed/<campaign id>/` |
+|---|---|
+| Nothing | Nothing. |
+| A summary of the runs | `summary.md` and `summary.json`: for every run its method, parameters, seed, budget, status, best score and the evaluations at which the score improved; the campaign's objective, ideas, findings, measured speed, decisions and costs. It is generated at removal, from the records and the score journals. |
+| The summary and most records | Also `records/<kind>.jsonl` (every record of the campaign; a list longer than 16 kB is replaced by a note of its size), `best-designs.jsonl` (the best design of every run), `experiments/<trial id>/metrics.jsonl` (the scores of every evaluation), `memory/` and `agent-work/`. Not kept: the evaluated designs, checkpoints, code snapshots, the per-evaluation accounting (`cost_event`) and what the agents' tools sent and received. |
+
+In every case the campaign's records, events, agent log, model-call accounting, experiment directories and saved agent sessions are deleted, and one `campaign_removal` record stays in the workspace: the campaign's name, when it was removed, what was kept and where. `removed/index.jsonl` lists the kept folders. The database file keeps its size; the freed space is used by later records.
+
+A campaign is not removed while it has experiments queued or running, an agent turn queued or running, other work in progress, or while another campaign uses its findings or results (that campaign's lead reads them, or its runs start from them): the dialog lists what stands in the way. What is kept is written before anything is deleted, and a refused or failed removal deletes nothing. Files are cleared after the records; if the services stop in between, the clearing is finished when they start again. Only the researcher removes a campaign: there is no command for it, so no agent can.
+
+`GET /api/v1/campaigns/{id}/removal` returns what the dialog shows, `POST` with `{"keep": "nothing" | "summary" | "records"}` removes the campaign, and `GET /api/v1/removed-campaigns` lists the removals.
 
 Research roles record a durable reservation before contacting the provider and completed-call checkpoints afterward. API reservations include conservative cost estimates; Codex reservations track subscription calls without inventing a dollar price. A discussion interrupted after a completed checkpoint can resume with the same request and context. An unresolved in-flight reservation prohibits automatic replay and requires researcher reconciliation; reconcile the provider outcome before replaying it. Cancellation before provider execution releases its reservation. Job stop controls are independent of LLM response latency.
 

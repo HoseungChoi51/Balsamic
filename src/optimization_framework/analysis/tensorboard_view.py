@@ -6,7 +6,6 @@ are disposable presentation data and contain only finite scalar observations.
 from __future__ import annotations
 
 from datetime import datetime
-import json
 import math
 from pathlib import Path
 import re
@@ -18,6 +17,8 @@ from starlette.middleware.wsgi import WSGIMiddleware
 from tensorboard import program
 from tensorboard.compat.proto import event_pb2, summary_pb2
 from tensorboard.summary.writer.event_file_writer import EventFileWriter
+
+from optimization_framework.execution.metrics import scalar_record
 
 
 def _component(value: object) -> str:
@@ -129,7 +130,7 @@ class ScalarExporter:
                         stream.seek(start)
                         break
                     try:
-                        row = json.loads(raw)
+                        row = scalar_record(raw)
                     except (UnicodeDecodeError, ValueError):
                         continue
                     for event in scalar_events(row):

@@ -10,6 +10,7 @@ from datetime import datetime, timezone
 import json
 import os
 from pathlib import Path
+import subprocess
 import threading
 import time
 
@@ -92,6 +93,22 @@ def selected_manifest(path):
     return None
 
 
+def nvidia_readings():
+    """Utilization and memory of each NVIDIA device by PCI address; its driver puts neither in sysfs."""
+    try:
+        output = subprocess.run(["nvidia-smi", "--query-gpu=pci.bus_id,utilization.gpu,memory.used,memory.total",
+                                 "--format=csv,noheader,nounits"], capture_output=True, text=True, timeout=2).stdout
+    except (OSError, subprocess.SubprocessError):
+        return {}
+    readings = {}
+    for line in output.splitlines():
+        fields = [field.strip() for field in line.split(",")]
+        if len(fields) == 4 and all(field.isdigit() for field in fields[1:]):
+            readings[fields[0].lower()[-12:]] = {"utilization_percent": int(fields[1]), "memory_used_bytes": int(fields[2]) * 2 ** 20,
+                                                 "memory_total_bytes": int(fields[3]) * 2 ** 20}
+    return readings
+
+
 class ResourceObservability:
     def __init__(self, workspace, *, proc_root="/proc", sys_root="/sys", clock=time.time,
                  monotonic=time.monotonic, cache_seconds=1.):
@@ -105,6 +122,7 @@ class ResourceObservability:
         self._cost_cache = {}
         self._manifest_scan_at = -float("inf")
         self._tick_rate = os.sysconf("SC_CLK_TCK")
+        self.nvidia = nvidia_readings
 
     def _rows(self, kind, fields, campaign_id=None, *, active=False, race_id=None, limit=None):
         # SQLite extracts the scalars before Python sees numerical design blobs.
@@ -203,11 +221,24 @@ class ResourceObservability:
                 return int(content) if content.isdigit() else None
             devices.append({"id": card.name, "vendor": {"0x1002": "AMD", "0x10de": "NVIDIA", "0x8086": "Intel"}.get(vendor, vendor),
                             "utilization_percent": value("gpu_busy_percent"), "memory_total_bytes": value("mem_info_vram_total"),
-                            "memory_used_bytes": value("mem_info_vram_used"), "memory_kind": "driver-reported VRAM; shared host allocations may be additional"})
+                            "memory_used_bytes": value("mem_info_vram_used"), "memory_kind": "driver-reported VRAM; shared host allocations may be additional",
+                            "address": os.path.basename(os.path.realpath(directory))})
+        if any(device["vendor"] == "NVIDIA" and device["utilization_percent"] is None for device in devices):
+            readings = self.nvidia()
+            for device in devices:
+                device.update(readings.get(device["address"].lower()[-12:], {}) if device["vendor"] == "NVIDIA" else {})
+        for device in devices:
+            del device["address"]
         return {"status": "available" if devices else "none_detected", "devices": devices}
 
+    def host(self):
+        """The host reading on this observer's own clock, for callers outside a snapshot."""
+        with self.lock:
+            return self._host(self.monotonic())
+
     def _host(self, sampled):
-        if self._host_cache is not None and sampled - self._host_at < self.cache_seconds:
+        # A reading from another clock is never fresh: one caller stamping wall time froze the snapshot's reading for an hour.
+        if self._host_cache is not None and 0 <= sampled - self._host_at < self.cache_seconds:
             return self._host_cache
         memory = {}
         for line in (_read(self.proc_root / "meminfo") or "").splitlines():
@@ -248,7 +279,12 @@ class ResourceObservability:
             process = self._process(int(path.name), sampled)
             if process and process["rss_bytes"]:
                 command = _read(self.proc_root / path.name / "cmdline") or ""
-                role = "workspace" if process["pid"] == os.getpid() else "service" if any(name in (process["name"] + command).lower() for name in ("llama", "uvicorn", "pi-service", "tensorboard", "optimization_framework", "grating-lab")) else "other"
+                text = (process["name"] + command).lower()
+                role = ("workspace" if process["pid"] == os.getpid()
+                        else "worker" if any(name in text for name in ("execution.worker", "workspace.worker", "agents.diagnostics"))
+                        else "check" if "evaluation.preflight" in text
+                        else "service" if any(name in text for name in ("llama", "uvicorn", "pi-service", "tensorboard", "optimization_framework", "grating-lab"))
+                        else "other")
                 processes.append({key: process[key] for key in ("pid", "name", "rss_bytes", "threads")} | {"role": role})
         processes.sort(key=lambda process: process["rss_bytes"], reverse=True)
         result = {"cpu": {"logical_count": logical, "capacity_cores": capacity, "utilization_percent": utilization,
@@ -317,10 +353,19 @@ class ResourceObservability:
         # catches maintenance/import writes that intentionally omit events.
         if cached and cached[1:3] == (cursor, count) and sampled - cached[0] < 30:
             return cached[3]
-        fields = {"status": "status", "execution_grant_id": "execution_grant_id", "wall_seconds": "wall_seconds",
-                  "execution_seconds": "execution_seconds", "upper_bound_seconds": "execution_seconds_upper_bound",
-                  "progress_seconds": "progress.elapsed_seconds", "result_seconds": "result.elapsed_seconds", "isolated": "isolation_policy"}
-        trials = self._rows("trial", fields, campaign_id)
+        listing = getattr(self.store, "list_trial_costs", None)
+        if listing:
+            # The store's accounting listing reparses only the trials written since it last ran: a running trial's
+            # progress events would otherwise reparse every trial record (hundreds of MB of design archives) each time.
+            trials = [{"id": row["id"], "campaign_id": row["campaign_id"], "status": row["status"], "execution_grant_id": row["execution_grant_id"],
+                       "wall_seconds": row["wall_seconds"], "execution_seconds": row["execution_seconds"],
+                       "upper_bound_seconds": row["execution_seconds_upper_bound"], "progress_seconds": row["progress"]["elapsed_seconds"],
+                       "result_seconds": row["result"]["elapsed_seconds"], "isolated": row["isolation_policy"]} for row in listing(campaign_id)]
+        else:
+            fields = {"status": "status", "execution_grant_id": "execution_grant_id", "wall_seconds": "wall_seconds",
+                      "execution_seconds": "execution_seconds", "upper_bound_seconds": "execution_seconds_upper_bound",
+                      "progress_seconds": "progress.elapsed_seconds", "result_seconds": "result.elapsed_seconds", "isolated": "isolation_policy"}
+            trials = self._rows("trial", fields, campaign_id)
         for row in trials:
             row["kind"] = "trial"
             row["spent_seconds"] = _number(row["execution_seconds"]) if row["isolated"] else max(_number(row["execution_seconds"]), _number(row["progress_seconds"]), _number(row["result_seconds"]))
@@ -334,12 +379,14 @@ class ResourceObservability:
     def _workers(self, campaign_id, costs, sampled, wall_clock):
         fields = {"status": "status", "pid": "pid", "process_identity": "process_identity", "attempt": "attempt",
                   "attempt_started_at": "attempt_started_at", "started_epoch": "started_epoch", "prior_execution_seconds": "prior_execution_seconds",
-                  "algorithm": "algorithm", "seed": "seed"}
+                  "algorithm": "algorithm", "seed": "seed", "device": "device"}
         rows = self._rows("trial", fields, campaign_id, active=True) + self._rows("fixed_mask_job", fields, campaign_id, active=True)
         index = {row["id"]: row for row in costs}
         jobs, warnings = [], []
         for row in rows[:256]:
-            cost = index[row["id"]]
+            cost = index.get(row["id"])
+            if cost is None:
+                continue   # created after the costs were read; the next sample has it
             measured, state = None, "not_started" if row["status"] == "queued" else "unavailable"
             if row["pid"]:
                 observed = self._process(row["pid"], sampled)
@@ -370,13 +417,15 @@ class ResourceObservability:
             elapsed = max(0., wall_clock - _number(row["attempt_started_at"] or row["started_epoch"], wall_clock)) if measured else None
             spent = max(cost["spent_seconds"], _number(row["prior_execution_seconds"]) + elapsed) if elapsed is not None and cost["kind"] == "trial" else max(cost["spent_seconds"], elapsed or 0.)
             jobs.append({"id": row["id"], "campaign_id": row["campaign_id"], "kind": cost["kind"], "status": row["status"], "pid": row["pid"],
-                         "algorithm": row["algorithm"], "seed": row["seed"],
+                         "algorithm": row["algorithm"], "seed": row["seed"], "device": row["device"] or ("cpu" if cost["kind"] == "fixed_mask_job" else None),
                          "process_state": state, "rss_bytes": measured["rss_bytes"] if measured else None,
                          "peak_rss_bytes": measured["peak_rss_bytes"] if measured else None, "cpu_percent": measured["cpu_percent"] if measured else None,
                          "threads": measured["threads"] if measured else None, "wall_seconds": cost["wall_seconds"],
                          "spent_seconds": spent, "remaining_seconds": max(0., _number(cost["wall_seconds"]) - spent),
                          "measurement_scope": "Verified owner process only; descendant memory is not included"})
-        return {"configured_limit": self.workspace.max_workers, "running_count": sum(job["process_state"] == "alive" for job in jobs),
+        pools = getattr(self.workspace, "devices", None)
+        return {"configured_limit": self.workspace.max_workers, "device_slots": pools.sizes() if pools else None,
+                "running_count": sum(job["process_state"] == "alive" for job in jobs),
                 "queued_count": sum(job["status"] == "queued" for job in jobs), "jobs": jobs}, warnings
 
     def _manifest(self, race, sampled):
@@ -530,7 +579,32 @@ class ResourceObservability:
                 warnings.append("Host memory availability could not be read; memory forecasts cannot establish admission.")
             return {"schema_version": 1, "sampled_at": datetime.fromtimestamp(wall_clock, timezone.utc).isoformat(),
                     "campaign_id": campaign_id, "host": host, "service": service, "workers": workers, "budget": budget,
-                    "plans": plans, "warnings": warnings}
+                    "plans": plans, "runtime": self._runtime(campaign_id, warnings), "admission": self._admission(campaign_id, warnings),
+                    "warnings": warnings}
+
+    def _admission(self, campaign_id, warnings):
+        """The researcher's level, what each kind of run is expected to use, and why queued runs wait."""
+        admission = getattr(self.workspace, "admission", None)
+        if admission is None:
+            return None
+        try:
+            return admission.view(campaign_id)
+        except Exception as error:   # the dashboard must not fail with admission
+            warnings.append(f"Resource admission could not be read: {error}")
+            return None
+
+    def _runtime(self, campaign_id, warnings):
+        """Each current task's runtime profile and what still keeps its long runs from starting."""
+        profiles = getattr(self.workspace, "runtime", None)
+        if not campaign_id or profiles is None:
+            return []
+        try:
+            study_id = self.store.get(campaign_id, "campaign").get("active_study_id")
+            return [{"task_id": task["id"], "task_name": task["name"], **profiles.view(task, study_id, record=False)}
+                    for task in self.workspace.current_tasks(campaign_id)]
+        except Exception as error:   # the dashboard must not fail with the profile
+            warnings.append(f"Runtime profiles could not be read: {error}")
+            return []
 
 
 _observer_lock = threading.Lock()

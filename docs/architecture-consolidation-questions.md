@@ -1,5 +1,7 @@
 # Architecture consolidation questions
 
+> **Superseded.** The workspace was rebuilt around the chat-centred UI plan; see [ui-workspace.md](ui-workspace.md). This document describes the earlier service and is kept for history.
+
 Review date: 2026-09-24
 
 Repositories reviewed: `~/Work/dqn-meent-latest` (`setup/latest`) and `~/Work/dqn-meent` (`main`), including their uncommitted work.

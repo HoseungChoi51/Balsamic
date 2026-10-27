@@ -1,5 +1,7 @@
 # Optimization research harness: consolidation and development plan
 
+> **Superseded.** The workspace was rebuilt around the chat-centred UI plan; see [ui-workspace.md](ui-workspace.md). This document describes the earlier service and is kept for history.
+
 Date: 2026-09-27
 
 Implementation checkpoint update, 2026-09-28: D1's remaining controls and local/connected CLI paths, and D2's durable manager lifecycle now have local operational qualification. See [current development status](current-development-status.md) and the [acceptance matrix](consolidation-acceptance-matrix.md). E historical migration and F real-model/researcher/release acceptance remain open. The dated baseline and delivery descriptions below retain their original planning context; completed D1/D2 work should not be restarted.

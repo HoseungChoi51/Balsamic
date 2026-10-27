@@ -6,9 +6,20 @@ from types import SimpleNamespace
 import pytest
 
 from optimization_framework.analysis.tensorboard_view import ScalarExporter
-from optimization_framework.api.app import compact_trial
 from optimization_framework.execution.resources import ResourceLedger, budget_spent, spent
 from optimization_framework.storage.sqlite import Store
+
+
+def compact_trial(trial):
+    """The state read's geometry: masks and archives stay in artifacts, best_design stays reachable."""
+    row = {key: value for key, value in trial.items() if key not in {"pid", "process_identity"}}
+    for field in ("progress", "result"):
+        value = row.get(field)
+        if not isinstance(value, dict):
+            continue
+        row[field] = {key: item for key, item in value.items() if key not in {"archive", "best_candidate"}
+                      and (field != "result" or key != "best_design" or not row.get("progress"))}
+    return row
 
 
 def trial(identity, campaign="campaign_one", **updates):

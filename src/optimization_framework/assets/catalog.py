@@ -17,8 +17,24 @@ def merged_intervals(intervals):
     return result
 
 
+class Upstream(dict):
+    """Assets read by identity as a dependency walk asks for them."""
+
+    def __init__(self, store):
+        super().__init__()
+        self.store = store
+
+    def __contains__(self, asset_id):
+        if not super().__contains__(asset_id):
+            try:
+                self[asset_id] = self.store.get(asset_id, "asset")
+            except KeyError:
+                return False
+        return True
+
+
 def contributions(assets, asset_ids):
-    """Resolve immutable contribution identities against an already read catalog."""
+    """Resolve immutable contribution identities against a catalog, read already or as the walk goes."""
     seen, pending, intervals, unknown = set(), set(), {}, []
 
     def visit(asset_id):
@@ -192,8 +208,9 @@ class AssetCatalog:
         return result
 
     def contributions(self, asset_ids):
-        assets = {item["id"]: item for item in self.store.list("asset")}
-        return contributions(assets, asset_ids)
+        # Read only what the walk reaches: the catalog grows with every finished experiment,
+        # and every published output asks this of its dependencies.
+        return contributions(Upstream(self.store), asset_ids)
 
     def cost_view(self):
         """Read a fresh cost snapshot for one report; never cache it on the catalog."""

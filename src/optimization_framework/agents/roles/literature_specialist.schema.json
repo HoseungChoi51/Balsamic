@@ -1,0 +1,13 @@
+{
+  "type": "object",
+  "required": ["claims", "gaps", "queries"],
+  "additionalProperties": false,
+  "properties": {
+    "claims": {"type": "array", "maxItems": 40, "items": {"type": "object", "additionalProperties": false,
+      "required": ["claim", "source_id", "passage_ids", "support", "relevance"],
+      "properties": {"claim": {"type": "string"}, "source_id": {"type": "string"}, "passage_ids": {"type": "array", "items": {"type": "string"}},
+        "support": {"enum": ["direct", "indirect", "contradicts"]}, "relevance": {"type": "string"}}}},
+    "gaps": {"type": "array", "items": {"type": "string"}},
+    "queries": {"type": "array", "items": {"type": "string"}}
+  }
+}

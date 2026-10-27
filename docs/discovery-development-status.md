@@ -1,5 +1,7 @@
 # Discovery redesign: implementation status
 
+> **Superseded.** The workspace was rebuilt around the chat-centred UI plan; see [ui-workspace.md](ui-workspace.md). This document describes the earlier service and is kept for history.
+
 Date: 2026-09-28
 
 The [public checkpoint](publication-checkpoint.md) records the later handoff repairs: an accepted literature map and four real-model hypotheses now exist, but the critic/revision provider failures leave the full cycle incomplete. The earlier checkpoint counts below are historical.

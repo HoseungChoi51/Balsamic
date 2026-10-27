@@ -1,0 +1,18 @@
+{
+  "id": "S4-guidance-after-page-command",
+  "source": "lead-agent-readiness.md Parts E and G: the first command after the researcher acted was refused for an outdated guidance revision",
+  "setup": {"preset": "quadratic", "llm_budget_usd": 0.3},
+  "steps": [
+    {"say": "Create one hypothesis for this problem with an installed method. Nothing else."},
+    {"wait": "request_closed", "timeout_s": 600},
+    {"seed": "researcher_edits_guidance"},
+    {"say": "Create one more hypothesis with a different installed method. Nothing else."},
+    {"wait": "request_closed", "timeout_s": 600}
+  ],
+  "checks": [
+    {"no_refusal_containing": "guidance changed"},
+    {"commands_exactly": {"operation": "hypothesis.create", "count": 2}},
+    {"request_closed": true}
+  ],
+  "repeats": 3
+}

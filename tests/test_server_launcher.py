@@ -114,6 +114,18 @@ def campaign_input(name):
             "tasks": [{"name": "Quadratic", "problem_id": "bounded_continuous", "configuration": {}}]}
 
 
+def create_campaign(config, name):
+    """Campaigns are created through the command bus; the receipt carries the campaign."""
+    identity = "launcher_" + name.lower().replace(" ", "_")
+    receipt = request(config, "/api/v1/commands", {"id": "ui_" + identity, "campaign_id": identity, "operation": "campaign.create",
+                                                   "expected_revision": 0, "payload": campaign_input(name)})
+    return receipt["outcome"]["campaign"]
+
+
+def campaign_ids(config):
+    return {row["id"] for row in request(config, "/api/v1/campaigns")["campaigns"]}
+
+
 def test_explicit_codex_timeout_survives_launcher_environment(setup, monkeypatch):
     config, path, _, _, _ = setup
     monkeypatch.setenv("GRATING_CODEX_TIMEOUT_SECONDS", "120")
@@ -140,6 +152,86 @@ def test_paper_reference_is_optional_and_reaches_services(setup, monkeypatch):
             launcher.configuration(path)
 
 
+def test_runtime_gate_is_on_by_default_and_the_configuration_can_change_or_remove_it(setup, monkeypatch):
+    config, path, _, _, _ = setup
+    monkeypatch.setenv("GRATING_RUNTIME_GATE_SECONDS", "5")   # a variable left in the calling shell does not decide
+    environment = launcher.service_environment(launcher.configuration(path))
+    assert environment["GRATING_RUNTIME_GATE_SECONDS"] == "600"
+    assert json.loads(environment["GRATING_RESOURCE_SETTINGS"]) == {"workers": config["workers"], "gpu_workers": 0, "cuda_mps": None}
+    monkeypatch.setenv("GRATING_DEVICE", "cuda")   # the scheduler sets each worker's device, not the calling shell
+    path.write_text(json.dumps({**config, "runtime_gate_seconds": 1800, "workers": 3, "gpu_workers": 1}))
+    environment = launcher.service_environment(launcher.configuration(path))
+    assert environment["GRATING_RUNTIME_GATE_SECONDS"] == "1800" and json.loads(environment["GRATING_RESOURCE_SETTINGS"])["workers"] == 3
+    assert "GRATING_DEVICE" not in environment and json.loads(environment["GRATING_RESOURCE_SETTINGS"])["gpu_workers"] == 1
+    for invalid in (-1, 1.5, True):
+        path.write_text(json.dumps({**config, "gpu_workers": invalid}))
+        with pytest.raises(launcher.LauncherError, match="gpu_workers"):
+            launcher.configuration(path)
+    # The settings that placed the 2D solver for the whole lab are gone: each run is placed.
+    for retired in ({"meent_2d_source": "runs/solvers/meent-private"}, {"meent_device": "cuda"}):
+        path.write_text(json.dumps({**config, **retired}))
+        with pytest.raises(launcher.LauncherError, match="gpu_workers"):
+            launcher.configuration(path)
+    path.write_text(json.dumps({**config, "runtime_gate_seconds": None}))
+    assert "GRATING_RUNTIME_GATE_SECONDS" not in launcher.service_environment(launcher.configuration(path))
+    for invalid in (0, -1, "600", True):
+        path.write_text(json.dumps({**config, "runtime_gate_seconds": invalid}))
+        with pytest.raises(launcher.LauncherError, match="runtime_gate_seconds"):
+            launcher.configuration(path)
+
+
+def test_cuda_mps_is_optional_started_once_and_kept_while_a_worker_uses_it(setup, monkeypatch, tmp_path):
+    config, path, _, _, _ = setup
+    monkeypatch.delenv("CUDA_MPS_PIPE_DIRECTORY", raising=False)
+    monkeypatch.setenv("XDG_RUNTIME_DIR", str(tmp_path / "run"))
+    assert "CUDA_MPS_PIPE_DIRECTORY" not in launcher.service_environment(launcher.configuration(path))
+    path.write_text(json.dumps({**config, "cuda_mps": "yes"}))
+    with pytest.raises(launcher.LauncherError, match="cuda_mps"):
+        launcher.configuration(path)
+    path.write_text(json.dumps({**config, "cuda_mps": True}))
+    actual = launcher.configuration(path)
+    mps = launcher.Mps(actual)
+    assert launcher.service_environment(actual)["CUDA_MPS_PIPE_DIRECTORY"] == mps.environment["CUDA_MPS_PIPE_DIRECTORY"]
+    state = tmp_path / "mps.json"
+    tool = tmp_path / "bin/nvidia-cuda-mps-control"
+    tool.write_text(f"#!{sys.executable}\n" + '''
+import json, os, sys
+from pathlib import Path
+path = Path(os.environ["FAKE_MPS_STATE"])
+state = json.loads(path.read_text()) if path.exists() else None
+if sys.argv[1:] == ["-d"]:
+    assert all(Path(os.environ[name]).is_dir() for name in ("CUDA_MPS_PIPE_DIRECTORY", "CUDA_MPS_LOG_DIRECTORY"))
+    path.write_text(json.dumps({"starts": int(os.environ.get("FAKE_MPS_STARTS", 0)) + 1, "clients": []}))
+    sys.exit(0)
+if state is None:
+    print("Cannot find MPS control daemon process", file=sys.stderr)
+    sys.exit(1)
+command = sys.stdin.read().split()
+if command == ["get_server_list"]:
+    print(7 if state["clients"] else "")
+elif command == ["get_client_list", "7"]:
+    print(*state["clients"], sep="\\n")
+elif command == ["quit"]:
+    path.unlink()
+else:
+    sys.exit(2)
+''')
+    tool.chmod(0o755)
+    monkeypatch.setenv("FAKE_MPS_STATE", str(state))
+    assert not mps.running()
+    mps.start()
+    monkeypatch.setenv("FAKE_MPS_STARTS", "1")
+    mps.start()
+    assert mps.running() and json.loads(state.read_text())["starts"] == 1
+    state.write_text(json.dumps({"starts": 1, "clients": [4242, 4243]}))
+    assert mps.clients() == ["4242", "4243"]
+    mps.stop()
+    assert mps.running()        # a worker that outlived the servers keeps its GPU
+    state.write_text(json.dumps({"starts": 1, "clients": []}))
+    mps.stop()
+    assert not mps.running()
+
+
 def test_no_model_provider_is_the_launcher_default(setup, monkeypatch):
     config, path, _, _, _ = setup
     monkeypatch.setenv("GRATING_LLM_MODEL", "stale-shell-model")
@@ -150,8 +242,14 @@ def test_no_model_provider_is_the_launcher_default(setup, monkeypatch):
     path.write_text(json.dumps({**bare, "llm_enabled": True}))
     with pytest.raises(launcher.LauncherError, match="needs a provider"):
         launcher.configuration(path)
-    assert launcher.configuration(path, no_llm=True)["llm_enabled"] is False
+    # A Pi harness brings its agents' own models: its campaigns need no research-role provider.
     pi_port = next(port for port in free_ports() if port not in config.values())
+    path.write_text(json.dumps({**bare, "llm_enabled": True, "pi_port": pi_port}))
+    environment = launcher.service_environment(launcher.configuration(path))
+    assert (environment["GRATING_LLM_PROVIDER"], environment["GRATING_LLM_ENABLED"]) == ("none", "true")
+    assert "GRATING_LLM_MODEL" not in environment
+    path.write_text(json.dumps({**bare, "llm_enabled": True}))
+    assert launcher.configuration(path, no_llm=True)["llm_enabled"] is False
     path.write_text(json.dumps({**bare, "pi_port": pi_port, "pi_provider": "openai-codex"}))
     assert launcher.service_environment(launcher.configuration(path))["GRATING_PI_PROVIDER"] == "openai-codex"
     path.write_text(json.dumps({**bare, "pi_provider": ""}))
@@ -168,17 +266,22 @@ def test_real_services_restart_keep_campaign_and_only_remove_their_route(setup):
     assert "healthy" in run("status").stdout
     run("start")
     assert json.loads((runtime / "state.json").read_text())["processes"] == initial["processes"]
-    state = request(config, "/api/state")
-    assert state["settings"]["provider"]["enabled"] is False
-    campaign = request(config, "/api/campaigns", campaign_input("Launcher persistence"))
+    state = request(config, "/api/v1/workspace")
+    assert state["provider"]["configured"] is False
+    campaign = create_campaign(config, "Launcher persistence")
     campaign_id = campaign["id"]
     config["workers"] = 2
     path.write_text(json.dumps(config))
     assert "Configuration changed" in run("start", ok=False).stderr
-    run("restart")
-    state = request(config, "/api/state")
-    assert campaign_id in {row["id"] for row in state["campaigns"]}
-    assert state["settings"]["max_workers"] == 2
+    # A restart keeps its unchanged route, so it works where changing Serve needs a password.
+    os.environ["FAKE_TAILSCALE_DENIED"] = "1"
+    try:
+        run("restart")
+    finally:
+        del os.environ["FAKE_TAILSCALE_DENIED"]
+    assert json.loads(ts_path.read_text())["TCP"][str(config["tailnet_port"])] == {"HTTPS": True}
+    assert campaign_id in campaign_ids(config)
+    assert request(config, "/api/v1/workspace")["max_workers"] == 2
     assert not any(launcher.alive(record) for record in initial["processes"].values())
     run("stop")
     assert json.loads(ts_path.read_text()) == original_routes
@@ -288,13 +391,13 @@ def test_handover_replaces_only_matching_fixture_and_preserves_data(setup):
                 assert processes[-1].poll() is None
                 time.sleep(.1)
             assert launcher.healthy(config, role)
-        campaign = request(config, "/api/campaigns", campaign_input("Fixture campaign"))
+        campaign = create_campaign(config, "Fixture campaign")
         assert "old review fixture" in run("status").stdout
         assert run("start", ok=False).returncode == 1
         run("start", "--replace-fixture")
         for process in processes:
             process.wait(timeout=5)
-        assert campaign["id"] in {row["id"] for row in request(config, "/api/state")["campaigns"]}
+        assert campaign["id"] in campaign_ids(config)
         managed = json.loads((runtime / "state.json").read_text())["processes"]
         for record in managed.values():
             args = Path(f"/proc/{record['pid']}/cmdline").read_bytes()
@@ -315,14 +418,14 @@ def test_model_opt_in_reaches_both_services_and_override_disables_it(setup, monk
     config["llm_enabled"] = True
     path.write_text(json.dumps(config))
     run("start")
-    provider = request(config, "/api/state")["settings"]["provider"]
-    assert provider["enabled"] and provider["configured"] and provider["model"] == "gpt-6-sol"
+    provider = request(config, "/api/v1/workspace")["provider"]
+    assert provider["configured"]
     for record in json.loads((runtime / "state.json").read_text())["processes"].values():
         selected = [value for value in Path(f"/proc/{record['pid']}/environ").read_bytes().split(b"\0")
                     if value.startswith((b"GRATING_LLM_ENABLED=", b"GRATING_LLM_DISABLED="))]
         assert b"GRATING_LLM_ENABLED=true" in selected and b"GRATING_LLM_DISABLED=false" in selected
     run("restart", "--no-llm")
-    assert request(config, "/api/state")["settings"]["provider"]["enabled"] is False
+    assert request(config, "/api/v1/workspace")["provider"]["configured"] is False
 
 
 def test_authentication_failure_is_actionable_and_starts_nothing(setup, monkeypatch):

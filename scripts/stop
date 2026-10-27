@@ -1,0 +1,14 @@
+#!/usr/bin/env bash
+# Stop what scripts/start started: the three services and the tailnet route.
+#   scripts/stop [--dir DIR] [--keep-tailnet]
+set -euo pipefail
+repo="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
+dir="$repo/runs/dev"; tailnet=1
+while [ $# -gt 0 ]; do
+  case "$1" in --dir) dir="$2"; shift;; --keep-tailnet) tailnet=0;; *) echo "unknown option $1" >&2; exit 2;; esac; shift
+done
+TAILNET_PORT="${BALSAMIC_TAILNET_PORT:-8444}"
+"$repo/scripts/dev-stack" down --dir "$dir"
+if [ "$tailnet" = 1 ] && command -v tailscale > /dev/null; then
+  tailscale serve --https="$TAILNET_PORT" off > /dev/null 2>&1 && echo "tailnet route on $TAILNET_PORT removed" || true
+fi

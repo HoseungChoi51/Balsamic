@@ -9,7 +9,7 @@ from typing import Literal
 
 from pydantic import Field
 
-from optimization_framework.research.engine import LLMAdapter
+from optimization_framework.llm.adapter import LLMAdapter
 from optimization_framework.storage.sqlite import identifier, now
 from .document import compact_figures, sections, writer_document
 from .service import Reports, StrictModel
@@ -72,7 +72,8 @@ class ReportWriter:
             except Exception as exc:
                 current = self.store.get(job["id"], "report_writer_job")
                 self.store.put("report_writer_job", {**current, "status": "failed", "finished_at": now(),
-                    "error": str(exc) if isinstance(exc, ValueError) else "Report workflow could not start; saved work is retained."})
+                    "error": str(exc) if isinstance(exc, ValueError) else "Report workflow could not start; saved work is retained."},
+                    "report.writer_failed")
             return
         self.execute_legacy(job)
 
@@ -112,13 +113,19 @@ class ReportWriter:
             if event.get("usage"):
                 job["usage"] = deepcopy(event["usage"])
             self.store.put("report_writer_job", job)
+            call = event.get("harness_call")
+            if call and job["campaign_id"]:
+                # A call made through the agent service is listed and charged like an agent's call.
+                from optimization_framework.agents import usage as llm_usage
+                llm_usage.record(self.store, job["campaign_id"], {"id": job_id, "role": "report_writer"},
+                    f"report:{job_id}:{event['reservation_id']}", {**call, "occurred_at": call.get("occurred_at") or now()})
             if job["campaign_id"]:
                 self.workspace.agent_log.capture(job["campaign_id"], job_id, event)
 
     def start(self, *, report_id=None, request=None, campaign_id=None, evidence=None, brief=None, background=True,
-              request_id=None, references=None, literature=True, workflow="staged"):
-        from optimization_framework.research.providers import provider_status
-        from optimization_framework.research.model_policy import resolve_policy
+              request_id=None, references=None, literature=True, workflow="staged", requested_by=None):
+        from optimization_framework.llm.providers import provider_status
+        from optimization_framework.llm.model_policy import resolve_policy
         from optimization_framework.contracts.base import content_hash
         from .editorial import LIMITS, ROLES
         from .evidence import freeze
@@ -160,15 +167,26 @@ class ReportWriter:
             base = provider_status()
             policy = self.workspace.models.snapshot(campaign_id) if campaign_id else None
             config = {**base, "model_policy": policy} if workflow == "staged" else resolve_policy(base, policy, "technical_report_writer")
-            if not config["configured"]:
-                raise ValueError("Enable a model provider before asking the writer to revise. Your submitted feedback is saved")
-            # Report writing cannot silently draw on the campaign's API allowance.
-            # Subscription and explicitly free local providers work with a zero-dollar cap.
-            for role in set(ROLES.values()) if workflow == "staged" else {"technical_report_writer"}:
-                effective = resolve_policy(base, policy, role)
-                if effective["billing_mode"] != "subscription" and not (effective.get("local") and effective.get("pricing_known") and
-                    effective.get("input_usd_per_million") == effective.get("output_usd_per_million") == 0):
-                    raise ValueError("The report writer uses subscription or free local models. Download the review packet to use another writer")
+            # A campaign with a started agent team writes its reports on the lead agent's model, through the agent
+            # service; so does a server whose earlier research provider is not set up.
+            team = bool(campaign_id and self.workspace.pi.owns(campaign_id))
+            harness = self.workspace.pi.report_model(campaign_id) if campaign_id and workflow != "legacy" and (team or not config["configured"]) else None
+            if harness:
+                config = {**harness, "live_id": job_id}
+                allowance = self.workspace.pi.model_allowance(campaign_id)
+                if harness["billing_mode"] != "subscription" and allowance is not None and allowance <= 0:
+                    raise ValueError("This campaign's model budget is used up. Raise it to have a report written")
+            elif not config["configured"]:
+                raise ValueError("Enable a model provider before asking the writer to revise. Your submitted feedback is saved" if report_id else
+                    "No model is available to write a report. Start this campaign's agent team on the Models page, or set a research provider on the server")
+            else:
+                # On the earlier provider path, report writing cannot silently draw on the campaign's API allowance.
+                # Subscription and explicitly free local providers work with a zero-dollar cap.
+                for role in set(ROLES.values()) if workflow == "staged" else {"technical_report_writer"}:
+                    effective = resolve_policy(base, policy, role)
+                    if effective["billing_mode"] != "subscription" and not (effective.get("local") and effective.get("pricing_known") and
+                        effective.get("input_usd_per_million") == effective.get("output_usd_per_million") == 0):
+                        raise ValueError("The report writer uses subscription or free local models. Download the review packet to use another writer")
             if workflow == "legacy" and len(json.dumps(payload, ensure_ascii=False).encode()) > 220000:
                 raise ValueError("The source and evidence exceed one writer call; supply a smaller, explicitly scoped evidence snapshot")
             active = [row for row in self.store.list("report_writer_job") if row["status"] == "running"]
@@ -189,7 +207,7 @@ class ReportWriter:
                    "submission_id": request.submission_id if request else None, "status": "running",
                    "created_at": now(), "input": payload, "figures": figures, "provider_snapshot": config, "usage": {},
                    "workflow": workflow, "snapshot_id": snapshot_id, "references": references, "literature": literature,
-                   "request_fingerprint": signature,
+                   "request_fingerprint": signature, "requested_by": requested_by, "stage_log": [],
                    "stage_ids": [], "receipt_ids": [], "limits": {"model_calls": 1} if workflow == "legacy" else LIMITS}
             self.store.put("report_writer_job", job, "report.writer_started")
         return self.launch(job, background=background)
@@ -232,7 +250,9 @@ class ReportWriter:
         for job in self.store.list("report_writer_job"):
             if job["status"] == "running":
                 self.store.put("report_writer_job", {**job, "status": "interrupted", "finished_at": now(),
-                    "error": "Server restarted during report writing; no automatic retry was made. Original and review are saved."})
+                    "stage_log": [{**row, "status": "interrupted"} if row["status"] == "running" else row for row in job.get("stage_log", [])],
+                    "error": "Server restarted during report writing; no automatic retry was made. Original and review are saved."},
+                    "report.writer_failed")
                 for key in job.get("stage_ids", []):
                     stage = self.store.get(key, "report_writer_stage")
                     if stage["status"] == "running":

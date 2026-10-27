@@ -7,10 +7,25 @@ from .base import Contract
 from .requests import CampaignUpdate, ControlInput, ValidationInput, ReviewInput, DecisionInput
 from optimization_framework.implementations.models import EvaluatorSpec, EvaluatorPackage, EvaluatorCheckSpec, OptimizerCheckSpec
 
-Operation = Literal["agent.activate", "agent.message", "agent.control", "agent.rollback", "agent.configure", "fixed_mask.run", "campaign.create", "campaign.update", "context.edit", "issue.resolve", "trial.create", "trial.control", "trial.extension_request", "trial.validate", "draft.save", "draft.launch", "reproduction.draft", "reproduction.compare", "study.create", "study.nominate", "finalist.set", "study.freeze_template", "study.activate", "study.race.create", "study.race.control", "study.race.decide", "validation.run", "validation.require", "validation.execute", "validation.waive",
-    "models.configure", "discovery.start", "discovery.control", "discovery.amend", "discovery.retry", "discovery.assessment.save", "discovery.assessment.launch", "discovery.assessment.decide", "asset.snapshot",
-    "validation.revoke_waiver", "context.import", "inference.run", "asset.reuse", "asset.import_reference_set", "cost.reconcile", "comparison.report", "finding.record", "implementation.commission",
-    "implementation.reference", "implementation.bind_builtin", "implementation.attach", "evaluator.commission", "evaluator.attach", "implementation.control", "implementation.revalidate", "implementation.reuse", "implementation.resolve_runtime", "bundle.export", "bundle.inspect", "bundle.publish", "research.start", "research.retry", "research.control", "decision.resolve", "decision.refresh", "source.record", "source.ingest", "hypothesis.create", "hypothesis.review", "hypothesis.status", "hypothesis.nominate", "literature.search", "confirmation.schedule", "confirmation.validate", "confirmation.release"]
+Operation = Literal["agent.activate", "agent.message", "agent.control", "agent.rollback", "agent.configure", "agent.question_dismiss", "agent.ui_respond", "fixed_mask.run", "campaign.create", "campaign.update", "context.edit", "issue.resolve", "issue.reopen", "trial.create", "trial.control", "trial.extension_request", "trial.validate", "draft.save", "draft.launch", "reproduction.draft", "reproduction.compare", "study.create", "study.nominate", "finalist.set", "study.freeze_template", "study.activate", "study.race.create", "study.race.control", "study.race.decide", "validation.run", "validation.require", "validation.execute", "validation.waive",
+    "asset.snapshot",
+    "validation.revoke_waiver", "inference.run", "asset.reuse", "asset.import_reference_set", "cost.reconcile", "comparison.report", "finding.record", "implementation.commission",
+    "implementation.reference", "implementation.bind_builtin", "implementation.attach", "evaluator.commission", "evaluator.attach", "implementation.control", "implementation.revalidate", "implementation.reuse", "implementation.resolve_runtime", "bundle.export", "bundle.inspect", "bundle.publish", "decision.resolve", "source.record", "source.ingest", "hypothesis.create", "hypothesis.review", "hypothesis.status", "hypothesis.nominate", "literature.search", "confirmation.schedule", "confirmation.validate", "confirmation.release",
+    "runtime.profile", "evaluator.equivalence", "trial.continue", "journal.compact", "journal.compaction_request", "approval.request", "workers.set", "experiments.rules", "trial.hide", "resources.plan", "resources.estimate",
+    # The chat-centred workspace (docs/ui-workspace.md): threads, the problem note, graph interventions, autopilot, the library.
+    "thread.fork", "thread.rename", "thread.park", "thread.unpark", "thread.pin", "thread.merge_draft", "thread.merge",
+    "hypothesis.allocate", "hypothesis.edit", "intervention.batch", "research.generate", "problem_note.revise", "problem_note.adopt", "problem_note.skip", "problem_note.unskip", "note.ask", "note.resolve",
+    "autopilot.set", "library.publish", "library.apply", "campaign.stage_pin"]
+
+
+class CommandOrigin(Contract):
+    """Where a command came from: the thread and message of the conversation, and who acted. Shown on every page."""
+    thread_id: str | None = None
+    message_id: str | None = None
+    actor: Literal["researcher", "lead", "page_agent", "autopilot"] = "researcher"
+    agent_id: str | None = None
+    run_id: str | None = None
+    rationale: str | None = Field(default=None, max_length=5000)
 
 
 class Command(Contract):
@@ -21,6 +36,9 @@ class Command(Contract):
     expected_guidance_revision: int | None = Field(default=None, ge=0)
     expected_authority_hash: str | None = None
     proposal_digest: str | None = None
+    # The thread whose guidance this command was prepared under (M1): a message in another thread does not stale it.
+    expected_thread_revision: int | None = Field(default=None, ge=0)
+    origin: CommandOrigin | None = None
     payload: dict[str, Any] = Field(default_factory=dict)
 
     @model_validator(mode="after")
@@ -134,6 +152,9 @@ class InferenceRunInput(Contract):
 
 class ComparisonReportInput(Contract):
     study_id: str | None = None
+    trial_ids: list[str] | None = Field(default=None, min_length=1, max_length=200, description="Compare only these experiments. "
+        "Methods are compared at the largest cost every compared run reached, so name the long runs to compare them with each other: "
+        "a short run in the same study would otherwise set that cost. A continued run is named by its last experiment.")
     cost_axis: Literal["worker_seconds", "full_worker_seconds", "evaluation_requests", "solver_executions"] | None = None
     cost_view: Literal["full_attributed_cost", "actual_expenditure"] = "full_attributed_cost"
 
@@ -146,6 +167,8 @@ class HypothesisStatusInput(Contract):
     hypothesis_id: str
     status: Literal["proposed", "investigating", "archived", "finalist"]
     expected_status_revision: int = Field(ge=0)
+    # Why a strategy is stopped (archived): shown on the graph; stopped never reads as failed.
+    stop_reason: str | None = Field(default=None, max_length=2000)
 
 
 class HypothesisNominateInput(Contract):
@@ -162,8 +185,20 @@ class ContextEditInput(Contract):
 class IssueResolveInput(Contract):
     issue_id: str
     expected_revision: int = Field(ge=1)
-    choice: Literal["resolved", "deferred"]
-    comment: str = Field(default="", max_length=20000)
+    choice: Literal["resolved", "deferred", "action"] = Field(description="resolved and deferred only mark the issue; action carries out one the issue offers. "
+        "An agent chooses resolved only, for an issue whose condition no longer holds")
+    action: str | None = Field(default=None, max_length=100, description="action: the id of one of the issue's actions")
+    comment: str = Field(default="", max_length=20000, description="An agent says here what superseded or fixed the issue; the researcher reads it and can reopen the issue")
+
+    @model_validator(mode="after")
+    def action_named(self):
+        if (self.choice == "action") != (self.action is not None):
+            raise ValueError("Name an action exactly when choosing action")
+        return self
+
+
+class IssueReopenInput(Contract):
+    issue_id: str
 
 
 class ReuseInput(Contract):
@@ -178,6 +213,102 @@ class ReuseInput(Contract):
 class AssetSnapshotInput(Contract):
     trial_id: str
     observation_id: str
+
+
+class RuntimeProfileInput(Contract):
+    """Measure a task's evaluator on this host: short random-search probes at 1, 2, 4... workers."""
+    task_id: str
+    probe_seconds: float = Field(default=30, ge=5, le=600)
+    max_evaluations: int = Field(default=2000, ge=10, le=100000)
+    warmup_evaluations: int = Field(default=2, ge=0, le=100)
+
+
+class EquivalenceInput(Contract):
+    """Replay a sample of a finished experiment's recorded candidates under the current source and compare the results."""
+    trial_id: str
+    sample: int = Field(default=12, ge=1, le=64)
+    absolute_tolerance: float = Field(default=1e-9, ge=0, le=1)
+    relative_tolerance: float = Field(default=1e-9, ge=0, le=1)
+    wall_seconds: float = Field(default=120, gt=0, le=86400)
+
+
+class TrialContinueInput(Contract):
+    """Go on from where a finished experiment stopped, as a new experiment under the current source."""
+    trial_id: str
+    wall_seconds: float = Field(gt=0, le=86400)
+    max_steps: int | None = Field(default=None, ge=1, le=10000000)
+    accept_unverified: bool = False
+    device: Literal["cuda", "cpu"] | None = Field(default=None, description="where the new experiment computes; the stopped one's device when omitted")
+
+
+class JournalCompactInput(Contract):
+    """Remove the evaluated designs from finished experiments' journals. Rows and numbers stay; what is removed cannot be brought back."""
+    trial_ids: list[str] | None = Field(default=None, min_length=1, max_length=1000)
+    study_id: str | None = Field(default=None, description="Without trial_ids: every finished experiment of this study, or of the campaign when omitted.")
+
+
+class JournalCompactionRequestInput(JournalCompactInput):
+    """Ask the researcher to approve a compaction, once the experiments' results have been analysed and recorded."""
+    rationale: str = Field(min_length=1, max_length=4000)
+
+
+LIMITS = ("compute_budget_seconds", "llm_budget_usd", "delegated_trial_seconds", "implementation_compute_budget_seconds", "validation_reserve_seconds",
+          "compute_notice_seconds", "compute_gate_seconds")
+
+
+class PlannedRun(Contract):
+    """One planned experiment of a compute request: the researcher sees its speed, outputs and disk use measured on earlier
+    runs of the same problem (campaigns/experiment_plan.py)."""
+    task_id: str
+    hypothesis_id: str | None = None
+    algorithm: str | None = Field(default=None, max_length=200, description="the method id, when no hypothesis names it")
+    seeds: list[int] = Field(min_length=1, max_length=64)
+    wall_seconds: float = Field(gt=0, le=604800, description="each run's wall time")
+    max_evaluations: int | None = Field(default=None, ge=1, le=100000000)
+    device: Literal["cuda", "cpu"] | None = None
+
+
+class ApprovalRequestInput(Contract):
+    """Ask the researcher for something only they grant. On approval it is applied as the researcher's own command; a compute
+    approval is the go-ahead for a plan of work longer than the researcher's go-ahead threshold (campaigns/compute_consent.py)."""
+    kind: Literal["campaign_limits", "waiver", "worker_ceiling", "compute"]
+    rationale: str = Field(min_length=1, max_length=5000, description="What the change makes possible and the measurement behind it")
+    limits: dict[str, float] = Field(default_factory=dict, description="campaign_limits: the new value of each limit to change, among " + ", ".join(LIMITS))
+    requirement_id: str | None = Field(default=None, description="waiver: the validation requirement to waive")
+    evidence_ids: list[str] = Field(default_factory=list, max_length=50, description="waiver: the measurements the researcher should judge it by")
+    workers: int | None = Field(default=None, ge=1, le=64, description="worker_ceiling: experiments that may run at once on this server")
+    gpu_workers: int | None = Field(default=None, ge=0, le=63, description="worker_ceiling: how many of them run on the GPU (unchanged when omitted)")
+    plan: str | None = Field(default=None, min_length=1, max_length=5000, description="compute: what will run (each run, profile, job or coding workspace) and why")
+    wall_seconds: float | None = Field(default=None, gt=0, le=604800, description="compute: how long until the researcher has the results")
+    worker_seconds: float | None = Field(default=None, gt=0, le=2419200, description="compute: the worker time the plan may use in all")
+    coding_workspaces: int = Field(default=0, ge=0, le=10, description="compute: coding workspaces the plan opens")
+    meanwhile: str | None = Field(default=None, min_length=1, max_length=2000, description="compute: what the researcher can do while it runs")
+    runs: list[PlannedRun] = Field(default_factory=list, max_length=50, description="compute for experiments: each planned experiment, "
+        "so the researcher reads the plan (speed, evaluations, outputs and disk use, measured on earlier runs) before approving")
+
+    @model_validator(mode="after")
+    def one_request(self):
+        given = {"campaign_limits": bool(self.limits), "waiver": self.requirement_id is not None, "worker_ceiling": self.workers is not None,
+                 "compute": self.plan is not None}
+        if not given[self.kind] or sum(given.values()) != 1:
+            raise ValueError("Give exactly the fields of the chosen kind: limits, requirement_id with evidence_ids, workers, or a compute plan")
+        if self.kind == "compute" and (self.wall_seconds is None or self.worker_seconds is None or self.meanwhile is None):
+            raise ValueError("A compute plan states wall_seconds, worker_seconds and what the researcher can do meanwhile")
+        if self.runs and self.kind != "compute":
+            raise ValueError("Planned runs belong to a compute request")
+        if set(self.limits) - set(LIMITS):
+            raise ValueError("Unknown campaign limit: " + ", ".join(sorted(set(self.limits) - set(LIMITS))))
+        if self.kind == "waiver" and not self.evidence_ids:
+            raise ValueError("A waiver request names the measurements it rests on")
+        return self
+
+
+class WorkerCeilingInput(Contract):
+    """How many experiments run at once on this server, and how many of them on the GPU (unchanged when omitted). Kept across
+    restarts; the launcher's settings are only the defaults."""
+    workers: int = Field(ge=1, le=64)
+    gpu_workers: int | None = Field(default=None, ge=0, le=63)
+    rationale: str = Field(min_length=1, max_length=5000)
 
 
 class WaiverInput(Contract):

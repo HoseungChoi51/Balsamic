@@ -1,0 +1,16 @@
+{
+  "id": "S5-large-record",
+  "source": "Audit of campaign_738bf861: a 55 MB comparison report in one tool result ended the lead's session",
+  "setup": {"preset": "quadratic", "llm_budget_usd": 0.3, "seeds": ["large_record"]},
+  "steps": [
+    {"say": "Summarise the saved analysis {record_id} in three lines."},
+    {"wait": "request_closed", "timeout_s": 600}
+  ],
+  "checks": [
+    {"max_tool_result_bytes": 262144},
+    {"no_failed_runs": true},
+    {"request_closed": true},
+    {"max_commands": 0}
+  ],
+  "repeats": 1
+}

@@ -1,5 +1,7 @@
 # Development status — 2026-09-28
 
+> **Superseded.** The workspace was rebuilt around the chat-centred UI plan; see [ui-workspace.md](ui-workspace.md). This document describes the earlier service and is kept for history.
+
 Latest status: [public development checkpoint](publication-checkpoint.md). The D1/D2 verification and deployment descriptions below describe an earlier increment.
 
 Branch: `setup/latest` (base commit `e22ffec`). Development resumed at the researcher's request. The integrated product remains experimental; live cutover has not occurred.

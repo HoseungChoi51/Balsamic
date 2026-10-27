@@ -10,7 +10,16 @@ import httpx
 from fastapi import HTTPException, Request, WebSocket
 from fastapi.responses import StreamingResponse
 
+from pydantic import Field
+
+from optimization_framework.contracts.base import Contract
 from .development import WorkspaceCreate, WorkspaceMessage, WorkspaceControl, WorkspaceValidate, WorkspaceEnvelope
+
+
+class InstallRequest(Contract):
+    request_key: str = Field(min_length=1, max_length=200)
+    confirm_changes: bool = False   # go on although packages the lab has would change (the dry run named them)
+    accept_not_ready: bool = False  # install although the coding agent reported it not ready
 
 
 def install(app, workspace):
@@ -31,6 +40,12 @@ def install(app, workspace):
         workspace.store.get(campaign_id, "campaign")
         return development.events(campaign_id, identity, max(0, after))
 
+    @app.get("/api/campaigns/{campaign_id}/implementation-workspaces/{identity}/timeline")
+    def timeline(campaign_id: str, identity: str, before: str | None = None, limit: int = 100):
+        from .development_timeline import timeline as history
+        workspace.store.get(campaign_id, "campaign")
+        return history(workspace.store, development.get(campaign_id, identity), before, max(1, min(limit, 300)))
+
     @app.post("/api/campaigns/{campaign_id}/implementation-workspaces/{identity}/messages")
     def message(campaign_id: str, identity: str, body: WorkspaceMessage):
         return development.message(campaign_id, identity, body.model_dump(), actor="researcher")
@@ -42,6 +57,15 @@ def install(app, workspace):
     @app.post("/api/campaigns/{campaign_id}/implementation-workspaces/{identity}/validations")
     def validate(campaign_id: str, identity: str, body: WorkspaceValidate):
         return development.validate(campaign_id, identity, body.model_dump())
+
+    # The researcher's alone: HTTP is their boundary, and no agent tool reaches it.
+    @app.post("/api/campaigns/{campaign_id}/implementation-workspaces/{identity}/submissions/{submission_id}/install")
+    def install(campaign_id: str, identity: str, submission_id: str, body: InstallRequest):
+        from .development_runtime import ROOT
+        from .library_install import Installer
+        workspace.store.get(campaign_id, "campaign")
+        return Installer(workspace, development, ROOT).request(campaign_id, identity, submission_id, request_key=body.request_key,
+            confirm_changes=body.confirm_changes, accept_not_ready=body.accept_not_ready)
 
     @app.post("/api/campaigns/{campaign_id}/implementation-workspaces/{identity}/envelopes")
     def freeze_envelope(campaign_id: str, identity: str, body: WorkspaceEnvelope):

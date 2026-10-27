@@ -1,0 +1,63 @@
+#!/usr/bin/env bash
+# Install what the MEENT problems run on: the meent-private fork (feature/cuda-acceleration) as the project's meent, with
+# PyTorch, and mask-optimizers for the mask methods. MEENT is optional: Balsamic runs without it, and only the grating
+# problems, the mask methods and the learning-based optimizers need it (README, "MEENT (optional)"). The fork is Torch-only:
+# the 1D solver runs it on CPU, the 2D solver on CUDA when scripts/start finds a device. pyproject.toml names the fork;
+# uv.lock pins its commit.
+#   scripts/install-meent             install the locked commit; then restart (scripts/stop --keep-tailnet && scripts/start)
+#   scripts/install-meent --update    move the lock to the branch tip first
+#   scripts/install-meent --cpu       PyTorch's CPU-only build (about 0.2 GB), the default when nvidia-smi finds no GPU
+#   scripts/install-meent --cuda      PyTorch's CUDA build (about 2.3 GB), the default when it finds one
+# The lab checks that an evaluator starts before it queues any run on it, so a missing piece shows up there, not in a probe.
+set -euo pipefail
+repo="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
+cd "$repo"
+update=0; build=""
+for arg in "$@"; do
+  case "$arg" in
+    --update) update=1;;
+    --cpu) build=cpu;;
+    --cuda) build=cuda;;
+    *) echo "usage: scripts/install-meent [--update] [--cpu | --cuda]" >&2; exit 2;;
+  esac
+done
+if [ -z "$build" ]; then
+  if nvidia-smi -L 2> /dev/null | grep -q '^GPU'; then build=cuda; else build=cpu; fi
+fi
+
+# The fork is a private repository; uv fetches it with git, so git must be able to read it.
+fork="$(sed -n 's/^meent = { git = "\([^"]*\)".*/\1/p' pyproject.toml)"
+if ! GIT_TERMINAL_PROMPT=0 git ls-remote "$fork" HEAD > /dev/null 2>&1; then
+  cat >&2 << EOF
+Cannot read $fork, the MEENT fork the grating problems run on. It is a private repository: ask its owner for read
+access, then let git sign in to GitHub (for example: gh auth login && gh auth setup-git) and run this again.
+Nothing was installed. Balsamic runs without MEENT; only the grating problems, the mask methods and the learning-based
+optimizers need it.
+EOF
+  exit 1
+fi
+[ "$update" = 0 ] || uv lock --upgrade-package meent
+
+if [ "$build" = cuda ]; then echo "PyTorch: the CUDA build (about 2.3 GB to download)"; else echo "PyTorch: the CPU-only build (about 0.2 GB to download)"; fi
+# --inexact keeps the extras installed for other work (dev).
+uv sync --inexact --extra meent --extra learners --extra masks --extra "$build"
+
+# Build both evaluators as a worker would, the 2D one on each device this build has.
+devices="cpu"; [ "$build" = cpu ] || devices="cpu cuda"
+for device in $devices; do
+  GRATING_DEVICE="$device" uv run --no-sync python - <<'PY'
+import os
+from dqn_meent.problem import MeentProblem
+from dqn_meent.problem_2d import Meent2DProblem
+device = os.environ["GRATING_DEVICE"]
+for adapter in ((MeentProblem(),) if device == "cpu" else ()) + (Meent2DProblem(),):
+    example = adapter.examples()[0]["instances"][0]
+    name = "2D" if isinstance(adapter, Meent2DProblem) else "1D"
+    try:
+        adapter.evaluator(adapter.resolve(example["configuration"], example.get("fidelity") or {}))
+        from dqn_meent.rcwa import source
+        print(f"{name} MEENT solver on {'cpu' if name == '1D' else device}: starts, {source()}")
+    except Exception as error:
+        print(f"{name} MEENT solver on {device}: cannot start: {error}")
+PY
+done

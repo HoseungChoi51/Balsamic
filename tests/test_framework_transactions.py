@@ -120,15 +120,72 @@ def test_derived_trial_queries_follow_commits_and_rollbacks(tmp_path):
     assert store.trials_requiring_capture() == []
 
 
-def test_unchanged_context_advances_cursor_without_a_new_revision(tmp_path):
+def test_derived_trial_listings_reparse_only_the_trials_written_and_match_a_full_rebuild(tmp_path):
+    store = Store(tmp_path)
+    def trial(identity, campaign="c", **fields):
+        return {"id": identity, "campaign_id": campaign, "status": "running", "execution_contract": 1, "attempt": 1,
+                "algorithm": "coordinate", "seed": 0, "wall_seconds": 60, "progress": {"elapsed_seconds": 1, "best_design": [0] * 64}, **fields}
+    listings = {"rows": lambda s: s.list_trial_rows("c"), "costs": lambda s: s.list_trial_costs("c"), "headers": lambda s: s.list_trial_headers(),
+                "capture": lambda s: s.trials_requiring_capture()}
+    def agree():
+        fresh = Store(tmp_path)   # no cache: every listing is a full rebuild
+        for name, listing in listings.items():
+            assert listing(store) == listing(fresh), name
+    for identity in ("trial_a", "trial_b", "trial_c"):
+        store.put("trial", trial(identity))
+    agree()
+    asked = []
+    original = store._list_trial_rows
+    store._list_trial_rows = lambda campaign_id, ids=None: asked.append(ids) or original(campaign_id, ids)
+    store.put("trial", trial("trial_b", progress={"elapsed_seconds": 9, "best_design": [1] * 64}))   # a running trial's progress
+    assert store.list_trial_rows("c")[1]["progress"] == {"elapsed_seconds": 9} and asked == [["trial_b"]]
+    store.put("trial", trial("trial_a", status="completed"))                       # leaves the running set, enters capture
+    store.put("trial", trial("trial_d"))                                            # a new trial
+    store.put("trial", trial("trial_e", campaign="other"))                          # another campaign's
+    agree()
+    assert [row["id"] for row in store.trials_requiring_capture()] == ["trial_a"]
+    assert [row["id"] for row in store.list_trial_rows("c")] == ["trial_a", "trial_b", "trial_c", "trial_d"]
+    with store.transaction():
+        store.delete_campaign("other")
+    agree()
+    assert [row["id"] for row in store.list_trial_headers()] == ["trial_a", "trial_b", "trial_c", "trial_d"]
+
+
+def test_runs_waiting_on_a_time_capped_run_offer_the_researcher_a_way_on(tmp_path):
     workspace, request = prepare(tmp_path)
-    campaign_id = request.campaign_id
-    first = workspace.memory.sync(campaign_id)
-    workspace.store.event(campaign_id, "test.noise", {})
-    again = workspace.memory.sync(campaign_id)
-    state = workspace.memory.state(campaign_id)
-    assert again["id"] == first["id"] and state["revision"] == first["revision"]
-    assert state["event_cursor"] > first["event_cursor"]
-    assert len(workspace.store.list("context_revision", campaign_id)) == 1
-    edited = workspace.memory.edit(campaign_id, "New direction", state["revision"])
-    assert edited["id"] != first["id"] and edited["revision"] == first["revision"] + 1
+    parent = workspace.create_trial(request)
+    first = workspace.create_trial(request.model_copy(update={"dependencies": [parent["id"]]}))
+    second = workspace.create_trial(request.model_copy(update={"dependencies": [first["id"]]}))
+    parent.update(status="completed", reason="wall_budget_exhausted", result={"scientific_complete": False, "allocation_stop": "wall_budget_exhausted"})
+    workspace.store.put("trial", parent)
+    assert not workspace.dependencies_ready(first)
+    issue = next(row for row in workspace.store.list("manager_issue") if row["code"] == "dependency_incomplete")
+    assert issue["affected"] == first["id"] and "wall budget exhausted" in issue["message"] and "1 run(s) queued after it" in issue["message"]
+    assert [item["id"] for item in issue["actions"]] == ["start_anyway", "stop"]
+    # An issue never holds a stop or a pause: an agent can always take back work it queued.
+    from types import SimpleNamespace
+    from optimization_framework.campaigns.inbox import check_issues
+    check_issues(workspace, SimpleNamespace(operation="trial.control", payload={"trial_id": first["id"], "action": "pause"}, id="c1", campaign_id=first["campaign_id"]))
+    with pytest.raises(ValueError, match="pending manager issue"):
+        check_issues(workspace, SimpleNamespace(operation="trial.control", payload={"trial_id": first["id"], "action": "resume"}, id="c2", campaign_id=first["campaign_id"]))
+    workspace.control(first["id"], ControlInput(action="pause"))
+    with pytest.raises(ValueError, match="one of this issue's actions"):
+        workspace.memory.resolve_issue(issue["id"], "action", "", action="delete_everything")
+    resolved = workspace.memory.resolve_issue(issue["id"], "action", "", action="start_anyway")
+    assert resolved["status"] == "resolved" and resolved["action"]["trial_ids"] == [first["id"], second["id"]]
+    first = workspace.store.get(first["id"], "trial")
+    assert first["status"] == "queued" and first["dependency_completion"] == "finished" and workspace.dependencies_ready(first)
+    # The order stays: the second still waits for the first to end.
+    assert not workspace.dependencies_ready(workspace.store.get(second["id"], "trial"))
+
+
+def test_stopping_the_runs_that_wait_on_an_incomplete_run(tmp_path):
+    workspace, request = prepare(tmp_path)
+    parent = workspace.create_trial(request)
+    child = workspace.create_trial(request.model_copy(update={"dependencies": [parent["id"]]}))
+    parent.update(status="failed", reason="worker crashed")
+    workspace.store.put("trial", parent)
+    workspace.dependencies_ready(child)
+    issue = next(row for row in workspace.store.list("manager_issue") if row["code"] == "dependency_incomplete")
+    workspace.memory.resolve_issue(issue["id"], "action", "", action="stop")
+    assert workspace.store.get(child["id"], "trial")["status"] == "stopped"

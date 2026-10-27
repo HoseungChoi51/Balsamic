@@ -1,4 +1,6 @@
 """Executable validation binds a frozen observed subject and retains its verdict."""
+import pytest
+
 from optimization_framework.contracts.requests import CampaignInput, TaskInput, TrialInput, RecipeInput, ControlInput
 from optimization_framework.execution.service import Workspace
 from optimization_framework.execution.worker import run
@@ -23,6 +25,7 @@ def finish(workspace, trial):
     return workspace.capture_evidence(trial)
 
 
+@pytest.mark.meent
 def test_requirement_keeps_the_candidate_and_prefix_when_the_source_continues(tmp_path):
     workspace, campaign, trial = setup(tmp_path)
     parent = finish(workspace, trial)
@@ -45,6 +48,7 @@ def test_requirement_keeps_the_candidate_and_prefix_when_the_source_continues(tm
     assert len(workspace.validations.assess(identity)["results"]) == 1
 
 
+@pytest.mark.meent
 def test_stopped_validation_does_not_become_a_pass(tmp_path):
     workspace, _, trial = setup(tmp_path)
     parent = finish(workspace, trial)

@@ -5,7 +5,7 @@ from pathlib import Path
 from fastapi.testclient import TestClient
 import pytest
 
-from optimization_framework.api.app import create_app
+from balsamic.app import create_app
 from optimization_framework.execution.metrics import recent_metrics
 from optimization_framework.execution.service import Workspace
 from optimization_framework.execution.worker import append_json
@@ -114,12 +114,12 @@ def test_metrics_http_limit_is_optional_bounded_and_preserves_full_default(tmp_p
     rows = [{"step": step, "archive": [{"candidate": [step]}]} for step in range(30)]
     path.write_text("".join(json.dumps(row) + "\n" for row in rows))
     with TestClient(app) as client:
-        assert client.get("/api/trials/trial/metrics").json() == rows
-        assert client.get("/api/trials/trial/metrics?limit=20").json() == rows[-20:]
-        assert client.get("/api/trials/trial/metrics?limit=1000").json() == rows
+        assert client.get("/api/v1/experiments/trial/metrics").json() == rows
+        assert client.get("/api/v1/experiments/trial/metrics?limit=20").json() == rows[-20:]
+        assert client.get("/api/v1/experiments/trial/metrics?limit=1000").json() == rows
         for limit in (0, -1, 1001, "1.5", "invalid"):
-            assert client.get("/api/trials/trial/metrics", params={"limit": limit}).status_code == 422
-        assert client.get("/api/trials/missing/metrics?limit=20").status_code == 404
+            assert client.get("/api/v1/experiments/trial/metrics", params={"limit": limit}).status_code == 422
+        assert client.get("/api/v1/experiments/missing/metrics?limit=20").status_code == 404
 
 
 @pytest.mark.parametrize("limit", [0, -1, 1001, True, 1.5])

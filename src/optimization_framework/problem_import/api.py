@@ -1,4 +1,4 @@
-"""HTTP routes for problem examples and the problem importer."""
+"""HTTP routes for problem examples and the formulator (problem import)."""
 from __future__ import annotations
 
 from typing import Literal
@@ -87,6 +87,10 @@ def install(app, workspace):
     @app.get("/api/v1/problem-imports/{import_id}")
     def problem_import(import_id: str):
         return service.sync(import_id)
+
+    @app.delete("/api/v1/problem-imports/{import_id}")
+    def remove_import(import_id: str):
+        return service.remove(import_id)
 
     @app.put("/api/v1/problem-imports/{import_id}/documents/{name}")
     async def upload_document(import_id: str, name: str, request: Request):

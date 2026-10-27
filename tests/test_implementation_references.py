@@ -34,12 +34,13 @@ def test_reference_capture_is_idempotent_inspectable_and_does_not_enable_trials(
         source = client.get("/api/v1/implementation-references/" + reference_id).json()
         assert source["files"] == command["payload"]["files"]
         assert source["file_hashes"]["main.py"] == hashlib.sha256(source["files"]["main.py"].encode()).hexdigest()
-        state = client.get("/api/state", params={"campaign_id": campaign["id"]}).json()
-        readiness = next(h for h in state["hypotheses"] if h["id"] == hypothesis["id"])["implementation_readiness"]
+        listed = client.get(f"/api/v1/campaigns/{campaign['id']}/hypotheses").json()["hypotheses"]
+        assert hypothesis["id"] in {row["id"] for row in listed}
+        readiness = workspace.implementations.readiness(workspace.store.get(hypothesis["id"], "hypothesis"))
         assert readiness["state"] == "reference_available" and not readiness["runnable"]
         assert readiness["references"][0]["id"] == reference_id
         assert "files" not in readiness["references"][0]
-        catalog = client.get("/api/implementations", params={"campaign_id": campaign["id"]}).json()
+        catalog = client.get("/api/v1/implementations", params={"campaign_id": campaign["id"]}).json()
         assert catalog["references"][0]["id"] == reference_id
         assert not catalog["versions"]
     assert len(workspace.store.list("implementation_reference", campaign["id"])) == 1

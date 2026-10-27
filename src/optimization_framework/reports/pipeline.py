@@ -4,7 +4,7 @@ from html.parser import HTMLParser
 import json
 import re
 
-from optimization_framework.research.engine import LLMAdapter
+from optimization_framework.llm.adapter import LLMAdapter
 from optimization_framework.storage.sqlite import now
 from .document import sections, writer_document
 from .editorial import Brief, Draft, Investigation, LIMITS, Review, ROLES, RULES, STAGES, Selection
@@ -13,6 +13,28 @@ from .evidence import EvidenceTools
 
 def normalize(value):
     return re.sub(r"\s+", " ", value).strip()
+
+
+TYPOGRAPHY = str.maketrans({"\u2018": "'", "\u2019": "'", "\u201c": '"', "\u201d": '"', "\u2013": "-", "\u2014": "-", "\u2212": "-", "\u00a0": " "})
+
+
+def located(quote, plain):
+    """Whether a claim's passage is in the draft: verbatim, or sentence by sentence in order when it runs across a heading.
+
+    Typographic quotes and dashes count as their plain forms, so a passage is not lost to a changed apostrophe.
+    """
+    quote, plain = normalize(quote.translate(TYPOGRAPHY)), normalize(plain.translate(TYPOGRAPHY))
+    if not quote:
+        return False
+    if quote in plain:
+        return True
+    position = 0
+    for sentence in re.split(r"(?<=[.!?])\s+", quote):
+        found = plain.find(sentence, position)
+        if found < 0:
+            return False
+        position = found + len(sentence)
+    return True
 
 
 def validate_feedback(result, source, feedback):
@@ -35,12 +57,27 @@ class Pipeline:
         self.tools = EvidenceTools(self.workspace, job, self.figures)
         self.adapter = LLMAdapter(max_calls=LIMITS["model_calls"], max_output_tokens=8192, budget_usd=0,
             usage=job.get("usage"), config=job["provider_snapshot"],
-            reservation_callback=lambda event: writer.capture(job["id"], event))
+            reservation_callback=lambda event: writer.capture(job["id"], event),
+            spend_guard=self.afford, harness=self.workspace.pi.client)
 
-    def update(self, **values):
+    def afford(self, dollars):
+        """Refuse a billed call that the campaign's model budget cannot cover at its upper bound."""
+        allowance = self.workspace.pi.model_allowance(self.job["campaign_id"]) if self.job["campaign_id"] else None
+        if allowance is not None and dollars > allowance + 1e-9:
+            raise ValueError(f"The campaign's model budget cannot cover the next stage: it may cost up to ${dollars:.2f} and "
+                             f"${max(0.0, allowance):.2f} is left. The finished stages are saved; raise the budget and ask for the report again.")
+
+    def update(self, event=None, **values):
         with self.store.transaction():
             job = self.store.get(self.job["id"], "report_writer_job")
-            self.job = self.store.put("report_writer_job", {**job, **values})
+            self.job = self.store.put("report_writer_job", {**job, **values}, event)
+
+    def log_stage(self, key, purpose, status):
+        """The stages of this job in order, small enough for the page that follows its progress."""
+        log = [row for row in self.job.get("stage_log", []) if row["key"] != key]
+        started = next((row["started_at"] for row in self.job.get("stage_log", []) if row["key"] == key), now())
+        return [*log, {"key": key, "purpose": purpose, "status": status, "started_at": started,
+                       **({"finished_at": now()} if status != "running" else {})}]
 
     def check_stop(self):
         self.job = self.store.get(self.job["id"], "report_writer_job")
@@ -76,16 +113,17 @@ class Pipeline:
             "instructions": instructions, "input": content, "usage_before": deepcopy(self.adapter.usage)}
         with self.store.transaction():
             self.store.put("report_writer_stage", record)
-            self.update(stage=key, stage_ids=[*self.job.get("stage_ids", []), identity])
+            self.update(stage=key, stage_ids=[*self.job.get("stage_ids", []), identity], stage_log=self.log_stage(key, purpose, "running"))
         try:
             result = self.adapter.call_with_prompt(role, instructions, content, result_type=schema)
             self.store.put_immutable("report_writer_stage", {**record, "status": "completed", "output": result.model_dump(),
                 "finished_at": now(), "usage_after": deepcopy(self.adapter.usage)})
-            self.update(usage=deepcopy(self.adapter.usage))
+            self.update(usage=deepcopy(self.adapter.usage), stage_log=self.log_stage(key, purpose, "completed"))
             return result
         except Exception:
             self.store.put_immutable("report_writer_stage", {**record, "status": "failed", "finished_at": now(),
                 "usage_after": deepcopy(self.adapter.usage)})
+            self.update(stage_log=self.log_stage(key, purpose, "failed"))
             raise
 
     def artifacts(self):
@@ -151,7 +189,7 @@ class Pipeline:
         validate_feedback(draft, source, self.job["input"].get("feedback", {}))
         plain = normalize("\n".join(sections(source).values()))
         expected = {row.claim_id for row in selection.claims if row.place != "archive"}
-        if set(draft.claim_uses) != expected or any(not normalize(quote) or normalize(quote) not in plain for quote in draft.claim_uses.values()):
+        if set(draft.claim_uses) != expected or not all(located(quote, plain) for quote in draft.claim_uses.values()):
             raise ValueError("Draft must locate every selected claim in its actual prose")
         for review in reviews:
             for issue in review.issues:
@@ -184,7 +222,7 @@ class Pipeline:
             "prior_draft_excerpt": self.job["input"].get("source_html", "")[:12000],
             "excerpt_basis": "Opening excerpt for understanding the existing article; not independent scientific evidence."}, Brief)
         if brief.question and not self.job.get("focus_answer"):
-            self.update(status="awaiting_focus", question=brief.question, focus=brief.focus)
+            self.update("report.writer_question", status="awaiting_focus", question=brief.question, focus=brief.focus)
             return
         investigation = None
         for turn in range(LIMITS["investigation_rounds"]):
@@ -251,7 +289,7 @@ class Pipeline:
                 parent_id=self.job["report_id"], evidence=self.job["input"].get("evidence", {}),
                 revision={"job_id": self.job["id"], "submission_id": self.job.get("submission_id"), "editorial": editorial,
                           **draft.model_dump(exclude={"body_html", "title"})})
-            self.update(status="needs_attention" if unresolved else "completed", result_id=report["id"],
+            self.update("report.writer_completed", status="needs_attention" if unresolved else "completed", result_id=report["id"],
                 finished_at=now(), usage=deepcopy(self.adapter.usage),
                 error="The revision limit was reached with unresolved scientific issues. Inspect the draft's writing notes." if unresolved else None)
 
@@ -259,7 +297,7 @@ class Pipeline:
         try:
             self.run()
         except Stopped:
-            self.update(status="cancelled", finished_at=now(), usage=deepcopy(self.adapter.usage))
+            self.update("report.writer_cancelled", status="cancelled", finished_at=now(), usage=deepcopy(self.adapter.usage))
         except Exception as error:
-            self.update(status="failed", finished_at=now(), usage=deepcopy(self.adapter.usage),
+            self.update("report.writer_failed", status="failed", finished_at=now(), usage=deepcopy(self.adapter.usage),
                 error=str(error) if isinstance(error, ValueError) else "Report writing failed. Saved stages, evidence, original and feedback are retained; no automatic retry was made.")

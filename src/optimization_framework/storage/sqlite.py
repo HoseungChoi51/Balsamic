@@ -1,7 +1,7 @@
 """Application-owned SQLite records and an append-only event stream."""
 from __future__ import annotations
 
-from collections import Counter
+from collections import Counter, deque
 from contextlib import contextmanager
 import copy
 from datetime import datetime, timezone
@@ -35,6 +35,11 @@ class Store:
         # counts are enough to reuse derived trial queries between writes.
         self._revisions = Counter()
         self._derived = {}
+        # (trial revision, trial id) per trial write, None for a delete: a derived listing reparses only what changed.
+        self._trial_writes = deque(maxlen=4096)
+        # Campaigns removed while this process runs. A background pass that read one of
+        # their records before the removal must not write it back afterwards.
+        self.removed_campaigns = set()
         with self.connection() as db:
             db.executescript("""
                 PRAGMA journal_mode=WAL;
@@ -91,9 +96,11 @@ class Store:
             self._local.connection = db
             self._local.depth = 0
             self._local.written = set()
+            self._local.removing = set()
             try:
                 yield db
                 db.commit()
+                self.removed_campaigns |= self._local.removing   # only once the deletion is committed
             except BaseException:
                 db.rollback()
                 raise
@@ -134,6 +141,10 @@ class Store:
         """Commit related records and their journal entries together."""
         with self.connection() as db:
             for kind, record, event in entries:
+                if record.get("campaign_id") in self.removed_campaigns:
+                    raise ValueError("This campaign was removed from the workspace")
+                if kind == "campaign":
+                    self.removed_campaigns.discard(record["id"])   # the identity is free to be used again
                 existing = db.execute("SELECT kind, data FROM records WHERE id=?", (record["id"],)).fetchone()
                 if existing:
                     previous = json.loads(existing["data"])
@@ -150,13 +161,17 @@ class Store:
                         raise ValueError("A physical cost event already owns this source ordinal") from exc
                 self._local.written.add(kind)
                 self._revisions[kind] += 1
+                if kind == "trial":
+                    self._trial_writes.append((self._revisions[kind], record["id"]))
                 db.execute("INSERT INTO records VALUES (?, ?, ?, ?) ON CONFLICT(id) "
                            "DO UPDATE SET data=excluded.data, campaign_id=excluded.campaign_id",
                            (record["id"], kind, record.get("campaign_id"), json.dumps(record, allow_nan=False)))
                 if event:
                     cursor = db.execute("INSERT INTO events(campaign_id,kind,created_at,data) VALUES (?,?,?,?)",
                                (record.get("campaign_id", record["id"] if kind == "campaign" else None),
-                                event, now(), json.dumps({"record_id": record["id"]})))
+                                event, now(), json.dumps({"record_id": record["id"],
+                                    # A listener decides from the frame alone whether a page must refetch.
+                                    **{key: record[key] for key in ("status", "revision") if isinstance(record.get(key), (str, int))}})))
                     if self.event_observer:
                         self.event_observer(kind, record, event, cursor.lastrowid)
 
@@ -195,29 +210,69 @@ class Store:
             rows = db.execute(query, args).fetchall()
         return [json.loads(row["data"]) for row in rows]
 
+    def count(self, kind: str, campaign_id: str | None = None) -> int:
+        """How many records of a kind there are, without decoding them."""
+        query, args = "SELECT COUNT(*) FROM records WHERE kind=?", [kind]
+        if campaign_id is not None:
+            query += " AND campaign_id=?"
+            args.append(campaign_id)
+        with self.connection() as db:
+            return db.execute(query, args).fetchone()[0]
+
     def revision(self, *kinds):
         """In-process write count for record kinds; equal values mean no writes since."""
         with self.lock:
             return tuple(self._revisions[kind] for kind in kinds)
 
     def _derived_trials(self, key, compute):
-        """Trial records hold MB-scale archives; idle maintenance must not reparse them."""
+        """Trial records hold MB-scale archives (a campaign's add up to hundreds of MB): idle maintenance must not reparse
+        them, and a write reparses only the trials it changed. A running trial is written every few seconds; reparsing
+        every trial each time held the store's lock for about a second per listing and starved the lab.
+        compute(ids) returns (rowid, row) pairs in rowid order, for every trial (ids None) or for those ids."""
         with self.lock:
-            if self.in_transaction:
-                return compute()
+            # A transaction that wrote a trial sees its own uncommitted rows; one that did not sees what the cache holds.
+            if self.in_transaction and "trial" in getattr(self._local, "written", ()):
+                return [row for _, row in compute(None)]
             stamp = self._revisions["trial"]
             cached = self._derived.get(key)
             if cached is None or cached[0] != stamp:
-                cached = (stamp, compute())
+                changed = self._trials_written_since(cached[0]) if cached else None
+                if changed is None:
+                    pairs = compute(None)
+                else:
+                    kept = {row["id"]: (rowid, row) for rowid, row in cached[1] if row["id"] not in changed}
+                    kept.update((row["id"], (rowid, row)) for rowid, row in compute(sorted(changed)))
+                    pairs = sorted(kept.values(), key=lambda pair: pair[0])
+                cached = (stamp, pairs)
                 self._derived[key] = cached
-            return copy.deepcopy(cached[1])
+            return copy.deepcopy([row for _, row in cached[1]])
+
+    def _trials_written_since(self, stamp):
+        """The ids of trials written after revision stamp; None when that is not known (a delete, or a trimmed log)."""
+        if not self._trial_writes or self._trial_writes[0][0] > stamp + 1:
+            return None
+        changed = set()
+        for revision, trial_id in reversed(self._trial_writes):
+            if revision <= stamp:
+                break
+            if trial_id is None:
+                return None
+            changed.add(trial_id)
+        return changed
+
+    @staticmethod
+    def _only(query, args, ids):
+        """Restrict a trial query to some ids (None: all of them)."""
+        if ids is None:
+            return query, args
+        return query + f" AND id IN ({','.join('?' for _ in ids)})", [*args, *ids]
 
     def list_trial_costs(self, campaign_id: str | None = None, *, exclude: str | None = None) -> list[dict]:
-        return self._derived_trials(("costs", campaign_id, exclude), lambda: self._list_trial_costs(campaign_id, exclude))
+        return self._derived_trials(("costs", campaign_id, exclude), lambda ids: self._list_trial_costs(campaign_id, exclude, ids))
 
-    def _list_trial_costs(self, campaign_id, exclude):
+    def _list_trial_costs(self, campaign_id, exclude, ids=None):
         """Read accounting fields without decoding numerical design archives."""
-        query = """SELECT id, campaign_id,
+        query = """SELECT rowid AS row_order, id, campaign_id,
                    json_extract(data,'$.status') AS status,
                    json_extract(data,'$.execution_grant_id') AS execution_grant_id,
                    json_extract(data,'$.wall_seconds') AS wall_seconds,
@@ -238,33 +293,58 @@ class Store:
         if exclude is not None:
             query += " AND id<>?"
             args.append(exclude)
+        query, args = self._only(query, args, ids)
         query += " ORDER BY rowid"
         with self.connection() as db:
             rows = db.execute(query, args).fetchall()
         result = []
         for row in rows:
             trial = dict(row)
+            order = trial.pop("row_order")
             policy = trial["isolation_policy"]
             trial["isolation_policy"] = json.loads(policy) if isinstance(policy, str) else policy
             trial["progress"] = {"elapsed_seconds": trial.pop("progress_seconds")}
             trial["result"] = {"elapsed_seconds": trial.pop("result_seconds")}
-            result.append(trial)
+            result.append((order, trial))
         return result
 
     def list_trial_headers(self, campaign_id: str | None = None) -> list[dict]:
-        return self._derived_trials(("headers", campaign_id), lambda: self._list_trial_headers(campaign_id))
+        return self._derived_trials(("headers", campaign_id), lambda ids: self._list_trial_headers(campaign_id, ids))
 
-    def _list_trial_headers(self, campaign_id):
+    def _list_trial_headers(self, campaign_id, ids=None):
         """Metadata sufficient to find a trial's scalar journal and label it."""
-        query = """SELECT id, campaign_id, json_extract(data,'$.algorithm') AS algorithm,
+        query = """SELECT rowid AS row_order, id, campaign_id, json_extract(data,'$.algorithm') AS algorithm,
                    json_extract(data,'$.seed') AS seed FROM records WHERE kind='trial'"""
         args = []
         if campaign_id is not None:
             query += " AND campaign_id=?"
             args.append(campaign_id)
+        query, args = self._only(query, args, ids)
         query += " ORDER BY rowid"
         with self.connection() as db:
-            return [dict(row) for row in db.execute(query, args).fetchall()]
+            rows = [dict(row) for row in db.execute(query, args).fetchall()]
+        return [(row.pop("row_order"), row) for row in rows]
+
+    # What a list of runs leaves out: designs and archives (a 2D run's are megabytes) and the frozen source and
+    # environment manifests. get() returns the whole record.
+    ROW_OMITS = ("$.progress.archive", "$.progress.best_candidate", "$.progress.best_design", "$.result.archive",
+                 "$.result.best_candidate", "$.result.best_design", "$.execution_manifest", "$.experiment_spec", "$.scientific_environment")
+
+    def list_trial_rows(self, campaign_id: str | None = None) -> list[dict]:
+        """A campaign's runs as a page lists them: every scalar and summary, without ROW_OMITS, trimmed in SQLite."""
+        return self._derived_trials(("rows", campaign_id), lambda ids: self._list_trial_rows(campaign_id, ids))
+
+    def _list_trial_rows(self, campaign_id, ids=None):
+        query = "SELECT rowid AS row_order, json_remove(data," + ",".join(f"'{path}'" for path in self.ROW_OMITS) + ") AS data FROM records WHERE kind='trial'"
+        args = []
+        if campaign_id is not None:
+            query += " AND campaign_id=?"
+            args.append(campaign_id)
+        query, args = self._only(query, args, ids)
+        query += " ORDER BY rowid"
+        with self.connection() as db:
+            rows = db.execute(query, args).fetchall()
+        return [(row["row_order"], json.loads(row["data"])) for row in rows]
 
     def list_compact_trials(self, campaign_id: str | None = None) -> list[dict]:
         """Trim duplicated masks in SQLite before allocating Python objects.
@@ -314,15 +394,65 @@ class Store:
     def trials_requiring_capture(self) -> list[dict]:
         return self._derived_trials(("capture",), self._trials_requiring_capture)
 
-    def _trials_requiring_capture(self) -> list[dict]:
-        query = """SELECT data FROM records WHERE kind='trial'
+    def _trials_requiring_capture(self, ids=None) -> list[tuple]:
+        query, args = self._only("""SELECT rowid AS row_order, data FROM records WHERE kind='trial'
                    AND json_extract(data,'$.execution_contract')=1
                    AND json_extract(data,'$.status') NOT IN ('queued','running','pausing','stopping')
-                   AND COALESCE(json_extract(data,'$.attempt'),0) > COALESCE(json_extract(data,'$.asset_capture_attempt'),-1)
-                   ORDER BY rowid"""
+                   AND COALESCE(json_extract(data,'$.attempt'),0) > COALESCE(json_extract(data,'$.asset_capture_attempt'),-1)""", [], ids)
         with self.connection() as db:
-            rows = db.execute(query).fetchall()
-        return [json.loads(row["data"]) for row in rows]
+            rows = db.execute(query + " ORDER BY rowid", args).fetchall()
+        return [(row["row_order"], json.loads(row["data"])) for row in rows]
+
+    # Workspace drafts that belong to no campaign; anything a campaign holds is removed with delete_campaign.
+    DRAFT_KINDS = frozenset({"problem_import", "problem_charter", "problem_charter_revision", "problem_charter_proposal"})
+
+    def delete_drafts(self, kind: str, ids) -> int:
+        """Delete workspace drafts of one kind by identity; the caller checks that no campaign uses them."""
+        if kind not in self.DRAFT_KINDS:
+            raise ValueError(f"{kind} records are not drafts and cannot be deleted this way")
+        removed = 0
+        with self.connection() as db:
+            for record_id in ids:
+                removed += db.execute("DELETE FROM records WHERE id=? AND kind=? AND campaign_id IS NULL", (record_id, kind)).rowcount
+            if removed:
+                self._local.written.add(kind)
+                self._revisions[kind] += 1
+        return removed
+
+    def delete_campaign(self, campaign_id: str) -> dict:
+        """Delete every row of a campaign: its records, events, agent log, search index and model-call accounting.
+
+        Runs in the caller's transaction. Returns the number of rows deleted per table. What other
+        campaigns hold is not touched; the caller checks beforehand that none of it points here.
+        """
+        counts = {}
+        with self.connection() as db:
+            tables = {row[0] for row in db.execute("SELECT name FROM sqlite_master WHERE type='table'")}
+            counts["cost_positions"] = db.execute("DELETE FROM cost_positions WHERE cost_event_id IN "
+                "(SELECT id FROM records WHERE kind='cost_event' AND campaign_id=?)", (campaign_id,)).rowcount
+            counts["records"] = 0
+            # One indexed delete per kind; a single delete by campaign alone would scan every record.
+            for kind in [row[0] for row in db.execute("SELECT DISTINCT kind FROM records")]:
+                removed = db.execute("DELETE FROM records WHERE kind=? AND campaign_id=?", (kind, campaign_id)).rowcount
+                if removed:
+                    counts["records"] += removed
+                    self._local.written.add(kind)
+                    self._revisions[kind] += 1
+                    if kind == "trial":
+                        self._trial_writes.append((self._revisions[kind], None))
+            counts["records"] += db.execute("DELETE FROM records WHERE id=? AND kind='campaign'", (campaign_id,)).rowcount
+            self._local.written.add("campaign")
+            self._revisions["campaign"] += 1
+            counts["events"] = db.execute("DELETE FROM events WHERE campaign_id=?", (campaign_id,)).rowcount
+            for table in ("agent_events", "agent_log_offsets", "agent_log_projection", "manager_search", "llm_usage"):
+                if table in tables:
+                    counts[table] = db.execute(f"DELETE FROM {table} WHERE campaign_id=?", (campaign_id,)).rowcount
+            if "agent_payloads" in tables:
+                # Payloads are stored once per content; keep those another campaign's log still points to.
+                counts["agent_payloads"] = db.execute("DELETE FROM agent_payloads WHERE digest NOT IN "
+                    "(SELECT payload_ref FROM agent_events WHERE payload_ref IS NOT NULL)").rowcount
+            self._local.removing.add(campaign_id)
+        return counts
 
     def record_position(self, record_id):
         """Durable insertion order, independent of a producer's claimed clock."""

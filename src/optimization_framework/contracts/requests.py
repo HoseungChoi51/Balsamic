@@ -55,22 +55,45 @@ class TaskInput(Model):
         return self
 
 
+class CharterReference(Model):
+    id: str = Field(min_length=1, max_length=200)
+    revision: int = Field(ge=1)
+
+
+class AutopilotSettings(Model):
+    enabled: bool = False
+    compute_cap_seconds: float | None = Field(default=None, gt=0, le=604800)
+    report_by: str | None = Field(default=None, max_length=64)
+
+
 class CampaignInput(Model):
     name: str = Field(min_length=1, max_length=200)
     objective: str = Field(default="Develop an effective optimizer for the chosen problem.", max_length=20000)
     compute_budget_seconds: float = Field(default=3600, gt=0)
     llm_budget_usd: float = Field(default=5, ge=0, le=10000)
     autonomy: Literal["manual", "guided", "delegated"] = "guided"
-    tasks: list[TaskInput] = Field(min_length=1, max_length=100)
-    delegated_trial_seconds: float = Field(default=60, gt=0, le=3600)
+    tasks: list[TaskInput] = Field(default_factory=list, max_length=100)
+    charter: CharterReference | None = Field(default=None, description="A confirmed problem charter revision; the tasks are compiled from it")
+    research_question: str | None = Field(default=None, max_length=20000)
+    delegated_trial_seconds: float = Field(default=60, gt=0, le=86400)   # at most what one experiment may run
     validation_reserve_seconds: float = Field(default=120, ge=0)
     implementation_compute_budget_seconds: float = Field(default=0, ge=0, le=604800)
+    # Off unless the researcher turns it on: the lead then runs rounds within the cap (docs/ui-workspace.md, Autopilot).
+    autopilot: AutopilotSettings | None = None
 
     @model_validator(mode="after")
     def reserve_fits(self):
         if self.validation_reserve_seconds > self.compute_budget_seconds:
             raise ValueError("Validation reserve exceeds campaign compute budget")
+        # Without tasks or a charter the campaign starts in its formulation stage: the lead drafts the problem note
+        # in chat, and the confirmed charter later sets the tasks (campaign.update).
         return self
+
+    @property
+    def formulating(self):
+        return not self.tasks and self.charter is None
+
+
 
 
 class CampaignUpdate(Model):
@@ -80,9 +103,15 @@ class CampaignUpdate(Model):
     llm_budget_usd: float | None = Field(default=None, ge=0, le=10000)
     autonomy: Literal["manual", "guided", "delegated"] | None = None
     tasks: list[TaskInput] | None = Field(default=None, min_length=1, max_length=100)
-    delegated_trial_seconds: float | None = Field(default=None, gt=0, le=3600)
+    charter: CharterReference | None = None
+    research_question: str | None = Field(default=None, max_length=20000)
+    delegated_trial_seconds: float | None = Field(default=None, gt=0, le=86400)
     validation_reserve_seconds: float | None = Field(default=None, ge=0)
     implementation_compute_budget_seconds: float | None = Field(default=None, ge=0, le=604800)
+    # The researcher's compute thresholds (campaigns/compute_consent.py): an agent's work longer than the first starts with a notice
+    # to them, longer than the second waits for their go-ahead.
+    compute_notice_seconds: float | None = Field(default=None, ge=0, le=86400)
+    compute_gate_seconds: float | None = Field(default=None, gt=0, le=86400)
 
 
 class TrialInput(Model):
@@ -95,6 +124,9 @@ class TrialInput(Model):
     max_steps: int = Field(default=512, ge=1, le=10000000)
     wall_seconds: float = Field(default=60, gt=0, le=86400)
     numerical_threads: int = Field(default=1, ge=1, le=4, strict=True)
+    device: Literal["cpu", "cuda"] | None = Field(default=None, description=(
+        "Where the evaluator computes. Omit to let the scheduler place the run when it starts: on the GPU when its evaluator "
+        "can use one and a GPU slot is free, else on CPU. A run's race or confirmation protocol keeps one device."))
     race_id: str | None = None
     race_phase: Literal["preflight", "calibration", "development", "confirmation", "validation"] | None = None
     schedule_steps: int | None = Field(default=None, ge=1, le=10000000)
@@ -108,13 +140,16 @@ class TrialInput(Model):
     completion: dict[str, Any] | None = None
     initial_assets: list[str] = Field(default_factory=list)
     reuse_decision_ids: list[str] = Field(default_factory=list)
-    dependencies: list[str] = Field(default_factory=list)
+    dependencies: list[str] = Field(default_factory=list, description=(
+        "Runs that must complete scientifically first, because this run uses what they produce. A run stopped at its time "
+        "limit is not complete, so do not use dependencies only to order runs: runs on one device wait for its slots by themselves."))
     diagnostics: list[DiagnosticSchedule] = Field(default_factory=list, max_length=20)
     recovery: RecoveryPolicy = Field(default_factory=RecoveryPolicy)
 
 
 class ControlInput(Model):
-    action: Literal["pause", "resume", "stop", "extend", "prioritize"]
+    action: Literal["pause", "resume", "stop", "extend", "prioritize", "place"]
+    device: Literal["cuda", "cpu"] | None = Field(default=None, description="place: where a queued run computes")
     max_steps: int | None = Field(default=None, ge=1, le=10000000)
     wall_seconds: float | None = Field(default=None, gt=0, le=86400)
     priority: int | None = Field(default=None, ge=-100, le=100)
@@ -184,15 +219,26 @@ class StudyInput(Model):
         return self
 
 
+class ParentLink(Model):
+    """How a strategy descends from another: a revision of it, a variant, a hybrid of several, or merely inspired by it."""
+    id: str
+    kind: Literal["revision", "variant", "hybrid", "inspired_by"] = "revision"
+
+
 class HypothesisInput(Model):
     campaign_id: str
     title: str = Field(min_length=1, max_length=300)
-    mechanism: str = Field(default="", max_length=20000)
-    rationale: str = Field(default="", max_length=20000)
+    # The Hypotheses page renders both as Markdown with KaTeX math.
+    mechanism: str = Field(default="", max_length=20000, description="What is done and how. Markdown. Write every formula in LaTeX: inline between single dollars, $P(S)=\\sum_{i\\in S} p_i$, or on a line of its own between double dollars; never as plain text such as Σ_{i∈S}p_i.")
+    rationale: str = Field(default="", max_length=20000, description="Why it should win here. Markdown. Write every formula in LaTeX: inline between single dollars, $P(S)=\\sum_{i\\in S} p_i$, or on a line of its own between double dollars; never as plain text such as Σ_{i∈S}p_i.")
     assumptions: list[Any] = Field(default_factory=list, max_length=50)
     risks: list[str] = Field(default_factory=list, max_length=50)
     sources: list[Any] = Field(default_factory=list, max_length=50)
     parent_ids: list[str] = Field(default_factory=list, max_length=10)
+    # Typed lineage for the evolution graph; parent_ids stays the plain list and the two are kept consistent.
+    parent_links: list[ParentLink] = Field(default_factory=list, max_length=10)
+    round: int | None = Field(default=None, ge=0, le=10000)
+    library_entry_id: str | None = None
     algorithm: str = "hillclimb"
     algorithm_config: dict[str, Any] = Field(default_factory=dict)
     status: Literal["proposed", "investigating", "archived", "finalist"] = "proposed"

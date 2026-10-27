@@ -81,7 +81,9 @@ def present_decision(record, action=None):
                 ("delegated_trial_seconds", "Per-experiment limit", "seconds"),
                 ("validation_reserve_seconds", "Validation reserve", "seconds"),
                 ("implementation_compute_budget_seconds", "Implementation allocation", "seconds"),
-                ("llm_budget_usd", "LLM spending cap", "USD"))
+                ("llm_budget_usd", "LLM spending cap", "USD"),
+                ("compute_notice_seconds", "Notice threshold", "seconds"),
+                ("compute_gate_seconds", "Go-ahead threshold", "seconds"))
             changes = [f"{label}: {payload[key]:g} {unit}" for key, label, unit in fields
                 if key in payload and isinstance(payload[key], (int, float))]
             if changes:

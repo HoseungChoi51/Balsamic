@@ -71,6 +71,7 @@ def drain(workspace, execution):
         "issues": workspace.store.list("manager_issue")}))
 
 
+@pytest.mark.meent
 def test_frozen_template_starts_controls_binds_exact_seed_prefix_and_coalesces_selected_p(tmp_path):
     workspace, campaign, task, execution = prepare(tmp_path)
     assert not workspace.store.list("trial") and workspace.allocated_seconds(campaign["id"]) == 0

@@ -1,5 +1,7 @@
 """Idempotent ingestion of worker evidence and immutable experiment outputs."""
-from optimization_framework.contracts.assets import Asset, CostEvent, CostSlice
+from typing import get_args
+
+from optimization_framework.contracts.assets import Asset, AssetKind, CostEvent, CostSlice
 from optimization_framework.contracts.base import content_hash
 from optimization_framework.contracts.experiments import ArtifactReference, ExecutionAttempt
 from optimization_framework.execution.worker import iter_journal
@@ -147,7 +149,16 @@ def ingest_outputs(catalog, trial, directory, cost_slices, *, manifest=None):
     for item in dependencies:
         exposure.update(item["exposed_instance_ids"])
     exposure_known = trial["algorithm"] != "package" and all(item["exposure_status"] == "known" for item in dependencies)
+    kinds = get_args(AssetKind)
     for index, output in enumerate(manifest["outputs"]):
+        if output.get("kind") not in kinds:
+            # An optimizer's export of a kind the catalog does not hold stays in the run's files; it is reported on the run
+            # and does not keep the run's other outputs (its solution archive) from the catalog.
+            trial.setdefault("uncataloged_outputs", [])
+            if not any(row["index"] == index for row in trial["uncataloged_outputs"]):
+                trial["uncataloged_outputs"].append({"index": index, "kind": output.get("kind"), "manifest_id": manifest["id"],
+                    "reason": f"kind {output.get('kind')!r} is not one the asset catalog holds"})
+            continue
         reference = ArtifactReference(**output["reference"])
         local.verify(reference)
         reference = catalog.artifacts.register_external(local.resolve(reference), reference.sha256, media_type=reference.media_type)

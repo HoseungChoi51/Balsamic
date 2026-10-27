@@ -1,7 +1,7 @@
 """Idempotent command outcomes commit with allocations and domain records."""
 from optimization_framework.contracts.base import content_hash
 from optimization_framework.contracts.commands import Command, ReuseInput, WaiverInput, FindingInput, CommissionInput, AttachInput, SearchInput, ExecuteValidationInput, ConfirmationReleaseInput, ConfirmationScheduleInput
-from optimization_framework.contracts.requests import CampaignInput, CampaignUpdate, TrialInput, ControlInput, StudyInput, RecipeInput, ResearchInput, HypothesisInput
+from optimization_framework.contracts.requests import CampaignInput, CampaignUpdate, TrialInput, ControlInput, StudyInput, RecipeInput, HypothesisInput
 from optimization_framework.contracts.assets import ReuseDecision, CostReconcileInput
 from optimization_framework.contracts.validation import Waiver, WaiverRevocation
 from optimization_framework.storage.sqlite import now
@@ -13,19 +13,19 @@ from optimization_framework.contracts.references import ReferenceImportInput
 from optimization_framework.contracts.bundles import BundleExportInput, BundleInspectInput, BundlePublishInput
 from optimization_framework.contracts.commands import EvaluatorCommissionInput, EvaluatorAttachInput, ImplementationControlInput, WaiverRevocationInput, RevalidationInput, ExecutableReuseInput, RuntimeResolutionInput
 from optimization_framework.contracts.commands import CampaignUpdateInput, ContextEditInput, IssueResolveInput, TrialControlInput, TrialValidationInput
-from optimization_framework.contracts.commands import TrialExtensionRequestInput
+from optimization_framework.contracts.commands import TrialExtensionRequestInput, JournalCompactInput, JournalCompactionRequestInput
+from optimization_framework.contracts.commands import ApprovalRequestInput, WorkerCeilingInput
 from optimization_framework.contracts.commands import HypothesisReviewInput, HypothesisStatusInput, HypothesisNominateInput
-from optimization_framework.contracts.commands import ResearchControlInput, ResearchRetryInput, DecisionResolveInput, DecisionRefreshInput, SourceRecordInput, SourceIngestInput
+from optimization_framework.contracts.commands import DecisionResolveInput, SourceRecordInput, SourceIngestInput
 from optimization_framework.contracts.commands import InferenceRunInput, FinalistSetInput
-from optimization_framework.contracts.manager import ContextImportInput
-from optimization_framework.contracts.commands import ComparisonReportInput
+from optimization_framework.contracts.commands import ComparisonReportInput, RuntimeProfileInput, EquivalenceInput, TrialContinueInput
 from optimization_framework.contracts.commands import AssetSnapshotInput
 from optimization_framework.contracts.racing import RaceCreateInput, RaceControlInput, RaceDecisionInput
 
 
-DELEGATED = {"discovery.assessment.save", "discovery.assessment.launch", "discovery.assessment.decide", "trial.create", "draft.save", "draft.launch", "reproduction.draft", "reproduction.compare", "study.nominate", "validation.run", "validation.require", "validation.execute", "validation.waive", "inference.run", "asset.reuse", "comparison.report", "finding.record",
+DELEGATED = {"trial.create", "draft.save", "draft.launch", "reproduction.draft", "reproduction.compare", "study.nominate", "validation.run", "validation.require", "validation.execute", "validation.waive", "inference.run", "asset.reuse", "comparison.report", "finding.record",
              "bundle.export", "bundle.inspect", "bundle.publish", "cost.reconcile",
-             "implementation.commission", "implementation.attach", "evaluator.commission", "evaluator.attach", "implementation.control", "implementation.revalidate", "implementation.reuse", "implementation.resolve_runtime", "research.start", "literature.search", "source.ingest", "confirmation.schedule", "confirmation.validate", "confirmation.release", "asset.import_reference_set"}
+             "implementation.commission", "implementation.attach", "evaluator.commission", "evaluator.attach", "implementation.control", "implementation.revalidate", "implementation.reuse", "implementation.resolve_runtime", "literature.search", "source.ingest", "confirmation.schedule", "confirmation.validate", "confirmation.release", "asset.import_reference_set"}
 
 
 DELEGATED.update({"fixed_mask.run", "hypothesis.create", "hypothesis.review", "hypothesis.status",
@@ -33,12 +33,49 @@ DELEGATED.update({"fixed_mask.run", "hypothesis.create", "hypothesis.review", "h
 DELEGATED.update({"study.race.control", "study.race.decide"})
 DELEGATED.add("asset.snapshot")
 DELEGATED.add("trial.extension_request")
+DELEGATED.update({"runtime.profile", "evaluator.equivalence", "trial.continue"})
+# The lead asks; removing recorded designs is the researcher's decision (journal.compact is not delegated).
+DELEGATED.add("journal.compaction_request")
+# Limits, waivers and the worker ceiling are the researcher's: an agent asks, and approval applies the change.
+DELEGATED.add("approval.request")
+# An agent closes an inbox issue whose condition no longer holds, saying why; the researcher sees it and can reopen it.
+DELEGATED.add("issue.resolve")
+# The experiment operator keeps the experiment rules and takes runs it superseded off the Experiments page.
+DELEGATED.update({"experiments.rules", "trial.hide"})
+# The resource planner's plan and estimates: they hold runs back or say what a kind is expected to use, inside the researcher's level.
+DELEGATED.update({"resources.plan", "resources.estimate"})
+# The lead works the evolution graph on request (docs/ui-workspace.md): allocations, batched interventions, new rounds, library reuse.
+DELEGATED.update({"hypothesis.allocate", "intervention.batch", "research.generate", "library.apply"})
 
 
 class CommandService:
     def __init__(self, workspace):
         self.workspace = workspace
         self.store = workspace.store
+        # Operations the service layer adds (threads, notes, interventions, autopilot, library): handler(command, actor) -> outcome.
+        self.handlers, self.models = {}, {}
+        self.delegated = set(DELEGATED)
+        # Called with the receipt after a command completes (outside the transaction): lab events, placeholders.
+        self.listeners = []
+        # Checked before an agent's command runs: guard(command, actor, campaign) raises to refuse (autopilot's cap).
+        self.guards = []
+        # Nothing that computes longer than the researcher's go-ahead threshold starts from an agent without their go-ahead.
+        from .compute_consent import register as register_compute_consent
+        register_compute_consent(self)
+        # Set by the service layer: thread_revision(command) -> the current revision of the command's origin thread.
+        self.thread_revision = None
+
+    def register(self, operation, handler, *, model=None, delegable=False):
+        """Add an operation to the bus. Its name must be a declared Operation (contracts/commands.py)."""
+        from typing import get_args
+        from optimization_framework.contracts.commands import Operation
+        if operation not in get_args(Operation):
+            raise ValueError(f"{operation} is not a declared command operation")
+        self.handlers[operation] = handler
+        if model is not None:
+            self.models[operation] = model
+        if delegable:
+            self.delegated.add(operation)
 
     def authority_hash(self, campaign):
         return content_hash({key: campaign.get(key) for key in ("version", "active_study_id", "autonomy", "compute_budget_seconds",
@@ -85,23 +122,18 @@ class CommandService:
                 any(row["status"] in {"failed", "blocked", "interrupted", "needs_reconciliation", "waiting_provider"} for row in rows),
             "issue_ids": issues}
 
-    @staticmethod
-    def describe():
+    def describe(self):
         """Use the application's schemas in prompts instead of a second tool model."""
-        from optimization_framework.research.discovery.models import DiscoveryStart, DiscoveryControl, DiscoveryAmend, DiscoveryRetry
-        from optimization_framework.agents.models import Activate, Configure, Message, Control, Rollback
+        from .experiment_rules import ExperimentRulesInput, TrialHideInput
+        from optimization_framework.execution.admission import ResourcePlanInput, UsageEstimateInput
+        from optimization_framework.agents.models import Activate, Configure, Message, Control, QuestionDismiss, Rollback, UiRespond
         from optimization_framework.agents.diagnostics import FixedMaskInput
-        from optimization_framework.research.model_policy import ModelPolicyUpdate
         from optimization_framework.implementations.references import ReferenceInput
         from optimization_framework.implementations.builtin import BuiltinBindingInput
-        from optimization_framework.research.discovery.assessment import AssessmentSave, AssessmentLaunch, AssessmentDecision
         models = {"agent.activate": Activate, "agent.message": Message, "agent.control": Control, "agent.rollback": Rollback,
-            "agent.configure": Configure,
+            "agent.configure": Configure, "agent.question_dismiss": QuestionDismiss, "agent.ui_respond": UiRespond,
             "fixed_mask.run": FixedMaskInput, "comparison.report": ComparisonReportInput, "campaign.create": CampaignInput, "campaign.update": CampaignUpdateInput,
-            "models.configure": ModelPolicyUpdate,
-            "discovery.start": DiscoveryStart, "discovery.control": DiscoveryControl, "discovery.amend": DiscoveryAmend, "discovery.retry": DiscoveryRetry,
-            "discovery.assessment.save": AssessmentSave, "discovery.assessment.launch": AssessmentLaunch, "discovery.assessment.decide": AssessmentDecision,
-            "context.edit": ContextEditInput, "context.import": ContextImportInput, "issue.resolve": IssueResolveInput,
+            "context.edit": ContextEditInput, "issue.resolve": IssueResolveInput,
             "hypothesis.create": HypothesisInput, "hypothesis.review": HypothesisReviewInput,
             "hypothesis.status": HypothesisStatusInput, "hypothesis.nominate": HypothesisNominateInput,
             "trial.create": TrialInput, "trial.control": TrialControlInput, "trial.extension_request": TrialExtensionRequestInput, "trial.validate": TrialValidationInput, "inference.run": InferenceRunInput,
@@ -114,14 +146,18 @@ class CommandService:
             "study.race.create": RaceCreateInput, "study.race.control": RaceControlInput,
             "study.race.decide": RaceDecisionInput,
             "validation.require": RecipeInput, "validation.execute": ExecuteValidationInput, "validation.waive": WaiverInput,
+            "runtime.profile": RuntimeProfileInput, "evaluator.equivalence": EquivalenceInput, "trial.continue": TrialContinueInput,
+            "journal.compact": JournalCompactInput, "journal.compaction_request": JournalCompactionRequestInput,
+            "approval.request": ApprovalRequestInput, "workers.set": WorkerCeilingInput,
+            "experiments.rules": ExperimentRulesInput, "trial.hide": TrialHideInput,
+            "resources.plan": ResourcePlanInput, "resources.estimate": UsageEstimateInput,
             "validation.revoke_waiver": WaiverRevocationInput,
             "asset.reuse": ReuseInput, "finding.record": FindingInput, "implementation.commission": CommissionInput,
             "asset.snapshot": AssetSnapshotInput,
             "asset.import_reference_set": ReferenceImportInput,
             "implementation.reference": ReferenceInput, "implementation.bind_builtin": BuiltinBindingInput,
-            "implementation.attach": AttachInput, "research.start": ResearchInput, "literature.search": SearchInput,
-            "research.control": ResearchControlInput, "research.retry": ResearchRetryInput,
-            "decision.resolve": DecisionResolveInput, "decision.refresh": DecisionRefreshInput,
+            "implementation.attach": AttachInput, "literature.search": SearchInput,
+            "decision.resolve": DecisionResolveInput,
             "source.record": SourceRecordInput, "source.ingest": SourceIngestInput,
             "evaluator.commission": EvaluatorCommissionInput, "evaluator.attach": EvaluatorAttachInput, "implementation.control": ImplementationControlInput,
             "implementation.revalidate": RevalidationInput,
@@ -129,9 +165,9 @@ class CommandService:
             "implementation.resolve_runtime": RuntimeResolutionInput,
             "confirmation.release": ConfirmationReleaseInput, "confirmation.schedule": ConfirmationScheduleInput,
             "confirmation.validate": ConfirmationScheduleInput}
-        return {key: {"payload_schema": model.model_json_schema(), "delegable": key in DELEGATED,
+        return {key: {"payload_schema": model.model_json_schema(), "delegable": key in self.delegated,
                       **({"additional_required_target": "trial_id"} if key in {"validation.run", "validation.require"} else {})}
-                for key, model in models.items()}
+                for key, model in {**models, **self.models}.items()}
 
     def execute(self, command, *, actor="researcher"):
         command = command if isinstance(command, Command) else Command(**command)
@@ -167,9 +203,16 @@ class CommandService:
             raise
 
     def _execute(self, command, *, actor, prepared=None):
-        if actor not in {"researcher", "manager"}:
+        if actor not in {"researcher", "manager", "autopilot"}:
             raise ValueError("Unknown command authority")
-        request_hash = content_hash({"command": command.model_dump(mode="json"), "actor": actor})
+        # The fields the rebuild added are left out of the hash when unset, so receipts written before them still replay.
+        request = command.model_dump(mode="json")
+        for key in ("origin", "expected_thread_revision"):
+            if request.get(key) is None:
+                request.pop(key, None)
+        request_hash = content_hash({"command": request, "actor": actor})
+        # A receipt hashed with those fields present but unset (written between the two conventions) still matches.
+        full_hash = content_hash({"command": command.model_dump(mode="json"), "actor": actor})
         with self.workspace.lock:
             with self.store.transaction():
                 try:
@@ -177,7 +220,7 @@ class CommandService:
                 except KeyError:
                     previous = None
                 if previous:
-                    if previous["request_hash"] != request_hash:
+                    if previous["request_hash"] not in {request_hash, full_hash}:
                         raise ValueError("Command identity already belongs to a different request or authority")
                     return previous
                 if command.operation == "campaign.create":
@@ -193,19 +236,27 @@ class CommandService:
                     guidance = self.workspace.memory.state(command.campaign_id)["guidance_revision"]
                     if command.expected_guidance_revision is not None and guidance != command.expected_guidance_revision:
                         raise ValueError("Researcher guidance changed since this command was prepared")
+                    if command.expected_thread_revision is not None and self.thread_revision is not None:
+                        if self.thread_revision(command) != command.expected_thread_revision:
+                            raise ValueError("The researcher wrote in this conversation since this command was prepared")
                     authority = self.authority_hash(campaign)
                     if command.expected_authority_hash is not None and command.expected_authority_hash != authority:
                         raise ValueError("The command's resource grant changed")
-                if actor == "manager":
+                if actor in {"manager", "autopilot"}:
                     if command.expected_guidance_revision is None or command.expected_authority_hash is None:
                         raise ValueError("Manager commands must pin guidance and delegated authority")
-                    if campaign["autonomy"] != "delegated" or command.operation not in DELEGATED:
+                    if campaign["autonomy"] != "delegated" or command.operation not in self.delegated:
                         raise ValueError("This action needs researcher authorization at the campaign manager interface")
                     from .inbox import check_issues
                     check_issues(self.workspace, command)
+                    for guard in self.guards:
+                        guard(command, actor, campaign)
                     default_wall = 60 if command.operation == "trial.create" else 120
-                    if command.operation in {"trial.create", "validation.run", "validation.execute", "inference.run"} and command.payload.get("wall_seconds", default_wall) > campaign["delegated_trial_seconds"]:
+                    if (command.operation in {"trial.create", "validation.run", "validation.execute", "inference.run", "evaluator.equivalence", "trial.continue"}
+                            and command.payload.get("wall_seconds", default_wall) > campaign["delegated_trial_seconds"]):
                         raise ValueError("Command exceeds the manager's delegated per-experiment allowance")
+                    if command.operation == "trial.continue" and command.payload.get("accept_unverified"):
+                        raise ValueError("Only the researcher continues a run under an evaluator that was not shown to be equivalent")
                     # The manager may pause, stop or resume within an allocation; only the researcher enlarges one.
                     if command.operation == "trial.control" and (command.payload.get("action") == "extend"
                             or any(command.payload.get(key) is not None for key in ("max_steps", "wall_seconds"))):
@@ -220,14 +271,35 @@ class CommandService:
                 outcome = self._apply(command, actor, prepared=prepared) if prepared is not None else self._apply(command, actor)
                 record = {"id": command.id, "campaign_id": command.campaign_id, "request_hash": request_hash,
                     "request": command.model_dump(mode="json"), "actor": actor, "authority_hash": authority,
+                    "origin": command.origin.model_dump(mode="json") if command.origin else None,
                     "status": "completed", "outcome": outcome, "created_at": now(), "finished_at": now()}
                 self.store.put("work_command", record, "command.completed")
+        for listener in self.listeners:
+            try:
+                listener(record)
+            except Exception as exc:   # a listener never undoes a committed command
+                self.store.event(command.campaign_id, "command.listener_failed", {"record_id": record["id"], "error_type": type(exc).__name__})
         self.workspace.dispatch_outbox()
         if command.operation == "study.race.create" and self.workspace.thread is not None:
             from optimization_framework.execution.race_guard import arm
             race = self.store.get(record["outcome"]["race_id"], "adaptive_race")
             arm(self.workspace, race["id"], race["deadline_at"])
         return record
+
+    def _hold_race_configurations(self, campaign_id, hypothesis_id, reason, actor):
+        from optimization_framework.contracts.racing import RaceDecisionInput
+        for race in self.store.list("adaptive_race", campaign_id):
+            if race.get("status") not in {"preflight", "running", "paused"}:
+                continue
+            protocol = self.workspace.racing._protocol(race)
+            bound = [item["id"] for item in protocol["configurations"] if item.get("hypothesis_id") == hypothesis_id
+                     and race["configurations"].get(item["id"], {}).get("status") not in {"held", "eliminated", "stopped"}]
+            if bound:
+                try:
+                    self.workspace.racing.decide(campaign_id, RaceDecisionInput(race_id=race["id"], action="hold", configuration_ids=bound,
+                                                 rationale=f"Strategy {hypothesis_id} was stopped: {reason}"[:5000]), authority=actor)
+                except ValueError as exc:
+                    self.workspace.memory.issue(campaign_id, "race_hold_failed", str(exc), affected=race["id"])
 
     def _target(self, command, key, kind):
         identity = command.payload[key]
@@ -247,6 +319,8 @@ class CommandService:
         payload = dict(command.payload)
         if payload.get("campaign_id", command.campaign_id) != command.campaign_id:
             raise ValueError("Command payload refers to another campaign")
+        if command.operation in self.handlers:
+            return self.handlers[command.operation](command, actor)
         if command.operation == "agent.activate":
             return self.workspace.pi.activate(command.campaign_id, payload, command.id)
         if command.operation == "agent.message":
@@ -257,41 +331,13 @@ class CommandService:
             return self.workspace.pi.rollback(command.campaign_id, payload)
         if command.operation == "agent.configure":
             return self.workspace.pi.configure(command.campaign_id, payload, command.id)
+        if command.operation == "agent.question_dismiss":
+            return self.workspace.pi.dismiss_question(command.campaign_id, payload)
+        if command.operation == "agent.ui_respond":
+            return self.workspace.pi.ui_respond(command.campaign_id, payload)
         if command.operation == "fixed_mask.run":
             from optimization_framework.agents.diagnostics import reserve
             return reserve(self.workspace, command.campaign_id, payload, command.id)
-        if command.operation == "models.configure":
-            record = self.workspace.models.save(command.campaign_id, payload)
-            return {"model_policy_id": record["id"], "revision": record["revision"]}
-        if command.operation == "discovery.start":
-            if self.workspace.pi.owns(command.campaign_id):
-                raise ValueError("The agent team owns this campaign. Send discovery requests through Message the lead agent.")
-            session = self.workspace.discovery.start(command.campaign_id, payload, command.id)
-            return {"session_id": session["id"], "session": session}
-        if command.operation == "discovery.control":
-            if self.workspace.pi.owns(command.campaign_id):
-                raise ValueError("This discovery session is archived. Use the lead agent controls.")
-            session = self.workspace.discovery.control(command.campaign_id, payload)
-            return {"session_id": session["id"], "session": session}
-        if command.operation == "discovery.amend":
-            session = self.workspace.discovery.amend(command.campaign_id, payload)
-            return {"session_id": session["id"], "session": session}
-        if command.operation == "discovery.retry":
-            return self.workspace.discovery.retry(command.campaign_id, payload, command.id)
-        if command.operation == "discovery.assessment.save":
-            assessment = self.workspace.discovery.assessments.save(command.campaign_id, payload, "assessment_" + command.id, authority=actor)
-            return {"assessment_id": assessment["id"], "assessment": assessment}
-        if command.operation == "discovery.assessment.launch":
-            return self.workspace.discovery.assessments.launch(command.campaign_id, payload, authority=actor)
-        if command.operation == "discovery.assessment.decide":
-            decision = self.workspace.discovery.assessments.decide(command.campaign_id, payload, "assessment_decision_" + command.id, authority=actor)
-            return {"decision_id": decision["id"], "decision": decision}
-        if command.operation == "context.import":
-            from optimization_framework.campaigns.context import import_edit
-            revision = import_edit(self.workspace, command.campaign_id, ContextImportInput(**payload))
-            self.store.put("outbox", {"id": "projection_" + command.id, "kind": "manager_context_projection",
-                "campaign_id": command.campaign_id, "status": "pending", "created_at": now()}, "effect.queued")
-            return {"context_id": revision["id"], "revision": revision["revision"], "guidance_revision": revision["guidance_revision"]}
         if command.operation in {"hypothesis.create", "hypothesis.review", "hypothesis.status", "hypothesis.nominate"}:
             from optimization_framework.campaigns import hypotheses
             if command.operation == "hypothesis.create":
@@ -313,13 +359,13 @@ class CommandService:
                     model = HypothesisStatusInput if command.operation == "hypothesis.status" else HypothesisNominateInput
                     values = model(**payload)
                     hypothesis = hypotheses.set_status(self.workspace, hypothesis,
-                        values.status if command.operation == "hypothesis.status" else "finalist", values.expected_status_revision)
-            guidance = self.workspace.memory.state(command.campaign_id)
-            if actor == "researcher":
-                guidance["guidance_revision"] += 1
-            self.store.put("manager_state", guidance)
-            self.store.put("outbox", {"id": "projection_" + command.id, "kind": "manager_context_projection",
-                "campaign_id": command.campaign_id, "status": "pending", "created_at": now()}, "effect.queued")
+                        values.status if command.operation == "hypothesis.status" else "finalist", values.expected_status_revision,
+                        stop_reason=getattr(values, "stop_reason", None))
+                    if command.operation == "hypothesis.status" and values.status == "archived":
+                        # A stopped strategy's race configuration is held, so the race spends nothing more on it.
+                        self._hold_race_configurations(command.campaign_id, hypothesis["id"], hypothesis.get("stop_reason") or "stopped", actor)
+            if actor == "researcher" and not getattr(self, "_batch_depth", 0):
+                self.workspace.memory.bump(command.campaign_id)
             return {"hypothesis_id": hypothesis["id"], "hypothesis": self.store.get(hypothesis["id"], "hypothesis")}
         if command.operation in {"campaign.create", "campaign.update", "context.edit", "issue.resolve"}:
             if command.operation == "campaign.create":
@@ -331,7 +377,7 @@ class CommandService:
                 campaign = self.workspace.update_campaign(command.campaign_id,
                     CampaignUpdate(**values.model_dump(exclude={"rationale"}, exclude_none=True)))
                 limits = ("compute_budget_seconds", "llm_budget_usd", "delegated_trial_seconds",
-                    "validation_reserve_seconds", "implementation_compute_budget_seconds")
+                    "validation_reserve_seconds", "implementation_compute_budget_seconds", "compute_notice_seconds", "compute_gate_seconds")
                 changed = [key for key in limits if previous.get(key) != campaign.get(key)]
                 if changed:
                     self.store.put_immutable("campaign_budget_amendment", {
@@ -350,11 +396,12 @@ class CommandService:
             else:
                 values = IssueResolveInput(**payload)
                 self._target(command, "issue_id", "manager_issue")
+                if actor != "researcher" and (values.choice != "resolved" or len(values.comment.strip()) < 20):
+                    raise ValueError("An agent closes an issue only when its condition no longer holds: choice resolved, with a comment that "
+                                     "says what superseded or fixed it. Deferring an issue and taking one of its actions are the researcher's.")
                 issue = self.workspace.memory.resolve_issue(values.issue_id, values.choice, values.comment,
-                    expected_revision=values.expected_revision)
+                    expected_revision=values.expected_revision, action=values.action, by=actor)
                 outcome = {"issue_id": issue["id"], "revision": issue["revision"], "issue": issue}
-            self.store.put("outbox", {"id": "projection_" + command.id, "kind": "manager_context_projection",
-                "campaign_id": command.campaign_id, "status": "pending", "created_at": now()}, "effect.queued")
             return outcome
         if command.operation == "cost.reconcile":
             from optimization_framework.assets.accounting import reconcile
@@ -376,11 +423,16 @@ class CommandService:
         if command.operation == "asset.snapshot":
             values = AssetSnapshotInput(**payload)
             trial = self._target(command, "trial_id", "trial")
-            from optimization_framework.execution.worker import iter_journal
-            observation = next((row for row in iter_journal(self.workspace.job_dir(trial["id"]) / "observations.jsonl")
+            from optimization_framework.execution.metrics import full_row, scalar_rows
+            journal = self.workspace.job_dir(trial["id"]) / "observations.jsonl"
+            observation = next((full_row(journal, offset) for offset, _, row in scalar_rows(journal)
                                 if row.get("id") == values.observation_id and row.get("status") == "ok"), None)
             if observation is None:
                 raise ValueError("Select an exact successful observation from this experiment's journal")
+            from optimization_framework.execution.compaction import has_design
+            if not has_design(observation):
+                raise ValueError(f"That observation's design was removed when this experiment's journals were compacted on {trial.get('journals_compacted_at')}; "
+                                 "its archive and a spread of its designs remain")
             from optimization_framework.evaluation.jobs import snapshot_solutions
             asset = snapshot_solutions(self.workspace, trial, [observation["candidate"]])[0]
             return {"asset_id": asset["id"], "observation_id": values.observation_id}
@@ -513,30 +565,9 @@ class CommandService:
                 "status": "pending", "created_at": now()}
             self.store.put("outbox", effect, "effect.queued")
             return {"effect_id": effect["id"], "hypothesis_id": values["hypothesis_id"], "implementation_version_id": values["version_id"]}
-        if command.operation == "research.start":
-            request = ResearchInput(**{**payload, "campaign_id": command.campaign_id})
-            if request.hypothesis_id:
-                self._target(command, "hypothesis_id", "hypothesis")
-            from optimization_framework.campaigns.research_commands import manager
-            feedback_snapshot = manager(self.workspace).validate_request(request)
-            if actor == "researcher":
-                memory = self.workspace.memory.state(command.campaign_id)
-                memory["guidance_revision"] += 1
-                self.store.put("manager_state", memory)
-            manager(self.workspace).admit(request, automatic=actor == "manager",
-                command_id="turn_" + command.id, feedback_snapshot=feedback_snapshot)
-            effect = {"id": "research_" + command.id, "campaign_id": command.campaign_id, "kind": "manager_start",
-                "request": request.model_dump(), "automatic": actor == "manager", "manager_command_id": "turn_" + command.id,
-                "guidance_recorded": True, "feedback_snapshot": feedback_snapshot,
-                "status": "pending", "created_at": now()}
-            self.store.put("outbox", effect, "effect.queued")
-            return {"manager_command_id": effect["manager_command_id"], "effect_id": effect["id"]}
-        if command.operation in {"research.control", "research.retry", "decision.resolve", "decision.refresh"}:
-            from optimization_framework.campaigns import research_commands
-            handler = {"research.control": research_commands.control, "research.retry": research_commands.retry,
-                       "decision.resolve": research_commands.resolve,
-                       "decision.refresh": research_commands.refresh}[command.operation]
-            return handler(self.workspace, command)
+        if command.operation == "decision.resolve":
+            from .approvals import resolve
+            return resolve(self.workspace, command)
         if command.operation == "source.record":
             values = SourceRecordInput(**payload).model_dump(exclude={"schema_version"})
             source = {**values, "id": "source_" + command.id, "campaign_id": command.campaign_id,
@@ -560,7 +591,7 @@ class CommandService:
             return self._trial_outcome(self.workspace.control(trial["id"], request, authority=actor))
         if command.operation == "trial.extension_request":
             # The researcher approves it in the decision inbox, which runs the
-            # extension under researcher authority (research_commands.resolve).
+            # extension under researcher authority (approvals.resolve).
             values = TrialExtensionRequestInput(**payload)
             trial = self._target(command, "trial_id", "trial")
             if trial.get("confirmation_protocol_hash") or trial.get("execution_grant_id") or trial.get("race_phase") == "confirmation":
@@ -629,6 +660,134 @@ class CommandService:
             decision = ReuseDecision(id="reuse_" + command.id, campaign_id=command.campaign_id,
                 **values, authority=actor, created_at=now())
             return {"reuse_decision_id": self.workspace.assets.decide(decision)["id"]}
+        if command.operation == "evaluator.equivalence":
+            record = self.workspace.equivalence.start(command.campaign_id, EquivalenceInput(**payload))
+            return {"equivalence_id": record["id"], "replay_trial_id": record["replay_trial_id"], "candidates": len(record["expected"])}
+        if command.operation == "trial.continue":
+            self._target(command, "trial_id", "trial")
+            return self._trial_outcome(self.workspace.continue_trial(TrialContinueInput(**payload)), snapshot=actor == "researcher")
+        if command.operation == "experiments.rules":
+            from .experiment_rules import update
+            return update(self.store, command.campaign_id, payload, actor)
+        if command.operation == "trial.hide":
+            from .experiment_rules import hide
+            return hide(self.store, command.campaign_id, payload, actor)
+        if command.operation == "workers.set":
+            if actor != "researcher":
+                raise ValueError("Only the researcher changes the worker ceiling; file approval.request")
+            values = WorkerCeilingInput(**payload)
+            previous = self.workspace.max_workers
+            gpu = self.workspace.gpu_workers if values.gpu_workers is None else values.gpu_workers
+            # The scheduler reads the slots on every pass, so the change holds from the next one, and it is kept across
+            # restarts. A runtime profile measured under the old ceiling is no longer current, and a new one measures up to this one.
+            self.workspace.set_slots(values.workers, min(gpu, values.workers - 1), authority=actor, reason=values.rationale)
+            self.store.put_immutable("worker_ceiling_change", {"id": "worker_ceiling_" + command.id, "campaign_id": command.campaign_id,
+                "previous": previous, "workers": values.workers, "gpu_workers": self.workspace.gpu_workers, "rationale": values.rationale,
+                "authority": actor, "created_at": now(), "lasts": "Until changed again; kept across restarts."}, "workers.changed")
+            return {"previous": previous, "workers": values.workers, "gpu_workers": self.workspace.gpu_workers}
+        if command.operation == "approval.request":
+            # The researcher approves it in the decision inbox, which issues the change
+            # under researcher authority (approvals.resolve).
+            values = ApprovalRequestInput(**payload)
+            campaign = self.store.get(command.campaign_id, "campaign")
+            asker = "The lead agent" if self.workspace.pi.owns(command.campaign_id) else "The campaign manager"
+            request, planned = {"kind": values.kind}, None
+            if values.kind == "campaign_limits":
+                CampaignUpdate(**values.limits)
+                changes = {key: value for key, value in values.limits.items() if campaign.get(key) != value}
+                if not changes:
+                    raise ValueError("The campaign already has these limits")
+                request["limits"] = changes
+                shown = "; ".join(f"{key} {campaign.get(key):g} to {value:g}" for key, value in changes.items())
+                title, approve = f"Change campaign limits ({shown})?", "Change the limits"
+                proposal = f"{asker} asks to change this campaign's limits: {shown}. The change is recorded as a budget amendment under your authority."
+            elif values.kind == "waiver":
+                requirement = self._target(command, "requirement_id", "validation_requirement")
+                for identity in values.evidence_ids:
+                    if self.store.get(identity).get("campaign_id") != command.campaign_id:
+                        raise ValueError("A waiver request cites this campaign's own measurements")
+                results = [row for row in self.store.list("validation_result", command.campaign_id) if row["requirement_id"] == requirement["id"]]
+                request.update(requirement_id=requirement["id"], evidence_ids=values.evidence_ids)
+                title, approve = f"Waive the {requirement['kind'].replace('_', ' ')} check ({requirement['id']})?", "Waive the check"
+                proposal = (f"{asker} asks you to waive a check that now blocks work. " +
+                    (f"Its last result: {results[-1]['verdict']}. {results[-1].get('rationale', '')} " if results else "It has no result yet. ") +
+                    "A waiver is yours alone, is recorded with this reason, and can be revoked.")
+            elif values.kind == "compute":
+                from .compute_consent import _minutes
+                request.update(plan=values.plan, wall_seconds=values.wall_seconds, worker_seconds=values.worker_seconds,
+                               coding_workspaces=values.coding_workspaces, meanwhile=values.meanwhile)
+                if values.runs:
+                    # The experiments' plan, from the records: what the researcher reads before approving.
+                    from .experiment_plan import plan as experiment_plan
+                    request["runs"] = [run.model_dump(exclude_none=True, exclude={"schema_version"}) for run in values.runs]
+                    planned = experiment_plan(self.workspace, command.campaign_id, request["runs"])
+                coding = f" and opens {values.coding_workspaces} coding workspace{'s' if values.coding_workspaces > 1 else ''}" if values.coding_workspaces else ""
+                title, approve = f"Start this work now? About {_minutes(values.wall_seconds)} until results", "Start now"
+                proposal = (f"{asker} asks to start: {values.plan}\nIt takes about {_minutes(values.wall_seconds)} until results and uses up to "
+                    f"{_minutes(values.worker_seconds)} of worker time{coding}.\nMeanwhile: {values.meanwhile}")
+            else:
+                gpu = self.workspace.gpu_workers if values.gpu_workers is None else values.gpu_workers
+                if values.workers == self.workspace.max_workers and gpu == self.workspace.gpu_workers:
+                    raise ValueError(f"The lab already runs {values.workers} at once, {gpu} on the GPU")
+                request.update(workers=values.workers, gpu_workers=gpu)
+                title, approve = (f"Run {values.workers} experiments at once, {gpu} on the GPU (now {self.workspace.max_workers}, "
+                                  f"{self.workspace.gpu_workers} on the GPU)?"), "Change the slots"
+                proposal = (f"{asker} asks for {values.workers} experiments to run at once, {gpu} of them on the GPU, instead of "
+                    f"{self.workspace.max_workers} with {self.workspace.gpu_workers} on the GPU. It applies from the next scheduling pass, to every "
+                    "campaign on this server, and is kept across restarts; runs already going keep their device. "
+                    "A runtime profile measured under the old slots is no longer current.")
+            decision = {"id": "approval_" + command.id, "campaign_id": command.campaign_id, "charter_version": campaign["version"],
+                "guidance_revision": self.workspace.memory.state(command.campaign_id)["guidance_revision"],
+                "question": title, "title": title, "rationale": values.rationale, "context": values.rationale, "proposal": proposal,
+                "options": [{"id": "0", "label": approve, "description": "The requester starts it at once." if values.kind == "compute" else "Applied at once as your own command."},
+                            {"id": "1", "label": "Not now" if values.kind == "compute" else "Leave it as it is", "description": "The requester is told and nothing changes."}],
+                "recommendation": "0", "approval_request": request,
+                "requested_by": "lead" if self.workspace.pi.owns(command.campaign_id) else "manager", "audience": "researcher",
+                "status": "pending", "created_at": now(), **({"plan": planned} if planned else {})}
+            self.store.put("decision", decision, "decision.created")
+            return {"decision_id": decision["id"], "request": request}
+        if command.operation == "journal.compact":
+            if actor != "researcher":
+                raise ValueError("Only the researcher removes recorded designs; file journal.compaction_request")
+            values = JournalCompactInput(**payload)
+            plan = self.workspace.journals.plan(command.campaign_id, trial_ids=values.trial_ids, study_id=values.study_id)
+            job = self.workspace.journals.start(command.campaign_id, plan["trial_ids"], authority=actor, identity="journal_compaction_" + command.id)
+            return {"compaction_id": job["id"], "trial_ids": job["trial_ids"], "bytes_before": job["bytes_before"], "kept": job["kept"]}
+        if command.operation == "journal.compaction_request":
+            # The researcher approves it in the decision inbox, which runs the
+            # compaction under researcher authority (approvals.resolve).
+            values = JournalCompactionRequestInput(**payload)
+            plan = self.workspace.journals.plan(command.campaign_id, trial_ids=values.trial_ids, study_id=values.study_id)
+            if not plan["trial_ids"]:
+                raise ValueError("None of these experiments has journals left to compact")
+            campaign = self.store.get(command.campaign_id, "campaign")
+            lead = self.workspace.pi.owns(command.campaign_id)
+            count, size = len(plan["trial_ids"]), plan["bytes"] / 1e9
+            uncited = plan["not_cited_by_a_finding"]
+            title = f"Remove the evaluated designs from the journals of {count} finished experiment{'s' if count != 1 else ''} ({size:.2f} GB)?"
+            decision = {"id": "compaction_" + command.id, "campaign_id": command.campaign_id, "charter_version": campaign["version"],
+                "guidance_revision": self.workspace.memory.state(command.campaign_id)["guidance_revision"],
+                "question": title, "title": title, "rationale": values.rationale, "context": values.rationale,
+                "proposal": f"{'The lead agent' if lead else 'The campaign manager'} asks to compact the request and observation journals of {count} "
+                    f"finished experiment{'s' if count != 1 else ''}, which hold {size:.2f} GB. Every row and every number stays, with the designs of each "
+                    "experiment's archive, of its 32 best evaluations and of 32 spread over the run; results, metrics and saved states are untouched. "
+                    "The other evaluated designs are removed and cannot be brought back: they can no longer be snapshotted or replayed. "
+                    + (f"{len(uncited)} of these experiments {'is' if len(uncited) == 1 else 'are'} not cited by any recorded finding yet: " + ", ".join(uncited[:20])
+                       + (" …" if len(uncited) > 20 else "") + "." if uncited else "Every one of them is cited by a recorded finding."),
+                "options": [{"id": "0", "label": "Compact these journals", "description": "Runs under your authority; the removed designs are gone for good."},
+                            {"id": "1", "label": "Keep the journals", "description": "The requester is told and nothing changes."}],
+                "recommendation": "0" if not uncited else "1", "journal_compaction": {"trial_ids": plan["trial_ids"], "bytes": plan["bytes"]},
+                "requested_by": "lead" if lead else "manager", "audience": "researcher", "status": "pending", "created_at": now()}
+            self.store.put("decision", decision, "decision.created")
+            return {"decision_id": decision["id"], "trial_ids": plan["trial_ids"], "bytes": plan["bytes"], "not_cited_by_a_finding": uncited}
+        if command.operation in {"resources.plan", "resources.estimate"}:
+            from optimization_framework.execution.admission import ResourcePlanInput, UsageEstimateInput
+            if command.operation == "resources.plan":
+                return self.workspace.admission.plan(command.campaign_id, ResourcePlanInput(**payload), authority=actor)
+            return self.workspace.admission.estimate(command.campaign_id, UsageEstimateInput(**payload), authority=actor)
+        if command.operation == "runtime.profile":
+            profile = self.workspace.runtime.start(command.campaign_id, RuntimeProfileInput(**payload))
+            return {"runtime_profile_id": profile["id"], "levels": [level["workers"] for level in profile["levels"]]}
         if command.operation == "validation.waive":
             values = WaiverInput(**payload)
             requirement = self._target(command, "requirement_id", "validation_requirement")

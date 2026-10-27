@@ -101,6 +101,7 @@ def test_invalid_reference_binding_cannot_freeze_or_allocate(tmp_path):
     assert workspace.allocated_seconds(campaign["id"]) == 0
 
 
+@pytest.mark.meent
 def test_production_freezes_full_roster_and_priorities_without_running_a_research_campaign(tmp_path):
     from dqn_meent.replication import profile_config
     from dqn_meent.study_rules import conditional_design
@@ -194,7 +195,7 @@ def test_staged_selection_counts_child_work_and_unknown_cost_cannot_pick_a_winne
 
 def test_reference_catalog_and_cross_campaign_import_preserve_identity(tmp_path):
     from fastapi.testclient import TestClient
-    from optimization_framework.api.app import create_app
+    from balsamic.app import create_app
     from optimization_framework.assets.references import input_candidates
     from optimization_framework.contracts.templates import InputRequirement
     app = create_app(tmp_path, start_workers=False)

@@ -6,6 +6,9 @@ planned work, with measured values and forecasts labeled separately. Open
 **Resources** in the application navigation. Reading the dashboard does not launch
 an optimization trial, RCWA evaluation, calibration, or benchmark.
 
+Each task's measured evaluator speed and its open flags are part of the same view;
+see [runtime efficiency](runtime-efficiency.md).
+
 The read-only API is `GET /api/v1/resources?campaign_id=<campaign ID>`. The PI can
 read the same campaign-scoped view with `resource_inspect`. This makes resource
 constraints visible to both the researcher and the agent before allocating work.
@@ -164,3 +167,11 @@ The source-based planner cannot establish the Fourier order necessary for a
 particular grating's numerical convergence, exact optimizer runtime, or exact
 peak memory. Those require measurements. Planning and live monitoring make that
 uncertainty visible before a campaign spends its elapsed allowance.
+
+## The monitor (rebuilt workspace)
+
+The workspace's monitor pill and drawer read `GET /api/v1/campaigns/{id}/monitor` (`balsamic/monitor/rows.py`): the
+budget row shows measured use and allocation and a forecast labelled as a forecast; the compute row shows runs against
+the worker ceiling, the admission queue and level, and the GPU from this snapshot's `host.gpu` (NVIDIA utilization and
+memory through `nvidia-smi` when available, otherwise "devices listed; utilization not measured", or "no GPU reported").
+The Resources page polls the snapshot every five seconds only while open. See [ui-workspace.md](ui-workspace.md#m3-merge-monitor-autopilot).

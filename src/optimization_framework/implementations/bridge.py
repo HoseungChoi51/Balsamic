@@ -3,13 +3,14 @@ from __future__ import annotations
 
 import copy
 import json
+import re
 import time
 
 from optimization_framework.implementations.client import ImplementationClient
 from optimization_framework.implementations.models import JobRequest, RevalidationRequest, LibraryUnavailable, check_parameters, digest
 from optimization_framework.implementations.runtime import tree_hashes, verify_runtime, write_package, bundle_runtime_root, pin_runtime
 from optimization_framework.implementations.validation import evaluator_identity, profile_identity
-from optimization_framework.research.providers import api_spend
+from optimization_framework.llm.providers import api_spend
 from optimization_framework.storage.sqlite import atomic_json, identifier, now
 
 
@@ -29,11 +30,16 @@ def public_grant(grant):
     return result
 
 
+# A record id as agents write them: words joined by underscores, ending in a long hex digest (artifact_pi_tool_86f8…).
+RECORD_ID = re.compile(r"\b[a-z][a-z0-9]*(?:_[a-z0-9]+)*_[0-9a-f]{12,}\b")
+
+
 class ImplementationBridge:
     def __init__(self, workspace, client=None):
         self.workspace = workspace
         self.store = workspace.store
         self.client = client or ImplementationClient()
+        self.client_given = client is not None
         self.connection_error = None
         self.workspace_id = self.store.identity()
         # Unsettled jobs are refetched when the library's event feed names them;
@@ -108,13 +114,25 @@ class ImplementationBridge:
                 return {"state": "incompatible", "runnable": False, "reason": str(exc), "version_id": version_id}
             return {"state": "ready", "runnable": True, "reason": "Implementation validation passed. Experimental performance is assessed separately.",
                     "version_id": version_id, "validation_report_id": report["id"]}
-        if hypothesis.get("algorithm") in {a["id"] for a in algorithms()}:
+        installed = {a["id"] for a in algorithms()}
+        if hypothesis.get("algorithm") in installed:
+            from optimization_framework.optimizers import plugins
             from optimization_framework.optimizers.registry import capability_reason
+            name = hypothesis["algorithm"]
             candidates = [task] if task else self.workspace.current_tasks(hypothesis["campaign_id"])
-            reasons = [capability_reason(hypothesis["algorithm"], candidate["problem"]) for candidate in candidates if candidate.get("problem")]
+            reasons = [capability_reason(name, candidate["problem"]) for candidate in candidates if candidate.get("problem")]
             if reasons and all(reasons):
                 return {"state": "incompatible", "runnable": False, "reason": "; ".join(sorted(set(reasons)))}
+            if hypothesis.get("algorithm_chosen") is False:
+                return {"state": "ready", "runnable": True, "default_method": True, "validation_level": "bundled_regression",
+                        "reason": f"It would run the default method ({name}): no method of its own was chosen for it."}
+            if (origin := plugins.installed.origin(name)) and not origin["own"]:
+                return {"state": "ready", "runnable": True, "validation_level": "installed_library", "package": origin,
+                        "reason": f"Installed library {origin['distribution'] or origin['entry_point']} {origin['version'] or ''} provides {name}.".replace("  ", " ")}
             return {"state": "ready", "runnable": True, "reason": "Built-in implementation is available.", "validation_level": "bundled_regression"}
+        from optimization_framework.campaigns.method_catalog import development_readiness
+        if building := development_readiness(self.store, hypothesis, installed):
+            return building
         if job:
             return {"state": job["status"], "runnable": False, "reason": job.get("error") or "Implementation work is in progress.", "job_id": job.get("job_id"), "grant_id": job["id"]}
         if hypothesis.get("source"):
@@ -243,6 +261,7 @@ class ImplementationBridge:
                 if grant.get("job_id"):
                     return grant
             else:
+                self.check_self_contained(request["spec"])
                 if self.compute_committed(campaign_id) + compute_seconds > campaign.get("implementation_compute_budget_seconds", 0):
                     raise ValueError("Assign a separate implementation compute allocation in the campaign charter before commissioning this job")
                 research_spent = sum(api_spend(r.get("usage"))
@@ -311,6 +330,23 @@ class ImplementationBridge:
                 "role": "assistant", "origin": "manager_system", "grant_id": identity, "created_at": now(),
                 "content": f"Reserved {compute_seconds:g}s to revalidate {version['name']} against independent checks. The existing executable stays pinned; this job makes no model calls."}, "message.created")
             return grant
+
+    def check_self_contained(self, spec):
+        """Refuse a specification whose text names campaign records instead of stating them: the test designer, builders and
+        reviewer see the specification alone, by design, and cannot read a record it points to. Provenance may cite them, and
+        structured fields (an evaluator version a method is bound to) name what the service itself resolves."""
+        text = json.dumps([spec.get(key) for key in ("name", "mechanism", "acceptance_criteria")])
+        named = []
+        for token in dict.fromkeys(RECORD_ID.findall(text)):
+            try:
+                self.store.get_entry(token)
+                named.append(token)
+            except KeyError:
+                pass
+        if named:
+            raise ValueError(f"The specification names campaign records ({', '.join(named)}) that the independent test designer, builders "
+                             "and reviewer cannot read: they see the specification alone. Write what those records state into the "
+                             "mechanism (up to 20,000 characters) and the acceptance criteria, and cite the ids in provenance")
 
     @staticmethod
     def hypothesis_digest(hypothesis):

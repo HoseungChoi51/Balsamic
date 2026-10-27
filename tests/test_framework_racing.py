@@ -346,6 +346,7 @@ def test_protocol_rejects_seed_leakage_and_invalid_resource_envelope():
         RaceCreateInput(**base, worker_seconds=230401)
 
 
+@pytest.mark.meent
 def test_native_confirmation_freezes_complete_roster_and_threaded_prototypes(tmp_path):
     """Exercise real source pinning and cell expansion without numerical work."""
     from optimization_framework.execution.service import Workspace

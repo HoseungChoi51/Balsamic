@@ -102,6 +102,38 @@ def _observations(trial: dict, rows: list[dict]) -> list[dict]:
     return list(unique.values())
 
 
+def _fold_chains(trials: list[dict], metrics_by_id: dict) -> tuple[list[dict], dict]:
+    """Read a continued run as one run: its experiments' curves end to end on cumulative axes.
+
+    The last experiment of a chain stands for the whole; a branch counts its shared beginning as its own.
+    """
+    by_id = {trial["id"]: trial for trial in trials}
+    continued = {trial["continues"]["trial_id"] for trial in trials if trial.get("continues")}
+    axes = ("solver_calls", "elapsed_seconds", "evaluations", "step")
+    folded, metrics = [], dict(metrics_by_id)
+    for trial in trials:
+        if trial["id"] in continued:
+            continue
+        chain = [trial]
+        while chain[0].get("continues") and chain[0]["continues"]["trial_id"] in by_id and by_id[chain[0]["continues"]["trial_id"]] not in chain:
+            chain.insert(0, by_id[chain[0]["continues"]["trial_id"]])
+        if len(chain) == 1 or any(not isinstance(metrics_by_id.get(member["id"], []), list) for member in chain):
+            folded.append(trial)
+            continue
+        offsets, rows = dict.fromkeys(axes, 0.), []
+        for member in chain:
+            shift = lambda row: {**row, **{axis: row[axis] + offsets[axis] for axis in axes if _number(row.get(axis)) is not None}}
+            rows.extend(shift(row) for row in metrics_by_id.get(member["id"], []))
+            final = shift({axis: _latest(member).get(axis) for axis in axes})
+            offsets = {axis: final[axis] if _number(final.get(axis)) is not None else offsets[axis] for axis in axes}
+        total = lambda key: sum(_number(member.get(key)) or 0 for member in chain)
+        folded.append({**trial, "max_steps": total("max_steps"), "wall_seconds": total("wall_seconds"), "execution_seconds": total("execution_seconds"),
+                       "chain_trial_ids": [member["id"] for member in chain],
+                       "progress": {**(trial.get("result") or {}), **(trial.get("progress") or {}), **offsets}})
+        metrics[trial["id"]] = rows
+    return folded, metrics
+
+
 def _axis_curve(points: list[dict], axis: str) -> list[dict]:
     observed = {}
     for point in points:
@@ -171,6 +203,7 @@ def _summary(trial: dict, task: dict, observations: list[dict]) -> dict:
             "solver_calls": _number(latest.get("solver_calls")), "cache_hits": _number(latest.get("cache_hits")),
             "unconfirmed_solver_calls": _number(latest.get("unconfirmed_solver_calls")) or 0,
             "allocation": {"max_steps": trial.get("max_steps"), "wall_seconds": trial.get("wall_seconds")},
+            **({"chain_trial_ids": trial["chain_trial_ids"]} if trial.get("chain_trial_ids") else {}),
             "condition": _condition(trial, task), "curves": curves}
 
 
@@ -341,6 +374,7 @@ def analyze_trials(trials: list[dict], metrics_by_id: dict[str, list[dict]], tas
     identity; duplicate seed runs are excluded instead of cherry-picked.
     """
     task_map = {task["id"]: task for task in tasks}
+    trials, metrics_by_id = _fold_chains(trials, metrics_by_id)
     originals = {trial["id"]: trial for trial in trials}
     summaries, grouped, validation_runs = [], defaultdict(list), []
     for trial in trials:

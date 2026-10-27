@@ -38,14 +38,12 @@ class Session(AbstractContextManager):
     def __enter__(self):
         if self.directory:
             from optimization_framework.execution.service import Workspace
-            from optimization_framework.campaigns.manager import CampaignManager
             self.workspace = Workspace(self.directory)
             try:
                 self.workspace.start()
             except RuntimeError as exc:
                 self.workspace = None
                 raise RuntimeError("Another service owns this workspace; use --workspace-url to connect to it") from exc
-            CampaignManager(self.workspace)
         else:
             self.http = httpx.Client(base_url=self.url, timeout=60)
         try:
@@ -84,10 +82,24 @@ class Session(AbstractContextManager):
             return {"workspace_id": store.identity(), "campaigns": campaigns, "campaign": campaign,
                 **{name: store.list(kind, campaign["id"]) if campaign else [] for kind, name in
                    (("task", "tasks"), ("trial", "trials"), ("study", "studies"))}}
-        return self.request("GET", "/api/v1/state", params={"campaign_id": campaign_id} if campaign_id else {}).json()
+        campaigns = self.request("GET", "/api/v1/campaigns").json()["campaigns"]
+        current = campaign_id or (campaigns[-1]["id"] if campaigns else None)
+        workspace_id = self.request("GET", "/api/v1/workspace").json()["workspace_id"]
+        if not current:
+            return {"workspace_id": workspace_id, "campaigns": campaigns, "campaign": None, "tasks": [], "trials": [], "studies": []}
+        summary = self.request("GET", f"/api/v1/campaigns/{quote(current, safe='')}/summary").json()
+        return {"workspace_id": workspace_id, "campaigns": campaigns, "campaign": summary["campaign"], "tasks": summary["tasks"],
+                "trials": summary["trials"], "studies": summary["studies"]}
 
     def trial(self, campaign_id, identity):
-        return next(row for row in self.state(campaign_id)["trials"] if row["id"] == identity)
+        """One run's whole record; state() lists runs without their designs."""
+        if self.workspace:
+            trial = self.workspace.store.get(identity, "trial")
+        else:
+            trial = self.request("GET", f"/api/v1/experiments/{quote(identity, safe='')}").json()["trial"]
+        if trial["campaign_id"] != campaign_id:
+            raise KeyError(f"{identity} is not an experiment of {campaign_id}")
+        return trial
 
     def submit(self, request):
         command = request if isinstance(request, Command) else Command.model_validate(request)

@@ -28,6 +28,7 @@ def observed(proposal, instance, value):
         objectives={instance.primary_objective.name: value}, evaluator_identity=instance.evaluation_identity)
 
 
+@pytest.mark.meent
 @pytest.mark.parametrize("method", ["motif_surgery", "nested_fourier", "phenotype_de"])
 def test_campaign_mask_order_and_checkpoint_replay(method):
     instance = problem()
@@ -45,6 +46,7 @@ def test_campaign_mask_order_and_checkpoint_replay(method):
     assert resumed.propose()[0].model_dump() == expected.model_dump()
 
 
+@pytest.mark.meent
 @pytest.mark.parametrize("method", ["motif_surgery", "nested_fourier", "phenotype_de"])
 def test_full_size_mask_is_accepted_by_meent_adapter(method):
     instance = problem(256, 128)
@@ -64,7 +66,7 @@ def test_real_meent_uses_campaign_mask_order(method):
     optimizer = create(method, instance, {}, seed=7, schedule_steps=1)
     proposal = optimizer.propose()[0]
     result = Meent2DProblem().evaluator(instance).evaluate(proposal.candidate)
-    assert result.solver_executions == 2
+    assert result.solver_executions == 1
     assert result.objectives["mean_plus1_transmission"] == pytest.approx(
         (result.objectives["te_plus1_transmission"] + result.objectives["tm_plus1_transmission"]) / 2)
     optimizer.observe([observed(proposal, instance, result.objectives["mean_plus1_transmission"])])

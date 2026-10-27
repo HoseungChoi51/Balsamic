@@ -5,7 +5,7 @@ import json
 from fastapi.testclient import TestClient
 import pytest
 
-from optimization_framework.api.app import create_app
+from balsamic.app import create_app
 from optimization_framework.reports.editorial import Analyze, Brief, Draft, EvidenceRead, Investigation, Review, Selection, SourceRead, SourceSearch
 from optimization_framework.reports.evidence import EvidenceTools, freeze, freeze_curve
 from optimization_framework.reports.writer import WriterRequest
@@ -63,7 +63,7 @@ def scripted_model(monkeypatch, *, question=None, blocking=False, fail_stage=Non
                 return Review(assessment="Evidence check", issues=[{"id": "verify_1", "severity": "blocking", "problem": "A consequential contradiction remains", "action": "Narrow the claim"}] if blocking else [])
             return Review(assessment="Useful and appropriately narrow.")
         raise AssertionError(result_type)
-    monkeypatch.setattr("optimization_framework.research.engine.LLMAdapter.call_with_prompt", respond)
+    monkeypatch.setattr("optimization_framework.llm.adapter.LLMAdapter.call_with_prompt", respond)
     return calls
 
 
@@ -196,7 +196,7 @@ def test_indirect_withheld_references_and_cross_campaign_pins_are_excluded(app):
     store.put("decision", {"id": "private_decision", "campaign_id": "campaign_test", "context": "Based on trial_secret results"})
     snapshot = freeze(app.state.workspace, "withheld", "campaign_test", {}, [])
     assert "private_study" not in snapshot["records"] and "private_decision" not in snapshot["records"]
-    with pytest.raises(ValueError, match="unavailable"):
+    with pytest.raises(ValueError, match="Not in this campaign.s report evidence.*foreign_trial"):
         freeze(app.state.workspace, "outside", "campaign_test", {}, ["foreign_trial"])
 
 
@@ -327,3 +327,15 @@ def test_job_api_enforces_workspace_and_exports_durable_artifacts(app, monkeypat
         assert "attachment" in artifact.headers["content-disposition"]
         assert artifact.json()["snapshot"]["content_hash"] and artifact.json()["stages"][0]["output"]["question"]
         assert client.post(f"/api/report-writer/jobs/{job['id']}/cancel", json={}).json()["status"] == "cancelled"
+
+
+def test_a_claims_passage_is_found_across_a_heading_and_despite_typographic_marks_but_not_when_absent():
+    from optimization_framework.reports.pipeline import located
+    plain = ("The ES adapts only 32 coefficients. Reviewer assessment: the basis carries the win "
+             "The review judges that the mechanism “almost certainly wins” — mostly from the basis.")
+    assert located("The ES adapts only 32 coefficients. The review judges that the mechanism", plain)
+    assert located('the mechanism "almost certainly wins" - mostly from the basis.', plain)
+    assert not located("The ES adapts only 64 coefficients.", plain)
+    # Sentences must appear in the draft's order, and an empty passage locates nothing.
+    assert not located("The review judges that the mechanism \u201calmost certainly wins\u201d \u2014 mostly from the basis. The ES adapts only 32 coefficients.", plain)
+    assert not located("  ", plain)

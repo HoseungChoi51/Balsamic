@@ -14,7 +14,7 @@ import sys
 import threading
 import time
 
-from optimization_framework.contracts.requests import CampaignInput, CampaignUpdate, TrialInput, ControlInput, ValidationInput, RecipeInput, StudyInput, ResearchInput
+from optimization_framework.contracts.requests import CampaignInput, CampaignUpdate, TaskInput, TrialInput, ControlInput, ValidationInput, RecipeInput, StudyInput
 from optimization_framework.storage.sqlite import Store, atomic_json, identifier, now, read_json
 from optimization_framework.evaluation.registry import problems
 from optimization_framework.contracts.problems import ProblemInstance
@@ -27,6 +27,7 @@ from optimization_framework.execution.source import snapshot
 
 ACTIVE = {"queued", "running", "pausing", "stopping"}
 LIVE = {"running", "pausing", "stopping"}
+PROGRESS_EVENT_SECONDS = 2.0
 
 
 def process_identity(pid):
@@ -44,8 +45,14 @@ def alive(trial):
     return bool(pid and identity and process_identity(pid) == identity)
 
 
+DEPENDENCY_ACTIONS = [
+    {"id": "start_anyway", "label": "Start them anyway",
+     "description": "Each waiting run starts once the run before it has ended, completed or not; the order stays."},
+    {"id": "stop", "label": "Stop them", "description": "The waiting runs are stopped; nothing else changes."}]
+
+
 class Workspace:
-    def __init__(self, directory, max_workers=2, stop_grace_seconds=5, implementation_client=None):
+    def __init__(self, directory, max_workers=2, stop_grace_seconds=5, implementation_client=None, guidance=None, gpu_workers=0):
         self.store = Store(directory)
         self.directory = self.store.directory
         from optimization_framework.research.log import AgentLog
@@ -53,24 +60,35 @@ class Workspace:
         self.store.event_observer = self.agent_log.observe
         self.agent_log_thread = None
         self.max_workers = max(1, min(int(max_workers), 16))
+        self.gpu_workers = max(0, int(gpu_workers))   # of the max_workers slots, how many run on the GPU (execution/devices.py)
+        # The launcher's settings are defaults; slots the researcher chose in Balsamic (set_slots) hold across restarts.
+        self.launcher_slots = {"workers": self.max_workers, "gpu_workers": self.gpu_workers}
+        try:
+            chosen = self.store.get("lab_slots", "lab_slots")
+            self.max_workers, self.gpu_workers = max(1, int(chosen["workers"])), max(0, int(chosen["gpu_workers"]))
+        except KeyError:
+            pass
         self.stop_grace_seconds = stop_grace_seconds
+        self._progress_announced = {}   # trial id -> when its last progress event went out
         self.lock = threading.RLock()
         self.outbox_lock = threading.Lock()
         self.shutdown_event = threading.Event()
         self.thread = None
         self.processes = {}
         self.last_progress = {}
-        from optimization_framework.execution.metrics import MetricProjectionCache
+        from optimization_framework.execution.metrics import LargeJournalScalars, MetricProjectionCache
         self._metric_projections = MetricProjectionCache()
+        self._large_journals = LargeJournalScalars()
         self.research_threads = {}
         self.source_threads = {}
         self.on_trial_finished = None
         self._lease = None
-        from optimization_framework.research.model_policy import CampaignModels
+        from optimization_framework.llm.model_policy import CampaignModels
         self.models = CampaignModels(self)
-        from optimization_framework.campaigns.memory import CampaignMemory
+        from optimization_framework.campaigns.guidance import CampaignGuidance
         from optimization_framework.implementations.bridge import ImplementationBridge
-        self.memory = CampaignMemory(self)
+        # The researcher's guidance and the issue inbox; the service layer may extend it (per-thread revisions).
+        self.memory = (guidance or CampaignGuidance)(self)
         self.implementations = ImplementationBridge(self, implementation_client)
         from optimization_framework.evaluation.commissioning import EvaluatorService
         self.evaluators = EvaluatorService(self)
@@ -86,6 +104,8 @@ class Workspace:
         self.commands = CommandService(self)
         from optimization_framework.campaigns.drafts import DraftService
         self.drafts = DraftService(self)
+        from optimization_framework.problem_charter.service import Charters
+        self.charters = Charters(self)
         from optimization_framework.campaigns.reproduction import ReproductionService
         self.reproductions = ReproductionService(self)
         from optimization_framework.execution.resources import ResourceLedger
@@ -94,12 +114,31 @@ class Workspace:
         self.study_executions = StudyExecutionService(self)
         from optimization_framework.execution.racing import AdaptiveRacing
         self.racing = AdaptiveRacing(self)
+        from optimization_framework.execution.runtime_profile import RuntimeProfiles
+        self.runtime = RuntimeProfiles(self)
+        from optimization_framework.execution.admission import Admission
+        self.admission = Admission(self)
+        from optimization_framework.execution.devices import Pools
+        self.devices = Pools(self)
+        from optimization_framework.execution.equivalence import Equivalences
+        self.equivalence = Equivalences(self)
+        from optimization_framework.execution.compaction import JournalCompaction
+        self.journals = JournalCompaction(self)
+        from optimization_framework.campaigns.removal import CampaignRemoval
+        self.removal = CampaignRemoval(self)
+        self._report_writer = None
         self.maintenance_thread = None
         self.on_manager_tick = None
-        from optimization_framework.research.discovery.controller import DiscoveryController
-        self.discovery = DiscoveryController(self)
         from optimization_framework.agents.controller import PiController
         self.pi = PiController(self)
+
+    @property
+    def report_writer(self):
+        """The report writer, shared by the Reports page and the lead agent's report tools."""
+        if self._report_writer is None:
+            from optimization_framework.reports.writer import ReportWriter
+            self._report_writer = ReportWriter(self)
+        return self._report_writer
 
     def start(self):
         if self._lease:
@@ -117,9 +156,7 @@ class Workspace:
         for race in self.store.list("adaptive_race"):
             if race["status"] in {"preflight", "running", "paused"}:
                 arm(self, race["id"], race["deadline_at"])
-        from optimization_framework.research.lifecycle import recover
-        recover(self)
-        self.discovery.recover()
+        self.removal.recover()
         from optimization_framework.assets.service_costs import reconcile_workspace
         reconcile_workspace(self)
         self.thread = threading.Thread(target=self._loop, name="experiment-supervisor", daemon=True)
@@ -132,7 +169,6 @@ class Workspace:
     def _project_agent_logs(self):
         while not self.shutdown_event.wait(.5):
             self.agent_log.project_pending()
-            self.discovery.project_pending()
 
     def _maintenance(self):
         while not self.shutdown_event.wait(2):
@@ -171,7 +207,6 @@ class Workspace:
             for thread in writers:
                 thread.join()
             self.agent_log.project_pending()
-            self.discovery.project_pending()
             if lease:
                 fcntl.flock(lease, fcntl.LOCK_UN)
                 lease.close()
@@ -346,22 +381,54 @@ class Workspace:
                     pass
                 else:
                     raise ValueError("A record already owns this campaign identity")
+            request = self._from_charter(request)
             data = request.model_dump(exclude={"tasks"})
             campaign = dict(data, id=campaign_id or identifier("campaign"), version=1, created_at=now(), updated_at=now())
             self.store.put("campaign", campaign, "campaign.created")
             self._add_tasks(campaign, request.tasks)
+            if request.charter is not None:
+                self.charters.link(request.charter.id, campaign["id"])
             # Installed algorithms are resources for research and manual
             # experiments. Creating a campaign is not scientific generation.
             campaign["research_protocol"] = "optimizer-discovery-v1"
             self.store.put("charter", {**campaign, "id": identifier("charter"), "campaign_id": campaign["id"],
                                         "tasks": [t.model_dump() for t in request.tasks]})
-            study = study_for_tasks(self.current_tasks(campaign["id"]), id=identifier("study"), campaign_id=campaign["id"], goal=campaign["objective"],
-                created_at=now(), authority="researcher")
-            self.store.put_immutable("study", study.model_dump(mode="json"), "study.created")
-            campaign["active_study_id"] = study.id
+            if request.tasks:
+                study = study_for_tasks(self.current_tasks(campaign["id"]), id=identifier("study"), campaign_id=campaign["id"], goal=campaign["objective"],
+                    created_at=now(), authority="researcher")
+                self.store.put_immutable("study", study.model_dump(mode="json"), "study.created")
+                campaign["active_study_id"] = study.id
+            else:
+                # A formulation-stage campaign: the lead drafts the problem note in chat; the confirmed charter sets the tasks.
+                campaign["active_study_id"] = None
+                campaign["formulating"] = True
             campaign["schema_version"] = 1
             self.store.put("campaign", campaign)
             return campaign
+
+    def _from_charter(self, request, campaign=None):
+        """With a confirmed charter revision, the tasks are compiled from it and the objective names the problem.
+
+        The objective is the research question followed by the charter's text with its values, so the
+        campaign's own text never states a value the charter does not.
+        """
+        question = request.research_question if request.research_question is not None else (campaign or {}).get("research_question")
+        reference = request.charter
+        if reference is None and request.research_question is not None and (campaign or {}).get("charter"):
+            from optimization_framework.contracts.requests import CharterReference
+            reference = CharterReference.model_validate(campaign["charter"])
+        if reference is None:
+            return request
+        confirmed = self.charters.confirmed(reference.model_dump())
+        tasks = [TaskInput.model_validate({key: value for key, value in setup.items() if key not in {"rationale", "schema_version"}}
+                                          | ({"problem_id": setup["evaluator_manifest"]["id"]} if setup.get("evaluator_manifest") else {}))
+                 for setup in confirmed["setups"]]
+        if campaign is not None:
+            current = {task["name"]: task["id"] for task in self.store.list("task", campaign["id"]) if not task.get("archived")}
+            tasks = [task.model_copy(update={"id": current.get(task.name)}) for task in tasks]
+        objective = "\n\n".join(part for part in ((question or "").strip(), confirmed["text"].strip()) if part)
+        return request.model_copy(update={"tasks": tasks, "charter": reference, "research_question": question or "",
+                                          "objective": objective[:20000] or request.objective})
 
     def _add_tasks(self, campaign, tasks):
         for task in tasks:
@@ -380,6 +447,7 @@ class Workspace:
     def update_campaign(self, campaign_id, request: CampaignUpdate):
         with self.lock, self.store.transaction():
             campaign = self.store.get(campaign_id, "campaign")
+            request = self._from_charter(request, campaign)
             changes = request.model_dump(exclude_none=True, exclude={"tasks"})
             objective_changed = "objective" in changes and changes["objective"] != campaign["objective"]
             tasks_changed = request.tasks is not None
@@ -389,6 +457,9 @@ class Workspace:
                     tasks_changed = any(any(existing_tasks[task.id].get(key) != value
                         for key, value in task.model_dump(mode="json", exclude={"id"}).items()) for task in request.tasks)
             proposed = {**campaign, **changes}
+            from optimization_framework.campaigns.compute_consent import GATE_SECONDS, NOTICE_SECONDS
+            if proposed.get("compute_notice_seconds", NOTICE_SECONDS) > proposed.get("compute_gate_seconds", GATE_SECONDS):
+                raise ValueError("The notice threshold is at most the go-ahead threshold")
             if proposed["validation_reserve_seconds"] > proposed["compute_budget_seconds"]:
                 raise ValueError("Validation reserve exceeds compute budget")
             used_reserved = self.allocated_seconds(campaign_id)
@@ -396,12 +467,14 @@ class Workspace:
                 raise ValueError(f"Existing spent/reserved compute is {used_reserved:.1f}s; stop or finish work before lowering this cap")
             if proposed.get("implementation_compute_budget_seconds", 0) < self.implementations.compute_committed(campaign_id):
                 raise ValueError("Existing implementation allocations exceed the proposed implementation compute cap")
-            from optimization_framework.research.providers import api_spend
+            from optimization_framework.llm.providers import api_spend
             api_committed = self.implementations.api_committed(campaign_id) + sum(api_spend(r.get("usage")) for r in self.store.list("research_run", campaign_id))
             if proposed["llm_budget_usd"] + 1e-9 < api_committed:
                 raise ValueError("Existing model spending and implementation grants exceed the proposed API cap")
             campaign.update(changes)
             campaign.update(version=campaign["version"] + 1, updated_at=now())
+            if tasks_changed and request.tasks:
+                campaign["formulating"] = False
             if tasks_changed:
                 for task in self.store.list("task", campaign_id):
                     if not task.get("archived"):
@@ -416,6 +489,8 @@ class Workspace:
                 for task in self.current_tasks(campaign_id):
                     self.evaluators.require_numerical_evidence(task, study.id)
             self.store.put("campaign", campaign, "campaign.revised")
+            if request.charter is not None:
+                self.charters.link(request.charter.id, campaign_id)
             self.store.put("charter", {**campaign, "id": identifier("charter"), "campaign_id": campaign_id,
                                         "tasks": self.current_tasks(campaign_id)})
             for trial in self.store.list("trial", campaign_id):
@@ -446,7 +521,7 @@ class Workspace:
                 raise ValueError("Campaign direction changed while this action was being prepared; ask the manager for a current proposal")
 
     def create_trial(self, request: TrialInput, validation=None, *, expected_context=None, frozen_prototype_id=None, execution=None,
-                     isolation_policy=None, captured_source=None, reproduction=None):
+                     isolation_policy=None, captured_source=None, reproduction=None, runtime_gate=True, continues=None):
         from optimization_framework.contracts.isolation import IsolationPolicy
         if captured_source is not None and isolation_policy is None:
             isolation_policy = IsolationPolicy()
@@ -467,6 +542,10 @@ class Workspace:
         evaluator_study_id = ((validation or {}).get("study_id") or (protocol or {}).get("study_id")
             or (execution or {}).get("study_id") or self.store.get(request.campaign_id, "campaign").get("active_study_id"))
         evaluator_bundle = self.evaluators.prepare(selected_task, study_id=evaluator_study_id)
+        if (runtime_gate and validation is None and not execution and not request.race_id and reproduction is None
+                and frozen_prototype_id is None and not request.confirmation_protocol_id):
+            # An ordinary long run waits until its evaluator's speed has been measured here; frozen protocols keep their own rules.
+            self.runtime.check(selected_task, evaluator_study_id, request.wall_seconds)
         selected_task = self.evaluators.task_view(selected_task)
         selected_hypothesis = self.store.get(request.hypothesis_id, "hypothesis") if request.hypothesis_id else None
         version_id = request.implementation_version_id or (selected_hypothesis or {}).get("implementation_version_id")
@@ -488,7 +567,7 @@ class Workspace:
                 if not request.race_phase:
                     raise ValueError("Declare the adaptive race execution phase")
             if request.hypothesis_id and validation is None:
-                from optimization_framework.research.discovery.proposals import readiness as proposal_readiness
+                from optimization_framework.campaigns.proposals import readiness as proposal_readiness
                 review = proposal_readiness(self.store, self.store.get(request.hypothesis_id, "hypothesis"))
                 if not review["eligible"]:
                     raise ValueError(review["reason"])
@@ -639,6 +718,7 @@ class Workspace:
             record.update(execution)
             if selected_isolation:
                 record["isolation_policy"] = selected_isolation.model_dump(mode="json")
+            self.devices.check({**record, "evaluator_version_id": record.get("evaluator_version_id") or (evaluator_bundle or {}).get("version", {}).get("id")})
             if reproduction is not None:
                 record["reproduction"] = reproduction
             if prototype:
@@ -776,6 +856,13 @@ class Workspace:
                 record["experiment_spec_hash"] = content_hash(frozen_record)
                 record["experiment_spec"] = frozen_record
                 entries.append(("experiment_spec", {**frozen_record, "content_hash": record["experiment_spec_hash"]}, "experiment.frozen"))
+            if continues:
+                try:
+                    record.update(self._continuation(continues, record, directory))
+                except Exception:
+                    import shutil
+                    shutil.rmtree(directory, ignore_errors=True)
+                    raise
             atomic_json(directory / "spec.json", record)
             self.store.put_many([*entries, ("trial", record, "trial.queued")])
             self.resources.reserve_trial(record)
@@ -783,13 +870,68 @@ class Workspace:
             reserve_diagnostics(self.store, record)
             return record
 
+    def continue_trial(self, request):
+        """Queue a new experiment that goes on from where a finished one stopped, under the current source."""
+        predecessor = self.store.get(request.trial_id, "trial")
+        if predecessor.get("recipe") or predecessor["algorithm"] in {"validate", "recipe", "replay", "evaluate_asset"}:
+            raise ValueError("Select an optimization experiment to continue")
+        if predecessor["status"] in ACTIVE:
+            raise ValueError("The experiment is still running; pause or stop it before continuing it as a new one")
+        if any(predecessor.get(key) for key in ("confirmation_protocol_id", "execution_grant_id", "race_id", "isolation_policy", "reproduction")):
+            raise ValueError("An experiment of a frozen protocol is not continued outside it")
+        if predecessor.get("completion", {}).get("unit", "evaluation_requests") != "evaluation_requests":
+            raise ValueError("Only experiments that complete by evaluation requests can be continued")
+        if not read_json(self.job_dir(predecessor["id"]) / "checkpoints" / "latest.json"):
+            raise ValueError("The experiment has no saved state to continue from")
+        version = predecessor.get("implementation_version_id")
+        return self.create_trial(TrialInput(campaign_id=predecessor["campaign_id"], task_id=predecessor["task_id"],
+            algorithm="" if version else predecessor["algorithm"], implementation_version_id=version,
+            algorithm_config=predecessor["algorithm_config"], seed=predecessor["seed"], max_steps=request.max_steps or predecessor["max_steps"],
+            wall_seconds=request.wall_seconds, numerical_threads=predecessor.get("numerical_threads", 1), device=request.device or predecessor.get("device"),
+            schedule_steps=predecessor["schedule_steps"], hypothesis_id=predecessor.get("hypothesis_id"),
+            training=predecessor.get("training") or {}, initial_assets=predecessor.get("initial_assets", []),
+            reuse_decision_ids=predecessor.get("reuse_decision_ids", []), recovery=predecessor["recovery"],
+            question=f"Continues {predecessor['id']} from its saved state under the current source."),
+            continues={"trial": predecessor, "accept_unverified": request.accept_unverified})
+
+    def _continuation(self, source, record, directory):
+        """Pin the state a successor starts from, once it is known to be the same science."""
+        import hashlib
+        from optimization_framework.storage.artifacts import LocalArtifactStore
+        predecessor = source["trial"]
+        if content_hash(predecessor["problem"]) != content_hash(record["problem"]):
+            raise ValueError("The task's problem changed since this experiment ran; a continuation would mix two problems")
+        same = predecessor["scientific_source_hash"] == record["scientific_source_hash"]
+        equivalence = None if same else self.equivalence.passing(content_hash(predecessor["problem"]),
+            predecessor["scientific_source_hash"], record["scientific_source_hash"])
+        if not same and not equivalence and not source["accept_unverified"]:
+            raise ValueError("The source changed since this experiment ran. Run evaluator.equivalence on it first, so that the "
+                             "current evaluator is shown to reproduce its recorded results.")
+        origin = self.job_dir(predecessor["id"])
+        pointer = read_json(origin / "checkpoints" / "latest.json")
+        manifest = read_json(origin / "checkpoints" / (pointer["id"] + ".json"))
+        (directory / "continues").mkdir()
+        digest = hashlib.sha256()
+        with LocalArtifactStore(origin / "artifacts").checkpoint_stream(manifest) as stream, (directory / "continues" / "checkpoint.pkl").open("wb") as output:
+            for chunk in iter(lambda: stream.read(2 ** 20), b""):
+                digest.update(chunk)
+                output.write(chunk)
+        return {"chain_id": predecessor.get("chain_id", predecessor["id"]),
+                "continues": {"trial_id": predecessor["id"], "checkpoint_id": pointer["id"], "checkpoint_sha256": digest.hexdigest(),
+                              "same_source": same, "equivalence_id": equivalence["id"] if equivalence else None,
+                              "unverified": not same and not equivalence}}
+
+    def trial_archive(self, trial):
+        """A trial's archive; while it runs, its progress record leaves the archive to archive.json."""
+        archive = ((trial.get("progress") or {}).get("archive") or (trial.get("result") or {}).get("archive")
+                   or read_json(self.job_dir(trial["id"]) / "archive.json", []))
+        return archive.get("designs", archive.get("archive", [])) if isinstance(archive, dict) else archive
+
     def validate_trial(self, trial_id, request: ValidationInput):
         trial = self.store.get(trial_id, "trial")
         if trial.get("recipe") or trial["algorithm"] in {"validate", "recipe"}:
             raise ValueError("Select an optimization trial")
-        archive = trial.get("progress", {}).get("archive") or (trial.get("result") or {}).get("archive") or read_json(self.job_dir(trial_id) / "archive.json", [])
-        if isinstance(archive, dict):
-            archive = archive.get("designs", archive.get("archive", []))
+        archive = self.trial_archive(trial)
         if not archive:
             design = trial.get("progress", {}).get("best_design")
             if not design:
@@ -809,9 +951,7 @@ class Workspace:
         trial = self.store.get(trial_id, "trial")
         if trial.get("recipe") or trial["algorithm"] in {"recipe", "validate"}:
             raise ValueError("Select an optimization experiment as the source")
-        evidence = trial.get("progress") or trial.get("result") or {}
-        archive = evidence.get("archive", [])
-        subjects = [item.get("candidate", item.get("design")) for item in archive[:request.subject_limit]]
+        subjects = [item.get("candidate", item.get("design")) for item in self.trial_archive(trial)[:request.subject_limit]]
         problem = trial.get("problem") or problems.resolve("meent_grating", trial["physics"]).model_dump(mode="json")
         recipe = self.compile_recipe(trial, request.recipe_id, request.parameters, subjects)
         return self._queue_recipe(trial, recipe, TrialInput(campaign_id=trial["campaign_id"], task_id=trial["task_id"],
@@ -906,6 +1046,29 @@ class Workspace:
                 **({"independent_countercheck": True} if trial.get("study_execution_id") else {}),
                 **({"source_trial_id": trial["id"]} if trial.get("execution_manifest") else {})})
 
+    def set_slots(self, workers, gpu_workers, *, authority, reason=""):
+        """How many runs go at once on this server, and how many of them on the GPU. The scheduler reads them on every pass, so
+        they hold from the next one; runs already going keep their device. Kept across restarts: the launcher's settings are
+        only the defaults."""
+        workers, gpu_workers = int(workers), int(gpu_workers)
+        if not 1 <= workers <= 64 or gpu_workers < 0:
+            raise ValueError("Give from 1 to 64 slots, and no negative number of GPU slots")
+        if gpu_workers and gpu_workers > workers - 1:
+            raise ValueError("Keep at least one slot on CPU, where every kind of run can go: GPU slots are at most all slots less one")
+        with self.lock:
+            previous = {"workers": self.max_workers, "gpu_workers": self.gpu_workers}
+            self.max_workers, self.gpu_workers = workers, gpu_workers
+            return self.store.put("lab_slots", {"id": "lab_slots", "campaign_id": None, "workers": workers, "gpu_workers": gpu_workers,
+                "previous": previous, "authority": authority, "reason": reason, "updated_at": now()}, "resources.slots_changed")
+
+    def slots_view(self):
+        try:
+            chosen = self.store.get("lab_slots", "lab_slots")
+        except KeyError:
+            chosen = {}
+        return {"workers": self.max_workers, "gpu_workers": self.gpu_workers, "sizes": self.devices.sizes(), "launcher": self.launcher_slots,
+                "chosen_by": chosen.get("authority"), "updated_at": chosen.get("updated_at"), "reason": chosen.get("reason")}
+
     def control(self, trial_id, command: ControlInput, *, authority="researcher", reason=None):
         """authority is who acted: researcher, manager, or a budget/deadline rule that stopped the trial."""
         with self.lock, self.store.transaction():
@@ -921,7 +1084,15 @@ class Workspace:
                 (command.wall_seconds is not None and command.wall_seconds != trial["wall_seconds"])
             ):
                 raise ValueError("A confirmatory allocation is frozen; fork a new exploratory trial instead of extending it")
-            if command.action == "prioritize":
+            if command.action == "place":
+                # Where a run computes is chosen until it starts; a started run keeps its device (continue it to move it).
+                if status != "queued":
+                    raise ValueError("Only a queued run is placed; continue a stopped run on another device instead")
+                if command.device is None:
+                    raise ValueError("Name the device: cuda or cpu")
+                self.devices.check({**trial, "device": command.device})
+                trial["device"] = command.device
+            elif command.action == "prioritize":
                 if status != "queued":
                     raise ValueError("Only queued trials can be reprioritized")
                 trial["priority"] = command.priority if command.priority is not None else trial["priority"] + 1
@@ -1008,11 +1179,6 @@ class Workspace:
                             # Delayed controls always project the latest intent.
                             self._write_control(trial)
                             effect["applied_revision"] = trial["control_revision"]
-                    elif effect["kind"] == "manager_context_projection":
-                        # Text is a projection of committed context, never a
-                        # second authority or an uncommitted command effect.
-                        revision = self.memory.sync(effect["campaign_id"])
-                        effect["context_id"] = revision["id"]
                     elif effect["kind"] == "implementation_submit":
                         self.implementations.deliver_submission(effect["grant_id"])
                     elif effect["kind"] == "implementation_attach":
@@ -1050,19 +1216,9 @@ class Workspace:
                                     self.memory.issue(effect["campaign_id"], "bundle_operation", str(exc), affected=operation["id"])
                                 continue
                         self.bundles.dispatch(effect)
-                    elif effect["kind"] == "manager_start":
-                        from optimization_framework.campaigns.manager import CampaignManager
-                        manager = getattr(self, "manager", None) or CampaignManager(self)
-                        manager.start(ResearchInput(**effect["request"]), automatic=effect["automatic"],
-                                      command_id=effect["manager_command_id"], guidance_recorded=effect.get("guidance_recorded", False),
-                                      feedback_snapshot=effect.get("feedback_snapshot"))
-                    elif effect["kind"] in {"research_resume", "decision_resolution"}:
-                        from optimization_framework.campaigns.research_commands import deliver_resume, deliver_resolution
-                        (deliver_resume if effect["kind"] == "research_resume" else deliver_resolution)(self, effect)
-                    elif effect["kind"] == "manager_action":
-                        from optimization_framework.research.lifecycle import deliver_action
-                        deliver_action(self, effect)
-                        continue
+                    elif effect["kind"] == "decision_resolution":
+                        from optimization_framework.campaigns.approvals import deliver_resolution
+                        deliver_resolution(self, effect)
                     elif effect["kind"] in {"literature_search", "source_ingest"}:
                         from optimization_framework.research.sources import schedule
                         schedule(self, effect)
@@ -1073,7 +1229,7 @@ class Workspace:
                     self.store.put("outbox", effect, "effect.applied")
                 except Exception as exc:
                     if effect["kind"] == "decision_resolution" and isinstance(exc, (ValueError, KeyError)):
-                        from optimization_framework.campaigns.research_commands import failed_resolution
+                        from optimization_framework.campaigns.approvals import failed_resolution
                         failed_resolution(self, effect, exc)
                     elif effect["kind"] in {"literature_search", "source_ingest"} and isinstance(exc, ValueError):
                         effect.update(status="failed", error=str(exc), finished_at=now())
@@ -1084,19 +1240,57 @@ class Workspace:
             self.outbox_lock.release()
 
     def dependencies_ready(self, trial):
+        """Whether the runs a queued run depends on have completed. A dependency waits for scientific completion, which a
+        run stopped at its time limit never reaches; the researcher may then keep only the order (dependency_completion)."""
         waiting = []
         failed = []
+        order_only = trial.get("dependency_completion") == "finished"
         for dependency_id in trial.get("dependencies", []):
             parent = self.store.get(dependency_id, "trial")
             if parent["status"] in {"queued", "running", "pausing", "stopping", "paused", "interrupted"}:
                 waiting.append(dependency_id)
-            elif parent["status"] != "completed" or not (parent.get("result") or parent.get("progress", {})).get("scientific_complete"):
-                failed.append(dependency_id)
+            elif not order_only and (parent["status"] != "completed" or not (parent.get("result") or parent.get("progress", {})).get("scientific_complete")):
+                failed.append(parent)
         if failed:
+            parent = failed[0]
+            ended = parent.get("reason") or (parent.get("result") or {}).get("allocation_stop") or parent["status"]
+            chain = self.waiting_after(trial["id"])
             self.memory.issue(trial["campaign_id"], "dependency_incomplete",
-                "An experiment dependency did not satisfy its scientific completion condition. Resolve or replace it before launching dependent work.",
-                affected=trial["id"], evidence=failed)
+                f"{trial['id']} is to start after {parent['id']}, which ended without completing ({str(ended).replace('_', ' ')}), so "
+                + (f"it and {len(chain) - 1} run(s) queued after it cannot start." if len(chain) > 1 else "it cannot start.")
+                + " Start them anyway in their order, or stop them.",
+                affected=trial["id"], evidence=[row["id"] for row in failed], actions=DEPENDENCY_ACTIONS)
         return not waiting and not failed
+
+    def waiting_after(self, trial_id):
+        """A queued or paused run and every queued or paused run that depends on it, directly or through others."""
+        first = self.store.get(trial_id, "trial")
+        pending = [row for row in self.store.list_trials_in_status({"queued", "paused"}, first["campaign_id"])]
+        chain, ids = [first], {trial_id}
+        while True:
+            more = [row for row in pending if row["id"] not in ids and ids & set(row.get("dependencies", []))]
+            if not more:
+                return chain
+            chain.extend(more)
+            ids.update(row["id"] for row in more)
+
+    def act_on_issue(self, issue, action):
+        """What a researcher's choice on an issue does; an issue without actions is only marked."""
+        if issue["code"] != "dependency_incomplete" or action not in {item["id"] for item in DEPENDENCY_ACTIONS}:
+            raise ValueError("This issue has no such action")
+        done = []
+        for trial in self.waiting_after(issue["affected"]):
+            if action == "start_anyway":
+                with self.lock:
+                    record = self.store.get(trial["id"], "trial")
+                    record["dependency_completion"] = "finished"
+                    self.store.put("trial", record, "trial.dependencies_order_only")
+                if record["status"] == "paused":
+                    self.control(record["id"], ControlInput(action="resume", rationale="The researcher started runs waiting on an incomplete dependency"))
+            else:
+                self.control(trial["id"], ControlInput(action="stop", rationale="The researcher stopped runs waiting on an incomplete dependency"))
+            done.append(trial["id"])
+        return done
 
     def _write_control(self, trial):
         command = "stop" if trial["status"] in {"stopping", "stopped"} else "pause" if trial["status"] in {"pausing", "paused"} else "run"
@@ -1161,8 +1355,9 @@ class Workspace:
                 if key.startswith("GRATING_LLM_") or key in {"OPENAI_API_KEY", "ANTHROPIC_API_KEY", "GOOGLE_API_KEY"}:
                     env.pop(key)
             threads = str(trial.get("numerical_threads", 1))
+            from optimization_framework.execution.devices import environment
             env.update(PYTHONPATH=str(code), PYTHONUNBUFFERED="1", OPENBLAS_NUM_THREADS=threads,
-                       OMP_NUM_THREADS=threads, MKL_NUM_THREADS=threads, MPLBACKEND="Agg")
+                       OMP_NUM_THREADS=threads, MKL_NUM_THREADS=threads, MPLBACKEND="Agg", **environment(trial.get("device") or "cpu"))
             with (directory / "worker.log").open("ab") as log:
                 module = "optimization_framework.execution.worker" if trial.get("execution_contract") == 1 else "dqn_meent.workspace.worker"
                 process = subprocess.Popen([sys.executable, "-m", module, "--directory", str(directory)],
@@ -1232,10 +1427,10 @@ class Workspace:
                     if not alive(trial) and time.time() < trial.get("lease_deadline", 0) and not (directory / "result.json").exists():
                         continue
                 progress = read_json(directory / "progress.json")
-                changed = False
+                changed = progressed = False
                 if progress and progress != trial.get("progress"):
                     trial["progress"] = progress
-                    changed = True
+                    progressed = True
                 result = read_json(directory / "result.json")
                 process = self.processes.get(trial["id"])
                 if process:
@@ -1331,6 +1526,13 @@ class Workspace:
                     if trial.get("stopped_by") == "deadline":
                         trial["allocation_stop"] = "study_deadline_reached"
                 trial["updated_at"] = now()
+                # The record follows every step; the event that makes pages refetch goes out with any other change, and for
+                # progress alone at most every PROGRESS_EVENT_SECONDS (a fast run would otherwise announce itself twice a second).
+                clock = time.monotonic()
+                if progressed and not changed and clock - self._progress_announced.get(trial["id"], -PROGRESS_EVENT_SECONDS) >= PROGRESS_EVENT_SECONDS:
+                    changed = True
+                if changed:
+                    self._progress_announced[trial["id"]] = clock
                 self.store.put("trial", trial, "trial.progress" if changed else None)
 
     def _loop(self):
@@ -1339,31 +1541,64 @@ class Workspace:
                 self.reconcile()
                 with self.lock:
                     trials = self.store.list_trials_in_status(LIVE | {"queued"})
-                    free = self.max_workers - sum(t["status"] in LIVE for t in trials) - sum(j["status"] in {"starting", "running"} for j in self.store.list("fixed_mask_job"))
+                    self.admission.observe(trials, LIVE)
+                    masks = sum(j["status"] in {"starting", "running"} for j in self.store.list("fixed_mask_job"))
+                    used = self.devices.used([t for t in trials if t["status"] in LIVE], masks)
                     queued = sorted((t for t in trials if t["status"] == "queued" and self.dependencies_ready(t)), key=lambda t: (-t["priority"], t["created_at"]))
+                    limits = {}
+                    waiting_campaigns = {t["campaign_id"] for t in queued if not t.get("race_id")}
                     for trial in queued:
-                        if free <= 0:
+                        if sum(used.values()) >= self.max_workers:
                             break
+                        if self._over_campaign_limit(trial, trials, limits):
+                            continue
                         if trial.get("race_id") and not self.racing.admission(trial, [row for row in trials if row["status"] in LIVE]):
+                            continue
+                        if self.runtime.holds(trial):
                             continue
                         if trial.get("execution_grant_id"):
                             grant = self.store.get(trial["execution_grant_id"], "execution_grant")
                             occupied = sum(t["status"] in LIVE and t.get("execution_grant_id") == grant["id"] for t in self.store.list_trials_in_status(LIVE))
                             if occupied >= grant["max_workers"]:
                                 continue
+                        # A free slot of a device it can use, then memory, decides; a race keeps its own memory admission.
+                        device, held = self.devices.place(trial, used)
+                        if not trial.get("race_id") and self.admission.fits(trial, [row for row in trials if row["status"] in LIVE], waiting_campaigns,
+                                                                            device=device, held=held):
+                            continue
+                        if device is None:
+                            continue
                         try:
+                            self.devices.started(trial, device, used)
                             self._start_trial(trial)
+                            self.admission.started(trial)
                             # Include this launch in resource admission for the next
                             # queued member of the same scheduler pass.
                             trial["status"] = "running"
-                            free -= 1
                         except Exception as exc:
                             trial.update(status="failed", reason=str(exc), finished_at=now())
                             self.store.put("trial", trial, "trial.failed")
+                self.runtime.advance()
+                self.equivalence.advance()
+                self.journals.advance()
                 if self.on_trial_finished:
                     self.on_trial_finished()
             except Exception as exc:
                 self.store.event(None, "service.error", {"message": str(exc)})
+
+    def _over_campaign_limit(self, trial, trials, limits):
+        """Whether the campaign's experiment rules hold this run back: no more than max_concurrent of its runs at once.
+        Checks (validation, recipes, diagnostics, speed probes) and race runs are not counted or held."""
+        from optimization_framework.campaigns.experiment_rules import current, check_trial_ids, run_kind
+        campaign_id = trial["campaign_id"]
+        if campaign_id not in limits:
+            limits[campaign_id] = (current(self.store, campaign_id).get("max_concurrent"), check_trial_ids(self.store, campaign_id))
+        limit, probes = limits[campaign_id]
+        def counted(row):
+            return row["campaign_id"] == campaign_id and not row.get("race_id") and run_kind(row, 0, probes) != "check"
+        if not limit or not counted(trial):
+            return False
+        return sum(row["status"] in LIVE and counted(row) for row in trials) >= limit
 
     def metrics(self, trial_id, *, fields=None, limit=None):
         self.store.get(trial_id, "trial")
@@ -1374,6 +1609,12 @@ class Workspace:
             from optimization_framework.execution.metrics import recent_metrics
             rows = recent_metrics(path, limit)
             return [{field: row[field] for field in fields if field in row} for row in rows] if fields is not None else rows
+        from optimization_framework.execution.metrics import LARGE_JOURNAL_BYTES, recent_metrics
+        if path.exists() and path.stat().st_size > LARGE_JOURNAL_BYTES:
+            # Never load such a journal whole; its scalar columns are kept as it grows.
+            latest = recent_metrics(path, 1) if fields is not None else []
+            if not any(type(row.get(field)) in (list, dict) for row in latest for field in fields or ()):
+                return self._large_journals.read(path, fields)
         if fields is not None:
             return self._metric_projections.read(path, fields)
         if not path.exists():

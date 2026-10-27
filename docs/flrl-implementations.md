@@ -51,8 +51,8 @@ worker cost. Soft objectives never replace the binary campaign objective.
 Hard-mask cache keys include the evaluator, configuration and fidelity identity.
 Cache hits retain the previous hard scores and use zero additional hard solves.
 Returning from B to cached A has the ordinary signed score-difference reward;
-only staying on the current mask has zero reward. Gradient solves on a hard
-cache hit still cost two solves. The cache is bounded to 256 entries and saved
+only staying on the current mask has zero reward. A gradient request on a hard
+cache hit still costs one solve, which returns both polarizations. The cache is bounded to 256 entries and saved
 in the evaluator checkpoint.
 
 Checkpoints contain the coefficient trajectory, RNG state, Adam moments,
@@ -87,8 +87,8 @@ requires version `0.1.0`; if that version is absent, method readiness reports
 the missing installation rather than treating a proposal as runnable.
 
 The library is published at [kc-ml2/mask-optimizers](https://github.com/kc-ml2/mask-optimizers),
-tag `v0.1.0` (the same source commit). It is the optional `masks` extra, so
-`uv sync --frozen --all-extras` installs the locked commit. The adapter registers
+tag `v0.1.0` (the same source commit). It is the optional `masks` extra, which
+`scripts/install-meent` installs at the locked commit. The adapter registers
 these methods as an optimizer plug-in; see [optimizer plug-ins](optimizer-plugins.md)
 for the design and for releasing a new library version.
 

@@ -260,7 +260,7 @@ def test_generated_recipe_policy_and_milestone_work_in_frozen_template(tmp_path)
 
 def test_campaign_catalog_preserves_distinct_declarations_and_exact_evaluator_versions(tmp_path):
     from fastapi.testclient import TestClient
-    from optimization_framework.api.app import create_app
+    from balsamic.app import create_app
     from optimization_framework.contracts.requests import CampaignUpdate
     workspace, service, campaign, task, spec = setup(tmp_path)
     changed = spec.manifest.model_copy(update={"recipe_ids": [RECIPES[0]]})

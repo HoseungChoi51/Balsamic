@@ -8,7 +8,7 @@ from copy import deepcopy
 import pytest
 from fastapi.testclient import TestClient
 
-from optimization_framework.api.app import create_app
+from balsamic.app import create_app
 from optimization_framework.contracts.problem_imports import ProblemExample
 from optimization_framework.problem_import.files import ImportError_, ImportFolder, check_git_url, docx_text
 from optimization_framework.problem_import.service import ImportCreate, ImportMessage, ProblemImports
@@ -137,10 +137,11 @@ def test_document_text_keeps_locations_and_agent_reads_stay_inside(tmp_path):
         folder.add_document("tool.exe", b"MZ")
 
 
-def test_import_produces_a_reviewable_draft_through_the_harness(tmp_path):
+def test_import_produces_a_reviewable_charter_through_the_harness(tmp_path):
     from optimization_framework.execution.service import Workspace
     workspace, pi = Workspace(tmp_path), FakePi()
     imports = ProblemImports(workspace, client=pi)
+    workspace.problem_imports = imports
     with pytest.raises(ValueError, match="not available"):
         imports.create(ImportCreate(provider="deepseek", model="unknown"))
     record = imports.create(ImportCreate(provider="deepseek", model="deepseek-v4-pro", effort="high", notes="Use the 2D condition"))
@@ -149,17 +150,28 @@ def test_import_produces_a_reviewable_draft_through_the_harness(tmp_path):
     imports.add_document(record["id"], "paper.md", b"The target angle is 75 degrees.")
     record = imports.start(record["id"])
     agent, run = pi.submitted[0]
-    assert agent["role"] == "problem_importer" and agent["id"] == record["id"] and "documents/paper.md.txt" in run["input"]
+    assert agent["role"] == "formulator" and agent["id"] == record["id"] and "documents/paper.md.txt" in run["input"]
     with pytest.raises(ValueError, match="only before the import starts"):
         imports.add_document(record["id"], "late.md", b"x")
     manifest = imports.manifest(record["id"], run["id"])
-    assert {tool["name"] for tool in manifest["tools"]} == {"files_list", "file_read", "files_search", "problem_catalog", "formulation_submit"}
+    assert {tool["name"] for tool in manifest["tools"]} == {"files_list", "file_read", "files_search", "problem_catalog",
+        "charter_read", "charter_check", "charter_submit", "question_ask", "charter_propose", "panel_render"}
+    assert "Formulating a scientific optimization problem" in manifest["instructions"]
     catalog = imports.call(record["id"], run["id"], "c1", "problem_catalog", {})
     assert "meent_2d_dual_polarization_deflector" in {adapter["problem_id"] for adapter in catalog["adapters"]}
     assert "error" in imports.call(record["id"], run["id"], "c2", "file_read", {"path": "../uploads/document-paper.md"})
-    broken = draft(instances=[{**flrl_setup(), "configuration": {"wavelength_nm": 1050}}])
-    assert "error" in imports.call(record["id"], run["id"], "c3", "formulation_submit", {"draft": broken})
-    assert imports.call(record["id"], run["id"], "c4", "formulation_submit", {"draft": draft()})["accepted"]
+    assert "error" in imports.call(record["id"], run["id"], "c3", "charter_read", {})
+    charter = deepcopy(next(item for item in problems_examples() if item["id"].startswith("flrl"))["charter"])
+    checked = imports.call(record["id"], run["id"], "c4", "charter_check", {"charter": charter})
+    assert checked["blocking"] == 1 and checked["saved"] is False
+    assert "error" in imports.call(record["id"], run["id"], "c5", "charter_submit", {"charter": {"title": ""}})
+    saved = imports.call(record["id"], run["id"], "c6", "charter_submit", {"charter": charter})
+    assert saved["saved"] and saved["blocking"] == 1
+    assert saved["values"] == checked["values"]   # saving returns what a check would: no separate check call is needed
+    charter_id = imports.get(record["id"])["charter_id"]
+    asked = imports.call(record["id"], run["id"], "c7", "question_ask", {"questions": [
+        {"id": "incidence", "question": "Is the incidence normal?", "options": ["Yes", "No, give the angle"], "about": ["incident_angle_deg"]}]})
+    assert asked["asked"] == 1
     pi.events = [{"seq": 1, "type": "assistant.message", "text": "Formulated the FLRL deflector.", "billing": "api",
                   "usage": {"input": 1000, "output": 200, "cacheRead": 0, "reasoning": 50, "cost_usd": 0.01}}]
     pi.runs[run["id"]] = {"status": "completed", "result": {"text": "Formulated; one open question."}}
@@ -167,10 +179,52 @@ def test_import_produces_a_reviewable_draft_through_the_harness(tmp_path):
     assert record["status"] == "ready" and record["reply"] == "Formulated; one open question."
     assert record["usage"]["calls"] == 1 and record["usage"]["charged_usd"] == 0.01
     assert any("Read ../uploads" in row["text"] for row in record["activity"])
-    saved = imports.save_example(record["id"])
-    assert saved["source"] == "saved" and saved["id"] in {row["id"] for row in imports.examples()}
-    imports.message(record["id"], ImportMessage(message="Use the measured silicon index"))
-    assert pi.submitted[-1][1]["input"].startswith("Researcher request:") and imports.get(record["id"])["status"] == "running"
+    # Answering the last open question starts the formulator's next turn.
+    view = workspace.charters.view(charter_id)
+    workspace.charters.answer(charter_id, "incidence", "Yes, normal incidence", expected_revision=view["revision"])
+    assert "round 1 of 2" in pi.submitted[-1][1]["input"] and "do not ask again what the answers already cover" in pi.submitted[-1][1]["input"]
+    assert "Yes, normal incidence" in pi.submitted[-1][1]["input"] and imports.get(record["id"])["status"] == "running"
+    pi.runs[pi.submitted[-1][1]["id"]] = {"status": "completed", "result": {"text": "Revised."}}
+    imports.sync(record["id"])
+    # A request in words becomes a proposal whose numbers are computed, not stated.
+    workspace.charters.request(charter_id, "Set the period to 1100 nm")
+    run_id = pi.submitted[-1][1]["id"]
+    assert "Set the period to 1100 nm" in pi.submitted[-1][1]["input"]
+    proposed = imports.call(record["id"], run_id, "c8", "charter_propose", {"request": "", "options": [
+        {"label": "Change the angle", "reason": "Keeps the wavelength",
+         "changes": [{"op": "solve", "input": "target_angle_deg", "target": "period_x_nm", "value": 1100}]}]})
+    assert "options" in proposed, proposed
+    angle = next(row for row in proposed["options"][0]["changes"] if row["name"] == "target_angle_deg")
+    assert angle["after"] == "72.6586°"
+    assert workspace.charters.view(charter_id)["proposals"][0]["request"] == "Set the period to 1100 nm"
+    assert workspace.charters.view(charter_id)["proposals"][0]["asked"] == "Set the period to 1100 nm"   # the researcher's own words, for the page
+
+
+def problems_examples():
+    from optimization_framework.evaluation.registry import problems
+    return problems.examples()
+
+
+def test_a_written_statement_alone_starts_the_formulator_and_a_charter_gets_one_on_request(tmp_path):
+    from optimization_framework.execution.service import Workspace
+    from optimization_framework.agents import tiers
+    workspace, pi = Workspace(tmp_path), FakePi()
+    imports = ProblemImports(workspace, client=pi)
+    workspace.problem_imports = imports
+    tiers.save(workspace.store, tiers.TierSettings.model_validate({"tiers": [
+        {"id": "strong", "label": "Strong", "model": {"provider": "deepseek", "model": "deepseek-v4-pro", "effort": "max"}}],
+        "roles": {"formulator": "strong"}}))
+    record = imports.create(ImportCreate(provider="deepseek", model="deepseek-v4-pro",
+                                         statement="Maximize the yield of a flow reaction.\nTemperature 60-120 C."))
+    assert record["title"] == "Maximize the yield of a flow reaction." and record["documents"][0]["text_file"] == "documents/statement.md.txt"
+    imports.start(record["id"])
+    assert "documents/statement.md.txt" in pi.submitted[-1][1]["input"]
+    example = next(item for item in imports.examples() if item["id"].startswith("flrl"))
+    charter = workspace.charters.from_example(example["id"])
+    assert charter["import_id"] is None and charter["source"]["kind"] == "example"
+    workspace.charters.request(charter["id"], "Use 1100 nm")
+    formulator = workspace.charters.get(charter["id"])["import_id"]
+    assert formulator and imports.get(formulator)["charter_id"] == charter["id"] and pi.submitted[-1][0]["id"] == formulator
 
 
 def test_api_billed_import_stops_at_its_budget(tmp_path):
@@ -199,7 +253,7 @@ def test_harness_callbacks_for_importers_reach_the_importer(tmp_path, monkeypatc
         run_id = client.post(f"/api/v1/problem-imports/{record['id']}/start").json()["runs"][0]
         headers = {"Authorization": "Bearer secret-token"}
         manifest = client.post("/api/internal/pi/manifest", json={"agent_id": record["id"], "run_id": run_id}, headers=headers).json()
-        assert "formulation_submit" in {tool["name"] for tool in manifest["tools"]}
+        assert "charter_submit" in {tool["name"] for tool in manifest["tools"]}
         found = client.post("/api/internal/pi/tool", headers=headers, json={"agent_id": record["id"], "run_id": run_id,
             "call_id": "c1", "name": "files_search", "arguments": {"pattern": "75"}}).json()
         assert found["matches"][0]["line"] == 1
@@ -221,3 +275,117 @@ def test_importer_uses_the_tier_assigned_to_its_role(tmp_path):
     assert imports.create(ImportCreate(tier="fast"))["model"]["effort"] == "off"
     with pytest.raises(ValueError, match="model tier"):
         imports.create(ImportCreate(tier="missing"))
+
+
+def test_questions_left_unanswered_go_to_the_formulator_as_decisions_to_record(tmp_path):
+    """The researcher is not expected to know every answer: a round can be sent with questions open, and the formulator is
+    told to decide each from the answers and the sources, record an assumption, and never ask it again."""
+    from optimization_framework.execution.service import Workspace
+    workspace, pi = Workspace(tmp_path), FakePi()
+    imports = ProblemImports(workspace, client=pi)
+    workspace.problem_imports = imports
+    record = imports.create(ImportCreate(provider="deepseek", model="deepseek-v4-pro"))
+    imports.add_document(record["id"], "paper.md", b"The target angle is 75 degrees.")
+    record = imports.start(record["id"])
+    run = pi.submitted[0][1]
+    charter = deepcopy(next(item for item in problems_examples() if item["id"].startswith("flrl"))["charter"])
+    imports.call(record["id"], run["id"], "c1", "charter_submit", {"charter": charter})
+    charter_id = imports.get(record["id"])["charter_id"]
+    imports.call(record["id"], run["id"], "c2", "question_ask", {"questions": [
+        {"id": "incidence", "question": "Is the incidence normal?", "options": ["Yes", "No, give the angle"]},
+        {"id": "polarization", "question": "Which polarization matters?", "options": ["Both equally", "TE only"]}]})
+    pi.runs[run["id"]] = {"status": "completed", "result": {"text": "Two open questions."}}
+    imports.sync(record["id"])
+    view = workspace.charters.view(charter_id)
+    workspace.charters.answer(charter_id, "incidence", "Yes", expected_revision=view["revision"])
+    assert len(pi.submitted) == 1   # one still open: nothing is sent by itself
+    view = workspace.charters.view(charter_id)
+    assert [row["message"] for row in view["findings"] if row["code"] == "question.open"] == ["Open question: Which polarization matters?"]
+    workspace.charters.send_answers(charter_id, expected_revision=view["revision"])
+    prompt = pi.submitted[-1][1]["input"]
+    assert "Answer: Yes" in prompt and "left these unanswered" in prompt and "Which polarization matters?" in prompt
+    assert "do not ask them again" in prompt and "Record each decision as an assumption" in prompt and "drop the question" in prompt
+    view = workspace.charters.view(charter_id)
+    left = next(q for q in view["charter"]["questions"] if q["id"] == "polarization")
+    assert left["sent"] and left["answer"] is None
+    assert [row["message"] for row in view["findings"] if row["code"] == "question.open"] == ["Left to the formulator to decide: Which polarization matters?"]
+    # The formulator's revised draft that keeps the question keeps it as left to it, not as open to the researcher again.
+    draft = deepcopy(view["charter"]); draft["questions"] = [q for q in draft["questions"] if q["id"] == "polarization"]
+    run_id = pi.submitted[-1][1]["id"]
+    imports.call(record["id"], run_id, "c3", "charter_submit", {"charter": draft})
+    assert workspace.charters.view(charter_id)["charter"]["questions"][0]["sent"] is True
+
+
+def formulator_at_work(tmp_path):
+    """A formulator that has saved a charter with one open question and is still working in the same run."""
+    from optimization_framework.execution.service import Workspace
+    workspace, pi = Workspace(tmp_path), FakePi()
+    imports = ProblemImports(workspace, client=pi)
+    workspace.problem_imports = imports
+    record = imports.create(ImportCreate(provider="deepseek", model="deepseek-v4-pro"))
+    imports.add_document(record["id"], "paper.md", b"The target angle is 75 degrees.")
+    record = imports.start(record["id"])
+    run_id = pi.submitted[0][1]["id"]
+    charter = deepcopy(next(item for item in problems_examples() if item["id"].startswith("flrl"))["charter"])
+    imports.call(record["id"], run_id, "c1", "charter_submit", {"charter": charter})
+    imports.call(record["id"], run_id, "c2", "question_ask", {"questions": [
+        {"id": "incidence", "question": "Is the incidence normal?", "options": ["Yes", "No, give the angle"], "about": ["incident_angle_deg"]}]})
+    return workspace, pi, imports, record, run_id, imports.get(record["id"])["charter_id"]
+
+
+def test_the_researchers_input_waits_while_the_formulator_works(tmp_path):
+    """What the page showed while the formulator was revising (an old question, an old suggestion, an old proposal) could be
+    acted on, and the formulator then went on from a charter that had drifted. Now every input waits until it is done."""
+    from balsamic.panels.service import _bound
+    from optimization_framework.problem_charter.service import NOT_LISTENING
+    workspace, pi, imports, record, run_id, charter_id = formulator_at_work(tmp_path)
+    charters = workspace.charters
+    proposed = imports.call(record["id"], run_id, "c3", "charter_propose", {"request": "Tidy", "options": [
+        {"label": "Change the angle", "reason": "r", "changes": [{"op": "solve", "input": "target_angle_deg", "target": "period_x_nm", "value": 1100}]}]})
+    view = charters.view(charter_id)
+    assert view["formulator"] == {"status": "running", "listening": False}
+    assert _bound(lambda _: view, {"charter": charter_id, "question": "incidence"})["listening"] is False, "a panel field waits too"
+    revision, attempts = view["revision"], [
+        lambda: charters.answer(charter_id, "incidence", "Yes", expected_revision=revision),
+        lambda: charters.edit(charter_id, [{"op": "set", "path": "quantities.wavelength_nm.value", "value": 1100}], expected_revision=revision),
+        lambda: charters.accept_assumptions(charter_id, expected_revision=revision),
+        lambda: charters.waive(charter_id, "any", "a reason", expected_revision=revision),
+        lambda: charters.send_answers(charter_id, expected_revision=revision),
+        lambda: charters.request(charter_id, "Set the period to 1100 nm"),
+        lambda: charters.decide(proposed["proposed"], 0),
+        lambda: charters.confirm(charter_id, expected_revision=revision)]
+    for attempt in attempts:
+        with pytest.raises(ValueError, match="revising this charter"):
+            attempt()
+    assert charters.get(charter_id)["revision"] == revision and len(pi.submitted) == 1, "nothing changed, nothing was sent"
+    assert NOT_LISTENING.endswith("nothing was changed.")
+    # Its turn ends: the next input brings its status up to date and is taken.
+    pi.runs[run_id] = {"status": "completed", "result": {"text": "Saved; one question."}}
+    charters.answer(charter_id, "incidence", "Yes", expected_revision=revision)
+    assert charters.view(charter_id)["formulator"] == {"status": "running", "listening": False}, "the answer started its next turn"
+    assert "Answer: Yes" in pi.submitted[-1][1]["input"]
+
+
+def test_the_formulator_recommends_only_what_can_run(tmp_path):
+    """token-sharing: the formulator recommended keeping exact grids "and leave execution blocked", and the researcher took it."""
+    workspace, pi, imports, record, run_id, charter_id = formulator_at_work(tmp_path)
+    ask = lambda options, unrunnable, key: imports.call(record["id"], run_id, key, "question_ask", {"questions": [
+        {"id": "grids_" + key, "question": "The lab cannot pass a different grid per variable. How should the grids be handled?",
+         "options": options, "unrunnable_options": unrunnable}]})
+    wait, rounding = "Keep the exact grids and leave execution blocked until the lab supports them", "The evaluator rounds each variable to its grid"
+    assert "first option, shown as recommended" in ask([wait, rounding], [0], "k1")["error"]
+    assert "never recommended" in ask([rounding, wait + " (recommended)"], [1], "k2")["error"]
+    assert "does not have" in ask([rounding, wait], [2], "k3")["error"]
+    # A runnable option first; and when every option leaves nothing able to run, none is recommended and the question may stand.
+    asked = imports.call(record["id"], run_id, "k4", "question_ask", {"questions": [
+        {"id": "grids", "question": "How should the grids be handled?", "options": [rounding, wait], "unrunnable_options": [1]},
+        {"id": "evaluator", "question": "Who supplies the evaluator?", "options": [wait, "Wait for the vendor's code"], "unrunnable_options": [0, 1]}]})
+    assert asked["asked"] == 2, asked
+    saved = {q["id"]: q for q in workspace.charters.get(charter_id)["charter"]["questions"]}
+    assert saved["grids"]["unrunnable_options"] == [1] and saved["evaluator"]["unrunnable_options"] == [0, 1]
+    # A proposal's option that leaves checks open is shown after one that leaves none.
+    proposed = imports.call(record["id"], run_id, "c9", "charter_propose", {"request": "Grids", "options": [
+        {"label": "Wait for the lab", "reason": "Exact grids", "blocking_reason": "Nothing runs until the lab passes grids",
+         "changes": [{"op": "set", "path": "quantities.wavelength_nm.value", "value": 1100}]},
+        {"label": "Round in the evaluator", "reason": "Runs now", "changes": [{"op": "set", "path": "quantities.wavelength_nm.value", "value": 1050}]}]})
+    assert [option["label"] for option in proposed["options"]] == ["Round in the evaluator", "Wait for the lab"]

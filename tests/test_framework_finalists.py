@@ -5,6 +5,7 @@ import json
 import pytest
 from fastapi.testclient import TestClient
 
+from balsamic.app import create_app
 from optimization_framework.analysis.general import method_identity, report
 from optimization_framework.contracts.base import content_hash
 from optimization_framework.contracts.commands import Command
@@ -85,6 +86,7 @@ def test_selection_rejects_stale_shortlist_and_stale_procedure(tmp_path):
     ({"confirmation_protocol_id": "protocol"}, "Protected"),
     ({"diagnostic_grant_id": "check"}, "diagnostic"),
     ({"status": "running"}, "completed"),
+    ({"status": "stopped"}, "completed"),
     ({"scientific_source_hash": None}, "source/runtime"),
     ({"method_contract": 3}, "cell-specific"),
 ])
@@ -163,14 +165,10 @@ def test_confirmation_rejects_changed_or_missing_imported_sources(tmp_path):
     assert not workspace.store.list("confirmation_protocol")
 
 
-def test_comparison_state_and_memory_expose_descriptive_shortlist(tmp_path, monkeypatch):
-    from optimization_framework.api.app import create_app
+def test_comparison_report_and_its_route_expose_the_descriptive_shortlist(tmp_path, monkeypatch):
     monkeypatch.setenv("GRATING_LLM_DISABLED", "true")
     app = create_app(tmp_path, start_workers=False)
     workspace, campaign, trials = prepare(tmp_path, workspace=app.state.workspace)
-    # A large runtime inventory is frozen once, but never copied into the manager prompt.
-    trials[0]["scientific_environment"]["runtime_inventory"] = "x" * 10000
-    workspace.store.put("trial", trials[0])
     receipt = select(workspace, campaign, [trials[0]["id"]])
     selection = workspace.store.get(receipt["outcome"]["finalist_selection_id"])
     result = report(workspace, campaign["id"], cost_axis="evaluation_requests")
@@ -178,12 +176,18 @@ def test_comparison_state_and_memory_expose_descriptive_shortlist(tmp_path, monk
     assert row["finalist_eligible"]
     assert row["procedure"] == method_definition(trials[0])
     assert row["procedure_id"] == selection["selected_procedure_ids"][0]
-    memory = workspace.memory.sync(campaign["id"])["structured"]["finalist_selections"]
-    assert memory[0]["trial_ids"] == [trials[0]["id"]]
-    assert "runtime_inventory" not in json.dumps(memory)
-    assert len(json.dumps(memory)) < 2000
-    assert "runtime_inventory" not in workspace.memory._text("finalist_selection", selection)
+    assert selection["trial_ids"] == [trials[0]["id"]]
     with TestClient(app) as client:
-        response = client.get("/api/state", params={"campaign_id": campaign["id"]})
+        response = client.get(f"/api/v1/campaigns/{campaign['id']}/comparison", params={"cost_axis": "evaluation_requests"})
         assert response.status_code == 200
-        assert response.json()["finalist_selections"] == [selection]
+        served = next(row for group in response.json()["groups"] for row in group["trials"] if row["id"] == trials[0]["id"])
+        assert served["finalist_eligible"] and served["procedure_id"] == selection["selected_procedure_ids"][0]
+        assert served["procedure"] == row["procedure"]
+
+
+def test_a_run_that_used_its_whole_time_allocation_can_become_a_finalist(tmp_path):
+    workspace, campaign, trials = prepare(tmp_path)
+    workspace.store.put("trial", {**trials[0], "status": "budget_exhausted"})
+    select(workspace, campaign, [trials[0]["id"]])
+    selection = workspace.store.list("finalist_selection")[0]
+    assert selection["trial_ids"] == [trials[0]["id"]] and selection["entries"][0]["status"] == "budget_exhausted"

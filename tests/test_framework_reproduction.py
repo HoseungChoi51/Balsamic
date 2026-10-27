@@ -294,7 +294,7 @@ def test_comparison_retains_disagreement_and_respects_frozen_tolerances(tmp_path
     assert not close_values([True], [1], 100, 100)
 
 
-def test_missing_execution_capability_is_a_readiness_requirement_and_manager_retains_the_reference(tmp_path, monkeypatch):
+def test_missing_execution_capability_is_a_readiness_requirement_and_the_reference_survives(tmp_path, monkeypatch):
     workspace, owner, task, reference, _ = imported(tmp_path)
     saved = draft(workspace, owner, task, reference)
     from optimization_framework.execution.isolation import IsolationUnavailable
@@ -305,13 +305,10 @@ def test_missing_execution_capability_is_a_readiness_requirement_and_manager_ret
         readiness = workspace.drafts.readiness(saved["id"])
         assert not readiness["ready"] and "requires bwrap" in str(readiness["blockers"])
         assert not workspace.store.list("trial") and workspace.allocated_seconds(owner) == 0
-    from optimization_framework.campaigns.manager import CampaignManager
-    from optimization_framework.research.engine import _safe_context
     reopened = Workspace(workspace.directory, implementation_client=workspace.implementations.client)
-    context = CampaignManager(reopened).context(owner, "Continue the historical reproduction")
-    assert context["historical_reproduction_sources"][0]["reference"] == reference
-    assert "best_objective" not in context["historical_reproduction_sources"][0]
-    assert context["experiment_drafts"][0]["draft"]["reproduction"]["reference"] == reference
-    assert context["experiment_drafts"][0]["readiness"]["ready"]
-    assert "reproduction.draft" in _safe_context(context)["application_commands"]
-    assert _safe_context(context)["historical_reproduction_sources"] == context["historical_reproduction_sources"]
+    sources = reopened.reproductions.sources(owner)
+    assert sources[0]["reference"] == reference
+    assert "best_objective" not in sources[0]
+    assert reopened.store.get(saved["id"], "experiment_draft")["reproduction"]["reference"] == reference
+    assert reopened.drafts.readiness(saved["id"])["ready"]
+    assert "reproduction.draft" in reopened.commands.describe()

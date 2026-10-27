@@ -102,7 +102,7 @@ class Draft(StrictModel):
     change_summary: str = Field(min_length=1, max_length=12000)
     feedback_response: dict[str, str] = Field(default_factory=dict)
     preservation_exceptions: dict[str, str] = Field(default_factory=dict)
-    claim_uses: dict[str, str] = Field(default_factory=dict, description="Included claim ID to an exact passage in the draft")
+    claim_uses: dict[str, str] = Field(default_factory=dict, description="Included claim ID to one sentence copied exactly from a paragraph of the draft")
     review_response: dict[str, str] = Field(default_factory=dict, description="Review issue ID to resolution and evidence basis")
 
 
@@ -162,7 +162,7 @@ outline for this expert reader, not campaign chronology. Record caveats essentia
     "draft": """Act as scientific author. Write a complete coherent article around the selected argument. Give
 knowledgeable readers the mechanism, comparison and uncertainty they need; remove routine history and tutorial filler.
 Only main/supporting claims belong in prose. Include necessary limitations and contrary observations in context.
-claim_uses maps every included claim to an exact passage in the resulting plain text. Preserve only SELECTED figure
+claim_uses maps every included claim to one sentence of the resulting text, copied exactly from one paragraph. Preserve only SELECTED figure
 placeholders exactly once. Cite literature only through URLs in successful source.read receipts, with attribution.
 Keep internal receipt IDs and workflow machinery outside article prose. The side panel carries the audit trail.""",
     "science": """Independently review the draft's scientific support. You have the broader frozen inventory,

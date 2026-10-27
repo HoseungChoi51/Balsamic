@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import math
 from copy import deepcopy
+from pathlib import Path
 from typing import Any
 
 from optimization_framework.contracts.base import content_hash
@@ -111,7 +112,96 @@ def _integer(value: Any, name: str, *, minimum: int = 0) -> int:
     return value
 
 
+FLRL_SOURCES = "FLRL Si_refractive_data.csv at commit 7838e71313d71cee8e2db3b432f41f80b9106a95; linear interpolation of n column, k ignored"
+FLRL_QUESTION = """Run the paper's FLRL/PPO approach at Fourier level-set mode limits (Nx, Ny) = (2, 1), (4, 2), (6, 3) and (8, 4) against matched-budget baselines on the installed 2D MEENT evaluator. The level-set coefficients (real-valued, symmetric under y → −y) are a search representation, not an RCWA truncation; designs stay binary.
+
+Before reproduction claims: verify RCWA convergence and cross-version parity, check the evaluator independently (including its order indexing), and measure the cost of one evaluation."""
+
+
+def silicon_index_points():
+    """The FLRL index table between 800 and 1600 nm (wavelength in nm, real index n)."""
+    rows = (Path(__file__).parent / "data" / "flrl_si_index_800_1600nm.csv").read_text().splitlines()[1:]
+    return [[float(x), float(n)] for x, n in (row.split(",") for row in rows if row.strip())]
+
+
+def flrl_charter():
+    """The FLRL condition as a problem charter: every value once, the period and the index as relations."""
+    def number(description, value, units, citation=1, **more):
+        return {"description": description, "kind": "number", "role": "input", "value": value, "units": units,
+                "origin": "source", "citation": citation, **more}
+
+    def whole(description, value, citation=1, **more):
+        return {"description": description, "kind": "integer", "role": "input", "value": value, "units": "1",
+                "origin": "source", "citation": citation, **more}
+    return {
+        "title": "2D dual-polarization beam deflector · Octavian FLRL",
+        "summary": "A periodic 2D silicon/air freeform metasurface that sends {wavelength_nm} light from silica into the "
+                   "transmitted ({target_order_x}, {target_order_y}) order at {target_angle_deg}, for TE and TM together.",
+        "text": "Design a periodic 2D silicon/air freeform metasurface that deflects {wavelength_nm} light from silica "
+                "(n = {incident_n}) into the transmitted ({target_order_x}, {target_order_y}) order at {target_angle_deg} in x, "
+                "for both TE and TM polarization.\n\n"
+                "Geometry: a {thickness_nm} silicon layer sampled on a {grid_x} × {grid_y} binary grid, with periods "
+                "Px = {period_x_nm} (from the grating equation) and Py = {period_y_nm}, and air above. The silicon index at "
+                "the wavelength is {silicon_n}, read from the FLRL index table.\n\n"
+                "Evaluation: RCWA with {rcwa_order_x} × {rcwa_order_y} Fourier orders; a score belongs to these orders.",
+        "quantities": {
+            "wavelength_nm": number("Free-space wavelength", 1050.0, "nm", range=[1.0, None]),
+            "target_angle_deg": number("Deflection angle of the target order in air, in x", 75.0, "deg", range=[0.0, 90.0]),
+            "incident_angle_deg": {**number("Angle of incidence in the substrate", 0.0, "deg", range=[-90.0, 90.0]),
+                "origin": "assumed", "citation": None, "note": "Normal incidence is inferred from the stated period relation, not stated."},
+            "incident_n": number("Refractive index of the silica substrate (incident side)", 1.45, "1", range=[1.0, None]),
+            "exit_n": number("Refractive index of the medium above (air)", 1.0, "1", range=[1.0, None]),
+            "target_order_x": whole("Target diffraction order in x", 1),
+            "target_order_y": whole("Target diffraction order in y", 0),
+            "period_x_nm": {"description": "Period in x, from the grating equation for the target order",
+                "kind": "number", "role": "derived", "units": "nm", "citation": 1,
+                "expression": "target_order_x * wavelength_nm / (exit_n * sin(rad(target_angle_deg)) - incident_n * sin(rad(incident_angle_deg)))"},
+            "period_y_nm": number("Period in y", 525.0, "nm", range=[1.0, None]),
+            "thickness_nm": number("Thickness of the silicon layer", 325.0, "nm", range=[1.0, None]),
+            "grid_x": whole("Design cells in x", 256, range=[2, None]),
+            "grid_y": whole("Design cells in y", 128, range=[2, None]),
+            "silicon_n": {"description": "Real refractive index of silicon at the wavelength (k ignored)", "kind": "number",
+                "role": "derived", "units": "1", "expression": "table(silicon_index, wavelength_nm)", "citation": 2},
+            "silicon_index_source": {"description": "Where the silicon index comes from", "kind": "text", "role": "input",
+                "value": FLRL_SOURCES, "origin": "source", "citation": 2},
+            "reference_meent_version": {"description": "MEENT version of the paper's released code", "kind": "text", "role": "input",
+                "value": "0.9.5", "origin": "source", "citation": 2},
+            "rcwa_order_x": whole("RCWA Fourier orders in x (fidelity)", 10, citation=2, range=[1, None]),
+            "rcwa_order_y": whole("RCWA Fourier orders in y (fidelity)", 5, citation=2, range=[1, None]),
+        },
+        "tables": {"silicon_index": {"description": "Silicon refractive index n against wavelength, FLRL Si_refractive_data.csv",
+                                     "x_units": "nm", "y_units": "1", "points": silicon_index_points(), "citation": 2}},
+        "variables": [{"name": "design", "description": "Silicon (1) or air (0) in each cell of the layer", "representation": "binary",
+                       "shape": ["grid_y", "grid_x"], "meaning": "1 = silicon, 0 = air", "layout": "row by row: grid_y rows of grid_x cells"}],
+        "constraints": [{"id": "target_inside_truncation", "kind": "hard", "form": "quantities",
+                         "statement": "The target order lies within the RCWA truncation.",
+                         "test": "rcwa_order_x >= abs(target_order_x) and rcwa_order_y >= abs(target_order_y)"}],
+        "objective": {"name": "mean_plus1_transmission", "direction": "maximize", "units": "fraction of incident power", "citation": 2,
+                      "definition": "The mean of the absolute +1 TE and TM transmission efficiencies, each normalized by its own "
+                                    "incident power, as the released FLRL code computes it: (TE + TM) / 2."},
+        "metrics": [{"name": "te_plus1_transmission", "units": "fraction of incident power", "direction": "maximize", "definition": "TE alone"},
+                    {"name": "tm_plus1_transmission", "units": "fraction of incident power", "direction": "maximize", "definition": "TM alone"},
+                    {"name": "min_plus1_transmission", "units": "fraction of incident power", "direction": "maximize", "definition": "The worse of TE and TM"}],
+        "evaluator": {"kind": "installed", "problem_id": PROBLEM_ID,
+            "configuration": {name: name for name in CONFIGURATION_SCHEMA["required"] if name != "silicon_n_1050"} | {"silicon_n_1050": "silicon_n"},
+            "fidelity": {"rcwa_order_x": "rcwa_order_x", "rcwa_order_y": "rcwa_order_y"}},
+        "instances": [{"name": "1050 nm, 75°, TE+TM, 256×128 Si/air beam deflector", "split": "development",
+                       "note": "The paper's reported condition: development evidence, not an untouched test condition."}],
+        "references": [
+            {"statement": "Best FLRL result reported in the paper, at Fourier mode limit (8, 4)", "value": 0.935,
+             "units": "fraction of incident power", "citation": 1,
+             "holds_at": {"wavelength_nm": 1050.0, "target_angle_deg": 75.0, "thickness_nm": 325.0, "grid_x": 256, "grid_y": 128}},
+            {"statement": "The released 2D training configuration uses 100,000 timesteps, one environment and four stacked "
+                          "observations; the manuscript states 500,000 samples, four environments and a three-step history. "
+                          "They are distinct reference settings until reconciled.", "citation": 2}],
+        "citations": [{"id": 1, "source": "Octavian FLRL manuscript and supplementary methods"},
+                      {"id": 2, "source": "Released FLRL code", "location": "commit 7838e71", "quote": ""}],
+    }
+
+
 class Meent2DProblem:
+    devices = ("cpu", "cuda")   # the scheduler places each run on one; see optimization_framework/execution/devices.py
+
     def examples(self):
         """The Octavian FLRL paper's reported condition, as a New campaign starting point."""
         return [{
@@ -134,9 +224,10 @@ class Meent2DProblem:
             }],
             "campaign": {
                 "name": "2D dual-polarization beam deflector \u2014 Octavian FLRL paper",
-                "objective": FLRL_OBJECTIVE, "compute_budget_seconds": 248400.0, "validation_reserve_seconds": 600.0,
+                "objective": FLRL_OBJECTIVE, "research_question": FLRL_QUESTION, "compute_budget_seconds": 248400.0, "validation_reserve_seconds": 600.0,
                 "delegated_trial_seconds": 3600.0, "implementation_compute_budget_seconds": 900.0,
                 "llm_budget_usd": 5.0, "autonomy": "delegated"},
+            "charter": flrl_charter(),
         }]
 
     def describe(self) -> ProblemDefinition:
@@ -333,9 +424,24 @@ class Meent2DProblem:
                 "note": "Consistency over the tested 2D truncations is separate from independent evaluator correctness and scientific confirmation."}
 
 
+def _solver():
+    """The lab's MEENT (the meent-private fork) on the device the scheduler placed this run on (GRATING_DEVICE), cpu by default.
+
+    CPU and CUDA agree to about 1e-11 in every diffraction efficiency, so each evaluation records
+    the build and the device that produced it.
+    """
+    from dqn_meent.rcwa import device, load, source
+
+    meent, torch = load()
+    where = device()
+    if where == "cuda" and not torch.cuda.is_available():
+        raise ValueError("This run is placed on the GPU (GRATING_DEVICE is cuda), but PyTorch sees no CUDA device in this lab")
+    return meent, {"device": where}, {"source": source(), "device": where}
+
+
 class Meent2DEvaluator:
     def __init__(self, instance: ProblemInstance):
-        import meent
+        meent, selection, self.provenance = _solver()   # says what to install when PyTorch or the fork is missing
         import torch
 
         if meent.__version__ != "0.13.2":
@@ -344,7 +450,7 @@ class Meent2DEvaluator:
         self.torch = torch
         self.cache = {}
         self.mee = meent.call_mee(
-            backend=2, pol=0,
+            pol=0, **selection,
             n_top=instance.configuration["incident_n"],
             n_bot=instance.configuration["exit_n"],
             theta=torch.tensor(math.radians(instance.configuration["incident_angle_deg"]), dtype=torch.float64),
@@ -353,8 +459,17 @@ class Meent2DEvaluator:
             wavelength=instance.configuration["wavelength_nm"],
             period=torch.tensor([instance.configuration["period_x_nm"], instance.configuration["period_y_nm"]], dtype=torch.float64),
             thickness=torch.tensor([instance.configuration["thickness_nm"]], dtype=torch.float64),
-            type_complex=torch.complex128, device=0,
+            type_complex=torch.complex128,
         )
+
+    def _solve(self):
+        """Pure-TE and pure-TM results of the current cell, from one solve.
+
+        A 2D solve returns both incidences next to the one selected by ``pol``. Solving once
+        per polarization repeated the whole eigenproblem for values that agree to about 1e-15.
+        """
+        result = self.mee.conv_solve()
+        return result.res_te_inc, result.res_tm_inc
 
     def evaluate(self, candidate: list[int | float]) -> Evaluation:
         values = self.instance.candidate_schema.canonicalize(candidate)
@@ -366,9 +481,7 @@ class Meent2DEvaluator:
         efficiencies = []
         energy_totals = []
         with self.torch.no_grad():
-            for pol in (0, 1):
-                self.mee.pol = pol
-                result = self.mee.conv_solve().res
+            for result in self._solve():
                 transmitted = result.de_ti
                 reflected = result.de_ri
                 if transmitted.ndim != 2 or transmitted.shape != (
@@ -393,8 +506,8 @@ class Meent2DEvaluator:
                 "tm_plus1_transmission": tm,
                 "min_plus1_transmission": min(te, tm),
             },
-            metadata={"meent": {"version": "0.13.2", "energy_totals": energy_totals}},
-            solver_executions=2, cache_hit=False,
+            metadata={"meent": {"version": "0.13.2", "energy_totals": energy_totals, **self.provenance}},
+            solver_executions=1, cache_hit=False,
         )
 
     def checkpoint(self) -> dict:
@@ -428,19 +541,16 @@ class Meent2DEvaluator:
             field = torch.tensor(np.array(geometry.basis), dtype=torch.float64) @ coefficients
             density = torch.sigmoid(beta * field).reshape(1, config['grid_y'], config['grid_x'])
             self.mee.ucell = (1 + density * (config['silicon_n_1050'] ** 2 - 1)).sqrt() if request['material_map'] == 'permittivity' else 1 + density * (config['silicon_n_1050'] - 1)
-            scores = []
-            for pol in (0, 1):
-                self.mee.pol = pol
-                result = self.mee.conv_solve().res
-                scores.append(result.de_ti[self.instance.fidelity['rcwa_order_y'] + config['target_order_y'],
-                                          self.instance.fidelity['rcwa_order_x'] + config['target_order_x']])
+            scores = [result.de_ti[self.instance.fidelity['rcwa_order_y'] + config['target_order_y'],
+                                   self.instance.fidelity['rcwa_order_x'] + config['target_order_x']]
+                      for result in self._solve()]
             mean = (scores[0] + scores[1]) / 2
             gradient, = torch.autograd.grad(mean, coefficients)
             if not torch.isfinite(gradient).all() or not torch.isfinite(mean):
                 raise ValueError('MEENT returned nonfinite relaxed gradients')
             output = {'gradient': gradient.detach().tolist(), 'mean': float(mean.detach()),
                 'te': float(scores[0].detach()), 'tm': float(scores[1].detach()), 'beta': beta,
-                'material_map': request['material_map'], 'forward_solver_executions': 2, 'backward_calls': 1}
+                'material_map': request['material_map'], 'forward_solver_executions': 1, 'backward_calls': 1}
         self.mee.ucell = self.mee.ucell.detach()
         return output
 
@@ -448,7 +558,7 @@ class Meent2DEvaluator:
         """Account for hard scoring and an optional gradient at the same geometry.
 
         Only binary objectives enter the archive. Relaxed scores/gradients are
-        auxiliary observation metadata; each forward polarization is charged.
+        auxiliary observation metadata; each forward solve (both polarizations) is charged.
         """
         from dqn_meent.fourier import FourierGeometry
 
@@ -469,5 +579,5 @@ class Meent2DEvaluator:
                 self.cache.pop(next(iter(self.cache)))
         if request is not None:
             result = result.model_copy(update={"metadata": {**result.metadata, 'flrl_gradient': self.relaxed_gradient(request)},
-                                               "solver_executions": result.solver_executions + 2})
+                                               "solver_executions": result.solver_executions + 1})
         return result

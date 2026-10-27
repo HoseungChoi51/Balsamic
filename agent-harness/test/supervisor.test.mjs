@@ -38,7 +38,7 @@ test('restart uses the exact saved session and interrupts an uncertain run witho
   fs.appendFileSync(path.join(f.directory,'pi/events.jsonl'),JSON.stringify({seq:50,type:'after_snapshot'})+'\n');
   const restarted=new Supervisor(f.directory,f.factory,f.gateway,'private-auth');
   assert.equal(restarted.view('pi').runs.first.status,'interrupted');
-  await restarted.submit('pi',request('recovery'));await until(()=>f.runtimes.length===2);
+  await restarted.submit('pi',request('recovery'));await until(()=>f.runtimes[1]?.finish);
   assert.equal(f.options[1].sessionFile,saved);
   assert.ok(restarted.view('pi',50).events[0].seq>50);
   f.runtimes[1].finish();await until(()=>restarted.view('pi').runs.recovery.status==='completed');
@@ -119,4 +119,143 @@ test('model and thinking changes apply at the next turn; the role is fixed', asy
   assert.deepEqual(applied[0],spec('deepseek-flash','max'));
   await until(()=>s.view('lead').events.some(e=>e.type==='model.changed'));
   assert.equal(f.runtimes.length,1);
+});
+
+test('a turn returns everything the agent wrote, not only its closing line', async t=>{
+  const f=fixture(t), s=f.supervisor;
+  await s.submit('pi',request('answer')); await until(()=>f.runtimes[0]?.finish);
+  const say = text => f.runtimes[0].listener({type:'message_end',message:{role:'assistant',content:[{type:'text',text}],usage:{}}});
+  say('The full answer.'); say(''); say('Done; waiting for your next request.');
+  f.runtimes[0].finish(); await until(()=>s.view('pi').runs.answer.status==='completed');
+  assert.equal(s.view('pi').runs.answer.result.text,'The full answer.\n\nDone; waiting for your next request.');
+  // The next turn starts empty; with nothing written, the runtime's last text stands.
+  await s.submit('pi',request('next')); await until(()=>s.view('pi').runs.next.status==='running');
+  f.runtimes[0].finish(); await until(()=>s.view('pi').runs.next.status==='completed');
+  assert.equal(s.view('pi').runs.next.result.text,'saved');
+});
+test('forgetting an agent ends its turn, deletes its saved session and leaves the others', async t=>{
+  const f=fixture(t), s=f.supervisor;
+  await s.submit('gone',request('first')); await s.submit('stays',request('other'));
+  await until(()=>f.runtimes.length===2 && f.runtimes.every(r=>r.finish));
+  assert.ok(fs.existsSync(path.join(f.directory,'gone','state.json')));
+  assert.deepEqual(await s.forget('gone'),{removed:true});
+  assert.equal(s.view('gone'),null); assert.ok(!fs.existsSync(path.join(f.directory,'gone')));
+  assert.equal(s.view('stays').runs.other.status,'running'); assert.ok(fs.existsSync(path.join(f.directory,'stays','state.json')));
+  // Nothing of it comes back: not after a restart, and an unknown agent is simply not there.
+  assert.equal(new Supervisor(f.directory,f.factory,f.gateway,'private-auth').view('gone'),null);
+  assert.deepEqual(await s.forget('gone'),{removed:false});
+  await assert.rejects(s.forget('../stays'),/Invalid identity/);
+});
+test('the live view shows the steps and the reasoning of the running turn, and neither is saved', async t=>{
+  const f=fixture(t), s=f.supervisor;
+  await s.submit('pi',request('first')); await until(()=>f.runtimes[0]?.finish);
+  const emit = event => f.runtimes[0].listener(event);
+  const part = (type, delta) => emit({type:'message_update',assistantMessageEvent:{type,delta}});
+  part('thinking_start'); part('thinking_delta','Compare the two '); part('thinking_delta','runs first.');
+  emit({type:'tool_execution_start',toolCallId:'c1',toolName:'campaign_command',args:{operation:'trial.create',request_key:'k',
+    payload:{title:'H6 seed 0',mask:[[1,0]],note:'x'.repeat(500)}}});
+  let live=s.liveView(['pi','unknown']).pi;
+  assert.equal(live.run_id,'first'); assert.equal(live.thinking,'Compare the two runs first.'); assert.equal(live.phase,'tool');
+  assert.deepEqual(live.steps.map(step=>[step.tool,step.args.operation,step.args.payload.title,'finished_at' in step]),[['campaign_command','trial.create','H6 seed 0',false]]);
+  assert.ok(live.steps[0].args.payload.note.length<=121); assert.ok(!('mask' in live.steps[0].args.payload));
+  emit({type:'tool_execution_end',toolCallId:'c1',toolName:'campaign_command',isError:true});
+  part('thinking_start'); part('thinking_delta','y'.repeat(5000)); part('text_start'); part('text_delta','Started.');
+  live=s.liveView(['pi']).pi;
+  assert.ok(live.steps[0].failed && live.steps[0].finished_at); assert.equal(live.text,'Started.'); assert.equal(live.phase,'writing');
+  assert.equal(live.thinking.length,4000);
+  // What is saved holds the tool calls, never the reasoning.
+  const saved=fs.readFileSync(path.join(f.directory,'pi','events.jsonl'),'utf8')+fs.readFileSync(path.join(f.directory,'pi','state.json'),'utf8');
+  assert.ok(saved.includes('tool_execution_start')); assert.ok(!saved.includes('Compare the two')); assert.ok(!saved.includes('yyyy'));
+  assert.ok(!JSON.stringify(s.view('pi')).includes('yyyy'));
+  f.runtimes[0].finish(); await until(()=>s.view('pi').runs.first.status==='completed');
+  assert.equal(s.liveView(['pi']).pi.phase,'completed'); assert.ok(s.liveView(['pi']).pi.finished_at);
+  // The next turn starts with an empty view.
+  await s.submit('pi',request('next')); await until(()=>s.view('pi').runs.next.status==='running');
+  live=s.liveView(['pi']).pi; assert.equal(live.run_id,'next'); assert.equal(live.thinking,''); assert.deepEqual(live.steps,[]);
+  f.runtimes[0].finish(); await until(()=>s.view('pi').runs.next.status==='completed');
+  assert.throws(()=>s.liveView(['../x']),/Invalid identity/);
+});
+test('a single model call returns its reply and shows its reasoning only while it runs', async t=>{
+  const f=fixture(t); let finish, received;
+  const completer=(input, observe, signal)=>new Promise((resolve,reject)=>{
+    received=input; observe({type:'message_update',assistantMessageEvent:{type:'thinking_start'}});
+    observe({type:'message_update',assistantMessageEvent:{type:'thinking_delta',delta:'Which claim is the main one?'}});
+    finish=error=>error?reject(error):resolve({text:'{"focus":"request efficiency"}',usage:{input:900,output:40,cost_usd:0.002},billing:'api'});
+  });
+  const s=new Supervisor(f.directory,f.factory,f.gateway,'private-auth',null,null,completer);
+  const call=s.complete('report_writer_1',{provider:'deepseek',model:'deepseek-v4-pro',effort:'max',system:'Rules',prompt:'{}',label:'brief'});
+  await until(()=>finish);
+  assert.deepEqual([received.model,received.system],['deepseek-v4-pro','Rules']);
+  let live=s.liveView(['report_writer_1']).report_writer_1;
+  assert.deepEqual([live.run_id,live.thinking,live.finished_at],['brief','Which claim is the main one?',null]);
+  // One call at a time under an identity.
+  await assert.rejects(s.complete('report_writer_1',{label:'draft'}),/still running/);
+  finish(); assert.deepEqual(await call,{text:'{"focus":"request efficiency"}',usage:{input:900,output:40,cost_usd:0.002},billing:'api'});
+  live=s.liveView(['report_writer_1']).report_writer_1; assert.equal(live.phase,'completed'); assert.ok(live.finished_at);
+  // Nothing of the call is written to the harness directory.
+  assert.ok(!fs.existsSync(path.join(f.directory,'report_writer_1')));
+  // A failed call is reported and frees the identity.
+  const failing=s.complete('report_writer_1',{label:'draft'}); await until(()=>s.liveView(['report_writer_1']).report_writer_1.run_id==='draft');
+  finish(new Error('Provider request failed')); await assert.rejects(failing,/Provider request failed/);
+  assert.equal(s.liveView(['report_writer_1']).report_writer_1.phase,'failed');
+  await assert.rejects(s.complete('../x',{}),/Invalid identity/);
+  await assert.rejects(f.supervisor.complete('report_writer_2',{}),/not available/);
+});
+test('a saved yield_work ends the turn; other tools and a refused yield_work do not',async t=>{
+  const f=fixture(t);
+  const gateway=async (operation,data)=>operation==='manifest'
+    ?{instructions:'frozen',tools:[{name:'inspect',input_schema:{type:'object'}},{name:'yield_work',input_schema:{type:'object'}}]}
+    :data.name==='yield_work'&&data.arguments.disposition==='complete'?{error:'refused'}:data.name==='yield_work'?{saved:true,...data.arguments}:{ok:true};
+  const s=new Supervisor(f.directory,f.factory,gateway,'private-auth');
+  await s.submit('pi',request('first'));await until(()=>f.runtimes[0]?.finish);
+  const [inspect,yieldWork]=f.options[0].tools;
+  assert.equal((await inspect.execute('a',{})).terminate,undefined);
+  assert.equal((await yieldWork.execute('b',{disposition:'complete',summary:'x'})).terminate,undefined);
+  assert.equal((await yieldWork.execute('c',{disposition:'waiting',summary:'x'})).terminate,true);
+  f.runtimes[0].finish();await until(()=>s.view('pi').runs.first.status==='completed');
+});
+test('a turn keeps its separate texts beside the joined text when there are several',async t=>{
+  const f=fixture(t),s=f.supervisor;
+  await s.submit('pi',request('first'));await until(()=>f.runtimes[0]?.finish);
+  const say=text=>f.runtimes[0].listener({type:'message_end',message:{role:'assistant',content:[{type:'text',text}],usage:{}}});
+  say('Restarting the writer.'); say('The writer restarted; see Reports.');
+  f.runtimes[0].finish();await until(()=>s.view('pi').runs.first.status==='completed');
+  assert.deepEqual(s.view('pi').runs.first.result,{text:'Restarting the writer.\n\nThe writer restarted; see Reports.',parts:['Restarting the writer.','The writer restarted; see Reports.']});
+  await s.submit('pi',request('second'));await until(()=>f.runtimes[0].input?.includes('second'));
+  say('Only one.');f.runtimes[0].finish();await until(()=>s.view('pi').runs.second.status==='completed');
+  assert.deepEqual(s.view('pi').runs.second.result,{text:'Only one.'});
+});
+test('each turn starts with the workspace state block; the manifest is fetched once per runtime', async t=>{
+  const f=fixture(t); let state='[Workspace state] Gate: closed.';
+  const gateway=async (operation,data)=>{f.gatewayCalls.push({operation,data});
+    return operation==='manifest'?{instructions:'frozen',tools:[]}:operation==='turn_state'?{text:state,hash:'h'}:{ok:true};};
+  const s=new Supervisor(f.directory,f.factory,gateway,'private-auth');
+  await s.submit('lead',request('first')); await until(()=>f.runtimes[0]?.finish);
+  assert.equal(f.runtimes[0].input,'[Assignment first]\n[Workspace state] Gate: closed.\n\nwork');
+  f.runtimes[0].finish(); await until(()=>s.view('lead').runs.first.status==='completed');
+  state='[Workspace state] Gate: open.';
+  await s.submit('lead',request('second','more')); await until(()=>f.runtimes[0].input?.includes('second'));
+  assert.equal(f.runtimes[0].input,'[Assignment second]\n[Workspace state] Gate: open.\n\nmore');
+  // The state is not part of the run's identity: the same run submitted again while the state differs is the same request.
+  state='[Workspace state] Gate: closed again.';
+  await s.submit('lead',request('second','more'));
+  assert.deepEqual(f.gatewayCalls.map(call=>call.operation).filter(op=>op!=='tool'),['manifest','turn_state','turn_state']);
+  assert.ok(f.gatewayCalls.filter(call=>call.operation==='turn_state').every(call=>call.data.agent_id==='lead'));
+  assert.equal(f.options[0].instructions,'frozen');
+  f.runtimes[0].finish(); await until(()=>s.view('lead').runs.second.status==='completed');
+});
+test('a workspace without the state route leaves the prompt as it was; any other gateway error fails the run', async t=>{
+  const f=fixture(t); let failure={status:404};
+  const gateway=async operation=>{
+    if(operation==='manifest') return {instructions:'frozen',tools:[]};
+    if(operation==='turn_state') throw Object.assign(new Error(failure.status===404?'Not Found':'Workspace record not readable'),failure);
+    return {ok:true};
+  };
+  const s=new Supervisor(f.directory,f.factory,gateway,'private-auth');
+  await s.submit('lead',request('first')); await until(()=>f.runtimes[0]?.finish);
+  assert.equal(f.runtimes[0].input,'[Assignment first]\nwork');
+  f.runtimes[0].finish(); await until(()=>s.view('lead').runs.first.status==='completed');
+  failure={status:500};
+  await s.submit('lead',request('second')); await until(()=>s.view('lead').runs.second.status==='failed');
+  assert.match(s.view('lead').runs.second.error,/not readable/);
 });

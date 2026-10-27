@@ -9,6 +9,8 @@ import pytest
 from dqn_meent.config import PhysicsConfig
 from dqn_meent.physics import ForwardSolver
 
+pytestmark = pytest.mark.meent   # what scripts/install-meent installs; skipped where it is not installed
+
 
 @pytest.fixture
 def config():

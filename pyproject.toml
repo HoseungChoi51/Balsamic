@@ -3,9 +3,9 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [project]
-name = "dqn-meent"
-version = "0.1.0"
-description = "A reusable user–LLM research harness for developing optimizers"
+name = "balsamic"
+version = "0.3.0"
+description = "Balsamic: a chat-centred research workspace for developing optimizers with a lead agent"
 requires-python = ">=3.12,<3.14"
 dependencies = [
   "numpy==2.5.3",
@@ -15,7 +15,6 @@ dependencies = [
   "httpx>=0.27,<1",
   "pydantic>=2.9,<3",
   "jsonschema>=4.19,<5",
-  "langgraph>=1,<2",
   "packaging>=24,<27",
   "pypdf>=6.19,<7",
   "tensorboard>=2.20,<3",
@@ -23,15 +22,21 @@ dependencies = [
 
 [project.optional-dependencies]
 dev = ["pytest>=9,<10", "jsonschema>=4.19,<5"]
-meent = ["meent==0.13.2", "scipy==1.18.1", "matplotlib>=3.10,<4", "tqdm>=4.70,<5"]
+# MEENT is the meent-private fork (feature/cuda-acceleration): Torch-only, on CPU or CUDA.
+meent = ["meent==0.13.2", "torch==2.14.0", "scipy==1.18.1", "matplotlib>=3.10,<4", "tqdm>=4.70,<5"]
 learners = ["torch==2.14.0", "gymnasium==1.3.0"]
 masks = ["mask-optimizers==0.1.0"]
+# Libraries built in campaigns (libraries/<name>), installed by the researcher: docs/optimizer-plugins.md.
+libraries = ["grating-mask-search==0.1.2"]
+# The PyTorch build that meent and learners get: PyPI's, with CUDA (cuda, also the build without either), or PyTorch's
+# CPU-only build (cpu), a far smaller download for a machine without an NVIDIA GPU. scripts/install-meent picks one.
+cpu = ["torch==2.14.0"]
+cuda = ["torch==2.14.0"]
 
 [project.scripts]
 dqn-meent = "dqn_meent.cli:main"
-grating-lab = "dqn_meent.workspace.api:main"
-grating-implementations = "dqn_meent.implementations.api:main"
-optimization-lab = "optimization_framework.api.app:main"
+balsamic = "balsamic.app:main"
+optimization-lab = "balsamic.app:main"
 optimization-implementations = "optimization_framework.implementations.api:main"
 optimization-research = "optimization_framework.cli:main"
 optimization-report = "optimization_framework.reports.cli:main"
@@ -44,12 +49,24 @@ bounded_continuous = "optimization_benchmarks.problems:ContinuousProblem"
 [project.entry-points."optimization_framework.optimizers"]
 mask_optimizers = "dqn_meent.mask_library_adapter:MaskLibraryPlugin"
 
+[tool.uv]
+conflicts = [[{ extra = "cpu" }, { extra = "cuda" }]]
+
 [tool.uv.sources]
+torch = [{ index = "pytorch-cpu", extra = "cpu" }]
+meent = { git = "https://github.com/HoseungChoi51/meent-private", branch = "feature/cuda-acceleration" }
 mask-optimizers = { git = "https://github.com/kc-ml2/mask-optimizers", tag = "v0.1.0" }
+grating-mask-search = { path = "libraries/grating-mask-search", editable = true }
+
+[[tool.uv.index]]
+name = "pytorch-cpu"
+url = "https://download.pytorch.org/whl/cpu"
+explicit = true
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/dqn_meent", "src/optimization_framework", "src/optimization_benchmarks"]
+packages = ["src/balsamic", "src/dqn_meent", "src/optimization_framework", "src/optimization_benchmarks"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = ["src", "."]
+markers = ["meent: needs MEENT (scripts/install-meent); skipped where it is not installed"]

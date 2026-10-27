@@ -80,8 +80,13 @@ class DraftService:
         if not evaluator["runnable"]:
             block("evaluator_" + evaluator["state"], evaluator["reason"],
                 *( ["review_validation", "record_waiver"] if evaluator.get("waiver_allowed") else ["commission_evaluator", "select_evaluator"]))
+        from optimization_framework.execution.runtime_profile import gate_seconds
+        if gate_seconds() is not None and request.get("wall_seconds", 60) >= gate_seconds():
+            runtime = self.workspace.runtime.view(task, study["id"], record=False)
+            if runtime["blocker"]:
+                block("runtime_profile", runtime["blocker"], "measure_runtime", "record_waiver")
         hypothesis = self.store.get(request["hypothesis_id"], "hypothesis") if request.get("hypothesis_id") else None
-        from optimization_framework.research.discovery.proposals import readiness as proposal_readiness
+        from optimization_framework.campaigns.proposals import readiness as proposal_readiness
         concept_review = proposal_readiness(self.store, hypothesis)
         if not concept_review["eligible"]:
             block("concept_review_required", concept_review["reason"], "discuss_with_manager")

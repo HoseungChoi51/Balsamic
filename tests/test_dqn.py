@@ -5,11 +5,14 @@ import json
 
 import numpy as np
 import pytest
-import torch
+
+torch = pytest.importorskip("torch", reason="needs PyTorch, which scripts/install-meent installs; MEENT is optional")
 
 from dqn_meent.config import ExperimentConfig, PhysicsConfig, TrainConfig
 from dqn_meent.dqn import QNetwork, ReplayBuffer, compute_td_target, greedy_action, load_policy
 from dqn_meent.training import epsilon_at_step, train
+
+pytestmark = pytest.mark.meent   # what scripts/install-meent installs; skipped where it is not installed
 
 
 def test_double_dqn_uses_online_selection_and_target_evaluation():

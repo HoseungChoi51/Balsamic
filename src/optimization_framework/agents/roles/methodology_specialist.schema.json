@@ -1,0 +1,11 @@
+{
+  "type": "object",
+  "required": ["fits"],
+  "additionalProperties": false,
+  "properties": {
+    "fits": {"type": "array", "maxItems": 20, "items": {"type": "object", "additionalProperties": false,
+      "required": ["algorithm", "fits_representation", "suggested_config", "risks"],
+      "properties": {"algorithm": {"type": "string"}, "fits_representation": {"type": "boolean"}, "suggested_config": {"type": "object"},
+        "risks": {"type": "array", "items": {"type": "string"}}}}}
+  }
+}

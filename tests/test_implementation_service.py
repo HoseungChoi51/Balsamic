@@ -65,6 +65,7 @@ class FakeAdapter:
         return ReviewResult(passed=True, criteria=payload["spec"]["acceptance_criteria"], findings=["Checked each criterion against source and report"])
 
 
+@pytest.mark.meent
 def test_submitted_package_charges_execution_separately_from_model_wait(tmp_path):
     class SlowReviewAdapter(FakeAdapter):
         def call(self, *args, **kwargs):
@@ -96,6 +97,7 @@ def test_submitted_package_failure_returns_to_coding_workspace_without_rebuild(t
     assert result["attempts"][0]["report"]["passed"] is False
 
 
+@pytest.mark.meent
 def test_pre_review_transport_failure_resumes_same_protected_report(tmp_path):
     class LostReviewAdapter(FakeAdapter):
         first = True
@@ -141,6 +143,7 @@ def test_service_auth_idempotency_and_capabilities(tmp_path):
         assert not result["usage"]
 
 
+@pytest.mark.meent
 def test_full_repair_validation_and_immutable_artifact(tmp_path):
     class RepairAdapter(FakeAdapter):
         sources = [REFERENCE.replace("efficiency > self.score", "True"), REFERENCE]
@@ -209,6 +212,7 @@ def test_package_isolation_and_checkpoint(tmp_path):
         optimizer.close()
 
 
+@pytest.mark.meent
 def test_validation_profile_change_requires_revalidation(tmp_path, monkeypatch):
     service = ImplementationService(tmp_path, adapter_factory=FakeAdapter)
     result = service.run_job(service.submit(request(package=package().model_dump()))["id"])
@@ -240,92 +244,6 @@ class DirectClient:
 
     def control(self, job_id, action):
         return self.service.control(job_id, action)
-
-
-def test_development_validation_does_not_attach_before_selection(tmp_path):
-    from dqn_meent.workspace.service import Workspace
-    from dqn_meent.workspace.models import CampaignInput
-    from optimization_framework.campaigns.hypotheses import create
-    from optimization_framework.contracts.requests import HypothesisInput
-
-    service = ImplementationService(tmp_path / "library", adapter_factory=FakeAdapter)
-    workspace = Workspace(tmp_path / "workspace", implementation_client=DirectClient(service))
-    campaign = workspace.create_campaign(CampaignInput(name="sandbox validation",
-        implementation_compute_budget_seconds=120,
-        tasks=[{"name": "Small device", "physics": {"n_cells": 8, "fourier_order": 2}}]))
-    hypothesis = create(workspace, campaign["id"], HypothesisInput(campaign_id=campaign["id"],
-        title="Candidate", algorithm="fourier", mechanism="Seeded search", rationale="Sandbox submission"),
-        identity="hypothesis_sandbox_candidate")
-    grant = workspace.implementations.commission(hypothesis["id"], specification(), package=package(),
-        compute_seconds=120, idempotency_key="sandbox-submission", accounting_mode="execution_v1")
-    assert grant["request"]["max_attempts"] == 1
-    result = service.run_job(grant["job_id"])
-    assert result["status"] == "completed", result
-    workspace.implementations.reconcile()
-    saved = workspace.store.get(grant["id"], "implementation_grant")
-    assert saved["version_id"] == result["version_id"] and not saved.get("attached")
-    assert workspace.store.get(hypothesis["id"], "hypothesis").get("implementation_version_id") is None
-    workspace.implementations.attach(hypothesis["id"], result["version_id"])
-    assert workspace.store.get(hypothesis["id"], "hypothesis")["implementation_version_id"] == result["version_id"]
-
-
-def test_two_workspaces_reuse_exact_artifact_and_resume_without_service(tmp_path):
-    from dqn_meent.workspace.service import Workspace
-    from dqn_meent.workspace.models import CampaignInput, TrialInput
-    from dqn_meent.workspace.worker import run
-    from dqn_meent.workspace.store import atomic_json
-    from dqn_meent.workspace.confirmation import condition_exposure
-    from dqn_meent.config import PhysicsConfig
-    from dataclasses import asdict
-    from optimization_framework.campaigns.hypotheses import create
-    from optimization_framework.contracts.requests import HypothesisInput
-    from optimization_framework.storage.sqlite import identifier
-
-    service = ImplementationService(tmp_path / "library", adapter_factory=FakeAdapter)
-    trials = []
-    for name in ("first", "second"):
-        workspace = Workspace(tmp_path / name, implementation_client=DirectClient(service))
-        campaign = workspace.create_campaign(CampaignInput(name=name, implementation_compute_budget_seconds=120,
-            tasks=[{"name": "Small device", "physics": {"n_cells": 8, "fourier_order": 2}}]))
-        hypothesis = create(workspace, campaign["id"], HypothesisInput(campaign_id=campaign["id"],
-            title="Researcher Fourier proposal", algorithm="fourier",
-            mechanism="Fourier parameterization", rationale="Explicit implementation-service fixture"),
-            identity=identifier("fixture_idea"))
-        if name == "first":
-            grant = workspace.implementations.commission(hypothesis["id"], specification(), package=package(), compute_seconds=120,
-                                                       idempotency_key="reference", max_calls=3)
-            result = service.run_job(grant["job_id"])
-            assert result["status"] == "completed", result.get("error")
-            workspace.implementations.reconcile()
-            version_id = result["version_id"]
-        else:
-            workspace.implementations.catalog(refresh=True)
-            workspace.implementations.attach(hypothesis["id"], version_id)
-        hypothesis = workspace.store.get(hypothesis["id"])
-        assert workspace.implementations.readiness(hypothesis)["runnable"]
-        exposure = condition_exposure(workspace.store, campaign["id"], asdict(PhysicsConfig(n_cells=8, fourier_order=2)))
-        assert exposure["implementation_version_ids"] == [version_id]
-        task = workspace.current_tasks(campaign["id"])[0]
-        trial = workspace.create_trial(TrialInput(campaign_id=campaign["id"], task_id=task["id"],
-            hypothesis_id=hypothesis["id"], seed=7, max_steps=8 if name == "first" else 3, schedule_steps=8, wall_seconds=30))
-        assert trial["implementation_version_id"] == version_id
-        assert (workspace.job_dir(trial["id"]) / "code/dqn_meent/workspace/worker.py").exists()
-        trials.append((workspace, trial))
-    assert len(service.store.list("implementation_job")) == 1
-    full = run(trials[0][0].job_dir(trials[0][1]["id"]))
-    directory = trials[1][0].job_dir(trials[1][1]["id"])
-    partial = run(directory)
-    assert full["status"] == partial["status"] == "completed"
-    assert partial["evaluations"] == 3
-    # Revocation stops new bindings while pinned historical continuations survive.
-    service.revoke(version_id, "Retired for new work")
-    with pytest.raises(ValueError, match="not available"):
-        trials[1][0].implementations.prepare(version_id, task, {})
-    atomic_json(directory / "control.json", {"command": "run", "max_steps": 8, "revision": 1})
-    resumed = run(directory)
-    assert resumed["status"] == "completed", resumed.get("reason")
-    for field in ("best_design", "best_efficiency", "evaluations", "solver_calls", "cache_hits", "archive"):
-        assert resumed[field] == full[field]
 
 
 def test_restart_preserves_uncertain_call_and_conservatively_charges_grant(tmp_path):
@@ -363,6 +281,7 @@ def test_cancel_during_provider_call_retains_uncertain_usage(tmp_path):
     assert not service.store.list("implementation_version")
 
 
+@pytest.mark.meent
 def test_revalidation_retains_version_and_history_without_rebuilding(tmp_path):
     service = ImplementationService(tmp_path, adapter_factory=FakeAdapter)
     first = service.run_job(service.submit(request(package=package().model_dump()))["id"])
@@ -374,6 +293,7 @@ def test_revalidation_retains_version_and_history_without_rebuilding(tmp_path):
     assert version["validation_history"][0]["id"] != version["validation_report"]["id"]
 
 
+@pytest.mark.meent
 def test_service_designs_and_freezes_checks_before_building(tmp_path):
     from dqn_meent.implementations.service import ValidationPlan
     roles = []

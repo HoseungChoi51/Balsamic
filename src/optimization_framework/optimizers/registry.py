@@ -15,6 +15,8 @@ BUILTINS = [
     {"id": "coordinate", "name": "Coordinate search", "description": "Bounded coordinate improvement with global restarts.", "representations": ["continuous"], "constraints": True, "parameters": {"radius": .2}},
     {"id": "evaluate_asset", "name": "Evaluate a reference solution", "description": "One evaluation of an explicitly declared solution asset; no search move.",
      "representations": ["binary", "discrete", "continuous"], "constraints": True, "parameters": {}, "purpose": "reference_evaluation"},
+    {"id": "replay", "name": "Evaluate listed candidates", "description": "One evaluation of each listed candidate, in order; no search move.",
+     "representations": ["binary", "discrete", "continuous"], "constraints": True, "parameters": {}, "purpose": "reference_evaluation"},
     {"id": "artifact_inference", "name": "Declared artifact inference", "description": "Evaluate a versioned artifact with its registered inference adapter.",
      "representations": ["binary", "discrete", "continuous"], "constraints": True, "parameters": {}, "purpose": "artifact_inference"},
     *[{"id": name, "name": title, "description": description, "representations": ["binary"], "constraints": False, "parameters": {}} for name, title, description in (
@@ -35,7 +37,8 @@ POSITIVE = {"type": "number", "exclusiveMinimum": 0}
 PROPERTIES = {
     **FOURIER_PROPERTIES,
     "artifact_inference": {"adapter_id": {"type": "string"}, "parameters": {"type": "object"}},
-    "random": {}, "evaluate_asset": {}, "coordinate": {"radius": {**POSITIVE, "maximum": 1, "default": .2}},
+    "random": {}, "evaluate_asset": {}, "replay": {"candidates": {"type": "array", "description": "Candidates in this instance's declared schema"}},
+    "coordinate": {"radius": {**POSITIVE, "maximum": 1, "default": .2}},
     "hillclimb": {"restart_patience": INTEGER, "neighborhood": {"type": "string", "enum": ["permuted", "random"]},
         "accept_equal": {"type": "boolean"}, "initialization": {"type": "string", "enum": ["random", "ones"]}},
     "refinement": {"improvement_tolerance": {"type": "number", "minimum": 0, "exclusiveMaximum": 1}},
@@ -61,7 +64,7 @@ def _declare(method, properties, completion_units):
 for method in BUILTINS:
     name = method["id"]
     properties = dict(TypeAdapter(TrainConfig).json_schema()["properties"]) if name == "dqn" else dict(PROPERTIES[name])
-    if name not in FOURIER_PROPERTIES and name not in {"coordinate", "frozen_policy", "evaluate_asset", "artifact_inference"}:
+    if name not in FOURIER_PROPERTIES and name not in {"coordinate", "frozen_policy", "evaluate_asset", "artifact_inference", "replay"}:
         properties["initial_design"] = {"type": "array", "description": "A candidate in this instance's declared schema"}
     _declare(method, properties, ["evaluation_requests", "optimizer_decisions"]
         if name in {"dqn", "frozen_policy", "coordinate", "flrl_autograd_adam"} else ["evaluation_requests"])
@@ -72,7 +75,7 @@ for method in BUILTINS:
 
 
 BUILTIN_IDS = frozenset(item["id"] for item in BUILTINS)
-_PLUGGED = weakref.WeakKeyDictionary()  # plug-in registry -> its completed descriptors
+_PLUGGED = weakref.WeakKeyDictionary()  # plug-in registry -> (its generation, its completed descriptors)
 
 
 def _plugin_method(method):
@@ -91,14 +94,16 @@ def _describe(name, optimizer_plugins=None):
 
 def methods(optimizer_plugins=None):
     """Bundled methods, then plug-in methods. Plug-ins load on first use, never at import,
-    so services start without importing numerical packages."""
+    so services start without importing numerical packages; installed ones reload when what is installed changes."""
     source = optimizer_plugins or plugins.installed
-    if source not in _PLUGGED:
-        plugged = [_plugin_method(method) for method in source.methods()]
+    listed = source.methods()
+    cached = _PLUGGED.get(source)
+    if cached is None or cached[0] != source.generation:
+        plugged = [_plugin_method(method) for method in listed]
         if clash := BUILTIN_IDS & {method["id"] for method in plugged}:
             raise ValueError("Optimizer plug-ins redefine bundled methods: " + ", ".join(sorted(clash)))
-        _PLUGGED[source] = plugged
-    return [*BUILTINS, *_PLUGGED[source]]
+        _PLUGGED[source] = cached = (source.generation, plugged)
+    return [*BUILTINS, *cached[1]]
 
 
 def capabilities(name, parameters=None, implementation=None):
@@ -150,7 +155,7 @@ def capability_reason(name, instance, optimizer_plugins=None):
     if plugin and (reason := plugin.unavailable_reason()):
         return reason
     if method.get("problem_ids") and instance.definition_id not in method["problem_ids"]:
-        return f"{method['name']} requires its declared 2D MEENT problem"
+        return f"{method['name']} runs only on {', '.join(method['problem_ids'])}; this task's problem is {instance.definition_id}"
     if instance.candidate_schema.representation not in method["representations"]:
         return f"{method['name']} requires {' or '.join(method['representations'])} candidates"
     if instance.candidate_schema.constraints and not method["constraints"]:
@@ -210,6 +215,11 @@ def create(name, instance, parameters, seed, schedule_steps, training=None, asse
             from .reference import FixedSolution
             bind_inputs(name, instance, config, declared_assets)
             return FixedSolution(schema.canonicalize(declared_assets[0]["payload"]["candidate"]))
+        if name == "replay":
+            from .reference import Replay
+            if not config.get("candidates"):
+                raise ValueError("List at least one candidate to evaluate")
+            return Replay([schema.canonicalize(candidate) for candidate in config["candidates"]])
         if name == "frozen_policy":
             from .policy import FrozenPolicy
             config = bind_inputs(name, instance, config, declared_assets)

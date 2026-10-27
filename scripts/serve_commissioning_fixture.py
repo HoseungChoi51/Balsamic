@@ -38,7 +38,7 @@ def main():
         from optimization_framework.implementations.api import create_app
         app = create_app(args.directory / "library", adapter_factory=FixtureReviewer)
     else:
-        from optimization_framework.api.app import create_app
+        from balsamic.app import create_app
         from optimization_framework.implementations.client import ImplementationClient
         os.environ["GRATING_IMPLEMENTATIONS_TOKEN_FILE"] = str(args.directory.resolve() / "library/service.token")
         app = create_app(args.directory / "workspace", implementation_client=ImplementationClient(args.library_url),

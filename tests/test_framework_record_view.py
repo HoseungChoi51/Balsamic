@@ -4,21 +4,11 @@ import json
 
 import pytest
 
-from test_framework_discovery import setup, start
-from optimization_framework.contracts.requests import CampaignInput, TaskInput
-from optimization_framework.research.discovery.knowledge import supplied_passages
-from optimization_framework.research.discovery.models import DiscoveryTaskBrief
-from optimization_framework.research.discovery.record_view import RECORD_VIEW_LIMIT, view_record
+from optimization_framework.campaigns.record_view import RECORD_VIEW_LIMIT, view_record
 
 
 def size(value):
     return len(json.dumps(value, ensure_ascii=False, separators=(",", ":")).encode())
-
-
-def request(session, task, name="evidence.read", **arguments):
-    return {"id": "record_read_fixture", "campaign_id": session["campaign_id"],
-            "session_id": session["id"], "task_id": task["id"],
-            "call": {"tool": name, "arguments": arguments}}
 
 
 def test_small_values_and_escaped_deep_pointers_remain_exact():
@@ -76,13 +66,12 @@ def test_utf8_text_pages_reconstruct_exact_text_without_claiming_full_passage():
     text = ('초격자 🧪 "quoted"\n' * 3500) + "END"
     passage = {"id": "passage", "capture_id": "capture", "text": text}
     index = view_record(passage, record_id="passage")
-    assert not list(supplied_passages(index))
+    assert index["record_projection"] == "field_index" and "text_chunk" not in index
     offset, chunks = 0, []
     while True:
         page = view_record(passage, record_id="passage", pointer="/text", offset=offset)
         assert page["record_projection"] == "text_page" and size(page) <= RECORD_VIEW_LIMIT
         assert page["text_chunk"] == text[offset:offset + len(page["text_chunk"]) ]
-        assert not list(supplied_passages(page))
         chunks.append(page["text_chunk"])
         if page["next_offset"] is None:
             break
@@ -114,102 +103,3 @@ def test_explicit_entry_limit_pages_even_small_arrays_and_object_indexes():
     indexed = view_record({str(i): i for i in range(10)}, record_id="small_object", limit=2)
     assert indexed["record_projection"] == "field_index"
     assert [field["key"] for field in indexed["fields"]] == ["0", "1"] and indexed["next_offset"] == 2
-
-
-def test_tool_reads_oversized_saved_receipt_by_pointer_without_mutating_audit_record(setup):
-    workspace, campaign = setup
-    session, _ = start(workspace, campaign)
-    task = workspace.discovery.tasks(session)[0]
-    passages = [{"id": f"passage_{i}", "capture_id": "capture", "text": "Primary method text. " * 100} for i in range(100)]
-    receipt = workspace.store.put_immutable("discovery_tool_receipt", {"id": "large_source_receipt",
-        "campaign_id": campaign["id"], "session_id": session["id"], "task_id": task["id"],
-        "tool": "source.read", "request_id": "past_read", "status": "completed", "result": {"passages": passages}})
-    result = workspace.discovery.tools.execute(request(session, task, record_id=receipt["id"]))
-    assert result["record"]["record_projection"] == "field_index"
-    assert size(result) <= RECORD_VIEW_LIMIT
-    result = workspace.discovery.tools.execute(request(session, task, record_id=receipt["id"], pointer="/result/passages/17"))
-    assert result == {"record": passages[17]}
-    assert list(supplied_passages(result)) == list(supplied_passages(passages[17]))
-    assert workspace.store.get(receipt["id"]) == receipt
-
-
-def test_requested_text_budget_is_preserved_across_tool_page_continuations(setup):
-    workspace, campaign = setup
-    session, _ = start(workspace, campaign)
-    task = workspace.discovery.tasks(session)[0]
-    text = "많은 증거 🧪 \n" * 2000
-    record = workspace.store.put_immutable("discovery_tool_receipt", {"id": "large_text_receipt",
-        "campaign_id": campaign["id"], "session_id": session["id"], "task_id": task["id"],
-        "tool": "evidence.read", "request_id": "past_text_read", "status": "completed", "result": {"body": text}})
-    arguments = {"record_id": record["id"], "pointer": "/result/body", "max_bytes": 4096}
-    chunks = []
-    while True:
-        result = workspace.discovery.tools.execute(request(session, task, **arguments))
-        assert size(result) <= 4096
-        page = result["record"]
-        assert page["record_projection"] == "text_page"
-        assert page["read_arguments"]["max_bytes"] == 4096
-        chunks.append(page["text_chunk"])
-        if page["next_offset"] is None:
-            break
-        arguments = {**page["read_arguments"], "offset": page["next_offset"]}
-    assert len(chunks) > 1 and "".join(chunks) == text
-    assert workspace.store.get(record["id"]) == record
-
-
-def test_pointer_reads_still_enforce_campaign_and_independent_reviewer_scope(setup):
-    workspace, campaign = setup
-    session, _ = start(workspace, campaign)
-    task = workspace.discovery.tasks(session)[0]
-    other = workspace.create_campaign(CampaignInput(name="Other", tasks=[TaskInput(name="Other task", problem_id="bounded_continuous")]))
-    with pytest.raises(ValueError, match="belong to the campaign"):
-        workspace.discovery.tools.execute(request(session, task, record_id=other["id"], pointer="/name"))
-    reviewers = workspace.discovery.add_tasks(session, [DiscoveryTaskBrief(key=key, role=key, stage="review",
-        objective="Independent review") for key in ["reviewer_one", "reviewer_two"]], batch_id="independent_record_read")
-    reviewer = reviewers[0]
-    reviewer["attempt_id"] = "reviewer_record_attempt"
-    workspace.store.put("discovery_task", reviewer)
-    workspace.store.put_immutable("discovery_attempt", {"id": reviewer["attempt_id"], "context_snapshot": {}})
-    with pytest.raises(ValueError, match="only its assigned evidence"):
-        workspace.discovery.tools.execute(request(session, reviewer, record_id=task["id"], pointer="/brief"))
-
-
-def test_experiment_inspection_pages_the_record_and_curve_and_checks_problem_scope(setup, monkeypatch):
-    workspace, campaign = setup
-    session, _ = start(workspace, campaign)
-    task = workspace.discovery.tasks(session)[0]
-    record = {"id": "trial_large", "campaign_id": campaign["id"], "task_id": session["problem_task_id"],
-              "status": "completed", "algorithm": "random", "result": {"best_objective": 0.7}, "execution_manifest": {"files": "x" * 70_000}}
-    workspace.store.put("trial", record)
-    curve = [{"step": i, "objective": i / 1000} for i in range(1000)]
-    monkeypatch.setattr(workspace, "metrics", lambda identity: curve)
-    index = workspace.discovery.tools.execute(request(session, task, "experiment.inspect", record_id=record["id"]))
-    assert index["record_projection"] == "field_index" and index["read_tool"] == "experiment.inspect"
-    assert size(index) <= RECORD_VIEW_LIMIT
-    selected = workspace.discovery.tools.execute(request(session, task, "experiment.inspect", record_id=record["id"], pointer="/trial/result"))
-    assert selected == record["result"]
-    page = workspace.discovery.tools.execute(request(session, task, "experiment.inspect", record_id=record["id"], pointer="/curve", offset=200, limit=10))
-    assert page["items"] == curve[200:210] and page["next_offset"] == 210
-    record["task_id"] = "a_different_problem"
-    workspace.store.put("trial", record)
-    with pytest.raises(ValueError, match="different problem"):
-        workspace.discovery.tools.execute(request(session, task, "experiment.inspect", record_id=record["id"], pointer="/result"))
-
-
-def test_assessment_inspection_pages_measurements_but_small_reply_is_unchanged(setup, monkeypatch):
-    workspace, campaign = setup
-    session, _ = start(workspace, campaign)
-    task = workspace.discovery.tasks(session)[0]
-    record = {"id": "assessment_record", "campaign_id": campaign["id"], "session_id": session["id"], "task_id": task["id"]}
-    workspace.store.put("discovery_assessment", record)
-    readiness = {"ready": True}
-    evidence = {"measurements": [{"trial_id": f"trial_{i}", "result": {"description": "x" * 1000}} for i in range(100)]}
-    monkeypatch.setattr(workspace.discovery.assessments, "readiness", lambda identity: readiness)
-    monkeypatch.setattr(workspace.discovery.assessments, "evidence", lambda identity: evidence)
-    index = workspace.discovery.tools.execute(request(session, task, "assessment.inspect", record_id=record["id"]))
-    assert index["record_projection"] == "field_index" and index["read_tool"] == "assessment.inspect"
-    page = workspace.discovery.tools.execute(request(session, task, "assessment.inspect", record_id=record["id"], pointer="/evidence/measurements", offset=15, limit=5))
-    assert page["items"] == evidence["measurements"][15:20] and size(page) <= RECORD_VIEW_LIMIT
-    evidence["measurements"] = []
-    assert workspace.discovery.tools.execute(request(session, task, "assessment.inspect", record_id=record["id"])) == {
-        "assessment": record, "readiness": readiness, "evidence": evidence}

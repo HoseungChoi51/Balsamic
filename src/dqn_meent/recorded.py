@@ -35,7 +35,8 @@ def parameters(config, method):
 
 
 def execute(config, output_dir, *, method="dqn", budget=None, seed=None, resume=None,
-            workspace=None, workspace_url=None, campaign_id=None, task_id=None, wall_seconds=3600):
+            workspace=None, workspace_url=None, campaign_id=None, task_id=None, wall_seconds=3600,
+            tensorboard_dir=None):
     output = Path(output_dir).resolve()
     wall_seconds = float(wall_seconds)
     seed = config.training.seed if seed is None else seed
@@ -111,23 +112,29 @@ def execute(config, output_dir, *, method="dqn", budget=None, seed=None, resume=
             manifest["trial_id"] = outcome["trial_id"]
             atomic_json(output / "cli-run.json", manifest)
             trial = session.trial(manifest["campaign_id"], manifest["trial_id"])
-            if resume is not None and trial["status"] in {"paused", "interrupted", "stopped", "failed"}:
-                if pointer.get("checkpoint_id") != (trial.get("progress") or {}).get("checkpoint_id"):
-                    raise ValueError("The checkpoint reference is no longer the latest committed checkpoint; inspect the workspace's current run")
-                session.command("trial.control", manifest["campaign_id"], {"trial_id": trial["id"], "action": "resume",
-                    "expected_control_revision": trial["control_revision"]},
-                    identity=manifest["id"] + "_resume_" + str(trial["control_revision"]))
-            try:
-                trial = session.wait_trial(manifest["campaign_id"], trial["id"])
-            except KeyboardInterrupt:
-                trial = session.trial(manifest["campaign_id"], trial["id"])
-                if trial["status"] in {"queued", "running"}:
-                    session.command("trial.control", manifest["campaign_id"], {"trial_id": trial["id"], "action": "pause",
-                        "expected_control_revision": trial["control_revision"]})
+            # A local workspace's journal is followed while its worker writes it.
+            # A remote service already shows live curves; its exported journal is projected once.
+            from .tracking import JournalFollower
+            journal = (session.workspace.job_dir(trial["id"]) if session.workspace else output) / "metrics.jsonl"
+            with JournalFollower(journal, tensorboard_dir, config, method, count, resumed=resume is not None,
+                    live=session.workspace is not None):
+                if resume is not None and trial["status"] in {"paused", "interrupted", "stopped", "failed"}:
+                    if pointer.get("checkpoint_id") != (trial.get("progress") or {}).get("checkpoint_id"):
+                        raise ValueError("The checkpoint reference is no longer the latest committed checkpoint; inspect the workspace's current run")
+                    session.command("trial.control", manifest["campaign_id"], {"trial_id": trial["id"], "action": "resume",
+                        "expected_control_revision": trial["control_revision"]},
+                        identity=manifest["id"] + "_resume_" + str(trial["control_revision"]))
+                try:
                     trial = session.wait_trial(manifest["campaign_id"], trial["id"])
-                _export(session, manifest, trial, output, config, resume)
-                raise
-            return _export(session, manifest, trial, output, config, resume)
+                except KeyboardInterrupt:
+                    trial = session.trial(manifest["campaign_id"], trial["id"])
+                    if trial["status"] in {"queued", "running"}:
+                        session.command("trial.control", manifest["campaign_id"], {"trial_id": trial["id"], "action": "pause",
+                            "expected_control_revision": trial["control_revision"]})
+                        trial = session.wait_trial(manifest["campaign_id"], trial["id"])
+                    _export(session, manifest, trial, output, config, resume)
+                    raise
+                return _export(session, manifest, trial, output, config, resume)
 
 
 def _export(session, manifest, trial, output, config, resume):

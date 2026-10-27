@@ -5,7 +5,8 @@ from pydantic import Field
 from .base import Contract
 
 
-ValidationKind = Literal["implementation_correctness", "evaluator_correctness", "solution_fidelity", "learner_diagnostics", "scientific_confirmation"]
+ValidationKind = Literal["implementation_correctness", "evaluator_correctness", "solution_fidelity", "learner_diagnostics", "scientific_confirmation",
+                         "runtime_efficiency"]
 
 
 class ValidationRequirement(Contract):

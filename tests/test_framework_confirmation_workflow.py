@@ -120,6 +120,7 @@ def test_required_checks_bind_frozen_parameters_and_do_not_duplicate_jobs(tmp_pa
     assert workspace.confirmations.release(protocol) == release
 
 
+@pytest.mark.meent
 def test_fidelity_cells_share_instance_identity_without_colliding(tmp_path):
     workspace = Workspace(tmp_path)
     campaign = workspace.create_campaign(CampaignInput(name="Fidelity roster", compute_budget_seconds=100, validation_reserve_seconds=0,

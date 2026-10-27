@@ -1,0 +1,16 @@
+{
+  "id": "S2-capabilities-question",
+  "source": "lead-agent-readiness.md Part G: a question gets an answer, not actions",
+  "setup": {"preset": "quadratic", "llm_budget_usd": 0.3},
+  "steps": [
+    {"say": "What can you do for me in this campaign, and what would you suggest as a first step?"},
+    {"wait": "request_closed", "timeout_s": 600}
+  ],
+  "checks": [
+    {"max_lead_turns": 1},
+    {"max_commands": 0},
+    {"request_closed": true},
+    {"no_researcher_question": true}
+  ],
+  "repeats": 3
+}

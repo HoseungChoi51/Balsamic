@@ -10,6 +10,8 @@ from optimization_framework.evaluation.diagnostics import reconcile
 from optimization_framework.execution.service import Workspace
 from optimization_framework.execution.worker import ExperimentWorker, run, read_journal
 
+pytestmark = pytest.mark.meent   # what scripts/install-meent installs; skipped where it is not installed
+
 
 def prepare(tmp_path, budget=200):
     workspace = Workspace(tmp_path)

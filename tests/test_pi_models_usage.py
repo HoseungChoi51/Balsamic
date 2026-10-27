@@ -104,6 +104,7 @@ def test_calls_are_recorded_once_and_only_api_billing_is_charged(tmp_path, monke
     assert summary["totals"]["cost_usd"] == pytest.approx(0.75) and summary["totals"]["charged_usd"] == pytest.approx(0.25)
     assert {row["billing"] for row in summary["by_model"]} == {"api", "subscription"}
     assert summary["by_agent"][0]["agent_id"] == lead["id"] and len(summary["series"]) == 1
+    assert usage.last_thinking_levels(workspace.store, record["id"]) == {lead["id"]: "high"}   # the level the latest call ran at
     saved = workspace.store.get(lead["id"], "agent_session")["usage"]
     assert saved["calls"] == 2 and saved["charged_usd"] == pytest.approx(0.25)
 
@@ -112,6 +113,10 @@ def test_api_spending_at_the_cap_holds_new_turns(tmp_path, monkeypatch):
     workspace, record, lead = campaign(tmp_path, monkeypatch, budget=1)
     assert workspace.pi._within_llm_budget(record["id"])
     workspace.pi._receive(lead["id"], {"runs": {}, "cursor": 1, "events": [message(1, 1.5)]})
+    # With no turn waiting there is nothing on hold to report.
+    assert not workspace.pi._within_llm_budget(record["id"])
+    assert not workspace.store.list("manager_issue", record["id"])
+    workspace.pi.message(record["id"], {"message": "Summarise the results."}, "request_at_the_cap")
     assert not workspace.pi._within_llm_budget(record["id"])
     issues = workspace.store.list("manager_issue", record["id"])
     assert any(issue["code"] == "llm_budget" for issue in issues)
@@ -136,7 +141,7 @@ def test_tiers_move_following_agents_and_never_cross_an_agents_family(tmp_path, 
     def save(revision, strong, medium):
         settings = tiers.TierSettings.model_validate({"expected_revision": revision, "tiers": [
             {"id": "strong", "label": "Strong", "model": strong}, {"id": "medium", "label": "Medium", "model": medium}],
-            "roles": {"lead": "strong", "methodology_specialist": "medium", "literature_specialist": "medium", "problem_importer": "medium"}})
+            "roles": {"lead": "strong", "methodology_specialist": "medium", "literature_specialist": "medium", "formulator": "medium"}})
         saved = tiers.save(workspace.store, settings)
         return saved, workspace.pi.apply_tiers(saved)
     sol = {"provider": "openai-codex", "model": "gpt-6-sol", "effort": "xhigh"}
@@ -178,3 +183,20 @@ def test_tier_settings_reject_unknown_roles_and_missing_tiers():
         TierSettings.model_validate({"tiers": [{"id": "fast", "label": "Fast", "model": model}], "roles": {"wizard": "fast"}})
     with pytest.raises(ValueError, match="undefined tiers"):
         TierSettings.model_validate({"tiers": [{"id": "fast", "label": "Fast", "model": model}], "roles": {"lead": "strong"}})
+
+
+def test_a_campaign_without_a_team_reports_the_model_its_lead_agent_would_use(tmp_path, monkeypatch):
+    from optimization_framework.agents import tiers
+
+    workspace, started, _ = campaign(tmp_path, monkeypatch)
+    assert workspace.pi.view(started["id"])["lead_model"] is None       # its lead agent's own record applies
+    waiting = workspace.create_campaign(CampaignInput(name="No team yet", compute_budget_seconds=100, validation_reserve_seconds=10,
+        llm_budget_usd=5, tasks=[TaskInput(name="Quadratic", problem_id="bounded_continuous", configuration={})]))
+    assert workspace.pi.view(waiting["id"])["lead_model"] == {"provider": "deepseek", "model": "deepseek-v4-pro", "effort": None}
+    tiers.save(workspace.store, tiers.TierSettings.model_validate({"expected_revision": 0, "tiers": [
+        {"id": "strong", "label": "Strong", "model": {"provider": "deepseek", "model": "deepseek-flash", "effort": "max"}}],
+        "roles": {"lead": "strong"}}))
+    assert workspace.pi.view(waiting["id"])["lead_model"] == {"provider": "deepseek", "model": "deepseek-flash", "effort": "max"}
+    monkeypatch.delenv("GRATING_PI_PROFILE")
+    monkeypatch.delenv("GRATING_PI_PROVIDER", raising=False)
+    assert workspace.pi.view(waiting["id"])["lead_model"] is None       # no model here: no team can start

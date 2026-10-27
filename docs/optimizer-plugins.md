@@ -95,9 +95,38 @@ the dependency rule, so that extraction later is a move, not a rewrite. When a s
 its own repository with its tests and validation evidence, as `mask-optimizers` carries
 `reports/standalone-validation-20260930/`.
 
-Libraries produced by agents in implementation workspaces follow the same path. A validated implementation in the
-campaign library is a candidate. Promoting it to a package is a researcher decision, made once the code passes the
-questions above.
+### Libraries built in a campaign
+
+Implementing a proposal's method is building a library on this pattern, separate from the rest of Balsamic. Whether the
+method performs well is for experiments and the researcher to judge; the library only has to implement its
+specification. A coding workspace builds it under `libraries/<name>/` (`libraries/grating-mask-search` is the first):
+
+- a module per method on the `optimizer_v1` package contract (`create_optimizer(context)`, then `initialize`,
+  `propose`, `observe`, `checkpoint` as bytes, `restore`, `inspect`), with no Balsamic imports, so the same module
+  also runs as a package in the implementation service;
+- the implementer's tests of each method against its specification;
+- `plugin.py`, a `PackagedPlugin` subclass (`optimization_framework/optimizers/packaged.py`) that lists the methods and
+  runs each module in-process, registered under the entry point in the library's `pyproject.toml`;
+- `tests/test_contract.py`, which runs `optimization_framework.optimizers.conformance.check` on each method: valid
+  candidates, seeded replay, checkpoint continuation, JSON checkpoints and a small inspection (at most
+  `DIAGNOSTICS_BYTES`, 16 kB: the host records `inspect()` after every evaluation, so it holds counters and a recent tail,
+  never a design or a whole history; the worker replaces any larger value by its size), and exports whose `kind` the asset
+  catalog holds (`AssetKind`: a best design is a `solution`, a search log `learner_diagnostics`), without a solver. A run's
+  export of another kind is not cataloged: it stays in the run's files and is listed in the trial's `uncataloged_outputs`.
+
+The library is done when `uv run pytest libraries/<name>` passes. Installing it runs its code in the lab's workers, as
+`mask-optimizers` does. Balsamic installs a delivered library by itself (not one its coding agent reports not ready; set
+`GRATING_AUTO_INSTALL=false` to stop it), and the researcher can install again with Install on the coding workspace's card
+(Hypotheses → Implementations). Either way it copies the exact submitted commit's `libraries/<name>/` from the workspace,
+pins it in the root `pyproject.toml` as an
+editable path dependency in the `libraries` extra, and runs `uv lock` and `uv sync --inexact --extra libraries`. A dry run
+comes first: a change to a package the lab already has waits for the researcher's confirmation, and a failure puts
+`pyproject.toml`, `uv.lock` and `libraries/` back as they were. Each install is a `library_install` record with the methods it
+added (`agents/library_install.py`); the researcher commits the edited `pyproject.toml` and `uv.lock`. A new delivery of the
+same library needs a new version: the running lab loads a library's new code only when its version changes. The running lab lists its methods for the
+problems they name at the next listing, without a restart (see "Installed while the lab runs" below). A proposal runs a method once it is bound to it (`implementation.bind_builtin`). Frozen runs
+snapshot the library's source and record its version like any other plug-in. When a second project needs a library, it
+moves to its own repository, as `mask-optimizers` did.
 
 ## The seam: Python entry points
 
@@ -128,6 +157,11 @@ Three consequences to remember:
   importing numerical packages. `tests/test_framework_contracts.py::test_application_starts_with_numerical_domain_imports_blocked`
   enforces this. The first draft of this change loaded plug-ins at import and failed that test, so keep it in mind
   when you add a registry.
+- **Installed while the lab runs.** The installed registry compares what is installed (each entry and its
+  distribution's version) with what it loaded, at most once a second (`plugins.RECHECK_SECONDS`). On a change it
+  reloads: the directories that new `.pth` files name (an editable install) join `sys.path`, as at a restart, the
+  modules of a plug-in upgraded in place import afresh, and `registry.methods()` rebuilds its descriptors. The lab's
+  own packages (`src/`) are never re-imported. Runs already queued keep the plug-ins captured in their manifests.
 - Entry points are recorded **at install time**. After adding or renaming one, run `uv sync`; an editable install
   does not see new entry points until then.
 - The framework imports only the module named in metadata, and only an administrator can change it. Model output
@@ -241,7 +275,7 @@ editing the captured adapter changes the scientific digest.
 | Resolved commit `9b38b8cd…` | `uv.lock` | A re-pointed tag; makes `uv sync --frozen` exact on every machine |
 | `LIBRARY_VERSION` check in adapter and checkpoints | `mask_library_adapter.py` | Resuming a checkpoint written by a different library version |
 
-The extra keeps the library **optional**. `uv sync --frozen --all-extras` installs it, and a core install without
+The extra keeps the library **optional**. `scripts/install-meent` installs it with MEENT, and a core install without
 `masks` still works and reports the methods as unavailable.
 
 ## Working on a library
@@ -251,8 +285,8 @@ The extra keeps the library **optional**. `uv sync --frozen --all-extras` instal
 1. In `mask-optimizers`: make the change, run its tests, update its validation report if behavior changed, bump
    `version` and `__version__`, commit, `git tag -a v0.2.0 -m "..."`, `git push origin main v0.2.0`.
 2. In Balsamic: change the tag in `[tool.uv.sources]`, the pin in the `masks` extra and `LIBRARY_VERSION`, then run
-   `uv lock && uv sync --frozen --all-extras` and the test suite. Commit `pyproject.toml`, `uv.lock` and the adapter
-   together.
+   `uv lock && uv sync --frozen --all-extras --no-extra cpu` and the test suite (`cpu` and `cuda` choose the PyTorch build;
+   only one can be installed). Commit `pyproject.toml`, `uv.lock` and the adapter together.
 3. Old checkpoints keep their recorded version. Start new trials for the new release instead of resuming old ones.
 
 **Co-developing** before a release: `uv pip install -e ../mask-optimizers` points the environment at your
@@ -266,7 +300,7 @@ library, because other machines do not have your checkout.
 3. In the project, add an adapter module that imports the library **lazily** and a plug-in class with the four
    contract methods.
 4. Declare the entry point and an optional extra; for a git dependency, add a `[tool.uv.sources]` entry.
-5. Run `uv lock && uv sync --all-extras`, confirm the methods appear in `registry.methods()`, and add tests for
+5. Run `uv lock && uv sync --all-extras --no-extra cpu`, confirm the methods appear in `registry.methods()`, and add tests for
    translation, validation, checkpoint replay and one real evaluation.
 6. Add a row to the README's optional-components table.
 
@@ -296,8 +330,8 @@ my-toolbox = { git = "https://github.com/kc-ml2/my-toolbox", tag = "v1.0.0" }
 
 ## Known limits and an exercise
 
-- `registry.methods()` caches each plug-in registry's methods for the life of the process. **Restart the
-  services** after installing or removing a plug-in.
+- `registry.methods()` caches each plug-in registry's methods until the plug-ins reload: installing, upgrading or
+  removing a plug-in is noticed at the next listing (within `RECHECK_SECONDS`), so the services need no restart.
 - The six FLRL methods are still bundled. They are defined in `optimizers/fourier_specs.py` and created through a
   hard-coded `from dqn_meent.flrl_optimizers import FourierOptimizer`, the same smell this document removes.
   **Exercise:** move their descriptors and parameter properties next to `FourierOptimizer`, add a

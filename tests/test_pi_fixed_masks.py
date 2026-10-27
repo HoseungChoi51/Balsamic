@@ -27,7 +27,7 @@ def test_fixed_masks_reserve_budget_and_measure_te_tm_reproducibly(tmp_path):
     assert job['status']=='completed',job
     report=workspace.store.get(job['report_id'],'fixed_mask_report')
     assert report['evaluation_requests']==2
-    assert report['solver_executions']==4
+    assert report['solver_executions']==2
     first,second=report['checks']
     assert first['observation']['objectives']['mean_plus1_transmission']==pytest.approx(0)
     assert not second['observation']['cache_hit']

@@ -5,7 +5,7 @@ from concurrent.futures import ThreadPoolExecutor
 from fastapi.testclient import TestClient
 import pytest
 
-from optimization_framework.api.app import create_app
+from balsamic.app import create_app
 from optimization_framework.reports.document import sections, review_html, utf16_slice
 from optimization_framework.reports.service import Reports
 from optimization_framework.reports.writer import ReportWriter, WriterRequest, WriterResult
@@ -120,7 +120,7 @@ def test_http_workflow_survives_restart_and_no_write_on_get(tmp_path):
 def fake_provider(monkeypatch):
     config = {"configured": True, "model": "fixture-writer", "provider": "codex", "billing_mode": "subscription",
               "pricing_known": False, "transport": "codex_exec"}
-    monkeypatch.setattr("optimization_framework.research.providers.provider_status", lambda: config)
+    monkeypatch.setattr("optimization_framework.llm.providers.provider_status", lambda: config)
     return config
 
 

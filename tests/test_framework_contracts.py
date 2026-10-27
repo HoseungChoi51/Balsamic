@@ -22,9 +22,9 @@ class BlockNumerics(importlib.abc.MetaPathFinder):
         if fullname.split('.')[0] in {'dqn_meent', 'meent', 'torch'}:
             raise AssertionError('Unexpected numerical import: ' + fullname)
 sys.meta_path.insert(0, BlockNumerics())
-from optimization_framework.api.app import create_app
+from balsamic.app import create_app
 app = create_app(sys.argv[1], start_workers=False)
-assert app.title == 'Optimization Lab'
+assert app.title == 'Balsamic'
 '''
     subprocess.run([sys.executable, "-c", code, str(tmp_path)], check=True,
                    env={**os.environ, "GRATING_LLM_DISABLED": "true"}, capture_output=True, text=True)
@@ -57,10 +57,11 @@ def test_rosenbrock_and_explicit_constraint_validation():
     assert CandidateSchema(representation="discrete", dimensions=2, values=[-2, 3, 7]).canonicalize([7, -2]) == [7, -2]
 
 
+@pytest.mark.meent
 def test_meent_fidelity_does_not_manufacture_new_scientific_instance():
     from dqn_meent.config import PhysicsConfig
     from dqn_meent.physics import ForwardSolver
-    from dqn_meent.workspace.confirmation import physical_condition_key
+    from optimization_framework.evaluation.legacy_confirmation import physical_condition_key
     a = problems.resolve("meent_grating", {"n_cells": 4}, {"fourier_order": 1})
     b = problems.resolve("meent_grating", {"n_cells": 4}, {"fourier_order": 480})
     assert a.scientific_identity == b.scientific_identity == physical_condition_key({"n_cells": 4})

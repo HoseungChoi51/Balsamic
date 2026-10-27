@@ -1,0 +1,5 @@
+{
+  "about": "The allowlist the lead evals use for scenarios that set setup.extensions (S9): the lead may run eval_lookup of the eval-tools extension, and nothing else of it.",
+  "extensions": {"eval-tools": {"path": "session/eval-tools/index.js", "tools": {"eval_lookup": {"read_only": true}}}},
+  "roles": {"lead": ["eval-tools"]}
+}

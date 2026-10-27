@@ -1,8 +1,9 @@
-"""Legacy implementation endpoints share durable commands without duplicating grants."""
+"""Implementation commands on the bus are durable, reuse service keys and never duplicate grants."""
 from framework_fixtures import researcher_idea
 from fastapi.testclient import TestClient
 
-from optimization_framework.api.app import create_app
+from balsamic.app import create_app
+from optimization_framework.contracts.commands import Command
 from optimization_framework.contracts.requests import CampaignInput, CampaignUpdate, TaskInput
 from optimization_framework.execution.service import Workspace
 from optimization_framework.implementations.models import ImplementationSpec
@@ -44,31 +45,35 @@ def prepare(tmp_path, monkeypatch):
     return app, workspace, library, campaign, hypothesis
 
 
-def test_compatibility_reuses_preexisting_service_key_and_recovers_lost_control(tmp_path, monkeypatch):
+def command(workspace, campaign, operation, payload, identity):
+    return Command(id=identity, campaign_id=campaign["id"], operation=operation, payload=payload,
+                   expected_revision=workspace.store.get(campaign["id"], "campaign")["version"]).model_dump(mode="json")
+
+
+def test_commission_reuses_preexisting_service_key_and_recovers_lost_control(tmp_path, monkeypatch):
     app, workspace, library, campaign, hypothesis = prepare(tmp_path, monkeypatch)
     spec = ImplementationSpec(name="Coordinate variant", mechanism="Bounded coordinate search", problem_id="bounded_continuous",
         capabilities=["continuous"], acceptance_criteria=["Feasible candidates"]).model_dump(mode="json")
     original = workspace.implementations.commission(hypothesis["id"], spec, compute_seconds=10, idempotency_key="legacy_job")
-    body = {"spec": spec, "compute_seconds": 10, "idempotency_key": "legacy_job"}
-    path = f"/api/hypotheses/{hypothesis['id']}/implementation_jobs"
+    body = {"hypothesis_id": hypothesis["id"], "spec": spec, "compute_seconds": 10, "service_idempotency_key": "legacy_job"}
     with TestClient(app) as client:
-        first = client.post(path, json=body)
-        assert first.status_code == 202, first.text
-        assert first.json()["id"] == original["id"]
-        accepted = client.get("/api/v1/commands/" + first.json()["command_id"]).json()
+        request = command(workspace, campaign, "implementation.commission", body, "commission_once")
+        first = client.post("/api/v1/commands", json=request)
+        assert first.status_code == 200, first.text
+        assert first.json()["outcome"]["grant_id"] == original["id"]
+        accepted = client.get("/api/v1/commands/commission_once").json()
         assert accepted["request"]["payload"]["service_idempotency_key"] == "legacy_job"
         assert len(library.jobs) == len(workspace.store.list("implementation_grant")) == 1
         assert workspace.implementations.compute_committed(campaign["id"]) == 10
         workspace.update_campaign(campaign["id"], CampaignUpdate(name="Renamed after acceptance"))
-        assert client.post(path, json=body).json()["command_outcome"] == first.json()["command_outcome"]
+        assert client.post("/api/v1/commands", json=request).json()["outcome"] == first.json()["outcome"]
         assert client.get("/api/v1/commands/" + accepted["id"]).json() == accepted
-        assert client.post(path, json={**body, "compute_seconds": 11}).status_code == 409
-        assert client.post(path, json=body, headers={"Idempotency-Key": "different"}).status_code == 409
+        assert client.post("/api/v1/commands", json={**request, "payload": {**body, "compute_seconds": 11}}).status_code == 409
         library.lose_control_reply = True
-        control_path = f"/api/implementation_jobs/{original['id']}/control"
-        controlled = client.post(control_path, json={"action": "cancel"}, headers={"Idempotency-Key": "cancel_once"})
+        control = command(workspace, campaign, "implementation.control", {"grant_id": original["id"], "action": "cancel"}, "cancel_once")
+        controlled = client.post("/api/v1/commands", json=control)
         assert controlled.status_code == 200, controlled.text
-        receipt = client.get("/api/v1/commands/" + controlled.json()["command_id"]).json()
+        receipt = client.get("/api/v1/commands/cancel_once").json()
         effect = workspace.store.get(receipt["outcome"]["effect_id"], "outbox")
         assert effect["status"] == "pending" and len(library.controls) == 1
         restarted = Workspace(tmp_path, implementation_client=library)
@@ -76,35 +81,13 @@ def test_compatibility_reuses_preexisting_service_key_and_recovers_lost_control(
         restarted.dispatch_outbox()
         assert restarted.commands.execute(receipt["request"]) == receipt
         assert restarted.store.get(effect["id"], "outbox")["status"] == "completed"
-        replay = client.post(control_path, json={"action": "cancel"}, headers={"Idempotency-Key": "cancel_once"})
-        assert replay.json()["command_outcome"] == receipt["outcome"]
-        assert replay.json()["status"] == "interrupted"
+        replay = client.post("/api/v1/commands", json=control)
+        assert replay.json()["outcome"] == receipt["outcome"]
         assert len(library.controls) == 1 and library.deliveries == [effect["id"], effect["id"]]
         assert len(library.jobs) == 1
 
 
-def test_legacy_verification_retry_keeps_original_source_conversion(tmp_path, monkeypatch):
-    app, workspace, library, campaign, hypothesis = prepare(tmp_path, monkeypatch)
-    hypothesis.update(algorithm="custom", source="def initialize(*args): return {}\n", verification={"status": "passed"})
-    workspace.store.put("hypothesis", hypothesis)
-    path = f"/api/hypotheses/{hypothesis['id']}/verify"
-    body = {"compute_seconds": 10, "idempotency_key": "verify_legacy"}
-    with TestClient(app) as client:
-        first = client.post(path, json=body)
-        assert first.status_code == 202, first.text
-        receipt = client.get("/api/v1/commands/" + first.json()["command_id"]).json()
-        package = receipt["request"]["payload"]["package"]
-        assert next(row for row in package["files"] if row["path"] == "legacy.py")["content"] == hypothesis["source"]
-        hypothesis.update(source="def initialize(*args): return {'changed': True}\n", title="A later source revision")
-        workspace.store.put("hypothesis", hypothesis)
-        assert client.post(path, json=body).json()["command_id"] == receipt["id"]
-        assert client.get("/api/v1/commands/" + receipt["id"]).json() == receipt
-        assert client.post(path, json={**body, "compute_seconds": 12}).status_code == 409
-    assert len(library.jobs) == len(workspace.store.list("implementation_grant")) == 1
-    assert workspace.store.list("trial") == []
-
-
-def test_attachment_compatibility_returns_receipt_and_dispatches_only_after_commit(tmp_path, monkeypatch):
+def test_attachment_returns_receipt_and_dispatches_only_after_commit(tmp_path, monkeypatch):
     app, workspace, library, campaign, hypothesis = prepare(tmp_path, monkeypatch)
     calls = []
     def decide(bridge, *, identity, hypothesis_id, version_id, **kwargs):
@@ -116,15 +99,15 @@ def test_attachment_compatibility_returns_receipt_and_dispatches_only_after_comm
         workspace.store.put("hypothesis", value)
         return value
     monkeypatch.setattr("optimization_framework.implementations.reuse.decide", decide)
-    path = f"/api/hypotheses/{hypothesis['id']}/implementation"
     with TestClient(app) as client:
-        first = client.post(path, json={"version_id": "version_validated"}, headers={"Idempotency-Key": "attach_once"})
+        attach = command(workspace, campaign, "implementation.attach", {"hypothesis_id": hypothesis["id"], "version_id": "version_validated"}, "attach_once")
+        first = client.post("/api/v1/commands", json=attach)
         assert first.status_code == 200, first.text
-        assert first.json()["implementation_version_id"] == "version_validated"
-        receipt = client.get("/api/v1/commands/" + first.json()["command_id"]).json()
-        assert workspace.store.get(receipt["outcome"]["effect_id"], "outbox")["status"] == "completed"
-        assert client.post(path, json={"version_id": "version_validated"}, headers={"Idempotency-Key": "attach_once"}).json() == first.json()
-        assert client.post(path, json={"version_id": "version_other"}, headers={"Idempotency-Key": "attach_once"}).status_code == 409
+        assert first.json()["outcome"]["implementation_version_id"] == "version_validated"
+        assert workspace.store.get(first.json()["outcome"]["effect_id"], "outbox")["status"] == "completed"
+        assert workspace.store.get(hypothesis["id"], "hypothesis")["implementation_version_id"] == "version_validated"
+        assert client.post("/api/v1/commands", json=attach).json() == first.json()
+        assert client.post("/api/v1/commands", json={**attach, "payload": {**attach["payload"], "version_id": "version_other"}}).status_code == 409
     assert calls == [(hypothesis["id"], "version_validated")]
 
 
@@ -139,9 +122,9 @@ def test_accepted_implementation_control_reconciles_before_new_guidance(tmp_path
     monkeypatch.setattr(library, "job", lambda identity: {"id": identity, "status": "cancelled"}, raising=False)
     library.lose_control_reply = True
     with TestClient(app) as client:
-        accepted = client.post(f"/api/implementation_jobs/{grant['id']}/control", json={"action": "cancel"},
-            headers={"Idempotency-Key": "accepted_control"}).json()
-    effect_id = accepted["command_outcome"]["effect_id"]
+        accepted = client.post("/api/v1/commands", json=command(workspace, campaign, "implementation.control",
+            {"grant_id": grant["id"], "action": "cancel"}, "accepted_control")).json()
+    effect_id = accepted["outcome"]["effect_id"]
     assert workspace.store.get(effect_id, "outbox")["status"] == "pending"
     memory = workspace.memory.state(campaign["id"])
     memory["guidance_revision"] += 1
@@ -158,22 +141,3 @@ def test_accepted_implementation_control_reconciles_before_new_guidance(tmp_path
     restarted.dispatch_outbox()
     assert library.deliveries == [effect_id]
     assert restarted.store.get(old_resume["id"], "outbox")["status"] == "pending"
-
-
-def test_implementation_allocation_preserves_pending_manager_synthesis_funds(tmp_path, monkeypatch):
-    import pytest
-    _, workspace, _, campaign, hypothesis = prepare(tmp_path, monkeypatch)
-    spec = ImplementationSpec(name="Coordinate", mechanism="Bounded coordinate search", problem_id="bounded_continuous",
-        capabilities=["continuous"], acceptance_criteria=["Feasible proposals"])
-    parent = {"id": "reserved_manager", "campaign_id": campaign["id"], "status": "running",
-        "usage": {}, "decision_review": {"budget_hold_usd": campaign["llm_budget_usd"] - 0.1}}
-    workspace.store.put("research_run", parent)
-    with pytest.raises(ValueError, match="remaining API cap"):
-        workspace.implementations.commission(hypothesis["id"], spec, compute_seconds=10,
-            api_budget_usd=0.2, idempotency_key="preserve_manager_funds")
-    assert workspace.store.list("implementation_grant") == []
-    parent["decision_review"]["budget_hold_usd"] = 0
-    workspace.store.put("research_run", parent)
-    grant = workspace.implementations.commission(hypothesis["id"], spec, compute_seconds=10,
-        api_budget_usd=0.2, idempotency_key="preserve_manager_funds")
-    assert grant["request"]["api_budget_usd"] == 0.2

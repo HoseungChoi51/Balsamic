@@ -4,8 +4,24 @@ from copy import deepcopy
 import pytest
 
 from optimization_framework.contracts.base import content_hash
-from test_framework_discovery import setup, command
+from optimization_framework.contracts.commands import Command
+from optimization_framework.contracts.requests import CampaignInput, TaskInput
+from optimization_framework.execution.service import Workspace
 from framework_fixtures import researcher_idea
+
+
+@pytest.fixture
+def setup(tmp_path):
+    class Library:
+        def versions(self):
+            return []
+    workspace = Workspace(tmp_path, implementation_client=Library())
+    campaign = workspace.create_campaign(CampaignInput(name="Binding", tasks=[TaskInput(name="Quadratic", problem_id="bounded_continuous")]))
+    return workspace, campaign
+
+
+def command(workspace, campaign, operation, payload, key):
+    return Command(id=key, campaign_id=campaign["id"], expected_revision=campaign["version"], operation=operation, payload=payload)
 
 
 def test_binding_is_idempotent_and_preserves_scientific_proposal(setup):
@@ -42,6 +58,6 @@ def test_binding_rejects_an_incompatible_installed_method(setup):
     payload = {'hypothesis_id': h['id'], 'task_id': task['id'], 'algorithm': 'flrl_ppo', 'parameters': {},
         'expected_algorithm': h['algorithm'], 'expected_configuration_hash': content_hash(h.get('algorithm_config', {})),
         'reason': 'This incompatible binding must fail.'}
-    with pytest.raises(ValueError, match='2D MEENT'):
+    with pytest.raises(ValueError, match='runs only on meent_2d_dual_polarization_deflector'):
         workspace.commands.execute(command(workspace, campaign, 'implementation.bind_builtin', payload, 'invalid_binding'))
     assert not workspace.store.list('builtin_binding')

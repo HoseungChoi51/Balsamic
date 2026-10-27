@@ -15,6 +15,8 @@ COMMON = {
     'level_set_modes_x': {**INTEGER, 'maximum': 16, 'default': 8},
     'level_set_modes_y': {'type': 'integer', 'minimum': 0, 'maximum': 8, 'default': 4},
     'comparison_cost_axis': {'enum': ['full_worker_seconds']},
+    'warm_start_state': {'type': 'string', 'description': 'Path of an optimizer state saved by an earlier run of '
+                         'the same method, problem and settings. The search and its learner continue from it in a new trial.'},
 }
 LEARNER = {
     'episode_length': {**INTEGER, 'maximum': 4096}, 'rollout_steps': {**INTEGER, 'minimum': 2, 'maximum': 4096},
@@ -24,12 +26,24 @@ LEARNER = {
     'ppo_gae_lambda': {'type': 'number', 'minimum': 0, 'maximum': 1},
     'ppo_clip_range': {**POSITIVE, 'maximum': 1}, 'ppo_n_epochs': {**INTEGER, 'maximum': 20},
 }
+# The paper's policy is a CNN; a transformer may replace it as the feature extractor.
+POLICY = {
+    'policy_network': {'enum': ['cnn', 'transformer'], 'default': 'cnn'},
+    'transformer_tokens': {'enum': ['coefficient', 'frame', 'coefficient_frame'], 'default': 'coefficient'},
+    'transformer_positions': {'enum': ['learned', 'fourier_mode'], 'default': 'learned'},
+    'transformer_pooling': {'enum': ['mean', 'cls'], 'default': 'mean'},
+    'transformer_width': {**INTEGER, 'minimum': 8, 'maximum': 512, 'default': 64},
+    'transformer_layers': {**INTEGER, 'maximum': 12, 'default': 2},
+    'transformer_heads': {**INTEGER, 'maximum': 16, 'default': 4},
+    'transformer_feedforward': {**INTEGER, 'maximum': 8, 'default': 2,
+                                'description': 'Feedforward width as a multiple of transformer_width.'},
+}
 PROPERTIES = {
     'flrl_lsf_random': {**COMMON, 'sampling': {'enum': ['seeded_gaussian_normalized']}},
     'flrl_lsf_es': {**COMMON, 'population_size': {**INTEGER, 'minimum': 2, 'maximum': 256},
         'elite_count': {**INTEGER, 'minimum': 2}, 'sigma': POSITIVE,
         'coefficient_dimensions': INTEGER, 'search_family': {'enum': ['evolution_strategy']}},
-    'flrl_ppo': {**COMMON, **LEARNER, 'action_scaling': POSITIVE,
+    'flrl_ppo': {**COMMON, **LEARNER, **POLICY, 'action_scaling': POSITIVE,
         'stacked_observations': {**INTEGER, 'maximum': 16}, 'parallel_environments': {'enum': [1]},
         'rcwa_order_x': INTEGER, 'rcwa_order_y': INTEGER, 'reference_total_timesteps': INTEGER},
     'flrl_autograd_adam': {**COMMON, 'optimizer': {'enum': ['Adam']}, 'reference_epochs': INTEGER,
@@ -67,6 +81,10 @@ def validate(name, instance, parameters):
         raise ValueError('ES elite count must not exceed population size')
     if 'tangent_dimensions' in parameters and parameters['tangent_dimensions'] >= dimensions:
         raise ValueError('Tangent frame needs fewer axes than coefficient dimensions')
+    if parameters.get('policy_network', 'cnn') != 'transformer' and any(key.startswith('transformer_') for key in parameters):
+        raise ValueError('Transformer settings require policy_network "transformer"')
+    if parameters.get('transformer_width', 64) % parameters.get('transformer_heads', 4):
+        raise ValueError('transformer_width must be divisible by transformer_heads')
     for axis in ('x', 'y'):
         key = 'rcwa_order_' + axis
         if key in parameters and parameters[key] != instance.fidelity[key]:
