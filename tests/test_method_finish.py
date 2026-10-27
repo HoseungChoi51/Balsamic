@@ -45,7 +45,7 @@ class Three:
         self.count = int(raw)
 
     def inspect(self):
-        return {"proposals": self.count}
+        return {"proposals": self.count, **({"bound": 0.25, "proved_optimal": True} if self.count >= 3 else {})}
 
 
 def module(ending="empty"):
@@ -85,6 +85,7 @@ def test_a_method_that_returns_no_proposal_completes_with_its_best_kept(lab, end
     assert len(observations) == 3 and result["best_objective"] == min(row["objectives"]["value"] for row in observations)
     assert result.get("finish_reason") == ("enumeration exhausted" if ending == "stop" else None)
     assert (lab[0].job_dir(trial["id"]) / "outputs.json").exists()
+    assert result["final_inspection"] == {"proposals": 3, "bound": 0.25, "proved_optimal": True}
 
 
 def test_a_resumed_finished_run_finishes_at_once(lab):
@@ -99,7 +100,7 @@ def test_a_resumed_finished_run_finishes_at_once(lab):
 def test_any_other_exception_still_fails_the_run(lab):
     result = experiment(lab, "random", max_steps=10, ending="broken")["result"]
     assert result["status"] == "failed" and "RuntimeError: the method broke" in result["reason"]
-    assert not result["method_finished"] and not result["scientific_complete"]
+    assert not result["method_finished"] and not result["scientific_complete"] and "final_inspection" not in result
 
 
 def test_an_ask_tell_method_finishes_by_raising_stop_iteration():

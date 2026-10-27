@@ -1136,7 +1136,7 @@ The suite of Part L, 12 scenarios with three repeats each, on the dev profile's 
 |---|---|
 | `MethodFinished`, with an optional reason | `optimizers/finish.py` (new) |
 | A module that returns `[]` or raises `StopIteration` from `propose` finishes; so does an ask/tell `ask()` that raises `StopIteration` (its proposal sequence is not advanced); a sandboxed `optimizer_v1` package that returns `[]` | `optimizers/packaged.py`, `optimizers/lifecycle.py` `AskTellAdapter`, `implementations/runtime.py` `PackageOptimizer.propose` |
-| `run()` records `completed` / `method_finished`, keeps the final checkpoint and outputs; `progress()` says `method_finished` and `scientific_complete`, and the method's reason as `finish_reason`; the checkpoint carries the flag, so a resumed or continued run finishes at once | `execution/worker.py` |
+| `run()` records `completed` / `method_finished`, keeps the final checkpoint and outputs; `progress()` says `method_finished` and `scientific_complete`, the method's reason as `finish_reason` and its last inspection as `final_inspection` (where an exact method puts `bound` and `proved_optimal`; N13 shows and checks it); the checkpoint carries the flag, so a resumed or continued run finishes at once | `execution/worker.py` |
 | A finished run holds its final value after its last point (`observed_at(held=True)`), its row says `method_finished` and `held_after_finish`; the matched cost is taken over the runs that did not finish, over all when every one did | `analysis/general.py` `report` |
 | The lead's comparison brief marks a held run | `agents/tools.py` `comparison_brief` |
 | The contract checks accept a method that finishes, if every replay of a seed and its restored checkpoint finish at the same step | `optimizers/conformance.py` |
@@ -1148,7 +1148,8 @@ code) read `status == "completed"` and `scientific_complete`, both of which a fi
 ### Checked
 
 - `tests/test_method_finish.py`: a packaged module that returns `[]` (and one that raises `StopIteration` with a reason)
-  after three proposals completes with `method_finished`, its best kept, `scientific_complete`, outputs published; a
+  after three proposals completes with `method_finished`, its best kept, `scientific_complete`, outputs published, its
+  `bound` and `proved_optimal` kept in `final_inspection`; a
   resumed finished run finishes at once with no new request; any other exception still fails with its message; an
   ask/tell `ask()` raising `StopIteration` gives `MethodFinished`; a report with one finished and one long run compares at
   the long run's cost with the finished value held, and at the shortest when every run finished; the contract checks pass

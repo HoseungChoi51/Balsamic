@@ -197,8 +197,9 @@ that converged. **Return `[]` from `propose` to finish** (or raise `StopIteratio
 `raise StopIteration("all 40,320 orders tried")`); an ask/tell optimizer raises `StopIteration` from `ask`. The wrapper
 raises `MethodFinished` (`optimizers/finish.py`) and the worker records the run as `completed` with reason
 `method_finished`: its best, final checkpoint and outputs are kept as on any completion, and its result says
-`method_finished: true` and `scientific_complete: true` (the method's reason, if any, is `finish_reason`). Resuming or
-continuing such a run finishes at once. Any other exception still fails the run.
+`method_finished: true` and `scientific_complete: true` (the method's reason, if any, is `finish_reason`). Its last
+`inspect()` is kept as `final_inspection`: an exact method puts its proof there, `{"bound": x, "proved_optimal": true}`
+(a solver its dual bound). Resuming or continuing such a run finishes at once. Any other exception still fails the run.
 
 In a comparison a finished run holds its final value after its last point (`held_after_finish` on its row), and the
 matched cost is set by the runs that did not finish, so one early finisher does not shrink every method's horizon. When

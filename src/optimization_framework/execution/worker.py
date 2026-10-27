@@ -463,6 +463,8 @@ class ExperimentWorker:
                 "scientific_complete": self.method_finished or primary_count >= completion["count"],
                 "method_finished": self.method_finished,
                 **({"finish_reason": self.finish_reason} if self.finish_reason else {}),
+                # What the method said of itself when it ended, e.g. {"bound": x, "proved_optimal": true} (an exact method's proof).
+                **({"final_inspection": bounded_diagnostics(diagnostics)} if self.method_finished else {}),
                 "allocation_stop": reason if reason in {"step_budget_exhausted", "wall_budget_exhausted", "study_deadline_reached"} else None,
                 **({"absolute_deadline": self.deadline, "deadline_overshoot_seconds": max(0, time.time() - self.deadline)} if self.deadline else {}),
                 "process_exit": None if status == "running" else int(status == "failed"),
