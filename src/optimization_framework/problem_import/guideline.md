@@ -38,8 +38,8 @@ fields tell you which inputs it needs.
 ### Decision variables: what the optimizer changes
 
 Each variable has:
-- a **representation**: `binary`, `discrete` (with its permitted `values`) or `continuous` (with
-  `lower` and `upper`);
+- a **representation**: `binary`, `discrete` (with its permitted `values`), `continuous` (with
+  `lower` and `upper`) or `permutation` (an order of items, with a one-entry shape: the number of items);
 - a **shape**;
 - a **meaning** (what a value stands for);
 - for arrays, a **layout**.
@@ -53,6 +53,7 @@ Each variable has:
 | Materials | Mole fraction of each element of an alloy | continuous, plus a sum-to-one constraint |
 | Machine learning | Learning rate; batch size | continuous (say if log-scaled); discrete |
 | Aerodynamics | Offsets of an airfoil's control points | continuous, with bounds |
+| Scheduling | The order in which jobs are processed | permutation, shape `["n_jobs"]` |
 
 - **Shapes follow the inputs.** Write a shape in terms of integer inputs (`["grid_y", "grid_x"]`),
   not as numbers, so it follows when those inputs change.
@@ -60,6 +61,8 @@ Each variable has:
   method choice, not part of the problem. Examples are Fourier or level-set coefficients, a
   network's weights, and a latent space. Formulate the design itself, unless the sources define
   the problem in that parameterization.
+- **An order is a permutation.** An order or a ranking (of jobs, bakes, visits) is a permutation:
+  each item once, as indices into the instance's data. Do not encode it as discrete values.
 - **Mixed kinds stay separate.** When the design mixes kinds (a solvent and a temperature), state
   them as separate variables. The checks say whether the evaluator accepts them.
 

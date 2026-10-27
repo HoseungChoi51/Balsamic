@@ -79,8 +79,9 @@ class DecisionVariable(Part):
     """What the optimizer changes. Its size is the product of ``shape`` (numbers or integer quantities)."""
     name: str = Field(pattern=NAME)
     description: str = Field(min_length=1, max_length=1000)
-    representation: Literal["binary", "discrete", "continuous"]
-    shape: list[int | str] = Field(default_factory=list, max_length=6, description="Empty for a single value")
+    representation: Literal["binary", "discrete", "continuous", "permutation"]
+    shape: list[int | str] = Field(default_factory=list, max_length=6,
+                                   description="Empty for a single value; for a permutation, one entry: the number of items")
     lower: float | str | None = Field(default=None, description="A number or an expression; continuous variables")
     upper: float | str | None = None
     values: list[float] = Field(default_factory=list, max_length=1000, description="Permitted values of a discrete variable")

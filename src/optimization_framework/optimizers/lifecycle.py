@@ -42,7 +42,8 @@ class AskTellAdapter:
         for observation in observations:
             if observation.status != "ok":
                 raise ValueError(f"This optimizer cannot consume {observation.status}: {observation.error}")
-            candidate = np.asarray(observation.candidate, dtype=np.uint8 if self.schema.representation == "binary" else float)
+            dtype = {"binary": np.uint8, "permutation": np.int64}.get(self.schema.representation, float)
+            candidate = np.asarray(observation.candidate, dtype=dtype)
             self.optimizer.tell(candidate, self.objective.utility(observation.objectives[self.objective.name]))
         self.pending = []
 
@@ -88,6 +89,8 @@ class BoundedSearch:
                 candidate = self.rng.choice(self.schema.values, size=self.schema.dimensions)
             elif self.schema.representation == "binary":
                 candidate = self.rng.integers(0, 2, size=self.schema.dimensions, dtype=np.uint8)
+            elif self.schema.representation == "permutation":
+                candidate = self.rng.permutation(self.schema.dimensions)
             else:
                 bounds = np.asarray(self.schema.bounds)
                 candidate = self.rng.uniform(bounds[:, 0], bounds[:, 1])
