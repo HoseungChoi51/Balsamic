@@ -12,7 +12,7 @@ from pydantic import Field, model_validator
 from optimization_framework.contracts.base import Contract, content_hash, field_names, lenient
 from optimization_framework.contracts.commands import HOSTNAME
 from optimization_framework.storage.sqlite import atomic_json, now
-from .development_runtime import IMAGE, LEGACY_MODEL, LIMITS, DockerWorkspace, ceilings, egress
+from .development_runtime import HARNESSES, IMAGE, LEGACY_MODEL, LIMITS, DockerWorkspace, ceilings, egress, harness, harness_refusal
 from .models import LEAD, NOTICE
 
 
@@ -36,6 +36,10 @@ class WorkspaceCreate(Contract):
     wall_seconds: float | None = Field(default=None, gt=0, le=604800)
     limits: WorkspaceLimits | None = None
     egress_hosts: list[str] = Field(default_factory=list, max_length=20)
+    # Its coding harness (H2): only pi has an adapter; in its terminal UI unless this or the lab (GRATING_DEVELOPMENT_HARNESS_MODE)
+    # says headless.
+    harness: str = Field(default="pi", max_length=100)
+    harness_mode: Literal["tui", "headless"] | None = None
 
     @model_validator(mode="after")
     def hostnames(self):
@@ -43,6 +47,8 @@ class WorkspaceCreate(Contract):
         bad = [host for host in self.egress_hosts if not re.fullmatch(HOSTNAME, host)]
         if bad:
             raise ValueError("egress_hosts: name each host by its lowercase DNS name, without scheme, port or path: " + ", ".join(bad))
+        if self.harness not in HARNESSES:
+            raise ValueError(harness_refusal(self.harness))
         return self
 
 
@@ -240,17 +246,20 @@ class WorkspaceEnvelope(Contract):
 def request_hash(values):
     """The create request's identity; a request without other proposals hashes as it did before they could be named."""
     dump = values.model_dump()
-    for key in ("hypothesis_ids", "wall_seconds", "limits", "egress_hosts"):
+    for key in ("hypothesis_ids", "wall_seconds", "limits", "egress_hosts", "harness_mode"):
         if not dump.get(key):
             dump.pop(key, None)
+    if dump.get("harness") == "pi":   # the one harness: naming it changes nothing
+        dump.pop("harness")
     return content_hash(dump)
 
 
 # Workspace events by the store event they put the workspace with: the pages that show a workspace refresh on them.
 PUT_EVENTS = {"ready": "development.progress", "agent_start": "development.progress", "agent_settled": "development.progress",
-              "message": "development.progress", "tool": "development.progress", "checkpoint": "development.checkpoint"}
+              "message": "development.progress", "tool": "development.progress", "checkpoint": "development.checkpoint",
+              "harness_error": "development.progress"}
 # Events that are errors in their own right; a failed tool call is one when the event says so.
-ERROR_EVENTS = {"bridge_error", "host_blocked", "budget_reached", "deadline_reached"}
+ERROR_EVENTS = {"bridge_error", "host_blocked", "budget_reached", "deadline_reached", "harness_error"}
 
 
 class DevelopmentWorkspaces:
@@ -384,6 +393,7 @@ class DevelopmentWorkspaces:
             default = (config.get("models") or {}).get("default") or LEGACY_MODEL
             model = {key: default.get(key) for key in ("provider", "model", "effort")}
             walls = self.walls(values, consent, model)
+            setting = harness({"name": values.harness, "mode": values.harness_mode or os.environ.get("GRATING_DEVELOPMENT_HARNESS_MODE") or "tui"})
             record = {"id": identity, "campaign_id": campaign_id, "hypothesis_id": values.hypothesis_id, "hypothesis_ids": served,
                 "title": hypothesis["title"], "parent_agent_id": config["lead_id"], "created_at": now(),
                 "opened_by": {"actor": actor, **(opener or {})}, "request_root": root,
@@ -392,7 +402,7 @@ class DevelopmentWorkspaces:
                 "objective": values.objective, "evidence_ids": values.evidence_ids,
                 "request_key": values.request_key, "request_hash": request_hash(values),
                 "status": "queued", "desired_status": "running", "control_revision": 0,
-                "guidance_revision": 0, "cpu_budget_seconds": values.cpu_budget_seconds, "model": model, **walls,
+                "guidance_revision": 0, "cpu_budget_seconds": values.cpu_budget_seconds, "model": model, **walls, "harness": setting,
                 "usage": {"container_cpu_seconds": 0, "wall_seconds": 0, "subscription_calls": 0, "input": 0, "output": 0,
                           "billing_mode": "subscription", "api_cost_usd": 0}, "event_files": [], "cursor": 0}
             self.store.put("development_workspace", record, "development.created")
@@ -854,15 +864,18 @@ class DevelopmentWorkspaces:
                     raise ValueError(f"report.methods[{index}].hypothesis_id: {method['hypothesis_id']} is not a proposal of this campaign")
         return report
 
-    def capture_submission(self, record, key, payload):
+    def capture_submission(self, record, key, payload, *, snapshot=None, source=None):
+        """The exact commit as a submission: its manifest and files as `snapshot` reads them (the box's Git unless given), and
+        its delivery report. source: who delivered it when the coding agent did not ("own_session": the researcher, from their
+        own coding agent, agents/own_session.py); only the coding agent waits for a result file. Returns that result."""
         report = self.delivery_report(record, payload.get("report"))
-        package, manifest, ignored = self.driver.snapshot(record, payload["commit"], payload.get("manifest_path", "implementation-manifest.json"))
+        package, manifest, ignored = (snapshot or self.driver.snapshot)(record, payload["commit"], payload.get("manifest_path", "implementation-manifest.json"))
         with self.workspace.lock, self.store.transaction():
             identity = "development_submission_" + content_hash([record["id"], payload["commit"], package, manifest])[:24]
             submission = {"id": identity, "campaign_id": record["campaign_id"], "workspace_id": record["id"],
                 "hypothesis_id": record["hypothesis_id"], "hypothesis_ids": record.get("hypothesis_ids") or [record["hypothesis_id"]],
                 "commit": payload["commit"], "package": package, "manifest": manifest, "notes": payload.get("notes", ""),
-                "report": report, "status": "submitted", "created_at": now()}
+                "report": report, "status": "submitted", "created_at": now(), **({"source": source} if source else {})}
             try:
                 saved = self.store.get(identity, "development_submission")
                 if report and saved.get("report") != report:   # the same commit again: its latest report stands
@@ -870,12 +883,15 @@ class DevelopmentWorkspaces:
                     self.store.put("development_submission", saved, "development.submitted")
             except KeyError:
                 saved = self.store.put("development_submission", submission, "development.submitted")
-                verdict = f" The coding agent's verdict: {report['verdict'].replace('_', ' ')}; next: " + ("; ".join(
+                verdict = f" {'The researcher' if source else 'The coding agent'}'s verdict: {report['verdict'].replace('_', ' ')}; next: " + ("; ".join(
                     f"{a['owner']}: {a['action']}" for a in report["next_actions"]) or "nothing named") + "." if report else " It sent no delivery report."
-                self.notify(record, identity, f"Commit {submission['commit']} submitted as {identity}.{verdict} Review its manifest and commission independent validation using implementation_workspace_validate under the compute go-ahead.", "submissions")
-            self.event(record, key, "submission", {"submission_id": identity, "commit": payload["commit"]})
-        atomic_json(self.driver.root(record) / "incoming/results" / (key + ".json"), {"submission_id": saved["id"], "status": saved["status"],
-            **({"ignored_fields": ignored} if ignored else {})})
+                what = f"The researcher delivered commit {submission['commit']} from their own coding session" if source else f"Commit {submission['commit']} submitted"
+                self.notify(record, identity, f"{what} as {identity}.{verdict} Review its manifest and commission independent validation using implementation_workspace_validate under the compute go-ahead.", "submissions")
+            self.event(record, key, "submission", {"submission_id": identity, "commit": payload["commit"], **({"source": source} if source else {})})
+        result = {"submission_id": saved["id"], "status": saved["status"], **({"ignored_fields": ignored} if ignored else {})}
+        if not source:
+            atomic_json(self.driver.root(record) / "incoming/results" / (key + ".json"), result)
+        return result
 
     def validate(self, campaign_id, identity, payload, *, actor="researcher", asked=None):
         from optimization_framework.implementations.models import BoundOptimizerSpec, ImplementationSpec

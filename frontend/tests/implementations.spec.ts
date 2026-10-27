@@ -342,3 +342,50 @@ test('the baking order (roadmap G1): Balsamic installs the library that provides
   }
   await expect(bindings).not.toContainText('not bound');
 });
+
+test('the researcher makes a token on the card, sees it once with the commands to deliver from their own coding agent, and a stopped workspace offers none (roadmap H3)', async ({ page }) => {
+  let state: Record<string, unknown> = { issued_at: null, last_used_at: null, active: false, revoked: null, stopped: false };
+  const made: string[] = [];
+  const cli = '/srv/balsamic/deploy/implementation-workspace/balsamic-workspace.mjs';
+  const own = { id: 's9', commit: '9f8e7d6c5b', status: 'submitted', created_at: '2026-10-27T05:00:00Z', report, source: 'own_session',
+    manifest: { files: ['libraries/oven_trays/pyproject.toml'] } };
+  await mockWorkspace(page, { [`/api/campaigns/${CAMPAIGN_ID}/implementation-workspaces`]: { enabled: true, workspaces: [
+    { ...workspace, status: 'idle', library: { name: 'oven_trays' }, submissions: [own], installs: [],
+      outcome: { state: 'delivered', verdict: 'ready_with_limits', submission_id: 's9', commit: '9f8e7d6c5b', at: '2026-10-27T05:00:00Z' } },
+    { ...workspace, id: 'development_stopped', title: 'Stopped one', created_at: '2026-10-27T01:00:00Z', status: 'stopped', desired_status: 'stopped' }] } });
+  await page.route(`**/api/campaigns/${CAMPAIGN_ID}/implementation-workspaces/${WID}/session-token`, route => {
+    if (route.request().method() !== 'POST') return route.fulfill({ json: state });
+    made.push(route.request().method());
+    state = { issued_at: new Date().toISOString(), last_used_at: null, active: true, revoked: null, stopped: false };
+    return route.fulfill({ json: { token: 'bws_shown_once', issued_at: state.issued_at, workspace_id: WID, cli } });
+  });
+  await page.goto(`/#t/${THREAD_ID}/hypotheses/implementations`);
+  const card = page.locator(`[data-workspace="${WID}"]`);
+  // A delivery from the researcher's own session says so.
+  await expect(card.getByTestId('workspace-outcome')).toContainText('Delivered commit 9f8e7d6 from your own session');
+  const section = card.getByTestId('own-session');
+  await section.locator('summary').click();
+  await expect(section.getByTestId('own-token-state')).toHaveText('No token yet.');
+  await expect(section.getByTestId('own-token-make')).toHaveText('Make a token');
+  await section.getByTestId('own-token-make').click();
+  const commands = section.getByTestId('own-commands');
+  await expect(commands).toContainText('export BALSAMIC_WORKSPACE_TOKEN=bws_shown_once');
+  await expect(commands).toContainText(new RegExp(`export BALSAMIC_WORKSPACE_URL=http://[^\\s]+/api/campaigns/${CAMPAIGN_ID}/implementation-workspaces/${WID}\\n`));
+  await expect(commands).toContainText(`node ${cli} clone oven_trays`);
+  await expect(commands).toContainText(`node ${cli} submit HEAD --report report.json`);
+  await expect(section.getByTestId('own-token-state')).toContainText('it is shown only this once');
+  await expect(section.getByTestId('own-token-make')).toHaveText('Make a new token');
+  expect(made).toHaveLength(1);
+  // Opened again later, the card says a token is active and does not show it.
+  await page.reload();
+  const again = page.locator(`[data-workspace="${WID}"]`).getByTestId('own-session');
+  await again.locator('summary').click();
+  await expect(again.getByTestId('own-token-state')).toContainText('A token made just now opens this workspace. It is not shown again');
+  await expect(again.getByTestId('own-commands')).toHaveCount(0);
+  await expect(page.locator('body')).not.toContainText('bws_shown_once');
+  // A stopped workspace offers no token.
+  const stopped = page.locator('[data-workspace="development_stopped"]').getByTestId('own-session');
+  await stopped.locator('summary').click();
+  await expect(stopped.getByTestId('own-session-stopped')).toContainText('The workspace is stopped, so no token opens it');
+  await expect(stopped.getByTestId('own-token-make')).toHaveCount(0);
+});

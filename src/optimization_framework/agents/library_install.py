@@ -2,7 +2,8 @@
 its coding agent reports not ready); the researcher can install again from the Implementations page.
 
 The exact submitted commit's `libraries/<name>/` is read from the workspace's own Git store (listed and read as blobs: no
-filter, hook or attribute of a repository the coding agent could write runs on the host), checked against what was
+filter, hook or attribute of a repository the coding agent could write runs on the host), or, for a commit the researcher
+delivered from their own session, from the host's store of those (agents/own_session.py), checked against what was
 submitted, and copied into the lab's `libraries/<name>/`. The root pyproject.toml pins it in the `libraries` extra as an
 editable path dependency, `uv lock` and `uv sync --inexact --extra libraries` install it, and the running lab picks its
 methods and problems up at the next listing. A library provides methods (`optimization_framework.optimizers` entry points),
@@ -79,8 +80,10 @@ class Installer:
         self.validator = validator or library_validation.run
 
     # Checks -----------------------------------------------------------------------------------------------------------
-    def _git(self, record, *args):
-        git = self.development.driver.root(record) / "work" / "git"
+    def _git(self, record, *args, submission=None):
+        """Git on the store the submission's commit is in: the box's, or the host's own for the researcher's (roadmap H3)."""
+        from .own_session import git_dir
+        git = git_dir(self.development.driver, record, submission)
         done = subprocess.run(["git", "--no-replace-objects", f"--git-dir={git}", *args], cwd=self.root, capture_output=True, timeout=60, env=GIT_ENV)
         if done.returncode:
             raise ValueError("Reading the submitted commit failed: " + done.stderr.decode(errors="replace").strip()[:500])
@@ -88,7 +91,8 @@ class Installer:
 
     def files(self, record, submission, name):
         """{path: bytes} of libraries/<name>/ at the submitted commit."""
-        listing = self._git(record, "ls-tree", "-r", "-z", "--full-tree", submission["commit"], "--", f"libraries/{name}").decode()
+        listing = self._git(record, "ls-tree", "-r", "-z", "--full-tree", submission["commit"], "--", f"libraries/{name}",
+                            submission=submission).decode()
         found, total = {}, 0
         for item in filter(None, listing.split("\0")):
             meta, path = item.split("\t", 1)
@@ -98,7 +102,7 @@ class Installer:
             pure = PurePosixPath(path)
             if pure.is_absolute() or ".." in pure.parts or pure.parts[:2] != ("libraries", name):
                 raise ValueError(f"{path} leaves libraries/{name}/")
-            found[path] = content = self._git(record, "cat-file", "blob", f"{submission['commit']}:{path}")
+            found[path] = content = self._git(record, "cat-file", "blob", f"{submission['commit']}:{path}", submission=submission)
             total += len(content)
             if len(content) > MAX_FILE_BYTES or total > MAX_TOTAL_BYTES:
                 raise ValueError(f"libraries/{name} is larger than an installable library ({MAX_FILE_BYTES >> 20} MB a file, {MAX_TOTAL_BYTES >> 20} MB in all)")
