@@ -6,6 +6,7 @@ from optimization_framework.campaigns.proposals import hypothesis_revision, over
 
 from test_page_agents import call, finish, guidance, submitted, wakes
 from test_pi_agents import activated
+from test_mandates import granted
 
 
 def proposal(w, c, identity, **extra):
@@ -90,6 +91,7 @@ def test_a_round_with_reviewers_completes_only_with_a_synthesis_and_the_leads_no
 
 def test_a_status_against_the_tally_is_flagged_not_refused(tmp_path, monkeypatch):
     w, c, lead, moderator, run = moderator_round(tmp_path, monkeypatch)
+    granted(w, c['id'])   # setting a status is decide work, which needs a mandate beyond Explore (R3)
     h1, h2 = proposal(w, c, 'h1'), proposal(w, c, 'h2')
     passed = review(w, moderator, run, h1, 'test', 'r1')
     objection = review(w, moderator, run, h2, 'revise', 'r2')
