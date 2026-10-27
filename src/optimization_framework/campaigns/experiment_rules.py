@@ -87,6 +87,18 @@ def design_shape(problem):
     return dimensions, None, None
 
 
+def pack_labels(problem):
+    """The labels of a design's cells that the problem's pack declares (e.g. silicon and air); none for a problem without a
+    pack, or one that is not installed."""
+    from optimization_framework.evaluation.registry import problems
+    name = (problem or {}).get("definition_id")
+    if not name or name not in problems.ids():
+        return {}
+    pack = problems.pack(name)
+    labels = pack.presentation.labels if pack is not None else {}
+    return {key: labels[key] for key in ("on_label", "off_label") if key in labels}
+
+
 def default_presentation(problem):
     """A presentation that fits any problem: a grid design as an image, a short binary one as a strip, a few values as a table,
     and never thousands of values listed one by one."""
@@ -100,8 +112,7 @@ def default_presentation(problem):
         design = {"render": "table"}
     else:
         design = {"render": "none"}
-    if (problem or {}).get("definition_id", "").startswith("meent"):
-        design.update(on_label="silicon", off_label="air")
+    design.update(pack_labels(problem))
     columns = (["thumbnail"] if design["render"] in {"mask", "strip"} else []) + ["name", "method", "status", "best", "evaluations", "time"]
     return Presentation(list_columns=columns, entry_sections=["design", "curve", "objectives", "numbers", "settings", "files", "question"],
                         design=DesignView(**design), rationale="Default: drawn from the problem's description.").model_dump(mode="json", exclude={"schema_version"})

@@ -22,6 +22,11 @@ def reference_source(pack: ProblemPack, reference: PackReference) -> Path | None
     return found if found is not None and found.is_dir() else None
 
 
+def folder(pack: ProblemPack, name: str) -> Path:
+    """One of a pack's folders, inside its installed package (the registry checked it is there when it loaded the pack)."""
+    return Path(next(iter(find_spec(pack.package).submodule_search_locations))) / name
+
+
 def resolve_hook(hook: str):
     """The callable a ``module:attribute`` hook names."""
     module, attribute = hook.split(":", 1)
@@ -70,6 +75,10 @@ class CampaignPacks:
                 if source is not None and reference.name not in result:
                     result[reference.name] = {"name": reference.name, "source": str(source), "package": pack.package}
         return list(result.values())
+
+    def procedure_folders(self, campaign_id) -> list[Path]:
+        """The procedure folders of the campaign's packs, in the same order."""
+        return [folder(pack, pack.procedures) for pack in self.for_campaign(campaign_id) if pack.procedures]
 
     def packages(self, campaign_id) -> set[str]:
         """The packages of the campaign's packs: what a tool or operation a pack registered is keyed by (roadmap N4)."""

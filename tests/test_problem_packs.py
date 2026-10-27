@@ -114,12 +114,14 @@ def test_a_reinstalled_problem_s_pack_is_read_again(fixture_package):
 
 def test_meents_pack_is_assembled_from_one_module_per_part_as_it_was_written_before():
     """The pack's parts write a module each (pack/<part>_<topic>.py), so parallel parts never edit one file; assembled, it is the
-    pack as N4 wrote it in pack/__init__.py, field by field, with N6's FLRL reference."""
+    pack as N4 wrote it in pack/__init__.py, with N3's procedures and labels and N6's FLRL reference, field by field."""
     from dqn_meent import pack as meent
     from dqn_meent.pack import racing
     from dqn_meent.pack.n6_references import FLRL
-    assert [name for name, _ in meent.contributions()] == ["n4_tools", "n5_racing", "n6_references", "n7_legacy"]
+    from optimization_framework.contracts.packs import PackPresentation
+    assert [name for name, _ in meent.contributions()] == ["n3_procedures", "n4_tools", "n5_racing", "n6_references", "n7_legacy"]
     expected = ProblemPack(package="dqn_meent.pack", problem_ids=["meent_grating", "meent_2d_dual_polarization_deflector"],
+                           procedures="procedures", presentation=PackPresentation(labels={"on_label": "silicon", "off_label": "air"}),
                            tools=PackTools(agent_tools=["dqn_meent.pack.tools:register_agent_tools"],
                                            operations=["dqn_meent.pack.tools:register_operations"]),
                            estimators=PackEstimators(memory="dqn_meent.pack.memory:estimate"),
