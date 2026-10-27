@@ -2,7 +2,8 @@
 
 Status on 14 October 2026. This page keeps two things apart: changes that exist in the code, and
 changes that are only proposed. An item moves from one part to the other when it is built and
-tested, and the date is updated.
+tested, and the date is updated. From the roadmap on (27 October 2026), each part's entry is its own file in
+[readiness/](readiness/README.md); this page keeps Parts A to S.
 
 The goal is that a researcher and the campaign's lead Pi agent can run a whole campaign on the 2D
 deflector problem (choose a preset, generate hypotheses, review and run quick experiments, choose
@@ -45,8 +46,7 @@ to replace that outside session.
 | The pages' operations routed in code: refused from the lead with the agent to ask; the lead reads experiment progress itself | Implemented, tested; checked live by the evals; see Parts P and S |
 | Workflow procedures read on demand; the lead's instructions cut from 2,889 to 886 words | Implemented, tested; two domain procedures await review; checked live by the evals; see Parts Q and S |
 | Specialists with briefs, tool scopes and output schemas; results submitted before completion | Implemented, tested; checked live by the evals; see Parts R and S |
-| A delivered library installs without a false "needs confirmation"; a stale one is tried once more | Implemented, tested; the live install is for Hoseung to check; see Part T |
-| A method that stops on its own completes as `method_finished`; a comparison holds its final value | Implemented, tested; not live; see Part U |
+| The roadmap's parts, from 27 October 2026 | One file each in [readiness/](readiness/README.md) |
 
 "Live" means the running services on X670 use the code (last restarted on 14 October 2026).
 "Not live" means the code is in the working tree and tested, and the services still run the old
@@ -1085,83 +1085,6 @@ The suite of Part L, 12 scenarios with three repeats each, on the dev profile's 
   campaign starts cold (S2: 2,219 cached tokens of 13,680); within a session the share stayed about two thirds.
 - **S11 passes at the baseline too.** The old lead already sent experiments to the operator; Phase 5 makes it the only way.
 - Other models (DeepSeek, the subscription's `openai-codex`) not run.
-
-## Part T — Install without a false confirmation (27 October 2026; roadmap A1)
-
-### What was wrong
-
-- **Every install of a delivered library waited for a confirmation it did not need.** The dry run's package lines were
-  read with `name==version` only. uv 0.11 reinstalls the lab's root project from its own path whenever `pyproject.toml`
-  changes, and prints it as `- balsamic==… (from file:///…)` then `+ balsamic @ file:///…`: the second line was not
-  parsed, so the root project counted as removed, and the install stopped at `needs_confirmation`. A reinstall at the same
-  version counted as a change too, and so did the lab's other libraries. Baking order's install waits for a confirmation;
-  this is the likely cause, reproduced with uv 0.11 (its live `log_tail` was not read).
-- **A waiting install was never tried again.** `install_delivered()` skips every submission that has any install record.
-
-### What changed
-
-| Change | Where |
-|---|---|
-| The dry run's lines are read as `name==version`, `name==version (from url)` and `name @ url`; a package removed and added at the same version, or from the same url, is a reinstall, not a change | `agents/library_install.py` `CHANGE`, `changed_packages()` |
-| The lab's own projects never count: the root `pyproject.toml`'s name and each `libraries/*/pyproject.toml`'s | `lab_projects()`, `Installer.install()` |
-| Balsamic's own install that waits for a confirmation is requested once more when its dry run, read again from its log, changes nothing (`request_key="automatic:reparsed"`, `retry_of`); a record with `retry_of` ends it | `Installer.reparsed()`, `request(retry_of=)`; `agents/development.py` `install_delivered()` |
-
-### Checked
-
-- `tests/test_library_install.py`: uv 0.11's own dry-run lines, from a lab laid out like this one, give no change; a
-  package from the index upgraded still needs confirmation; a stale confirmation is tried once and a second sync does
-  nothing; a retry that waits again is not tried a third time; a real change, the researcher's own install, a failed one
-  and a log that lost the dry run's start are not tried again.
-
-### Not done
-
-- The fixture is uv's output from a reproduction, not the live record's `log_tail`. The live check is Hoseung's: baking
-  order's pending install completes, and its four methods appear on the Implementations page.
-
-## Part U — A method that finishes (27 October 2026; roadmap A3)
-
-### What was wrong
-
-- A method that stops on its own (a one-shot heuristic, an exhausted enumeration) failed its run. `PackagedOptimizer.propose`
-  raised `ValueError` when the module returned no proposal, the sandboxed package runtime refused an empty batch as a
-  contract violation, and `worker.run()` turned any exception into `failed`.
-- Had it ended cleanly, `progress()` would still have reported it censored: `scientific_complete` held only once the
-  evaluation count reached the completion count.
-- The comparison matched every method at `min(last cost of every usable run)`, and `observed_at()` had no value past a
-  curve's end, so one early finisher shrank every method's matched cost.
-
-### What changed
-
-| Change | Where |
-|---|---|
-| `MethodFinished`, with an optional reason | `optimizers/finish.py` (new) |
-| A module that returns `[]` or raises `StopIteration` from `propose` finishes; so does an ask/tell `ask()` that raises `StopIteration` (its proposal sequence is not advanced); a sandboxed `optimizer_v1` package that returns `[]` | `optimizers/packaged.py`, `optimizers/lifecycle.py` `AskTellAdapter`, `implementations/runtime.py` `PackageOptimizer.propose` |
-| `run()` records `completed` / `method_finished`, keeps the final checkpoint and outputs; `progress()` says `method_finished` and `scientific_complete`, the method's reason as `finish_reason` and its last inspection as `final_inspection` (where an exact method puts `bound` and `proved_optimal`; N13 shows and checks it); the checkpoint carries the flag, so a resumed or continued run finishes at once | `execution/worker.py` |
-| A finished run holds its final value after its last point (`observed_at(held=True)`), its row says `method_finished` and `held_after_finish`; the matched cost is taken over the runs that did not finish, over all when every one did | `analysis/general.py` `report` |
-| The lead's comparison brief marks a held run | `agents/tools.py` `comparison_brief` |
-| The contract checks accept a method that finishes, if every replay of a seed and its restored checkpoint finish at the same step | `optimizers/conformance.py` |
-| "Finishing" documented | `docs/optimizer-plugins.md` |
-
-The readers of trial status (`src/balsamic/evolution`, `analysis/standard_rules.py`, the race, confirmation and study
-code) read `status == "completed"` and `scientific_complete`, both of which a finished run now has; none needed a change.
-
-### Checked
-
-- `tests/test_method_finish.py`: a packaged module that returns `[]` (and one that raises `StopIteration` with a reason)
-  after three proposals completes with `method_finished`, its best kept, `scientific_complete`, outputs published, its
-  `bound` and `proved_optimal` kept in `final_inspection`; a
-  resumed finished run finishes at once with no new request; any other exception still fails with its message; an
-  ask/tell `ask()` raising `StopIteration` gives `MethodFinished`; a report with one finished and one long run compares at
-  the long run's cost with the finished value held, and at the shortest when every run finished; the contract checks pass
-  a finishing method and catch a replay that finishes at another step.
-- `tests/test_framework_packages.py::test_a_sandboxed_package_that_returns_no_proposal_has_finished`.
-
-### Not done
-
-- A sandboxed ask/tell or `optimizer_v1` package cannot finish by raising `StopIteration`: the exception does not cross
-  the process boundary as itself. Returning `[]` works there.
-- Not live: Hoseung's check is to run a library method that returns `[]` early beside a longer one and read the
-  comparison.
 
 ## Not planned
 

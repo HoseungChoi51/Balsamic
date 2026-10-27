@@ -35,8 +35,8 @@ and domain knowledge moved out of the core into problem packs.
 number is written L123. Decisions are numbered 1–24 and written "decision 7" (the first version of this plan called 4–9
 "D4–D9"). Other series keep their own names, and the roadmap names their file when it cites them: the harness plan's
 D1–D9, `docs/suggestions.md`'s findings R1–R6, suggestions S1–S7 and questions Q1–Q8, and the eval scenarios S1–S16.
-Entries of `docs/lead-agent-readiness.md` are "Part T", "Part U" and so on: a separate series, which names the roadmap
-part it closes.
+Entries of `docs/lead-agent-readiness.md` are "Part A" to "Part S", a separate series from before this roadmap; each part
+of the roadmap has its own entry, `docs/readiness/<id>.md`.
 
 ---
 
@@ -61,14 +61,17 @@ part it closes.
 9. Never ask the researcher to run commands, and never change the live lab by hand. The live checks named in the parts are
    Hoseung's.
 10. Before opening the PR, rebase on the latest `workspace-rebuild`. Parts that share a file (each phase file lists them)
-    are merged one after another.
+    are merged one after another. While the PR is open, whenever `workspace-rebuild` moves and the PR conflicts with it,
+    rebase and resolve the conflict yourself, run the affected tests again and push: do not wait to be asked.
 11. When closing a part:
-    - add a Part to `docs/lead-agent-readiness.md` in its format (What was wrong / What changed / Checked / Not done), with
-      the roadmap id in its title, e.g. "Part T — Install without a false confirmation (roadmap A1)". The last Part at
-      `cc0e693` is Part S. Parts built in parallel take the next free letter when they merge: on a rebase, keep the other
-      Parts and renumber yours after them;
-    - once I1 has landed, update the rows of `docs/invariants.md` the part changes, with the test that now pins each one;
-    - once I3 has landed, update the part's line in `docs/status.md`.
+    - add the part's readiness entry as a new file, `docs/readiness/<id>.md` (e.g. `docs/readiness/A1.md`), in the format
+      of `docs/readiness/README.md`: a State line, then What was wrong / What changed / Checked / Not done. Each part has
+      a file of its own, so parts built in parallel never edit the same one. Do not add Parts or summary rows to
+      `docs/lead-agent-readiness.md`;
+    - once I1 has landed, update the rows of `docs/invariants.md` the part changes, with the test that now pins each one.
+      Edit those rows in place, and put a new row next to the rows it relates to, not at the end of the table;
+    - once I3 has landed, `docs/status.md` gives each phase's state and is updated by the part that completes a phase, not
+      by every part: a part's own state is the State line of its readiness file.
 12. Commit messages follow the log: `feat(scope): …`, `fix(scope): …`, `docs(scope): …`, `test(scope): …`.
 13. Do not edit the roadmap files in a part's PR, except to correct a mistake in them; say so in the PR.
 
@@ -312,6 +315,6 @@ flexibility and guardrails fought, 07 a coding-harness architecture, 08 architec
 
 - **Per part:** its tests; then the full commands of §0, and Playwright when the UI changed.
 - **Per phase after Phase 2:** the eval summary before and after the phase (`--compare` with the Phase 2 baseline), in the
-  phase's last readiness Part.
+  readiness file of the phase's last part.
 - **Live checks** are Hoseung's and are named in the parts: A1 (the baking-order install), wave 5 of Phase 1 (charter to
   ranked results with three researcher actions), J2 (another provider, with approval).

@@ -103,10 +103,11 @@ L85–103, `tests/balsamic/test_layering.py`, `tests/test_harness_contract.py`, 
    4. Was it the prompt? The instructions or a procedure, with an eval scenario that reproduces it.
    5. Was it the UI? The page.
 2. Every fix adds or updates an invariant row (I1) and an eval scenario, or says why none fits.
-3. The readiness Part format gains two lines after "What was wrong": `Layer:` (one of the five) and `Invariant:` (the row id).
+3. The readiness format (`docs/readiness/README.md`) gains two lines after "What was wrong": `Layer:` (one of the five)
+   and `Invariant:` (the row id).
 4. `docs/README.md` (I3) links the triage page next to the register.
 
-**Done when** the page exists, and the next readiness Part written after it uses the two lines.
+**Done when** the page exists, and the next readiness file written after it uses the two lines.
 
 ### I3 — Docs small and dated
 
@@ -132,15 +133,15 @@ harness plan's §3 decisions table, `docs/lead-agent-readiness.md` (its header a
    - 0008 Charter to results: the evaluator from the library, no review gate on asked-for proposals, one go-ahead
      (2026-10-27, roadmap decisions 1–3).
    From then on, each roadmap decision becomes an ADR when Hoseung settles it.
-3. `docs/status.md`: the one current status page. What works (condensed from the readiness summary table), what is in
-   progress (the roadmap parts by phase, with their state), and the known gaps (the register's `prompt` and `none` rows,
-   linked). The readiness doc's header says it is the log and points to the status page for the current state.
+3. `docs/status.md`: the one current status page. What works (condensed from the readiness summary table and
+   `docs/readiness/`), each phase's state (not started, in progress or done; each part's own state is the State line of
+   its file in `docs/readiness/`), and the known gaps (the register's `prompt` and `none` rows, linked). The readiness doc's header says it is the log and points to the status page for the current state.
 4. The harness plan's decisions table: mark D1–D4 and D6–D9 decided, each with the readiness Part that implemented it;
    D2 (keep the specialists) as kept at its default by Part R, to be revisited by T3. D5 (who an inbound MCP client acts
    as) stays open with Phase 8. Check each against the Parts before marking it.
 5. `docs/README.md`: an index in reading order. Design first (the root `README.md`, `ui-workspace.md`, `pi-agent-harness.md`,
    `problem-setup.md`, `optimizer-plugins.md`, `validation.md`), then the status page, the roadmap, the register, the
-   triage page and the ADRs, then the logs (`lead-agent-readiness.md`), then `history/`.
+   triage page and the ADRs, then the logs (`lead-agent-readiness.md` and `readiness/`), then `history/`.
 
 **Tests**
 - A test that every relative Markdown link under `docs/` and in the root `README.md` resolves to a file (this catches the
@@ -306,4 +307,4 @@ Wave 2  I2 (I1) · I3 (I1) · J2 (J1) · J3 (after A2 in Phase 1)
 ## Verification
 
 - `GRATING_LLM_DISABLED=true uv run pytest -q`, `scripts/run_lead_evals.py --fake`.
-- Live (Centinels): the J1 baseline and the J4 baseline, recorded in the phase's readiness Part.
+- Live (Centinels): the J1 baseline and the J4 baseline, recorded in J1's and J4's readiness files.
