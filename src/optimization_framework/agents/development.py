@@ -4,6 +4,7 @@ from __future__ import annotations
 from datetime import datetime, timezone
 import json
 import os
+import re
 from pathlib import Path
 from typing import Literal
 
@@ -488,6 +489,12 @@ class DevelopmentWorkspaces:
         except Exception as exc:   # an install never stops the workspaces' own sync
             import logging
             logging.getLogger(__name__).warning("Installing a delivered library failed: %s", exc)
+        try:
+            from optimization_framework.campaigns.plan_runs import launch_ready
+            launch_ready(self.workspace, campaign_id)
+        except Exception as exc:   # nor does starting the approved runs
+            import logging
+            logging.getLogger(__name__).warning("Starting the approved runs failed: %s", exc)
         for saved in self.store.list("development_workspace", campaign_id):
             try:
                 self._sync_one(saved)
@@ -513,10 +520,16 @@ class DevelopmentWorkspaces:
                 if not capability["available"]:
                     raise ValueError(capability["reason"])
                 evidence = [self.evidence(cid, ref) for ref in record["evidence_ids"]]
-                hypothesis = self.store.get(record["hypothesis_id"], "hypothesis")
-                brief = f"# {record['title']}\n\n{record['objective']}\n\n## Hypothesis\n\n" + json.dumps(hypothesis, indent=2) + "\n\n" + DEVELOPMENT_INSTRUCTIONS
-                self.driver.prepare(record, brief, evidence)
-                atomic_json(root / "prepared.json", {"workspace_id": identity})
+                library, charter, why = self.generated_library(record)
+                brief = self.brief(record, library, charter, why)
+                if library:
+                    hashes = self.driver.prepare(record, brief, evidence, library=library)
+                    library = {key: value for key, value in library.items() if key != "files"} | {"files": hashes}
+                    with self.workspace.lock:
+                        self.store.put("development_workspace", {**self.get(cid, identity), "library": library})
+                else:
+                    self.driver.prepare(record, brief, evidence)
+                atomic_json(root / "prepared.json", {"workspace_id": identity, **({"library": library} if library else {})})
             runtime = self.driver.start(record)
             with self.workspace.lock:
                 record = self.get(cid, identity)
@@ -577,6 +590,61 @@ class DevelopmentWorkspaces:
                     current["status"] = record["desired_status"]
                     current.pop("control_acknowledged", None)
                     self.store.put("development_workspace", current)
+
+    def generated_library(self, record):
+        """(library, charter, why not) a workspace starts from: the campaign's charter revision generated as a Balsamic library
+        ({name, package, charter_id, revision, fixed, files}, roadmap F4), and the charter document. The library is None,
+        with the reason, when the charter cannot give one (it names no evaluator, say); all three are None for a campaign
+        made without a charter."""
+        from optimization_framework.problem_charter.charter import parse
+        from optimization_framework.problem_charter.scaffold import package_name, scaffold
+        reference = self.store.get(record["campaign_id"], "campaign").get("charter")
+        if not reference:
+            return None, None, None
+        charter = self.workspace.charters.revision(reference["id"], reference["revision"])["charter"]
+        try:
+            files = scaffold(charter, reference["revision"], charter_id=reference["id"], balsamic=True)
+        except ValueError as exc:
+            return None, charter, str(exc)
+        problem_id = charter["evaluator"]["problem_id"]
+        package = package_name(parse(charter))
+        name = problem_id if re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_.\-]{0,99}", problem_id) else package.replace("_", "-")
+        return {"name": name, "package": package, "charter_id": reference["id"], "revision": reference["revision"],
+                "fixed": [f"libraries/{name}/charter.json", f"libraries/{name}/{package}/data.py"], "files": files}, charter, None
+
+    def brief(self, record, library, charter, why=None):
+        """`.campaign/assignment.md`: the request, every proposal the workspace serves (with the METHODS key for each, when
+        it starts from a generated library), the charter's summary, then DEVELOPMENT_INSTRUCTIONS."""
+        served = []
+        for hypothesis_id in record.get("hypothesis_ids") or [record["hypothesis_id"]]:
+            try:
+                served.append(self.store.get(hypothesis_id, "hypothesis"))
+            except KeyError:
+                continue
+        keys = method_keys(served)
+        lines = [f"# {record['title']}", "", record["objective"], ""]
+        if charter:
+            from optimization_framework.problem_charter.charter import parse, render, resolve
+            parsed = parse(charter)
+            values = resolve(parsed)["values"]
+            objective = parsed.objective
+            lines += ["## The problem", "", f"{parsed.title}. " + render(parsed.summary, values, parsed).strip(), ""]
+            if objective:
+                lines += [f"Objective: {objective.direction} {objective.name}" + (f" ({objective.units})" if objective.units.strip() else "") + ".", ""]
+            if library:
+                lines += [f"The library generated from charter revision {library['revision']} is in `libraries/{library['name']}/`; "
+                          f"its README says what to write.", ""]
+            else:
+                lines += [f"No library could be generated from the charter ({why}): build one as "
+                          "docs/optimizer-plugins.md describes.", ""]
+        lines += ["## Proposals", ""]
+        for hypothesis in served:
+            key = f"; its METHODS key: `{keys[hypothesis['id']]}` with `\"hypothesis_id\": \"{hypothesis['id']}\"`" if library else ""
+            lines += [f"- **{hypothesis.get('title') or hypothesis['id']}** (`{hypothesis['id']}`){key}. "
+                      + " ".join(str(hypothesis.get("mechanism") or "").split())]
+        lines += ["", "Each proposal's full record:", "", "```json", json.dumps(served, indent=2), "```", ""]
+        instructions = DEVELOPMENT_INSTRUCTIONS.replace("libraries/<name>", f"libraries/{library['name']}" if library else "libraries/<name>")
+        return "\n".join(lines) + "\n" + instructions
 
     def receive(self, record):
         root = self.driver.root(record)
@@ -788,57 +856,56 @@ class DevelopmentWorkspaces:
             self.store.put("development_submission", submission)
 
 
+def method_keys(proposals):
+    """{proposal id: a method id for it}: its title as an identifier (a method id's pattern), unique among the proposals."""
+    keys, used = {}, set()
+    for proposal in proposals:
+        base = re.sub(r"[^a-z0-9]+", "_", str(proposal.get("short_title") or proposal.get("title") or proposal["id"]).lower()).strip("_")
+        base = (base if base[:1].isalpha() else "method_" + base).rstrip("_")[:56] or "method"
+        key, n = base, 2
+        while key in used:
+            key, n = f"{base}_{n}", n + 1
+        keys[proposal["id"]] = key
+        used.add(key)
+    return keys
+
+
 DEVELOPMENT_INSTRUCTIONS = """## Development workflow
 
-This is a complete Pi coding workspace. Use read, edit, write, bash, Git, tests,
-dependency installation, skills, and project instructions. You can install Python
-packages with `python -m pip install --user ...`. Code runs in this workspace's
-container. `/references/flrl` contains the author's reference code when available;
-`/references/paper.txt` and `/references/paper.pdf` contain the supplied paper.
-The host campaign database, private files, protected validation fixtures, and
-Docker socket are outside this environment. Public network access is available;
-new connections to host, TailNet, and private network services are blocked.
+This is a complete Pi coding workspace: read, edit, write, bash, Git, tests and skills;
+`python -m pip install --user ...` installs packages. The host campaign database, private
+files, protected validation fixtures and Docker socket are outside it. Public network
+access is available; host, TailNet and private network services are blocked.
 
-The developer and the campaign lead agent can steer this same session. Explicit
-developer direction takes precedence over conflicting lead-agent guidance. Reread files changed by
-the developer before editing them. Save decisions and continuation instructions
-in `.campaign/checkpoint.md`; use `campaign_checkpoint` for progress or questions.
-Compaction and reconnects preserve this file, evidence, repository, and session.
+The developer and the campaign lead agent can steer this session; explicit developer
+direction wins. Reread files the developer changed before editing them. Keep decisions
+and continuation notes in `.campaign/checkpoint.md`: it survives compaction and reconnects.
 
-Implement the method as a library under `libraries/<name>/`, the way
-`libraries/grating-mask-search` and docs/optimizer-plugins.md do: a module per method
-following the optimizer_v1 package contract (`create_optimizer(context)`, then
-initialize, propose, observe, checkpoint as bytes, restore, inspect), with no Balsamic
-imports; your own tests showing it does what the specification says; `plugin.py`
-listing the methods for the `optimization_framework.optimizers` entry point in its
-`pyproject.toml`; and a README naming the specification. An `export_artifacts` item's
-`kind` is one Balsamic's catalog holds: `solution` for a best design,
-`learner_diagnostics` for a search log. Copy `tests/test_contract.py`
-from the example and name your methods in it: it runs Balsamic's contract checks
-(valid candidates, seeded replay, checkpoint continuation, export kinds) and needs Balsamic itself
-(`python -m pip install --user -e .`), else it runs on the host.
+The library is `libraries/<name>/`:
+1. Write the objective in `objective.py`.
+2. Write one function per proposal in `methods.py`, under the METHODS key the brief gives it.
+3. Make `uv run pytest libraries/<name>` pass; `tests/test_contract.py` runs Balsamic's
+   contract checks. `charter.json` and `data.py` stay as generated: Balsamic refuses a
+   library whose data no longer matches the charter revision.
+4. Commit it with an `implementation-manifest.json` holding `files` (the library's
+   repository-relative paths), exact `dependencies` and a `test_summary`.
+5. Submit the full commit hash with `campaign_submit` and your delivery report.
+6. Raise the version in its `pyproject.toml` with every new delivery: the lab loads new
+   code only when the version changes.
+A method that needs its own state, batches or checkpoints, or a library the brief names
+none for, follows the optimizer_v1 package contract instead: see docs/optimizer-plugins.md.
 
-Commit the library and an `implementation-manifest.json` holding exactly `contract`
-(optimizer_v1), `entrypoint` (module:factory), `files` (the library's
-repository-relative paths), exact `dependencies`, and a `test_summary`, and nothing else.
-Submit the full commit hash with `campaign_submit` and your delivery report: your verdict
-(ready only when every method is implemented, its conformance check passed, no test fails
-and nothing is limited; ready_with_limits with the limitations; not_ready with what must
-happen next), each method's id, proposal, state, tests and conformance, the totals of your
-test run with its command, and the next actions with who does each. The researcher reads this
-report as the outcome of your work. Balsamic installs the library in the lab when you deliver
-it (unless you report it not ready), so installing is nobody's next action. Raise the
-library's version with each new delivery: the running lab loads its new code only when the
-version changes.
+The delivery report: your verdict (ready only when every method is implemented, its
+conformance check passed, no test fails and nothing is limited; ready_with_limits with the
+limitations; not_ready with what must happen next), each method's id, proposal, state,
+tests and conformance, the totals of your test run with its command, and the next actions
+with who does each. The researcher reads it as the outcome of your work. Balsamic installs
+the library when you deliver it (unless you report it not ready), so installing is nobody's
+next action.
 
 At each `campaign_checkpoint`, give your phase, what is done and what remains, the latest
-test counts and your estimate of the minutes left until you submit: the researcher follows
-your work by these. Balsamic installs the library once you deliver it with its tests
-passing (`uv run pytest libraries/<name>`); a proposal then runs by naming its method.
-Use a new commit for each repair. Whether the method performs well is for the
-campaign's experiments and the researcher, not something the implementation proves.
-
-This session has no programming wall-clock deadline. Container CPU usage is
-measured separately; an optional development CPU allowance is shown in the
-campaign. Existing experiment and protected validation allocations still apply.
+test counts and the minutes left until you submit; use it for questions and blockers too.
+Use a new commit for each repair. Whether a method performs well is for the campaign's
+experiments, not the implementation. There is no wall-clock deadline; container CPU is
+measured, and an optional CPU allowance shows in the campaign.
 """

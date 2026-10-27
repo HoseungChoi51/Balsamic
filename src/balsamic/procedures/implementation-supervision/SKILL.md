@@ -12,6 +12,11 @@ proposal's specification and is then used like any third-party method, as `mask-
 Whether the method performs well is a question for experiments and the researcher. The implementation does not have to prove
 it, and no experiment waits for such proof.
 
+Asked to implement methods and compare them, propose one Screen mandate (`mandate_propose`, template screen): the coding workspace
+(`coding_workspaces`), any evaluator to commission (in `plan`), the proposals (`hypothesis_ids`) and the runs (`runs`, each:
+task_id, hypothesis_id, seeds, wall_seconds, max_evaluations, device). That one go-ahead covers all of it: building,
+installing, binding and running. Do not ask again at each step, and never ask the researcher to run commands.
+
 1. Open a coding workspace with `implementation_workspace_create`: the objective, the hypothesis and the evidence ids. It builds
    the library under `libraries/<name>/` (its brief says how): a module per method, its own tests against the specification,
    and the plug-in that names the methods. Proposals built together can share one library: name the others in
@@ -26,8 +31,11 @@ it, and no experiment waits for such proof.
    agent reports not ready), and asks the researcher only when installing would change packages the lab already has. Never ask
    the researcher to run commands to install anything. You hear when it is installed and which methods it added, or why it
    could not be (often: the library's version has to rise), which the coding agent then fixes.
-4. Once it is installed, its methods appear in `campaign_inspect.methods` within a second; the lab needs no restart. Bind
-   each proposal to its method with `implementation.bind_builtin` and hand the runs to the experiment operator.
+4. Once it is installed, its methods appear in `campaign_inspect.methods` within a second; the lab needs no restart. Balsamic
+   binds each proposal the library serves to its method and starts the runs the researcher approved for it; the install
+   notice names what it bound, what it left and why, and what it started. Bind a proposal it left with
+   `implementation.bind_builtin` only when you can settle the reason (several candidate methods: the one the proposal
+   describes). You are told once every approved run has ended: then write the comparison (`comparison.report`).
    `campaign_inspect.methods_unavailable` lists what matters here but cannot run, with the reason and the next step: delivered
    and not installed, incompatible with a task, being built, and tasks blocked by their evaluator. Say which methods can run
    from these, as the researcher's Implementations page does.

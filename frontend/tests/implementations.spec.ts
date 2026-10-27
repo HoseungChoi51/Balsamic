@@ -162,7 +162,8 @@ test('the researcher installs a delivered library from its card, after a confirm
       path: 'libraries/baking-order-search', methods_added: [], missing_methods: [], ...(body.confirm_changes
         ? { status: 'installed', methods_added: ['bakery_adjacent', 'bakery_dp'], changes: [{ name: 'numpy', from: '2.1.0', to: '2.3.0' }],
             bindings: [{ hypothesis_id: 'hypothesis_a', title: 'Adjacent swaps', method: 'bakery_adjacent', task_id: 'task_1', binding_id: 'builtin_binding_1' }],
-            skipped: [{ hypothesis_id: 'hypothesis_b', reason: 'Already bound to random by the researcher' }] }
+            skipped: [{ hypothesis_id: 'hypothesis_b', reason: 'Already bound to random by the researcher' }],
+            launched: [{ hypothesis_id: 'hypothesis_a', seed: 0, trial_id: 'trial_1', task_id: 'task_1', consent_id: 'compute_consent_1' }] }
         : { status: 'needs_confirmation', changes: [{ name: 'numpy', from: '2.1.0', to: '2.3.0' }] }) }];
     return route.fulfill({ json: delivered.installs[0] });
   });
@@ -186,6 +187,8 @@ test('the researcher installs a delivered library from its card, after a confirm
   const bindings = box.getByTestId('install-bindings');
   await expect(bindings).toContainText('bound Adjacent swaps → bakery_adjacent by Balsamic');
   await expect(bindings).toContainText('not bound hypothesis_b: Already bound to random by the researcher');
+  // and started the run the researcher's go-ahead listed for the proposal it bound.
+  await expect(bindings).toContainText('started hypothesis_a seed 0: an approved run, by Balsamic');
 });
 
 test('an installed library that provides a problem names the problem it added', async ({ page }) => {
@@ -203,6 +206,22 @@ test('an installed library that provides a problem names the problem it added', 
   const added = page.getByTestId('install-box').getByTestId('install-added');
   await expect(added).toContainText('baking-order 0.1.0 · problems baking_order');
   await expect(added).not.toContainText('methods');
+});
+
+test('an install from the library generated from the charter names the generated files the coding agent changed', async ({ page }) => {
+  const submission = { id: 's1', commit: '2a3eb0899a', status: 'submitted', created_at: '2026-10-27T03:22:04Z', report,
+    manifest: { files: ['libraries/baking_order/pyproject.toml'] } };
+  const install = { id: 'library_install_1', submission_id: 's1', requested_at: '2026-10-27T04:00:00Z', finished_at: '2026-10-27T04:01:00Z',
+    status: 'installed', actor: 'balsamic', package: 'baking-order', version: '0.1.1', path: 'libraries/baking_order', changes: [],
+    entry_points: { baking_order: 'baking_order.adapter:method_plugin' }, methods_added: ['shuffle'], missing_methods: [],
+    changed_generated_files: ['libraries/baking_order/pyproject.toml', 'libraries/baking_order/baking_order/harness.py'] };
+  await mockWorkspace(page);
+  await page.route(`**/api/campaigns/${CAMPAIGN_ID}/implementation-workspaces`, route => route.fulfill({ json: { enabled: true, workspaces: [
+    { ...workspace, status: 'idle', outcome: { state: 'delivered', verdict: 'ready', submission_id: 's1', commit: '2a3eb0899a', at: '2026-10-27T03:22:04Z' },
+      submissions: [submission], installs: [install] }] } }));
+  await page.goto(`/#t/${THREAD_ID}/hypotheses/implementations`);
+  await expect(page.getByTestId('install-box').getByTestId('install-changed-generated'))
+    .toHaveText('changed from the generated library: pyproject.toml, baking_order/harness.py');
 });
 
 test('a library the coding agent reported not ready installs only once the researcher says so; loose files cannot be installed', async ({ page }) => {
@@ -249,4 +268,30 @@ test('a side conversation with implementation work opens on the Implementations 
       link_page: 'hypotheses/implementations', content: 'Agents are working on this request in a side conversation: Build the library', created_at: '2026-10-27T03:07:19Z' }] } });
   await page.goto(`/#t/${THREAD_ID}/inbox`);
   await expect(page.getByTestId('open-agents-thread')).toHaveAttribute('href', `#t/${f.AGENTS_THREAD_ID}/hypotheses/implementations`);
+});
+
+test('the baking order (roadmap G1): Balsamic installs the library that provides the problem, binds the four proposals and starts the 8 approved runs', async ({ page }) => {
+  const methods = [['hypothesis_edd', 'Earliest due date', 'bakery_edd'], ['hypothesis_swap', 'Adjacent swap search', 'bakery_swap'],
+    ['hypothesis_restarts', 'Random restarts', 'bakery_restarts'], ['hypothesis_exact', 'Exact enumeration', 'bakery_exact']];
+  const submission = { id: 's1', commit: '2a3eb0899a', status: 'submitted', created_at: '2026-10-27T03:22:04Z', report,
+    manifest: { files: ['libraries/baking-order/pyproject.toml', 'libraries/baking-order/src/baking_order/problem.py'] } };
+  const install = { id: 'library_install_1', submission_id: 's1', requested_at: '2026-10-27T04:00:00Z', finished_at: '2026-10-27T04:01:00Z',
+    status: 'installed', actor: 'balsamic', package: 'baking-order', version: '0.1.0', path: 'libraries/baking-order', changes: [],
+    entry_points: Object.fromEntries(methods.map(([, , m]) => [m, `baking_order.methods:${m}`])), problem_entry_points: { baking_order: 'baking_order.problem:Problem' },
+    methods_added: methods.map(([, , m]) => m), missing_methods: [], problems_added: ['baking_order'], missing_problems: [],
+    bindings: methods.map(([h, title, m], i) => ({ hypothesis_id: h, title, method: m, task_id: 'task_1', binding_id: `builtin_binding_${i}` })), skipped: [],
+    launched: methods.flatMap(([h], i) => [0, 1].map(seed => ({ hypothesis_id: h, seed, trial_id: `trial_${i}_${seed}`, task_id: 'task_1', consent_id: 'compute_consent_1' }))) };
+  await mockWorkspace(page);
+  await page.route(`**/api/campaigns/${CAMPAIGN_ID}/implementation-workspaces`, route => route.fulfill({ json: { enabled: true, workspaces: [
+    { ...workspace, title: 'Baking order', hypothesis_ids: methods.map(([h]) => h), status: 'idle',
+      outcome: { state: 'delivered', verdict: 'ready', submission_id: 's1', commit: '2a3eb0899a', at: '2026-10-27T03:22:04Z' }, submissions: [submission], installs: [install] }] } }));
+  await page.goto(`/#t/${THREAD_ID}/hypotheses/implementations`);
+  const box = page.getByTestId('install-box');
+  await expect(box.getByTestId('install-added')).toContainText('problems baking_order');
+  const bindings = box.getByTestId('install-bindings');
+  for (const [h, title, m] of methods) {
+    await expect(bindings).toContainText(`bound ${title} → ${m} by Balsamic`);
+    for (const seed of [0, 1]) await expect(bindings).toContainText(`started ${h} seed ${seed}: an approved run, by Balsamic`);
+  }
+  await expect(bindings).not.toContainText('not bound');
 });

@@ -14,6 +14,7 @@ when, what (package, version, commit, workspace, submission), the methods and pr
 """
 from __future__ import annotations
 
+import hashlib
 import os
 import re
 import shutil
@@ -116,6 +117,7 @@ class Installer:
         for item in (submission.get("package") or {}).get("files", []):
             if item["path"] in files and files[item["path"]] != str(item["content"]).encode():
                 raise ValueError(f"{item['path']} at the commit differs from what was submitted")
+        changed = generated_changes(record, name, files)
         pyproject = files.get(f"libraries/{name}/pyproject.toml")
         if pyproject is None:
             raise ValueError(f"libraries/{name} has no pyproject.toml")
@@ -138,7 +140,7 @@ class Installer:
             if str(current.get("version")) == version and existing != files:
                 raise ValueError(f"{package} {version} is installed with other code; the coding agent has to raise the version for the lab to load the new code")
         return {"name": name, "package": package, "version": version, "entry_points": entries, "problem_entry_points": problems,
-                "files": files, "report": report, "record": record, "submission": submission}
+                "files": files, "report": report, "record": record, "submission": submission, "changed_generated_files": changed}
 
     def _refuse_clashes(self, package, entries, problems, report):
         """A problem id, plug-in name or method id that another installed distribution (the lab's own included) provides is
@@ -177,7 +179,8 @@ class Installer:
                 "submission_id": submission["id"], "commit": submission["commit"], "package": None, "version": None,
                 "path": f"libraries/{library_of(submission)}", "entry_points": {}, "problem_entry_points": {}, "actor": "balsamic",
                 "status": "failed", "requested_at": now(), "finished_at": now(), "error": str(exc)[:2000], "methods_added": [],
-                "missing_methods": [], "problems_added": [], "missing_problems": [], "changes": [], "log_tail": ""}, "library.install_failed")
+                "missing_methods": [], "problems_added": [], "missing_problems": [], "changes": [], "log_tail": "",
+                "changed_generated_files": []}, "library.install_failed")
             self.development.notify(self.development.get(campaign_id, workspace_id), identity, f"Balsamic could not install the library "
                 f"from commit {submission['commit'][:7]}: {exc} Have the coding agent fix it and deliver again.", "installs")
             return record
@@ -215,7 +218,7 @@ class Installer:
                    "commit": plan["submission"]["commit"], "package": plan["package"], "version": plan["version"], "path": f"libraries/{plan['name']}",
                    "entry_points": plan["entry_points"], "problem_entry_points": plan["problem_entry_points"], "actor": actor, "status": "queued",
                    "requested_at": now(), "confirm_changes": confirm_changes, "methods_added": [], "missing_methods": [], "problems_added": [],
-                   "missing_problems": [], "changes": [], "log_tail": "",
+                   "missing_problems": [], "changes": [], "log_tail": "", "changed_generated_files": plan["changed_generated_files"],
                    **({"retry_of": retry_of} if retry_of else {})}
         self.store.put("library_install", install, "library.install_requested")
         if background:
@@ -285,10 +288,14 @@ class Installer:
         try:
             record = self._update(identity, **after_install(self.workspace, record))
         except Exception as exc:
-            record = self._update(identity, bindings=[], skipped=[], after_install_error=f"{type(exc).__name__}: {exc}"[:500])
+            record = self._update(identity, adopted=[], adoption_skipped=None, bindings=[], skipped=[],
+                                  after_install_error=f"{type(exc).__name__}: {exc}"[:500])
         who = "The researcher" if record["actor"] == "researcher" else "Balsamic"
+        adoption = adoption_text(record)
         self.development.notify(plan["record"], identity, f"{who} installed {plan['package']} {plan['version']} from commit "
             f"{plan['submission']['commit'][:7]}: {added(record)}."
+            + (f" Generated files it changed: {', '.join(plan['changed_generated_files'])}." if plan["changed_generated_files"] else "")
+            + (" " + adoption if adoption else "")
             + (" " + bound_text(record) + " Tell the researcher which proposals can run now." if plan["entry_points"] else ""), "installs")
         return record
 
@@ -323,6 +330,24 @@ class Installer:
         path.write_text(text)
 
 
+def generated_changes(record, name, files):
+    """The generated files of libraries/<name>/ the coding agent changed or removed, when the workspace started from a library
+    generated from the charter (its record's `library`, roadmap F4); [] for any other library. Under decision 9 the
+    charter's data is fixed: a changed or missing `charter.json` or `data.py` is refused. The two files the agent writes,
+    `objective.py` and `methods.py`, are not listed."""
+    generated = record.get("library") or {}
+    if generated.get("name") != name:
+        return []
+    digest = lambda path: hashlib.sha256(files[path]).hexdigest() if path in files else None
+    for path in generated["fixed"]:
+        if digest(path) != generated["files"].get(path):
+            raise ValueError(f"The library's data no longer matches the charter revision: {path} differs from the one generated "
+                             f"from revision {generated['revision']}; restore it, or regenerate the library from the charter")
+    filled = {f"libraries/{name}/{generated['package']}/{file}" for file in ("objective.py", "methods.py")}
+    return sorted(path for path, sha in generated["files"].items()
+                  if path not in generated["fixed"] and path not in filled and digest(path) != sha)
+
+
 def added(record):
     """What an install added, as its notice and the monitor name it: methods, problems (when it provides any), and what was
     not found."""
@@ -334,9 +359,63 @@ def added(record):
 
 
 def after_install(workspace, install):
-    """What Balsamic does by itself once a library is installed, always in this order: adopt its problem (E5), bind the
-    proposals it serves (bind_served), start the approved runs (B5). {bindings, skipped} for the install record."""
-    return bind_served(workspace, install)
+    """What Balsamic does by itself once a library is installed, always in this order: adopt its problem (adopt_provided), bind
+    the proposals it serves (bind_served), start the approved runs (plan_runs.launch_ready). {adopted, adoption_skipped,
+    bindings, skipped, launched} for the install record."""
+    from optimization_framework.campaigns.plan_runs import launch_ready
+    adopted = adopt_provided(workspace, install)
+    bound = {**adopted, **bind_served(workspace, install)}
+    try:
+        return {**bound, "launched": launch_ready(workspace, install["campaign_id"])["launched"]}
+    except Exception as exc:   # the bindings stand; the next sync tries the runs again
+        return {**bound, "launched": [], "launch_error": f"{type(exc).__name__}: {exc}"[:500]}
+
+
+def adopt_provided(workspace, install):
+    """When the install provides the problem its campaign's charter declares, the campaign's declared tasks adopt it (E4),
+    through the bus as Balsamic's system actor, citing the install: only when no such task has a bound evaluator or live runs.
+    Otherwise it is skipped with the reason, for the lead to adopt with campaign.adopt_problem. Replaying adopts nothing more.
+    {adopted: [{old_task_id, new_task_id}], adoption_skipped: {problem_id, reason} or None}."""
+    from optimization_framework.contracts.commands import Command, CommandOrigin
+    store, campaign_id = workspace.store, install["campaign_id"]
+    nothing = {"adopted": [], "adoption_skipped": None}
+    provided = (set(install.get("problems_added") or []) | set(install.get("problem_entry_points") or {})) - set(install.get("missing_problems") or [])
+    campaign = store.get(campaign_id, "campaign")
+    if not provided or not campaign.get("charter"):
+        return nothing
+    binding = workspace.charters.revision(campaign["charter"]["id"], campaign["charter"]["revision"])["charter"].get("evaluator") or {}
+    problem_id = binding.get("problem_id")
+    if binding.get("kind") != "declared" or problem_id not in provided:
+        return nothing
+    old = [task for task in workspace.current_tasks(campaign_id) if (task.get("evaluator_manifest") or {}).get("id") == problem_id]
+    if not old:
+        return nothing
+    reason = workspace.unused(old)
+    if not reason:
+        command = Command(id="balsamic_adopt_" + content_hash([install["id"], campaign_id])[:24], campaign_id=campaign_id,
+            operation="campaign.adopt_problem", expected_revision=campaign["version"],
+            origin=CommandOrigin(actor="balsamic", rationale=f"After installing {install['package']} {install['version']} ({install['id']})"),
+            payload={"install_id": install["id"], "rationale": f"{install['package']} {install['version']}, installed from commit "
+                     f"{install['commit'][:7]}, provides {problem_id}, the problem the charter declares, and nothing ran on its tasks yet."})
+        try:
+            receipt = workspace.commands.execute(command, actor="balsamic")
+        except ValueError as exc:
+            reason = str(exc)[:300]
+        else:
+            return {"adopted": [{"old_task_id": row["old_task_id"], "new_task_id": row["new_task_id"]} for row in receipt["outcome"]["adopted"]],
+                    "adoption_skipped": None}
+    return {"adopted": [], "adoption_skipped": {"problem_id": problem_id, "reason": reason}}
+
+
+def adoption_text(install):
+    """The install notice's line on the campaign's tasks adopting its problem, or why Balsamic left that to the lead."""
+    if install.get("adopted"):
+        return f"Balsamic had {len(install['adopted'])} task{'s' if len(install['adopted']) > 1 else ''} adopt its problem."
+    skipped = install.get("adoption_skipped")
+    if skipped:
+        return (f"Balsamic did not adopt {skipped['problem_id']} for the campaign's tasks: {skipped['reason']}. Adopt it when that is "
+                f"settled with campaign.adopt_problem (install_id {install['id']}).")
+    return ""
 
 
 def bind_served(workspace, install):
@@ -421,6 +500,9 @@ def bound_text(install):
     left = "; ".join(f"{row['hypothesis_id']} ({row['reason']})" for row in install.get("skipped") or [])
     return ((f"Balsamic bound {done}." if done else "Balsamic bound no proposal.")
             + (f" Not bound: {left}." if left else "")
+            + (f" Balsamic started {len(install['launched'])} approved run{'s' if len(install['launched']) != 1 else ''}: "
+               + "; ".join(f"{row['hypothesis_id']} seed {row['seed']} ({row['trial_id']})" for row in install["launched"]) + "."
+               if install.get("launched") else "")
             + (f" Binding stopped: {install['after_install_error']}." if install.get("after_install_error") else ""))
 
 
