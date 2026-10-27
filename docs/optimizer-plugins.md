@@ -130,8 +130,8 @@ the library's own tests, each method's conformance (`check_function` for a plain
 the library's own problem or a task of the campaign it runs on) and the workspace's protected acceptance tests, which the
 box never sees. A failure no method owns installs nothing; a method that fails is not installed, bound or run
 (`refused_methods`), while the methods that pass are installed; the install records the host's results beside the coding
-agent's report (`host_validation`, protected tests by name and outcome only), and the coding agent gets them in
-`incoming/results/` with one message. pytest must be in the lab's environment (`uv sync --extra dev`). Then it copies the
+agent's report (`host_validation`, protected tests by name and outcome only), and the coding agent gets them in a result
+file (`/bridge/in/results/` in the box) with one message. pytest must be in the lab's environment (`uv sync --extra dev`). Then it copies the
 exact submitted commit's `libraries/<name>/` from the workspace, pins it in the root `pyproject.toml` as an
 editable path dependency in the `libraries` extra, and runs `uv lock` and `uv sync --inexact --extra libraries`. A dry run
 comes first: a change to a package the lab already has waits for the researcher's confirmation, and a failure puts

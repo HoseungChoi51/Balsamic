@@ -274,8 +274,9 @@ class Installer:
             compute_consent.spend(self.workspace, consent, seconds, subjects=[identity])
 
     def _feedback(self, identity, plan):
-        """The host's results to the coder, once per install, when something failed: a result file in the box (protected tests
-        by name and outcome only) and one message pointing at it. Whether it was sent; failing to send it never stops the
+        """The host's results to the coder, once per install, when something failed: a result file in the box (the workspace's
+        incoming/results, which the box reads at /bridge/in/results; protected tests by name and outcome only) and one message
+        pointing at it. Whether it was sent; failing to send it never stops the
         install or what follows it."""
         install, record = self.store.get(identity, "library_install"), plan["record"]
         host = install.get("host_validation")
@@ -288,7 +289,7 @@ class Installer:
             atomic_json(self.development.driver.root(record) / "incoming/results" / name, {"install_id": identity,
                 "commit": plan["submission"]["commit"], "status": install["status"], "error": install.get("error"), **host})
             self.development.message(record["campaign_id"], record["id"], {"message": f"Balsamic validated commit "
-                f"{plan['submission']['commit'][:7]} outside the box. {what} The results are in incoming/results/{name}. Fix them in a "
+                f"{plan['submission']['commit'][:7]} outside the box. {what} The results are in /bridge/in/results/{name}. Fix them in a "
                 "new commit, raise the version, and deliver again.", "request_key": "host-validation-" + identity, "mode": "follow_up"},
                 actor="system")
         except Exception as exc:

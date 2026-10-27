@@ -165,6 +165,7 @@ def test_a_method_that_fails_on_the_host_is_not_installed_bound_or_run_and_the_c
         assert not path.is_file() or (SECRET.encode() not in path.read_bytes() and b"def test_no_method_leaves" not in path.read_bytes())
     [message] = told(workspace, cid)
     assert message["actor"] == "system" and "Methods not installed: all_cold (reported passed" in message["message"]
+    assert f"The results are in /bridge/in/results/{result.name}." in message["message"]   # where the box mounts incoming/
     validating.request(cid, record["id"], submission["id"], request_key="one", background=False)   # replayed: told once
     assert len(told(workspace, cid)) == 1
     # The method is not installed: binding it or starting a run of it is refused with what failed.
