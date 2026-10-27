@@ -102,3 +102,11 @@ def test_a_campaign_gets_the_packs_of_its_tasks_problems_and_no_other(tmp_path, 
     plain = workspace.create_campaign(CampaignInput(name="Plain", tasks=[TaskInput(name="Quadratic", problem_id="bounded_continuous")]))
     assert workspace.packs.for_campaign(packed["id"]) == [adapter.pack()]
     assert workspace.packs.for_campaign(plain["id"]) == []
+
+
+def test_a_reinstalled_problem_s_pack_is_read_again(fixture_package):
+    registry = registry_with(packed_problem())
+    assert registry.pack("packed_quadratic") is not None
+    registry._entries["packed_quadratic"] = ("pack_fixture.problem:Packed", "1")
+    registry._sync({"packed_quadratic": ("pack_fixture.problem:Packed", "2")})
+    assert "packed_quadratic" not in registry._packs

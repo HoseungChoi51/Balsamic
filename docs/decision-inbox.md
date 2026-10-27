@@ -48,4 +48,4 @@ that recommendation and do not cancel unrelated work or reject a method family.
 
 This update does not turn individual answers into standing policies. Existing
 campaign authority, validation, revision and resource checks remain in force.
-See [decision reconsideration](decision-reconsideration.md) for the review flow.
+See [decision reconsideration](history/decision-reconsideration.md) for the review flow.
