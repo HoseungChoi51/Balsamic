@@ -75,6 +75,19 @@ export function CharterPanel({ charterId, campaignId, version, onChanged, formul
     finally { setBusy(false); }
   };
   const edit = (changes: Record<string, unknown>[], rationale: string) => post('edit', { changes, rationale });
+  // The revision on screen as a standalone Python project (numpy and pytest only), saved under the name the service gives it.
+  const exportProject = async () => {
+    setError(null);
+    try {
+      const response = await fetch(`/api/v1/problem-charters/${charterId}/revisions/${c.revision}/export.zip`, { cache: 'no-store' });
+      if (!response.ok) { const body = await response.json().catch(() => null); throw new Error(body?.detail || `HTTP ${response.status}`); }
+      const link = document.createElement('a');
+      link.href = URL.createObjectURL(await response.blob());
+      link.download = /filename="([^"]+)"/.exec(response.headers.get('Content-Disposition') || '')?.[1] || `charter-r${c.revision}.zip`;
+      link.click();
+      setTimeout(() => URL.revokeObjectURL(link.href), 1000);
+    } catch (e) { setError(`Could not export the charter: ${String((e as Error).message || e)}`); }
+  };
   const confirm = async () => {
     setError(null); setBusy(true);
     try {
@@ -118,6 +131,7 @@ export function CharterPanel({ charterId, campaignId, version, onChanged, formul
       <Section title={String(doc.title || c.title || 'Charter')} right={<div className="row">
         {busy ? <span data-testid="charter-saving"><Pill live>saving your change…</Pill></span> : null}
         <Pill tone={confirmed ? 'clear' : blocking.length ? 'attention' : ''}>{confirmed ? 'confirmed' : blocking.length ? `${blocking.length} blocking` : 'ready to confirm'} · r{c.revision}</Pill>
+        <button className="btn small" onClick={exportProject} data-testid="export-charter" disabled={busy} title={`Downloads revision ${c.revision} as a Python project for your own tools: the data, the tests and a comparison script; you write the objective and the methods`}>Export as Python project</button>
         {!confirmed ? <button className="btn primary small" onClick={confirm} data-testid="confirm-charter" disabled={locked || !!why} title={working ? 'The formulator is revising the charter; confirm the revision it saves' : why || 'Compiles the tasks and sets the campaign\'s charter revision'}>Confirm and set the tasks</button> : null}</div>}>
         {working ? <div className="finding small" role="status" data-testid="formulator-busy"><span className="finding-code">formulator</span>
           <span className="grow">The formulator is revising the charter. What you see here may change, so answers, values and choices wait until it has saved its revision; this page updates by itself.</span><Pill tone="agent">working</Pill></div> : null}

@@ -117,6 +117,12 @@ class OptimizerPlugins:
         self._load()
         return dict(self._origins[method_id]) if method_id in self._origins else None
 
+    def worker_modules(self):
+        """Modules plug-ins import only in the worker (a ``FunctionPlugin``'s ``MODULE``), which no static import reaches;
+        a frozen capture pins their source with the plug-ins'."""
+        return sorted({plugin.MODULE for plugin, _ in self._load().values() if isinstance(getattr(plugin, "MODULE", None), str)
+                       and plugin.MODULE})
+
     def get(self, method_id):
         """(plugin, descriptor) for a plug-in method, or None for any other ID."""
         return self._load().get(method_id)

@@ -160,7 +160,7 @@ def capture(directory, *, problem_ids, purpose="worker", recipe_ids=()):
     roots = ROOTS[purpose] + adapter_roots + [value.split(":")[0] for value in
         [*inference_entries.values(), *recipe_entries.values(), *optimizer_entries.values()]]
     if purpose == "worker":
-        roots.append("optimization_framework.execution.preparation")
+        roots += plugins.installed.worker_modules() + ["optimization_framework.execution.preparation"]
     relevant, imports = _closure(code, files, roots)
     locks = {}
     lock_directory = directory / "runtime-locks"

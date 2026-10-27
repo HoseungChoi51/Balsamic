@@ -19,6 +19,7 @@ uv run python scripts/run_lead_evals.py --fake                       # the scrip
 uv run python scripts/run_lead_evals.py                              # every scenario on the dev profile's default model
 uv run python scripts/run_lead_evals.py --scenarios S3,S4 --repeats 3
 uv run python scripts/run_lead_evals.py --model deepseek/deepseek-v4-flash:low --suite-cap 5
+uv run python scripts/run_lead_evals.py --preset deflector_2d                   # every scenario that supports the 2D deflector
 ```
 
 A real run calls a model and costs money: run it only when that is agreed. Each scenario's campaign has its own model
@@ -35,11 +36,12 @@ the dev profile `agent-harness/profiles/dev` and the keys in `~/.config/balsamic
 | `--fake` | The scripted harness; the turns are `fakes.py`'s, the waits scaled down (`--time-scale`) |
 | `--model provider/model[:effort]` | `agent.activate`'s model; without it the dev profile's default |
 | `--scenarios S3,S7` | Ids or their `Sn` prefixes |
+| `--preset NAME` | Every selected scenario on this preset instead of its own; a scenario whose `presets` do not list it is not run, and `summary.md` says why |
 | `--repeats k` | Runs per scenario instead of the scenario's own `repeats` |
 | `--suite-cap D` | Dollars of model use after which no scenario starts |
 | `--source DIR` | Another checkout's workspace and harness (for a baseline of an older commit) |
-| `--record-baseline [PATH]` | Also write the summary to `evals/lead/baselines/<commit>.json` |
-| `--compare PATH` | Mark regressions against a baseline in `summary.md` |
+| `--record-baseline [PATH]` | Also write the summary to `evals/lead/baselines/<commit>-<provider>-<model>[-<preset>].json` |
+| `--compare PATH [PATH ...]` | Baselines to compare with in `summary.md`, a column each, regressions marked |
 
 Output goes to `runs/evals/<timestamp>/` (ignored by git): `results.json`, `summary.md`, and `transcripts/<scenario>-r<k>.md`
 with the steps, the checks, the metrics, each run's input (and state block, once there is one), the messages and a line per
@@ -48,8 +50,10 @@ and does not count.
 
 ### Baselines
 
-A baseline is the summary of a real run on a given commit, committed as `evals/lead/baselines/<commit>.json` (transcripts
-are not committed). The plan's baseline is taken on `a7e89b8`, before the fixes, from a worktree:
+A baseline is the summary of a real run on a given commit, committed as `evals/lead/baselines/<commit>-<provider>-<model>.json`,
+with `-<preset>` added when the run used `--preset` (transcripts are not committed). The model is `--model`, or the dev
+profile's default (`agent-harness/profiles/dev/settings.json`) without it; a run of the scripted harness is `<commit>-fake`.
+Baselines recorded before J2 (`a7e89b8.json`) name no model: the profile's default of the time. The plan's baseline is taken on `a7e89b8`, before the fixes, from a worktree:
 
 ```bash
 git worktree add ../balsamic-a7e89b8 a7e89b8
@@ -57,8 +61,34 @@ git worktree add ../balsamic-a7e89b8 a7e89b8
 uv run python scripts/run_lead_evals.py --source ../balsamic-a7e89b8 --repeats 3 --record-baseline evals/lead/baselines/a7e89b8.json
 ```
 
-Later runs compare with it: `--compare evals/lead/baselines/a7e89b8.json`. Record `pi_continue` turns per scenario
-(the summary's column): Phase 4 is measured against them.
+Later runs compare with it: `--compare evals/lead/baselines/a7e89b8.json`. Several files give a column each, so one run
+reads against two models or two problems at once:
+`--compare evals/lead/baselines/<commit>-centinels-gpt-6.1-sol.json evals/lead/baselines/<commit>-<other provider>-<model>.json`. Record `pi_continue` turns per scenario (the summary's column): Phase 4 is
+measured against them.
+
+### A second problem and a second model
+
+Every scenario was written on one problem, and every passing live run used one model. Two more presets put the same
+requests to other problems:
+
+| Preset | Problem | What it shows |
+|---|---|---|
+| `deflector_2d` | The installed 2D beam deflector (`meent_2d_dual_polarization_deflector`) at its example's configuration: binary, 256 × 128, MEENT | The lead on a binary physics problem with a real evaluator. Needs MEENT installed (`scripts/install-meent`) for a run to start; an experiment runs at most 60 s (`delegated_trial_seconds`) |
+| `reactor` | The flow-reactor charter (`charters/flow-reactor.json`, from another field), created and confirmed as the researcher does, then the campaign made from it | The lead on a declared problem: no installed evaluator, so nothing can run, and the lead should say so rather than try |
+
+A scenario lists the presets it supports in `presets` (without it, only its `setup.preset`). Requests that read or create
+records support the new presets; scenarios whose seeds are written for one problem (S5, S8, S12–S15, S17), or that need
+the gate closed (S6, S7), stay on their own. Requests that need an installed evaluator (S3 and S4 ask for proposals runnable
+with an installed method; S11 starts runs) support `deflector_2d` but not `reactor`.
+
+| Scenario | `presets` |
+|---|---|
+| S1, S2, S9, S10 | `quadratic`, `deflector_2d`, `reactor` |
+| S3, S4, S11 | `quadratic`, `deflector_2d` |
+| the others | their own |
+
+A second model on the dev profile's provider (Centinels) needs no approval; one on another provider costs money and needs
+Hoseung's approval (`docs/suggestions.md` §0 item 5).
 
 ## Scenarios
 
@@ -82,7 +112,8 @@ Later runs compare with it: `--compare evals/lead/baselines/a7e89b8.json`. Recor
 
 - `setup.preset`: `quadratic` (a task installed, so the problem-definition gate is open) or `formulating` (no task, gate closed);
   for the traps, `fidelity_trap` and `knapsack` (the problems of the same names in `src/optimization_benchmarks/problems.py`,
-  gate open).
+  gate open); for a second problem, `deflector_2d` and `reactor` (above). Optional `presets`: the presets `--preset` may
+  run the scenario on (default: only `setup.preset`).
   `setup.seeds` run before the team starts. `setup.extensions` names an extension allowlist (relative to the checkout) for
   the scenario's sessions instead of `agent-harness/extensions/allowlist.json` (S9 uses `evals/lead/extensions/allowlist.json`). Optional `scoring`: `all` (default: pass^k, every repeat passes) or `any`.
   Optional `known_failure`: why the scenario is expected to fail on the current code; remove it with the fix.
