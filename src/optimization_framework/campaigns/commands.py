@@ -413,10 +413,12 @@ class CommandService:
                     values = model(**payload)
                     hypothesis = hypotheses.set_status(self.workspace, hypothesis,
                         values.status if command.operation == "hypothesis.status" else "finalist", values.expected_status_revision,
-                        stop_reason=getattr(values, "stop_reason", None), actor=actor)
+                        stop_reason=getattr(values, "stop_reason", None), outcome=getattr(values, "outcome", None),
+                        evidence_ids=getattr(values, "evidence_ids", ()), actor=actor)
                     if command.operation == "hypothesis.status" and values.status == "archived":
                         # A stopped strategy's race configuration is held, so the race spends nothing more on it.
-                        self._hold_race_configurations(command.campaign_id, hypothesis["id"], hypothesis.get("stop_reason") or "stopped", actor)
+                        stop = hypotheses.stop_of(hypothesis)
+                        self._hold_race_configurations(command.campaign_id, hypothesis["id"], f"{stop['words']}; {hypothesis.get('stop_reason') or 'no reason'}", actor)
             if actor == "researcher" and not getattr(self, "_batch_depth", 0):
                 self.workspace.memory.bump(command.campaign_id)
             return {"hypothesis_id": hypothesis["id"], "hypothesis": self.store.get(hypothesis["id"], "hypothesis")}
