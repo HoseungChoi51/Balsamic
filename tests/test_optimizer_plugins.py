@@ -77,7 +77,7 @@ def test_framework_never_imports_an_optimizer_library_or_its_adapter():
                 imported.update(item.name for item in node.names)
             elif isinstance(node, ast.ImportFrom) and node.module:
                 imported.add(node.module)
-    assert not {name for name in imported if name.startswith(("mask_optimizers", "dqn_meent.mask_library_adapter"))}
+    assert not {name for name in imported if name.startswith(("mask_optimizers", "dqn_meent.mask_library_adapter", "dqn_meent.flrl_"))}
 
 
 def test_installed_plugin_contributes_complete_methods():
