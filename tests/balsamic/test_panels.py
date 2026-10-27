@@ -41,6 +41,9 @@ def test_a_panel_is_validated_against_the_catalog_and_its_bindings(client, works
         ({**good, "components": [{"type": "number", "id": "x", "label": "x", "bind": {"charter": ch["id"], "path": "variables.3.lower"}}]}, "No variable 3"),
         ({**good, "components": [{"type": "button", "id": "b", "label": "b", "command": {"operation": "nothing.here"}}]}, "not a command operation"),
         ({**good, "components": [{"type": "button", "id": "b", "label": "b", "command": {"operation": "agent.control"}}]}, "not a button's"),
+        # A mandate is the researcher's to choose in the chat (R7): an agent's button never carries one.
+        ({**good, "components": [{"type": "button", "id": "b", "label": "b", "command": {"operation": "agent.message",
+          "payload": {"message": "Go", "mandate": {"template": "run_campaign", "worker_seconds": 9000}}}}]}, "researcher's to choose in the chat"),
         ({**good, "components": [{"type": "table", "columns": [{"key": "secret"}], "source": {"kind": "hypothesis"}}]}, "unknown field"),
         ({**good, "components": [{"type": "number", "id": "d", "label": "a", "bind": {"charter": ch["id"], "path": "quantities.n_users.value"}}, {"type": "number", "id": "d", "label": "b", "bind": {"charter": ch["id"], "path": "quantities.n_users.value"}}]}, "used twice"),
         ({**good, "page": "#nowhere"}, "page"),
