@@ -337,13 +337,24 @@ class Context:
         return [m for m in self.store.list("message", self.campaign_id)
                 if m.get("role") == "assistant" and m.get("agent_id") == self.lead_id and m.get("origin") in {"lead", "autopilot"}]
 
-    def reply(self):
-        """The lead's replies to the researcher's last message, together: a notice turn after the answer may add one of its own
+    def reply_messages(self):
+        """The lead's messages since the researcher's last message: a notice turn after the answer may add one of its own
         ("no change to report"), and the answer is still the answer."""
         asked = max((m.get("created_at") or "" for m in self.store.list("message", self.campaign_id)
                      if m.get("role") == "user" and m.get("origin") == "researcher"), default="")
         replies = sorted(self.lead_replies(), key=lambda m: m.get("created_at") or "")
-        return "\n\n".join(m["content"] or "" for m in replies if (m.get("created_at") or "") >= asked)
+        return [m for m in replies if (m.get("created_at") or "") >= asked]
+
+    def reply(self):
+        """The lead's replies to the researcher's last message, together."""
+        return "\n\n".join(m["content"] or "" for m in self.reply_messages())
+
+    def unverified_numbers(self):
+        """The numbers agents wrote that none of their evidence holds (K2): on their replies (the yield_work receipts) and on
+        the findings they recorded."""
+        found = [number for receipt in self.receipts() if receipt.get("tool") == "yield_work" and isinstance(receipt.get("result"), dict)
+                 for number in receipt["result"].get("unverified_numbers") or []]
+        return found + [number for note in self.store.list("manager_note", self.campaign_id) for number in note.get("unverified_numbers") or []]
 
     def agent_commands(self):
         return [c for c in self.store.list("work_command", self.campaign_id) if (c.get("origin") or {}).get("agent_id")]
@@ -541,6 +552,12 @@ def check_reply_links_page(ctx, arg):
 def check_reply_matches(ctx, arg):
     match = re.search(arg, ctx.reply())
     return bool(match), f"matched {match.group(0)!r}" if match else f"no match for {arg}"
+
+
+def check_reply_numbers_verified(ctx, arg):
+    """The reply's numbers each appear in what its request read (K2): no message of the reply has an unverified-numbers badge."""
+    found = [number for m in ctx.reply_messages() for number in m.get("unverified_numbers") or []]
+    return (not found) is bool(arg), f"unverified: {', '.join(found)}" if found else "every number of the reply is sourced"
 
 
 def check_no_researcher_question(ctx, arg):
@@ -768,6 +785,7 @@ def metrics(ctx):
         operations[operation] = operations.get(operation, 0) + 1
     return {"lead_turns": len(ctx.lead_runs()), "continue_turns": sum(r["id"].startswith("pi_continue_") for r in runs),
             "other_turns": page_turns, "failed_runs": sum(r["status"] == "failed" for r in runs), "agent_commands": operations,
+            "unverified_numbers": len(ctx.unverified_numbers()),
             "refusals": len(_refusals(ctx)), "max_tool_result_bytes": max([serialized_bytes(r.get("result")) for r in ctx.receipts()] or [0]),
             **ctx.usage(), "seconds": round(time.monotonic() - ctx.started, 1), "go_ahead_to_results_s": go_ahead_to_results(ctx)}
 
@@ -882,8 +900,8 @@ def summarize(scenario, repeats):
     passes = sum(r["passed"] for r in repeats)
     scoring = scenario.get("scoring", "all")
     passed = passes == len(repeats) if scoring == "all" else passes > 0
-    keys = ("lead_turns", "continue_turns", "model_calls", "cost_usd", "cache_read_tokens", "input_tokens", "seconds")
-    mean = {key: round(statistics.fmean(r["metrics"][key] for r in repeats), 4) for key in keys} if repeats else {}
+    keys = ("lead_turns", "continue_turns", "model_calls", "cost_usd", "cache_read_tokens", "input_tokens", "seconds", "unverified_numbers")
+    mean = {key: round(statistics.fmean(r["metrics"].get(key, 0) for r in repeats), 4) for key in keys} if repeats else {}
     timed = [r["metrics"]["go_ahead_to_results_s"] for r in repeats if r["metrics"].get("go_ahead_to_results_s") is not None]
     if timed:
         mean["go_ahead_to_results_s"] = round(statistics.fmean(timed), 1)
@@ -905,16 +923,19 @@ def summary_markdown(results, baselines=None):
     lines = [f"# Lead evals · {results['mode']} · {results['commit']}", "",
              f"- Started {results['started_at']}, {results['seconds']} s; model {results.get('model_id') or results['model'] or 'profile default'}",
              f"- Preset: {results.get('preset') or 'each scenario on its own'}",
-             f"- Model use: ${results['cost_usd']:.4f} (suite cap ${results['suite_cap']:.2f})", ""]
-    header = "| Scenario | Status | Passes | Lead turns | pi_continue | Model calls | Cost | cacheRead |"
-    rule = "|---|---|---|---|---|---|---|---|"
+             f"- Model use: ${results['cost_usd']:.4f} (suite cap ${results['suite_cap']:.2f})",
+             f"- Unverified numbers: {results.get('unverified_numbers', 0)} in the suite (numbers in replies and findings that none of "
+             "their evidence holds; per scenario, the mean over repeats)", ""]
+    header = "| Scenario | Status | Passes | Lead turns | pi_continue | Model calls | Cost | cacheRead | Unverified numbers |"
+    rule = "|---|---|---|---|---|---|---|---|---|"
     for baseline in baselines:
         header += f" {baseline_label(baseline)} |"; rule += "---|"
     lines += [header, rule]
     for row in results["scenarios"]:
         m = row["metrics_mean"]
         line = (f"| {row['id']} | {row['status']} | {row['passes']}/{row['repeats']} ({row['scoring']}) | {m.get('lead_turns', 0):g} | "
-                f"{m.get('continue_turns', 0):g} | {m.get('model_calls', 0):g} | ${m.get('cost_usd', 0):.4f} | {m.get('cache_read_tokens', 0):g} |")
+                f"{m.get('continue_turns', 0):g} | {m.get('model_calls', 0):g} | ${m.get('cost_usd', 0):.4f} | {m.get('cache_read_tokens', 0):g} | "
+                f"{m.get('unverified_numbers', 0):g} |")
         for baseline in baselines:
             old = baseline.get("scenarios", {}).get(row["id"])
             line += (" — |" if not old else f" {old['passes']}/{old['repeats']}{' **regressed**' if old['passed'] and not row['passed'] else ''} |")
@@ -963,7 +984,7 @@ def baseline_path(results):
 
 def baseline_record(results):
     return {"commit": results["commit"], "mode": results["mode"], "model": results["model"], "model_id": results.get("model_id"),
-            "preset": results.get("preset"), "recorded_at": results["started_at"],
+            "preset": results.get("preset"), "recorded_at": results["started_at"], "unverified_numbers": results.get("unverified_numbers", 0),
             "scenarios": {row["id"]: {key: row[key] for key in ("passes", "repeats", "passed", "status", "metrics_mean")} for row in results["scenarios"]}}
 
 
@@ -1029,6 +1050,7 @@ def main(argv=None):
                 (out / "harness.log").write_text(log.read_text()[-200000:])
     results["seconds"] = round(time.monotonic() - started, 1)
     results["cost_usd"] = round(sum(run["metrics"]["cost_usd"] for row in results["scenarios"] for run in row["runs"]), 6)
+    results["unverified_numbers"] = sum(run["metrics"].get("unverified_numbers", 0) for row in results["scenarios"] for run in row["runs"])
     baselines = [json.loads(path.read_text()) for path in args.compare or []]
     (out / "results.json").write_text(json.dumps(results, indent=2, default=str))
     (out / "summary.md").write_text(summary_markdown(results, baselines))
