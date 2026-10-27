@@ -3,6 +3,7 @@ import { useEffect, useMemo, useReducer, useRef, useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { useHypotheses, useMessages, useMonitor, useSummary, useThreads } from '../api/queries';
 import { NowPanel, nowLabel, useAgents } from './NowPanel';
+import { LIVE as CODING } from '../hypotheses/workspace';
 import type { Message } from '../api/types';
 import { send } from '../commands/bus';
 import { initial, reduce } from './stream';
@@ -131,7 +132,7 @@ export function ThreadChat({ campaignId, threadId, route, onDetach }: { campaign
       </div>
       {lead ? <button className={`now-bar ${busy ? 'agent' : ''}`} aria-expanded={now} data-testid="now-toggle" onClick={() => setNow(open => !open)}
         title="What is happening: which agent is at work, what the others last said, the runs and why queued ones wait">
-        <span className="dot" aria-hidden />{nowLabel(lead, busy, agents.data?.agents, running)}<span className="grow" /><span className="faint">{now ? 'hide ▴' : 'what is happening ▾'}</span></button> : null}
+        <span className="dot" aria-hidden />{nowLabel(lead, busy, agents.data?.agents, running, (agents.data?.development?.workspaces || []).filter(w => CODING.has(w.status)).length)}<span className="grow" /><span className="faint">{now ? 'hide ▴' : 'what is happening ▾'}</span></button> : null}
       {now && lead ? <NowPanel campaignId={campaignId} threadId={threadId} route={route} /> : null}
       <div className="turns" ref={scroller}>
         {messages.isPending ? <Loading what="Loading the conversation" /> : messages.error ? <Failed error={messages.error} /> : null}

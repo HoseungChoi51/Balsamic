@@ -20,7 +20,8 @@ export function Turn({ message, thread, aliases, onFork, onEdit }: { message: Me
     return (
       <article className="turn lab agents-link" data-message-id={message.id} data-testid="agents-link">
         <Pill tone="agent">agents</Pill> <span>{message.content.replace(/:\s*[^:]*$/, '')}: </span>
-        <a href={formatHash({ page: 'hypotheses' }, message.link_thread_id)} data-testid="open-agents-thread">open the side conversation</a>
+        <a href={formatHash({ page: (message.link_page || 'hypotheses').split('/')[0] as 'hypotheses', sub: (message.link_page || '').split('/')[1] || null }, message.link_thread_id)}
+          data-testid="open-agents-thread">open the side conversation</a>
       </article>
     );
   }

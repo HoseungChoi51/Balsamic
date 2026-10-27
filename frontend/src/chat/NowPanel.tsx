@@ -1,5 +1,6 @@
 /** What is happening now: which agent is at work and on what, what the others last said, the runs and why queued ones wait. */
-import { useExperiments, useMonitor, useRead, useThreads } from '../api/queries';
+import { useExperiments, useInbox, useMonitor, useRead, useThreads } from '../api/queries';
+import { LIVE as CODING, VERDICT, estimateWords, type Workspace } from '../hypotheses/workspace';
 import type { Trial } from '../api/types';
 import { Pill, duration, statusTone, when } from '../primitives/ui';
 import { formatHash, type Route } from '../router/routes';
@@ -23,15 +24,16 @@ export const roleName = (role: string) => ROLES[role] || role.replaceAll('_', ' 
 const atWork = (agent: Agent) => ['running', 'queued', 'submitted'].includes(agent.status);
 
 export function useAgents(campaignId: string) {
-  return useRead<{ agents: Agent[] }>(['agents', campaignId], `/api/v1/campaigns/${campaignId}/agents`);
+  return useRead<{ agents: Agent[]; development?: { workspaces: Workspace[] } }>(['agents', campaignId], `/api/v1/campaigns/${campaignId}/agents`);
 }
 
 /** The lead's pill: its state, and who else is at work and how many runs go, so a waiting lead says what it waits on. */
-export function nowLabel(lead: { status: string } | null | undefined, busy: boolean, agents: Agent[] | undefined, running: number) {
+export function nowLabel(lead: { status: string } | null | undefined, busy: boolean, agents: Agent[] | undefined, running: number, coding = 0) {
   if (!lead) return 'No lead yet';
   const others = (agents || []).filter(agent => agent.role !== 'lead' && atWork(agent));
   const parts = [busy ? 'Lead working' : lead.status === 'queued' ? 'Lead: turn queued' : `Lead ${STATUS_WORDS[lead.status] || lead.status}`];
   if (others.length) parts.push(others.length === 1 ? `${roleName(others[0].role).toLowerCase()} working` : `${others.length} agents working`);
+  if (coding) parts.push(coding === 1 ? 'coding agent working' : `${coding} coding agents working`);
   if (running) parts.push(`${running} run${running === 1 ? '' : 's'}`);
   return parts.join(' · ');
 }
@@ -46,7 +48,11 @@ export function NowPanel({ campaignId, threadId, route }: { campaignId: string; 
   const experiments = useExperiments(campaignId);
   const monitor = useMonitor(campaignId);
   const threads = useThreads(campaignId);
+  const inbox = useInbox(campaignId);
   const team = agents.data?.agents || [];
+  // Coding agents at work, and those whose result the researcher has not acknowledged yet.
+  const unread = new Set((inbox.data?.unacknowledged || []).filter(item => item.kind === 'implementation').map(item => item.id));
+  const coding = (agents.data?.development?.workspaces || []).filter(w => CODING.has(w.status) || unread.has(w.id));
   const lead = team.find(agent => agent.role === 'lead');
   // The lead, anyone at work, and anyone who did something in the last ten minutes.
   const recent = (agent: Agent) => Date.now() - Date.parse(agent.last_activity_at || agent.updated_at || '') < 600_000;
@@ -80,6 +86,16 @@ export function NowPanel({ campaignId, threadId, route }: { campaignId: string; 
             <Pill tone={atWork(agent) ? 'agent' : agent.status === 'completed' ? 'clear' : ''} title={STATUS_HELP[agent.status] || agent.status}>{roleName(agent.role)} · {STATUS_WORDS[agent.status] || agent.status}</Pill>
             <span className="grow small" title={said || undefined}>{doing || (said ? `Last said: ${said}` : <span className="faint">nothing reported yet</span>)}</span>
             <span className="faint small" title="Last activity">{when(agent.last_activity_at || agent.updated_at)}</span>
+          </div>;
+        })}
+        {coding.map(w => {
+          const working = CODING.has(w.status);
+          const since = Date.parse(w.started_at || w.created_at);
+          return <div key={w.id} className="now-row" data-testid="now-coding">
+            <Pill tone={working ? 'agent' : (VERDICT[w.outcome?.verdict || ''] || ['', 'clear'])[1]} live={w.status === 'running'}>
+              Coding agent · {working ? w.phase || (w.status === 'running' ? 'working' : w.status) : w.outcome ? `${w.outcome.state.replace('_', ' ')}${w.outcome.verdict && w.outcome.verdict !== 'unreported' ? `: ${(VERDICT[w.outcome.verdict] || [w.outcome.verdict])[0]}` : ''}` : w.status}</Pill>
+            <a className="grow small" href={formatHash({ page: 'hypotheses', sub: 'implementations', id: w.id }, threadId)}>{w.title}</a>
+            <span className="faint small">{working ? <>{duration((Date.now() - since) / 1000)}{estimateWords(w) ? ` · ${estimateWords(w)}` : ''}</> : when(w.outcome?.at)}</span>
           </div>;
         })}
         {!agents.data ? <div className="faint small">Loading the agents…</div> : !lead ? <div className="faint small">No agent team yet.</div> : null}

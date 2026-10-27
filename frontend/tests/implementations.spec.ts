@@ -197,3 +197,33 @@ test('a library the coding agent reported not ready installs only once the resea
   await expect(card.getByTestId('install-go')).toBeEnabled();
   await expect(page.locator('[data-workspace="development_loose"]').getByTestId('install-unavailable')).toContainText('cannot be installed as a library');
 });
+
+test('the status strip shows a coding agent at work with its phase and estimate, and a finished one until its result is acknowledged', async ({ page }) => {
+  const given = new Date(Date.now() - 60_000).toISOString();
+  const working = { ...workspace, phase: 'testing', estimate: { remaining_minutes: 6, given_at: given, source: 'coding agent' } };
+  const done = { ...workspace, id: 'development_done', title: 'Subset DP', status: 'idle',
+    outcome: { state: 'delivered', verdict: 'ready_with_limits', submission_id: 's1', commit: '2a3eb0899a', at: '2026-10-27T03:22:04Z' } };
+  const quiet = { ...workspace, id: 'development_old', title: 'Old and seen', status: 'idle', outcome: { state: 'delivered', verdict: 'ready', submission_id: 's0', commit: '1', at: '2026-10-26T00:00:00Z' } };
+  await mockWorkspace(page, {
+    [`/api/v1/campaigns/${CAMPAIGN_ID}/agents`]: { ...f.agents, development: { enabled: true, workspaces: [working, done, quiet] } },
+    [`/api/v1/campaigns/${CAMPAIGN_ID}/inbox`]: { ...f.inbox, unacknowledged: [{ key: 'implementation:development_done:delivered:s1', kind: 'implementation', id: 'development_done', title: 'Implementation delivered', at: done.outcome.at }] },
+  });
+  await page.goto(`/#t/${THREAD_ID}/inbox`);
+  const bar = page.getByTestId('now-toggle');
+  await expect(bar).toContainText('coding agent working');
+  await bar.click();
+  const rows = page.getByTestId('now-coding');
+  await expect(rows).toHaveCount(2);   // the one already acknowledged is not shown
+  await expect(rows.first()).toContainText('Coding agent · testing');
+  await expect(rows.first()).toContainText(/about [56] min left, by its own estimate/);
+  await expect(rows.first().getByRole('link')).toHaveAttribute('href', new RegExp(`hypotheses/implementations/${WID}`));
+  await expect(rows.nth(1)).toContainText('Coding agent · delivered: ready, with limits');
+});
+
+test('a side conversation with implementation work opens on the Implementations page', async ({ page }) => {
+  await mockWorkspace(page, { [`/api/v1/threads/${THREAD_ID}/messages`]: { ...f.messages, messages: [...f.messages.messages,
+    { id: 'message_agents_link_x', campaign_id: CAMPAIGN_ID, role: 'assistant', origin: 'lab_event', kind: 'agents_link', link_thread_id: f.AGENTS_THREAD_ID,
+      link_page: 'hypotheses/implementations', content: 'Agents are working on this request in a side conversation: Build the library', created_at: '2026-10-27T03:07:19Z' }] } });
+  await page.goto(`/#t/${THREAD_ID}/inbox`);
+  await expect(page.getByTestId('open-agents-thread')).toHaveAttribute('href', `#t/${f.AGENTS_THREAD_ID}/hypotheses/implementations`);
+});

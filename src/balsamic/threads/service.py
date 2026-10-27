@@ -100,6 +100,9 @@ def agents_thread(workspace, campaign_id, root):
     return record
 
 
+IMPLEMENTATION_ROLES = {"implementation_lead", "implementation_builder", "implementation_test_designer", "implementation_validator"}
+
+
 def route_message(workspace, agent, run):
     """Where an agent's message belongs: the lead's replies to the researcher in the thread that asked; what agents say to
     each other, and the lead's answers to them, in the request's agents thread."""
@@ -116,7 +119,19 @@ def route_message(workspace, agent, run):
         root = {"thread_id": origin.get("thread_id"), "message_id": origin.get("message_id"), "run_id": origin["run_id"]}
     if not root or not root.get("run_id"):
         return origin.get("thread_id")
-    return agents_thread(workspace, agent["campaign_id"], root)["id"]
+    thread = agents_thread(workspace, agent["campaign_id"], root)
+    if agent["role"] not in (thread.get("participant_roles") or []):
+        # Who takes part; once implementation work does, the link in the request's thread opens the Implementations page.
+        thread = {**thread, "participant_roles": [*(thread.get("participant_roles") or []), agent["role"]]}
+        workspace.store.put("thread", thread)
+        if agent["role"] in IMPLEMENTATION_ROLES:
+            try:
+                link = workspace.store.get("message_agents_link_" + thread["id"], "message")
+                if link.get("link_page") != "hypotheses/implementations":
+                    workspace.store.put("message", {**link, "link_page": "hypotheses/implementations"}, "message.updated")
+            except KeyError:
+                pass
+    return thread["id"]
 
 
 def event_cursor(workspace, campaign_id):

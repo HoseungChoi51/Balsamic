@@ -315,7 +315,20 @@ operator working · 5 runs`); clicked, it opens a panel with each agent at work 
 it is doing now, else what it last said, from its disposition summary), the runs going and queued with their device,
 progress and why a queued one waits (the admission reason, the run it depends on, or a runtime profile measuring),
 the GPU and CPU slots taken, and a link to the agents' conversation where the request is being worked on. A queued
-agent has a turn waiting for its previous one to finish. It reads `/agents`, `/monitor` and `/experiments`; no endpoint of its own.
+agent has a turn waiting for its previous one to finish. A coding agent at work has a row of its own: its phase, how long
+it has worked and its own estimate of the time left, linked to its workspace's card; a finished one stays with its result
+until the researcher acknowledges that result in the inbox. It reads `/agents`, `/monitor`, `/experiments` and `/inbox`; no
+endpoint of its own. A side conversation that implementation agents join links to the Implementations page.
+
+**Implementations** (`#hypotheses/implementations[/<workspace>]`). Algorithms first: which methods the campaign can run
+(bundled, an installed library with its version), what a coding workspace delivered and nobody installed yet, what is being
+built, and why the others cannot run, each with the proposals that use it and the next step with who takes it; a task its
+evaluator blocks says so (`GET /api/v1/campaigns/{id}/methods`, `campaigns/method_catalog.py`). Then a card per coding
+workspace: the proposals it serves, who opened it under which go-ahead, its phase, tests and the coding agent's own estimate,
+its CPU against the allowance, its latest checkpoint, its result (the delivery with the agent's verdict, each method, the
+limitations and the next steps by owner; a validation's result; a failure), Install for a delivered library (the
+researcher's, `agents/library_install.py`), a box to message the coding agent, and its history newest first
+(`.../implementation-workspaces/{id}/timeline`). Each result is an inbox item until acknowledged.
 
 **Detached chat.** "Detach" in the chat header opens `#t/<thread>/chat`, a chat-only window (`window.name = balsamic-chat`);
 the main window replaces its chat column by a thin strip (Reattach) so the page fills it. Page links clicked in the detached window go over

@@ -225,6 +225,7 @@ def test_agents_talk_in_a_side_thread_linked_from_the_request(client, workspace,
     main_messages = client.get(f"/api/v1/threads/{MAIN}/messages").json()["messages"]
     link = [m for m in main_messages if m.get("kind") == "agents_link"]
     assert len(link) == 1 and link[0]["link_thread_id"] == side["id"] and link[0]["origin"] == "lab_event"
+    assert side["participant_roles"] == ["proposal_reviewer"] and "link_page" not in link[0]
     assert not [m for m in main_messages if m.get("origin") == "page_agent"], "no agent's reply leaks into the researcher's thread"
     # The lead's request to a page agent and the agents' further assistants join the same side conversation.
     asked = tool_call(workspace, team, run, "page_agent_message", {"page_agent": "discussion_moderator", "message": "Run a review round."}, call_id="c2")
@@ -241,6 +242,18 @@ def test_agents_talk_in_a_side_thread_linked_from_the_request(client, workspace,
     # The lead's reply to the researcher stays in the main thread.
     finish_run(workspace, run_id, "The review is done; see the side conversation.", entry_ids={"parent": "e0", "last": "e2"}, disposition="complete")
     assert client.get(f"/api/v1/threads/{MAIN}/messages").json()["messages"][-1]["content"] == "The review is done; see the side conversation."
+
+
+def test_a_side_conversation_with_implementation_work_links_to_the_implementations_page(client, workspace, campaign, team):
+    from support import submitted, tool_call
+    run_id = say(client, campaign, "Implement the four algorithms.")
+    run = submitted(workspace, run_id)
+    asked = tool_call(workspace, team, run, "page_agent_message", {"page_agent": "implementation_lead", "message": "Build the library."}, call_id="c1")
+    finish_run(workspace, asked["run_id"], "Opened a coding workspace.", entry_ids={"parent": "a0", "last": "a1"}, disposition="complete")
+    side = next(t for t in client.get(f"/api/v1/campaigns/{campaign['id']}/threads").json()["threads"] if t.get("kind") == "agents")
+    assert "implementation_lead" in side["participant_roles"]
+    link = next(m for m in client.get(f"/api/v1/threads/{MAIN}/messages").json()["messages"] if m.get("kind") == "agents_link")
+    assert link["link_page"] == "hypotheses/implementations"
 
 
 def test_a_notice_continues_its_request_and_the_side_conversation_closes_when_the_work_ends(client, workspace, campaign, team):

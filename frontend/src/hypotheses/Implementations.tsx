@@ -8,27 +8,8 @@ import { Markdown } from '../chat/render/Markdown';
 import { Empty, Failed, Kv, Loading, Pill, Section, when } from '../primitives/ui';
 import { Meter } from '../primitives/charts';
 import { formatHash } from '../router/routes';
+import { LIVE, VERDICT, clock, type Submission, type Tests, type Workspace } from './workspace';
 
-export interface Checkpoint { at: string; summary: string; next_steps?: string; blocker?: string; question?: string; done?: string[]; remaining?: string[] }
-export interface Tests { passed: number; failed: number; skipped?: number; command?: string }
-export interface Report {
-  verdict: 'ready' | 'ready_with_limits' | 'not_ready'; summary: string; tests: Tests; limitations: string[];
-  methods: { method_id: string; hypothesis_id?: string | null; state: string; conformance: string; tests?: Tests | null; note?: string }[];
-  next_actions: { owner: 'researcher' | 'lead' | 'validator'; action: string }[];
-}
-export interface Install { id: string; submission_id: string; status: string; package: string; version: string; path: string; requested_at: string;
-  finished_at?: string; methods_added: string[]; missing_methods: string[]; changes: { name: string; from: string; to: string | null }[]; error?: string; log_tail?: string }
-export interface Submission { id: string; commit: string; status: string; notes?: string; report?: Report | null; created_at: string; manifest?: { files?: string[] };
-  validation_outcome?: { status?: string; error?: string | null; findings?: Record<string, string>[] } }
-export interface Outcome { state: string; verdict?: string; submission_id?: string; commit?: string; at: string; reason?: string }
-export interface Workspace {
-  id: string; campaign_id: string; title: string; hypothesis_id: string; hypothesis_ids?: string[]; status: string; desired_status: string; created_at: string;
-  started_at?: string; last_activity_at?: string; cpu_budget_seconds?: number | null; usage?: { container_cpu_seconds?: number };
-  error?: string; activity?: string; checkpoints?: Checkpoint[]; last_error_at?: string | null; ide_url?: string;
-  opened_by?: { actor?: string; role?: string }; questions?: { id: string; question: string }[];
-  phase?: string; tests?: Tests; estimate?: { remaining_minutes: number; given_at: string; source: string };
-  outcome?: Outcome | null; finished_at?: string | null; submissions?: Submission[]; installs?: Install[];
-}
 interface Entry { at: string; kind: string; title: string; detail: string; tone: string; ref: string | null; items: string[] }
 interface Timeline { entries: Entry[]; next_before: string | null }
 
@@ -38,15 +19,11 @@ const STATUS: Record<string, [string, string]> = {
   idle: ['waiting for input', ''], pausing: ['pausing', 'attention'], paused: ['paused', 'attention'], stopping: ['stopping', 'attention'],
   stopped: ['stopped', ''], blocked: ['blocked', 'bad'],
 };
-export const LIVE = new Set(['queued', 'starting', 'resuming', 'running', 'pausing', 'stopping']);
 const TONE: Record<string, string> = { ok: 'good', warn: 'warn', attention: 'warn', bad: 'bad', info: 'info', you: 'you', agent: 'agent' };
-export const VERDICT: Record<string, [string, string]> = { ready: ['ready', 'clear'], ready_with_limits: ['ready, with limits', 'attention'],
-  not_ready: ['not ready', 'bad'], unreported: ['no delivery report', ''] };
 const OUTCOME: Record<string, [string, string]> = { delivered: ['delivered', 'clear'], validating: ['being validated', 'agent'], validated: ['validated', 'clear'],
   needs_revision: ['needs revision', 'bad'], stopped: ['stopped', ''], failed: ['failed', 'bad'] };
 const OWNER: Record<string, string> = { researcher: 'You', lead: 'The lead', validator: 'Independent validation' };
 export const testsText = (t?: Tests | null) => t ? `${t.passed} passed, ${t.failed} failed${t.skipped ? `, ${t.skipped} skipped` : ''}` : '';
-const clock = (iso: string) => new Date(iso).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
 const minutes = (ms: number) => ms < 90_000 ? `${Math.round(ms / 1000)} s` : ms < 5_400_000 ? `${Math.round(ms / 60_000)} min` : `${(ms / 3_600_000).toFixed(1)} h`;
 
 export function Implementations({ campaignId, route, labels }: { campaignId: string; route: { thread: string | null; id: string | null }; labels: Record<string, string> }) {
