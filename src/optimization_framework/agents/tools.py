@@ -760,12 +760,10 @@ class PiTools:
 
     def propose_mandate(self, agent, run, args, identity):
         """mandate_propose (roadmap R2): Answer and Explore are granted at once; Screen and Run the campaign are filed as one card, an
-        approval.request of kind mandate, through the bus like any command of this turn. A page agent the lead asked works under the
-        lead's mandate; one the researcher asked on its page proposes its own (decision 12)."""
+        approval.request of kind mandate, through the bus like any command of this turn. A page agent the lead asked proposes for the
+        lead's request, the mandate the lead works under; one the researcher asked on its page proposes its own (decision 12)."""
         from optimization_framework.campaigns import mandates
         from optimization_framework.campaigns.compute_consent import request_root
-        if agent["role"] in PAGE_AGENTS and agent.get("assignment_origin"):
-            raise ValueError("You work for the lead's request, under its mandate. If the work needs more, say so with lead_ask.")
         root = request_root(self.workspace, {"run_id": run["id"]})
         if not root or not root.get("thread_id"):
             raise ValueError("This turn serves no researcher request, so there is no mandate to propose.")

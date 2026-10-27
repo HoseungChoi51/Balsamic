@@ -20,7 +20,7 @@ Each scenario is one method of `libraries/grating-mask-search`, whose own module
    libraries is off (`GRATING_AUTO_INSTALL=false`), since the checks run on the delivery itself.
 3. **The request, through the normal path.** A scratch campaign on the deflector example, the proposal recorded as the
    researcher's (`hypothesis.create`), the team activated, and the researcher's message to the implementation lead
-   (`say`). The runner plays the researcher while it waits: it approves each go-ahead asked for (`approval.request`, which
+   (`say`). The runner plays the researcher while it waits: it approves each go-ahead asked for (a mandate, `mandate_propose`, which
    opening a coding workspace needs) and answers each question, the lead's or the coding agent's, with the scenario's
    `answer`.
 4. **The checks, outside the box.** Once the workspace submits, the delivered files are written under

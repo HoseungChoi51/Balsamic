@@ -159,12 +159,13 @@ def test_a_page_agent_asked_on_its_page_proposes_its_own_mandate_and_its_runs_ar
     assert started.get("status") == "completed", started
     used = mandates.active(team.workspace, "demo", root(team, run))
     assert used.used.worker_seconds == 120 and "left: 3 min of worker time" in state(team, operator, run)
-    # Asked by the lead, it works under the lead's mandate and proposes none of its own.
+    # Asked by the lead, it works under the lead's mandate: what it proposes is for the lead's request.
     team.tools.call(team.lead["id"], team.run["id"], "ask", "page_agent_message", {"page_agent": "experiment_operator", "message": "Probe once more."})
     operator = team.workspace.store.get(operator["id"], "agent_session")
     asked = submitted(team.workspace, sorted(team.workspace.store.list_agent_runs(operator["id"]), key=lambda r: r["created_at"])[-1]["id"])
-    refused = propose(team, "own", agent=operator, run=asked, template="explore", plan="Probe")
-    assert refused["executed"] is False and "lead's request" in refused["error"]
+    for_lead = propose(team, "lead", agent=operator, run=asked, template="explore", plan="Probe once more")
+    assert mandates.active(team.workspace, "demo", root(team)).id == for_lead["mandate_id"]
+    assert mandates.same_root(mandates.active(team.workspace, "demo", root(team)).root.model_dump(), root(team))
 
 
 def test_an_agent_asks_for_compute_with_a_mandate_not_with_kind_compute(team):

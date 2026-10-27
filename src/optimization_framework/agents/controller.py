@@ -928,7 +928,7 @@ class PiController:
             return None
         with self.store.connection() as db:
             row = db.execute("SELECT json_extract(data,'$.agent_id') FROM records WHERE kind='agent_tool_receipt' AND campaign_id=? "
-                "AND json_extract(data,'$.tool') IN ('campaign_command','implementation_workspace_create','implementation_workspace_validate') "
+                "AND json_extract(data,'$.tool') IN ('campaign_command','mandate_propose','implementation_workspace_create','implementation_workspace_validate') "
                 "AND instr(json_extract(data,'$.result'), ?) > 0 ORDER BY rowid LIMIT 1", (campaign_id, record_id)).fetchone()
         if row and row[0]:
             return self.store.get(row[0], "agent_session")
