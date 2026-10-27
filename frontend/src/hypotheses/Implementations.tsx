@@ -201,8 +201,11 @@ function InstallBox({ workspace: w, submission }: { workspace: Workspace; submis
       <div className="row wrap">
         {latest ? <Pill tone={tone} live={latest.status === 'installing'}>{label}</Pill> : null}
         {latest ? <span className="faint small">{latest.actor === 'researcher' ? 'by you' : 'by Balsamic'}</span> : null}
-        {latest?.status === 'installed' ? <span className="small">{latest.package} {latest.version} · methods {latest.methods_added.join(', ') || 'none new'}
-          {latest.missing_methods.length ? <span className="pill bad"> not found: {latest.missing_methods.join(', ')}</span> : null}</span> : null}
+        {latest?.status === 'installed' ? <span className="small" data-testid="install-added">{latest.package} {latest.version}
+          {latest.methods_added.length || !latest.problems_added?.length ? ` · methods ${latest.methods_added.join(', ') || 'none new'}` : null}
+          {latest.problems_added?.length ? ` · problems ${latest.problems_added.join(', ')}` : null}
+          {[...latest.missing_methods, ...(latest.missing_problems || [])].length
+            ? <span className="pill bad"> not found: {[...latest.missing_methods, ...(latest.missing_problems || [])].join(', ')}</span> : null}</span> : null}
         {!open && latest?.status !== 'installing' && latest?.status !== 'queued' ? <button className="btn small primary" onClick={() => setOpen(true)} data-testid="install-open">
           {latest?.status === 'installed' ? 'Install again…' : 'Install…'}</button> : null}
       </div>

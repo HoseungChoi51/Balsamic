@@ -2,7 +2,9 @@
 copied from the workspace's Git store, checked against the submission, pinned and installed; a change to installed packages
 waits for their confirmation, and a failure leaves the lab as it was. uv is faked here; Git is real."""
 import functools
+from pathlib import Path
 import subprocess
+import tempfile
 
 import pytest
 
@@ -84,6 +86,18 @@ class Plugins:
         return [{"id": "random"}] + ([{"id": "bakery_dp"}] if self.synced else [])
 
 
+class Problems:
+    """The lab's problem registry: a library's problems are listed once uv sync ran (refresh reads them at once)."""
+    def __init__(self, plugins, provided=()):
+        self.plugins, self.provided = plugins, list(provided)
+
+    def ids(self):
+        return ["bounded_continuous", *(self.provided if self.plugins.synced else [])]
+
+    def refresh(self):
+        return self.ids()
+
+
 def git(*args, cwd):
     return subprocess.run(["git", *args], cwd=cwd, check=True, capture_output=True, text=True).stdout.strip()
 
@@ -124,16 +138,19 @@ def lab(tmp_path):
     return workspace, campaign["id"], development, root, submission
 
 
-def installer(lab, dry_run=" Would make no changes\n", sync_code=0):
+def installer(lab, dry_run=" Would make no changes\n", sync_code=0, provided=(), installed=None):
+    """installed: {group: {entry-point name: distribution}} of what other packages provide."""
     workspace, cid, development, root, submission = lab
     plugins, commands = Plugins(), []
+    problems = Problems(plugins, provided)
     def runner(args, cwd, timeout=600):
         commands.append(args[1:])
         if args[1:] == ["sync", "--inexact", "--extra", "libraries"]:
             plugins.synced = sync_code == 0
             return sync_code, "Installed 1 package" if sync_code == 0 else "error: no matching distribution"
         return 0, dry_run if "--dry-run" in args else "Resolved 3 packages"
-    return Installer(workspace, development, root, runner=runner, uv="uv", plugins=plugins), commands
+    return Installer(workspace, development, root, runner=runner, uv="uv", plugins=plugins, problems=problems,
+                     providers=lambda group: (installed or {}).get(group, {})), commands
 
 
 def request(lab, install, **options):
@@ -277,7 +294,8 @@ def syncing(lab, monkeypatch):
     original = Installer.__init__
     monkeypatch.setattr(development_runtime, "ROOT", root)
     monkeypatch.setattr(Installer, "reparsed", functools.partialmethod(Installer.reparsed, background=False))
-    monkeypatch.setattr(Installer, "__init__", lambda self, *args, **kwargs: original(self, *args, **{**kwargs, "runner": fake.runner, "uv": "uv", "plugins": fake.plugins}))
+    monkeypatch.setattr(Installer, "__init__", lambda self, *args, **kwargs: original(self, *args, **{**kwargs, "runner": fake.runner, "uv": "uv", "plugins": fake.plugins,
+        "problems": fake.problems, "providers": fake.providers}))
     return commands
 
 
@@ -317,3 +335,98 @@ def test_only_balsamics_stale_confirmation_with_no_change_is_tried_again(lab, sy
     stale(lab, log_tail, **fields)
     development.install_delivered(cid)
     assert len(installs(lab)) == 1 and syncing == []
+
+
+PROBLEM_PYPROJECT = '[project]\nname = "bakery-search"\nversion = "0.2.0"\n\n' \
+                    '[project.entry-points."optimization_framework.problems"]\nbaking_order = "bakery.problem:Problem"\n'
+
+
+def deliver(lab, pyproject, methods=()):
+    """The workspace's submission with libraries/bakery/pyproject.toml replaced, at a new commit in its Git store."""
+    workspace, cid, development, root, submission = lab
+    store = development.driver.root({"id": "development_bakery"}) / "work" / "git"
+    source = Path(tempfile.mkdtemp(dir=store.parent))
+    git("clone", "-q", str(store), str(source / "edit"), cwd=store.parent)
+    source = source / "edit"
+    (source / "libraries/bakery/pyproject.toml").write_text(pyproject)
+    git("-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "--allow-empty", "-am", "edit", cwd=source)
+    git("push", "-q", "origin", "HEAD", cwd=source)
+    files = {**LIBRARY, "libraries/bakery/pyproject.toml": pyproject}
+    report = {**submission["report"], "methods": [{**submission["report"]["methods"][0], "method_id": method} for method in methods]}
+    return workspace.store.put("development_submission", {**submission, "commit": git("rev-parse", "HEAD", cwd=source), "report": report,
+        "package": {"files": [{"path": path, "content": content} for path, content in files.items()]}})
+
+
+def test_a_library_that_provides_only_a_problem_installs_and_records_the_problem(lab, monkeypatch):
+    workspace, cid, development, root, submission = lab
+    notices = []
+    monkeypatch.setattr(development, "notify", lambda record, identity, text, kind: notices.append(text))
+    deliver(lab, PROBLEM_PYPROJECT)
+    install, commands = installer(lab, provided=["baking_order"])
+    record = request(lab, install)
+    assert record["status"] == "installed" and record["problem_entry_points"] == {"baking_order": "bakery.problem:Problem"}
+    assert record["problems_added"] == ["baking_order"] and record["missing_problems"] == [] and record["entry_points"] == {}
+    from optimization_framework.agents.library_install import added
+    assert added(record) == "problems baking_order"
+    # The notice names the problem, and asks for no binding: a problem has no proposal to bind.
+    assert notices[-1].startswith("The researcher installed bakery-search 0.2.0 from commit ") and notices[-1].endswith(": problems baking_order.")
+    # A problem whose entry point does not load is named, as a method's is.
+    deliver(lab, PROBLEM_PYPROJECT.replace("0.2.0", "0.2.1"))
+    missing = request(lab, installer(lab)[0], key="two")
+    assert missing["problems_added"] == [] and missing["missing_problems"] == ["baking_order"]
+    assert added(missing) == "problems none new; not found: baking_order"
+
+
+def test_a_library_with_both_groups_records_methods_and_problems(lab):
+    deliver(lab, PROBLEM_PYPROJECT + 'bakery_lb = "bakery.problem:LowerBound"\n\n[project.entry-points."optimization_framework.optimizers"]\n'
+                 'bakery = "bakery.plugin:Plugin"\n', methods=["bakery_dp"])
+    from optimization_framework.agents.library_install import added
+    record = request(lab, installer(lab, provided=["baking_order", "bakery_lb"])[0])
+    assert record["methods_added"] == ["bakery_dp"] and record["problems_added"] == ["bakery_lb", "baking_order"]
+    assert added(record) == "methods bakery_dp; problems bakery_lb, baking_order"
+
+
+def test_a_library_with_neither_entry_point_is_refused(lab):
+    deliver(lab, '[project]\nname = "bakery-search"\nversion = "0.2.0"\n')
+    install, commands = installer(lab)
+    with pytest.raises(ValueError, match="no optimization_framework.optimizers or optimization_framework.problems entry point"):
+        request(lab, install)
+    assert commands == []
+
+
+@pytest.mark.parametrize("pyproject, methods, installed, refusal", [
+    (PROBLEM_PYPROJECT, (), {"optimization_framework.problems": {"baking_order": "other-bakery"}},
+     "problem baking_order is provided by other-bakery"),
+    (PROBLEM_PYPROJECT.replace("baking_order", "bounded_continuous"), (), {"optimization_framework.problems": {"bounded_continuous": "balsamic"}},
+     "problem bounded_continuous is provided by balsamic"),
+    (LIBRARY["libraries/bakery/pyproject.toml"], ["bakery_dp"], {"optimization_framework.optimizers": {"bakery": "someone-else"}},
+     "optimizer plug-in bakery is provided by someone-else"),
+    (LIBRARY["libraries/bakery/pyproject.toml"], ["random"], {}, "method random is provided by the lab"),
+    (LIBRARY["libraries/bakery/pyproject.toml"], ["mask_dqn"], {}, "method mask_dqn is provided by grating-mask-search"),
+])
+def test_an_id_another_package_provides_is_refused_before_any_uv_command(lab, pyproject, methods, installed, refusal):
+    workspace, cid, development, root, submission = lab
+    deliver(lab, pyproject, methods)
+    install, commands = installer(lab, installed=installed)
+    install.plugins.origin = lambda method_id: {"distribution": "grating-mask-search"} if method_id == "mask_dqn" else None
+    with pytest.raises(ValueError, match=refusal):
+        request(lab, install)
+    assert commands == [] and (root / "pyproject.toml").read_text() == PYPROJECT
+    # Balsamic's own install records the refusal as a failed install.
+    refused = install.automatic(cid, "development_bakery", workspace.store.get(submission["id"], "development_submission"), background=False)
+    assert refused["status"] == "failed" and refusal in refused["error"] and refused["problems_added"] == []
+
+
+def test_the_librarys_own_earlier_version_is_no_clash(lab):
+    deliver(lab, PROBLEM_PYPROJECT, ["bakery_dp"])
+    install, _ = installer(lab, provided=["baking_order"], installed={"optimization_framework.problems": {"baking_order": "bakery_search"},
+                                                                       "optimization_framework.optimizers": {"bakery": "Bakery.Search"}})
+    install.plugins.origin = lambda method_id: {"distribution": "bakery-search"}
+    assert request(lab, install)["status"] == "installed"
+
+
+def test_the_installed_providers_name_the_labs_own_problems():
+    from optimization_framework.agents.library_install import PROBLEMS, providers
+    import tomllib
+    lab = tomllib.loads((Path(__file__).parents[1] / "pyproject.toml").read_text())["project"]["name"]
+    assert providers(PROBLEMS)["bounded_continuous"] == lab
