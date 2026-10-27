@@ -1358,7 +1358,8 @@ class Workspace:
                     env.pop(key)
             threads = str(trial.get("numerical_threads", 1))
             from optimization_framework.execution.devices import environment
-            env.update(PYTHONPATH=str(code), PYTHONUNBUFFERED="1", OPENBLAS_NUM_THREADS=threads,
+            # PYTHONHASHSEED=0: str and bytes hash alike in every worker, so a method's set order is reproducible.
+            env.update(PYTHONPATH=str(code), PYTHONUNBUFFERED="1", PYTHONHASHSEED="0", OPENBLAS_NUM_THREADS=threads,
                        OMP_NUM_THREADS=threads, MKL_NUM_THREADS=threads, MPLBACKEND="Agg", **environment(trial.get("device") or "cpu"))
             with (directory / "worker.log").open("ab") as log:
                 module = "optimization_framework.execution.worker" if trial.get("execution_contract") == 1 else "dqn_meent.workspace.worker"

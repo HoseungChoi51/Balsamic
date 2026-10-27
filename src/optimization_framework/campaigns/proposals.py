@@ -13,7 +13,12 @@ from optimization_framework.contracts.base import content_hash
 
 
 def hypothesis_revision(hypothesis):
-    return content_hash({key: hypothesis.get(key) for key in ("id", "title", "mechanism", "rationale", "parent_ids", "algorithm_config", "candidate_id")})
+    """The exact revision a review judges. A bound proposal counts the configuration its first binding replaced, so binding
+    it to an installed method does not void its review."""
+    fields = {key: hypothesis.get(key) for key in ("id", "title", "mechanism", "rationale", "parent_ids", "algorithm_config", "candidate_id")}
+    if "pre_binding_config" in hypothesis:
+        fields["algorithm_config"] = hypothesis["pre_binding_config"]
+    return content_hash(fields)
 
 
 class ProposalReview(Contract):

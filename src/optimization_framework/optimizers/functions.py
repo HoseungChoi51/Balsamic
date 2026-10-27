@@ -15,9 +15,17 @@ resume rather than continued on a history it would not have made.
 On a white-box problem (the default, decision 22) the method may compute the objective itself as often as it likes,
 through the library's own problem object or its ``objective.py``; such calls are not observations and are not counted.
 Only what ``evaluate`` records is known to Balsamic.
+
+``FunctionPlugin`` offers a library's function methods as plug-in methods. It lists them from the ``METHODS`` literal in
+the methods module's source, without importing the module, so agent code never runs in the server; only ``create()``,
+in the worker, imports it.
 """
 from __future__ import annotations
 
+import ast
+from importlib import import_module
+from importlib.util import find_spec
+from pathlib import Path
 import queue
 import random
 import threading
@@ -185,3 +193,67 @@ class FunctionMethod:
         self.answers.put(("stop", None))
         if self.thread is not None and self.thread is not threading.current_thread():
             self.thread.join(timeout)
+
+
+def listed_methods(module):
+    """The ``METHODS = {id: {name, description, ...}}`` literal of a module, read from its source without importing it."""
+    spec = find_spec(module)
+    if spec is None or not spec.origin or not spec.origin.endswith(".py"):
+        raise ValueError(f"Function methods module {module!r} is not an installed Python source file")
+    tree = ast.parse(Path(spec.origin).read_text(encoding="utf-8"), filename=spec.origin)
+    values = [node.value for node in tree.body if isinstance(node, (ast.Assign, ast.AnnAssign)) and node.value is not None
+              and any(isinstance(target, ast.Name) and target.id == "METHODS"
+                      for target in (node.targets if isinstance(node, ast.Assign) else [node.target]))]
+    if len(values) != 1:
+        raise ValueError(f"{module} must assign METHODS once, at the top level")
+    try:
+        methods = ast.literal_eval(values[0])
+    except ValueError:
+        raise ValueError(f"{module}.METHODS must be a literal (strings, numbers, lists and dicts), so it can be listed without "
+                         "running the module") from None
+    if not isinstance(methods, dict):
+        raise ValueError(f"{module}.METHODS must map each method id to its description")
+    for name, method in methods.items():
+        if not isinstance(name, str) or not name.isidentifier() or name.startswith("_"):
+            raise ValueError(f"{module}.METHODS key {name!r} must be the name of a public function in the module")
+        if not isinstance(method, dict) or not all(isinstance(method.get(key), str) for key in ("name", "description")):
+            raise ValueError(f"{module}.METHODS[{name!r}] needs a name and a description")
+    return methods
+
+
+class FunctionPlugin:
+    """A library's plain-function methods: set ``MODULE = "<pkg>.methods"`` and ``REPRESENTATIONS``.
+
+    The module defines ``METHODS = {id: {name, description, hypothesis_id?, parameters?, parameter_properties?, ...}}``
+    and one function ``def <id>(problem, evaluate, rng)`` for each id. ``parameters`` are the defaults and
+    ``parameter_properties`` their JSON Schema; a method may also give its own ``representations``, ``problem_ids`` and
+    ``completion_units``. A library that provides its own problem object overrides ``problem(instance)``."""
+
+    MODULE: str = ""
+    REPRESENTATIONS: list | None = None
+
+    def methods(self):
+        listed = []
+        for name, method in listed_methods(self.MODULE).items():
+            declared = method.get("representations") or self.REPRESENTATIONS
+            listed.append({"constraints": False, "parameters": {}, "parameter_properties": {}, **method,
+                           "representations": list(declared or ["binary"]), **({} if declared else {"representations_defaulted": True}),
+                           "id": name})
+        return listed
+
+    def unavailable_reason(self):
+        return None
+
+    def validate(self, name, instance, parameters):
+        return None
+
+    def problem(self, instance):
+        """The library's own problem object for an instance, given to its methods; None gives them the read-only descriptor."""
+        return None
+
+    def create(self, name, instance, parameters, seed):
+        fn = getattr(import_module(self.MODULE), name, None)
+        if not callable(fn):
+            raise ValueError(f"{self.MODULE} lists {name!r} in METHODS but defines no function {name}(problem, evaluate, rng)")
+        defaults = listed_methods(self.MODULE).get(name, {}).get("parameters") or {}
+        return FunctionMethod(fn, instance, {**defaults, **parameters}, seed, problem=self.problem(instance))

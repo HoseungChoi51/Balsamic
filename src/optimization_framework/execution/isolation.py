@@ -195,6 +195,13 @@ def command(directory, manifest, writable, arguments, *, memory_bytes=4 * 1024**
         "PYTHONNOUSERSITE": "1", "OPENBLAS_NUM_THREADS": "1", "OMP_NUM_THREADS": "1",
         "MKL_NUM_THREADS": "1", "MPLBACKEND": "Agg",
         "LD_LIBRARY_PATH": ":".join(sorted({str(Path(path).parent) for path in libraries}))}
+    if worker:
+        # A worker hashes str and bytes alike in every run (PYTHONHASHSEED=0), so a method's set order is reproducible.
+        # -I would ignore that variable, so a worker starts with -s -P instead, and with no PYTHONPATH until the
+        # launcher sets it for child processes: the environment is only this (--clearenv), and at startup sys.path holds
+        # only the standard library, as under -I.
+        environment["PYTHONHASHSEED"] = "0"
+        search_path = environment.pop("PYTHONPATH")
     if package_host is not None:
         environment["PATH"] = "/host-tools:/usr/bin:/bin"
     for key, value in environment.items():
@@ -210,7 +217,8 @@ def command(directory, manifest, writable, arguments, *, memory_bytes=4 * 1024**
         "resource.setrlimit(resource.RLIMIT_CORE,(0,0));"
     )
     if worker:
-        launcher += "runpy.run_path('/host-tools/attempt-bootstrap.py',run_name='__main__')"
+        launcher += (f"import os;os.environ['PYTHONPATH']={search_path!r};"
+                     "runpy.run_path('/host-tools/attempt-bootstrap.py',run_name='__main__')")
         arguments = [str(directory), json.dumps(list(map(str, [code, *sites]))), *arguments]
     else:
         launcher += (f"sys.path[:0]={list(map(str, [code, *sites]))!r};"
@@ -219,7 +227,8 @@ def command(directory, manifest, writable, arguments, *, memory_bytes=4 * 1024**
         # The imported module writes into bounded tmpfs. Only this one result
         # file is exported; it cannot create an unbounded host scratch tree.
         launcher += f";import shutil;shutil.copyfile({str(output)!r},'/compiler-result.json')"
-    return [*result, "--", str(executable), "-I", "-S", "-B", "-u", "-c", launcher, *arguments]
+    startup = ["-s", "-P"] if worker else ["-I"]
+    return [*result, "--", str(executable), *startup, "-S", "-B", "-u", "-c", launcher, *arguments]
 
 
 def run(directory, manifest, writable, arguments, *, timeout=30, **limits):

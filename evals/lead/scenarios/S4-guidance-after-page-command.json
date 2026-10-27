@@ -2,6 +2,7 @@
   "id": "S4-guidance-after-page-command",
   "source": "lead-agent-readiness.md Parts E and G: the first command after the researcher acted was refused for an outdated guidance revision",
   "setup": {"preset": "quadratic", "llm_budget_usd": 0.3},
+  "presets": ["quadratic", "deflector_2d"],
   "steps": [
     {"say": "Create one hypothesis for this problem with an installed method. Nothing else."},
     {"wait": "request_closed", "timeout_s": 600},

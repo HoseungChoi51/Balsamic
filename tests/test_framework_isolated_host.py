@@ -447,3 +447,19 @@ def test_deadline_guard_terminates_a_worker_without_waiting_for_publication(tmp_
         guard.close()
         process.kill()
         process.wait()
+
+
+def test_an_isolated_worker_hashes_with_a_fixed_seed_and_starts_with_only_the_standard_library(tmp_path):
+    workspace, owner, task = campaign(tmp_path / 'workspace')
+    seen = []
+    for number in range(2):
+        trial = prepared(workspace, owner, task)
+        # Were the capture on sys.path at startup, the launcher's own `import resource` would load this file.
+        (workspace.job_dir(trial['id']) / 'code/resource.py').write_text("raise SystemExit('the capture shadowed resource')\n")
+        directory = adversarial_capture(workspace, trial, '''import sys
+print('hash_probe', sys.flags.hash_randomization, hash('balsamic'), flush=True)
+''')
+        receipt = execute(directory, tmp_path / f'host-{number}', private_bytes=2 * 1024**2)
+        assert receipt['process_exit'] == 0 and receipt['error'] is None, receipt
+        seen.append(next(line for line in (directory / 'worker.log').read_text().splitlines() if line.startswith('hash_probe')))
+    assert seen[0] == seen[1] and seen[0].split()[1] == '0'
