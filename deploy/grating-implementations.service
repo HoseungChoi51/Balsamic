@@ -5,12 +5,7 @@ After=network-online.target
 [Service]
 Type=simple
 WorkingDirectory=@REPOSITORY@
-Environment=GRATING_LLM_PROVIDER=codex
-Environment=GRATING_LLM_MODEL=gpt-6-sol
-Environment=GRATING_LLM_ENABLED=true
-Environment=GRATING_LLM_DISABLED=false
-Environment=GRATING_CODEX_BINARY=%h/.local/bin/codex
-Environment=GRATING_LLM_REASONING_EFFORT=low
+# The library calls no model since roadmap H8: no provider setting.
 Environment=OPENBLAS_NUM_THREADS=1
 Environment=OMP_NUM_THREADS=1
 Environment=MKL_NUM_THREADS=1

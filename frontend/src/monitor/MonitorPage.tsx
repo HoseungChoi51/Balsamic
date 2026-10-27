@@ -10,6 +10,8 @@ import { send } from '../commands/bus';
 import { AwayDigest } from './AwayDigest';
 import { ModelTiers } from './ModelTiers';
 import { Bars, Columns, Meter, Ring, Slots } from '../primitives/charts';
+import { TEMPLATES } from '../chat/Composer';
+import type { MandateTemplate } from '../api/types';
 
 /** The tabs that belong to the workspace and show without a campaign: the machine and the models agents run on. */
 const WORKSPACE_TABS = new Set(['resources', 'models']);
@@ -75,6 +77,7 @@ function Resources({ campaignId }: { campaignId: string }) {
       </Section>
       {data.slots ? <SlotSettings slots={data.slots as SlotsView} gpuReported={gpus.length > 0} /> : null}
       {campaignId ? <ComputeThresholds campaignId={campaignId} /> : null}
+      {campaignId ? <DefaultMandate campaignId={campaignId} /> : null}
       <Section title="Resource level" right={<span className="small faint">yours alone; agents plan within it{admission.set_by ? ` · set by ${String(admission.set_by)} ${when(admission.updated_at)}` : ''}</span>}>
         <div className="level-grid" data-testid="resource-levels" data-level={level}>
           {levels.map(option => <button key={option.id} type="button" className={'level' + (level === option.id ? ' chosen' : '')} aria-pressed={level === option.id} onClick={() => setLevel(option.id)} data-testid={`level-${option.id}`}>
@@ -285,6 +288,38 @@ function ComputeThresholds({ campaignId }: { campaignId: string }) {
       </div>
       <p className="why">Worker time of each thing an agent starts: a run, a profile, a validation, an implementation job, an analysis script. A coding workspace always waits for your go-ahead, and work an approved plan covers starts without a notice.
         {noticeMinutes > gateMinutes ? ' The notice threshold cannot be above the go-ahead threshold.' : ''}</p>
+      {error ? <div className="pill bad">{error}</div> : null}
+    </Section>
+  );
+}
+
+/** Where the chat's mandate dial starts (roadmap R7): the campaign's default template, set with campaign.update. Until the researcher
+ * chooses, it follows the campaign's delegation (manual: Answer, guided: Explore, delegated: Screen). Each message's mandate is still
+ * chosen with the dial, and a request sent without one has Explore. */
+function DefaultMandate({ campaignId }: { campaignId: string }) {
+  const summary = useSummary(campaignId);
+  const queryClient = useQueryClient();
+  const [error, setError] = useState<string | null>(null);
+  const campaign = summary.data?.campaign;
+  if (!campaign) return null;
+  const current = summary.data?.row.default_template || 'explore';
+  const choose = async (template: MandateTemplate) => {
+    setError(null);
+    try {
+      await send({ operation: 'campaign.update', campaignId, expectedRevision: campaign.version, payload: { default_template: template, rationale: 'Default mandate set on the Resources page' } });
+      await queryClient.invalidateQueries({ queryKey: ['summary', campaignId] });
+      await queryClient.invalidateQueries({ queryKey: ['campaigns'] });
+    } catch (e) { setError(String((e as Error).message || e)); }
+  };
+  return (
+    <Section title="Default mandate" right={<span className="small faint">yours, for this campaign; where the dial beside Send starts</span>}>
+      <div className="level-grid" data-testid="default-template" data-template={current}>
+        {TEMPLATES.map(option => <button key={option.id} type="button" className={'level' + (current === option.id ? ' chosen' : '')} aria-pressed={current === option.id}
+          onClick={() => { if (current !== option.id) void choose(option.id); }} data-testid={`default-${option.id}`}>
+          <strong>{option.label}</strong><span className="small faint">{option.help}</span>
+        </button>)}
+      </div>
+      <p className="why">{campaign.default_template ? '' : `Not chosen yet, so it follows the campaign's delegation (${campaign.autonomy}). `}Each message's mandate is yours to choose with the dial; Screen and Run the campaign ask for their envelope when you send.</p>
       {error ? <div className="pill bad">{error}</div> : null}
     </Section>
   );

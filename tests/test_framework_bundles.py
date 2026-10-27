@@ -145,7 +145,7 @@ def test_executable_import_never_replays_production_and_recovers_cross_service_p
     before = source.assets.attributed_costs(trial["output_asset_ids"])
     _, path = export(source, owner["id"], trial["output_asset_ids"])
     destination, current, _ = campaign(tmp_path / "destination")
-    imported_library = ImplementationService(tmp_path / "imported-library", adapter_factory=no_model)
+    imported_library = ImplementationService(tmp_path / "imported-library")
     client = Client(imported_library)
     destination.implementations.client = client
     checked = inspect(destination, current, path)
@@ -325,12 +325,12 @@ def test_missing_blob_declarations_are_required_and_invalid_json_is_a_scoped_fai
 
 
 def test_library_import_checks_conflicting_evidence_and_preserves_revocation_and_missing_receipts(tmp_path):
-    from test_framework_revalidation import publish as build, MockReviewer
-    source = ImplementationService(tmp_path / "source", adapter_factory=MockReviewer)
+    from test_framework_revalidation import publish as build
+    source = ImplementationService(tmp_path / "source")
     version = build(source)
     original = exchange.export(source, version["id"])
     request = {"bundle_digest": "1" * 64, "records": original["records"], "artifacts": original["artifacts"]}
-    destination = ImplementationService(tmp_path / "destination", adapter_factory=no_model)
+    destination = ImplementationService(tmp_path / "destination")
     conflicting = copy.deepcopy(request)
     duplicate = copy.deepcopy(next(record for record in conflicting["records"] if record["reference"]["kind"] == "implementation_version"))
     duplicate["data"]["validation_report"]["passed"] = False

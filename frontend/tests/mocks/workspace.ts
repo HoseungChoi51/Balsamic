@@ -93,6 +93,8 @@ export async function mockWorkspace(page: Page, overrides: Partial<Record<string
       if (body && typeof body === 'object' && 'event_cursor' in (body as object) && after >= (body as { event_cursor: number }).event_cursor) return json(route, { unchanged: true, event_cursor: after });
       return json(route, body);
     }
+    // No request in the thread has a mandate yet (R7's bar above the chat stays empty); a spec overrides the path to show one.
+    if (path.startsWith('/api/v1/threads/') && path.endsWith('/mandate')) return json(route, { thread_id: path.split('/')[4], campaign_id: f.CAMPAIGN_ID, request: null, current: null, others: [], default_template: 'explore' });
     if (path.startsWith('/api/v1/threads/') && path.endsWith('/stream')) return route.abort();
     if (path.startsWith('/api/v1/events')) return route.abort();
     return json(route, { detail: `unmocked ${method} ${path}` }, 404);

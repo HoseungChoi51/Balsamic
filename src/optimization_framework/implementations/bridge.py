@@ -7,7 +7,7 @@ import re
 import time
 
 from optimization_framework.implementations.client import ImplementationClient
-from optimization_framework.implementations.models import JobRequest, RevalidationRequest, LibraryUnavailable, check_parameters, digest
+from optimization_framework.implementations.models import RevalidationRequest, LibraryUnavailable, check_parameters, digest
 from optimization_framework.implementations.runtime import tree_hashes, verify_runtime, write_package, bundle_runtime_root, pin_runtime
 from optimization_framework.implementations.validation import evaluator_identity, profile_identity
 from optimization_framework.llm.providers import api_spend
@@ -115,6 +115,8 @@ class ImplementationBridge:
             return {"state": "ready", "runnable": True, "reason": "Implementation validation passed. Experimental performance is assessed separately.",
                     "version_id": version_id, "validation_report_id": report["id"]}
         installed = {a["id"] for a in algorithms()}
+        if hypothesis.get("algorithm") == "unchosen":
+            return {"state": "unchosen", "runnable": False, "reason": "No method is chosen for it yet: choose one from campaign_inspect.methods (hypothesis.edit)."}
         if hypothesis.get("algorithm") in installed:
             from optimization_framework.optimizers import plugins
             from optimization_framework.optimizers.registry import capability_reason
@@ -143,7 +145,7 @@ class ImplementationBridge:
         if references:
             return {"state": "reference_available", "runnable": False, "references": references,
                     "reason": "Reference code is available. Adapt this source to the campaign execution interface and validate it before running trials."}
-        reason = "No campaign implementation is attached. Link existing reference code or request an implementation."
+        reason = "Nothing implements it yet: a coding workspace builds it as a library (implementation_workspace_create, or a commission, implementation.commission, which opens one), or link existing reference code."
         if hypothesis.get("algorithm") == "relaxed_gradient":
             reason += " It also requires continuous evaluation and RCWA gradients, which the current evaluator does not provide."
         return {"state": "missing", "runnable": False, "reason": reason}
@@ -204,91 +206,18 @@ class ImplementationBridge:
                    for g in self.store.list("implementation_grant", campaign_id))
 
     def compute_committed(self, campaign_id):
+        """The implementation time committed in the campaign: each service job's, and each commission's coding box's (roadmap H7)."""
         return sum(g.get("compute_seconds", 0) if settled(g) else max(g["request"]["compute_seconds"], g.get("compute_seconds", 0))
-                   for g in self.store.list("implementation_grant", campaign_id))
+                   for g in self.store.list("implementation_grant", campaign_id)) + \
+            sum(row["commission"]["compute_seconds"] for row in self.store.list("development_workspace", campaign_id) if row.get("commission"))
 
-    def commission(self, hypothesis_id, spec, *, compute_seconds, max_calls=12, api_budget_usd=0, idempotency_key, package=None, expected_context=None, accounting_mode="wall"):
-        self.catalog(refresh=True)
-        grant = self.reserve_commission(hypothesis_id, spec, compute_seconds=compute_seconds, max_calls=max_calls,
-            api_budget_usd=api_budget_usd, idempotency_key=idempotency_key, package=package, expected_context=expected_context,
-            accounting_mode=accounting_mode)
-        self.workspace.dispatch_outbox()
-        return self.store.get(grant["id"], "implementation_grant")
-
-    def reserve_commission(self, hypothesis_id, spec, *, compute_seconds, max_calls=12, api_budget_usd=0, idempotency_key, package=None, expected_context=None, task_id=None, accounting_mode="wall"):
-        """Commit the grant and delivery intent together; never send from a transaction."""
-        with self.workspace.lock, self.store.transaction():
-            if task_id is not None:
-                from optimization_framework.implementations.models import EvaluatorSpec
-                spec = EvaluatorSpec.model_validate(spec)
-                task = self.store.get(task_id, "task")
-                if hypothesis_id is not None or task.get("archived") or not task.get("evaluator_requirement_id"):
-                    raise ValueError("Commission an evaluator against a current problem requirement")
-                requirement = self.store.get(task["evaluator_requirement_id"], "evaluator_requirement")
-                if spec.manifest.model_dump(mode="json") != requirement["manifest"]:
-                    raise ValueError("Commissioned evaluator differs from the declared problem requirement")
-                hypothesis = None
-                campaign_id = task["campaign_id"]
-            else:
-                hypothesis = self.store.get(hypothesis_id, "hypothesis")
-                if hypothesis["status"] in {"archived", "finalist"}:
-                    raise ValueError("Revive or fork this idea before commissioning implementation work")
-                campaign_id = hypothesis["campaign_id"]
-            self.workspace.check_manager_context(campaign_id, expected_context)
-            campaign = self.store.get(campaign_id, "campaign")
-            identity = "grant_" + digest([self.workspace_id, idempotency_key])[:24]
-            try:
-                grant = self.store.get(identity, "implementation_grant")
-            except KeyError:
-                grant = None
-            # A retry delivers its accepted grant, even if the researcher has
-            # since selected different models for newly commissioned work.
-            model_policy = (grant["request"].get("model_policy") if grant else
-                            self.workspace.models.snapshot(campaign_id))
-            request = JobRequest(workspace_id=self.workspace_id, campaign_id=campaign_id, hypothesis_id=hypothesis_id,
-                grant_id=identity, idempotency_key=idempotency_key, spec=spec, package=package,
-                compute_seconds=compute_seconds, max_attempts=1 if accounting_mode == "execution_v1" else 3,
-                max_calls=max_calls, api_budget_usd=api_budget_usd,
-                model_policy=model_policy,
-                agent_parent_id=(grant["request"].get("agent_parent_id") if grant else
-                    (self.workspace.pi.configuration(campaign_id) or {}).get("lead_id") if self.workspace.pi.owns(campaign_id) else None),
-                accounting_mode=accounting_mode).model_dump()
-            if (request["spec"].get("kind") == "evaluator") != (task_id is not None):
-                raise ValueError("Commission this executable against the matching optimizer or evaluator requirement")
-            if grant:
-                if grant["request"] != request or grant.get("task_id") != task_id:
-                    raise ValueError("This request identity already refers to different implementation work")
-                if grant.get("job_id"):
-                    return grant
-            else:
-                self.check_self_contained(request["spec"])
-                if self.over_ceiling(campaign, compute_seconds):
-                    raise ValueError(f"This job would exceed the implementation ceiling the researcher set ({campaign['implementation_compute_budget_seconds']:g}s)")
-                research_spent = sum(api_spend(r.get("usage"))
-                    + (r.get("decision_review") or {}).get("budget_hold_usd", 0)
-                    for r in self.store.list("research_run", campaign_id))
-                from optimization_framework.agents.usage import charged as agent_api_spend
-                research_spent += agent_api_spend(self.store, campaign_id)
-                if research_spent + self.api_committed(campaign_id) + api_budget_usd > campaign["llm_budget_usd"] + 1e-9:
-                    raise ValueError("Implementation model allocation exceeds the campaign's remaining API cap")
-                grant = {"id": identity, "campaign_id": campaign_id, "hypothesis_id": hypothesis_id,
-                    "charter_version": campaign["version"], "hypothesis_digest": self.hypothesis_digest(hypothesis) if hypothesis else None,
-                    "request": request, "status": "dispatching", "created_at": now(), "job_id": None,
-                    "upstream_cost_asset_ids": (hypothesis or {}).get("research_cost_asset_ids", []),
-                    "usage": {}, "compute_seconds": 0}
-                if task_id:
-                    grant.update(task_id=task_id, evaluator_requirement_id=task["evaluator_requirement_id"])
-                self.store.put("implementation_grant", grant, "implementation.reserved")
-                self.store.put("message", {"id": "message_" + identity, "campaign_id": campaign_id,
-                    "role": "assistant", "origin": "manager_system", "grant_id": identity, "created_at": now(),
-                    "content": f"Commissioned {spec.name if hasattr(spec, 'name') else spec['name']} with {compute_seconds:g}s of implementation time and at most {max_calls} model calls. The specification and acceptance criteria are frozen for this job. Unresolved validation findings will return here."}, "message.created")
-            effect_id = "submit_" + identity
-            try:
-                self.store.get(effect_id, "outbox")
-            except KeyError:
-                self.store.put("outbox", {"id": effect_id, "campaign_id": campaign_id,
-                    "kind": "implementation_submit", "grant_id": identity, "status": "pending", "created_at": now()}, "effect.queued")
-            return grant
+    def commission(self, command, actor):
+        """A commission (implementation.commission, evaluator.commission): a coding box Balsamic opens for it, headless, on a work
+        ticket (roadmap H7, agents/development_commission.py), or the refusal that says why it cannot open one. Since roadmap H8 this
+        is the only way a commission builds code: nothing reserves an implementation service job for one. Grants and jobs recorded
+        before stay readable here (readiness(), reconcile(), control())."""
+        from optimization_framework.agents.development_commission import commission
+        return commission(self.workspace, command, actor)
 
     def deliver_submission(self, grant_id):
         grant = self.store.get(grant_id, "implementation_grant")
@@ -338,21 +267,35 @@ class ImplementationBridge:
         return ceiling > 0 and self.compute_committed(campaign["id"]) + compute_seconds > ceiling
 
     def check_self_contained(self, spec):
-        """Refuse a specification whose text names campaign records instead of stating them: the test designer, builders and
-        reviewer see the specification alone, by design, and cannot read a record it points to. Provenance may cite them, and
-        structured fields (an evaluator version a method is bound to) name what the service itself resolves."""
-        text = json.dumps([spec.get(key) for key in ("name", "mechanism", "acceptance_criteria")])
+        """Refuse a commission's specification whose text names campaign records instead of stating them: the coding agent of its
+        box sees the specification alone, by design, and cannot read a record it points to. Provenance may cite them (the ticket
+        leaves it out), and structured fields (an evaluator version a method is bound to) name what Balsamic itself resolves.
+        A coding workspace's work ticket (agents/development_ticket.py, roadmap H4) is checked the same way: it needs runnable
+        acceptance tests, and its text names only what the coding agent can read (the proposals it serves, its evidence)."""
+        ticket = spec.get("kind") == "development_ticket"
+        if ticket and not spec.get("acceptance_tests"):
+            raise ValueError("The work ticket names no acceptance tests, so the coding agent cannot tell when it is done. Name at least one "
+                             "runnable pytest file in ticket.acceptance_tests: its path, with its content when it is new (a campaign made "
+                             "from a charter gets the generated library's tests)")
+        keys = ("objective", "proposals", "acceptance_tests") if ticket else ("name", "mechanism", "acceptance_criteria")
+        readable = {*(row["hypothesis_id"] for row in spec.get("proposals") or []), *(spec.get("evidence_ids") or [])} if ticket else set()
+        text = json.dumps([spec.get(key) for key in keys])
         named = []
         for token in dict.fromkeys(RECORD_ID.findall(text)):
             try:
                 self.store.get_entry(token)
-                named.append(token)
+                if token not in readable:
+                    named.append(token)
             except KeyError:
                 pass
+        if named and ticket:
+            raise ValueError(f"The work ticket names campaign records ({', '.join(named)}) that the coding agent cannot read: it sees the "
+                             "ticket and the evidence it is given. Write what they state into the objective or an acceptance test, or give "
+                             "them as evidence_ids")
         if named:
-            raise ValueError(f"The specification names campaign records ({', '.join(named)}) that the independent test designer, builders "
-                             "and reviewer cannot read: they see the specification alone. Write what those records state into the "
-                             "mechanism (up to 20,000 characters) and the acceptance criteria, and cite the ids in provenance")
+            raise ValueError(f"The specification names campaign records ({', '.join(named)}) that the coding agent cannot read: it sees "
+                             "the specification alone. Write what those records state into the mechanism (up to 20,000 characters) and "
+                             "the acceptance criteria, and cite the ids in provenance")
 
     @staticmethod
     def hypothesis_digest(hypothesis):

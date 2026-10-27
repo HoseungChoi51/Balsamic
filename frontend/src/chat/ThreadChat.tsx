@@ -4,12 +4,13 @@ import { useQueryClient } from '@tanstack/react-query';
 import { useHypotheses, useMessages, useMonitor, useSummary, useThreads } from '../api/queries';
 import { NowPanel, nowLabel, useAgents } from './NowPanel';
 import { LIVE as CODING } from '../hypotheses/workspace';
-import type { Message } from '../api/types';
+import type { Message, MessageMandate } from '../api/types';
 import { send } from '../commands/bus';
 import { initial, reduce } from './stream';
 import { Turn } from './Turn';
 import { LiveTurn } from './LiveTurn';
 import { Composer } from './Composer';
+import { MandateBar } from './MandateBar';
 import { ContextChip, ContextDrawer } from './ContextDrawer';
 import { ExtensionDialog, isExtensionDialog } from './ExtensionDialog';
 import { parseSlash, SLASH } from './slash';
@@ -57,7 +58,8 @@ export function ThreadChat({ campaignId, threadId, route, onDetach }: { campaign
   // An agents' conversation closes when the work on its request has ended; the Branches page keeps the closed ones.
   const sides = (threads.data?.threads || []).filter(t => t.kind === 'agents' && (t.status !== 'closed' || t.id === threadId));
   const base = () => { if (!campaign) throw new Error('The campaign is still loading'); return { campaignId, expectedRevision: campaign.version, origin: { thread_id: threadId } }; };
-  const refresh = () => Promise.all([queryClient.invalidateQueries({ queryKey: ['messages', threadId] }), queryClient.invalidateQueries({ queryKey: ['threads', campaignId] })]);
+  const refresh = () => Promise.all([queryClient.invalidateQueries({ queryKey: ['messages', threadId] }), queryClient.invalidateQueries({ queryKey: ['threads', campaignId] }),
+    queryClient.invalidateQueries({ queryKey: ['mandate'] })]);
 
   const ensureLead = async () => { if (!lead) { await send({ ...base(), operation: 'agent.activate', payload: {} }); await queryClient.invalidateQueries({ queryKey: ['threads', campaignId] }); } };
   const fork = async (message: Message | null, title?: string) => {
@@ -70,7 +72,9 @@ export function ThreadChat({ campaignId, threadId, route, onDetach }: { campaign
     navigate(formatHash({ page: route.page, sub: route.sub, id: route.id }, created.id));
     return created.id;
   };
-  const sendMessage = async (text: string) => {
+  // The dial beside Send (R7): a message, not a slash command, grants its request the mandate it is sent with.
+  const opensRequest = (text: string) => { const slash = parseSlash(text, aliases); return !slash || slash.kind === 'message'; };
+  const sendMessage = async (text: string, mandate?: MessageMandate) => {
     const slash = parseSlash(text, aliases);
     if (slash?.kind === 'help' || slash?.kind === 'unknown') { setHelp(true); if (slash.kind === 'unknown') throw new Error(`No command /${slash.name}; the list is below`); return; }
     if (slash?.kind === 'fork') { await fork(null, slash.title); return; }
@@ -94,11 +98,11 @@ export function ThreadChat({ campaignId, threadId, route, onDetach }: { campaign
       const anchor = index > 0 ? before![index - 1] : null;
       let target = threadId;
       if (anchor) target = await fork(anchor, 'edited: ' + body.slice(0, 40));
-      await send({ campaignId, expectedRevision: campaign!.version, origin: { thread_id: target }, operation: 'agent.message', payload: { message: body, thread_id: target, edit_of_message_id: editing.id } });
+      await send({ campaignId, expectedRevision: campaign!.version, origin: { thread_id: target }, operation: 'agent.message', payload: { message: body, thread_id: target, edit_of_message_id: editing.id, ...(mandate ? { mandate } : {}) } });
       setEditing(null); await refresh(); return;
     }
-    await send({ ...base(), operation: 'agent.message', payload: { message: body, thread_id: threadId, ...(pageAgent ? { page_agent: pageAgent } : {}) } });
-    track('chat.send', { length: body.length, slash: slash?.kind || null });
+    await send({ ...base(), operation: 'agent.message', payload: { message: body, thread_id: threadId, ...(pageAgent ? { page_agent: pageAgent } : {}), ...(mandate ? { mandate } : {}) } });
+    track('chat.send', { length: body.length, slash: slash?.kind || null, mandate: mandate?.template || null });
     await refresh();
   };
 
@@ -134,6 +138,7 @@ export function ThreadChat({ campaignId, threadId, route, onDetach }: { campaign
         title="What is happening: which agent is at work, what the others last said, the runs and why queued ones wait">
         <span className="dot" aria-hidden />{nowLabel(lead, busy, agents.data?.agents, running, (agents.data?.development?.workspaces || []).filter(w => CODING.has(w.status)).length)}<span className="grow" /><span className="faint">{now ? 'hide ▴' : 'what is happening ▾'}</span></button> : null}
       {now && lead ? <NowPanel campaignId={campaignId} threadId={threadId} route={route} /> : null}
+      <MandateBar campaignId={campaignId} threadId={threadId} version={campaign?.version} />
       <div className="turns" ref={scroller}>
         {messages.isPending ? <Loading what="Loading the conversation" /> : messages.error ? <Failed error={messages.error} /> : null}
         {data?.inherited.length ? <div className="turn lab" data-testid="inherited">
@@ -157,7 +162,8 @@ export function ThreadChat({ campaignId, threadId, route, onDetach }: { campaign
         {SLASH.map(s => <div key={s.name}><code>{s.usage}</code> <span className="muted">{s.help}</span></div>)}</div> : null}
       {editing ? <div className="row small" style={{ padding: '4px 12px' }}><Pill tone="you">editing</Pill><span className="grow muted">Resending forks a branch before this message; the original stays.</span><button className="btn quiet small" onClick={() => setEditing(null)}>cancel</button></div> : null}
       <Composer key={editing?.id || 'new'} initial={editing?.content} onSend={sendMessage} disabled={!campaign || merged} why={!campaign ? 'Waiting for the campaign to load' : merged ? 'A merged branch takes no more messages' : undefined}
-        placeholder={stage === 'generate' && !counts.hypothesis ? 'Ask the lead for strategies: /generate 3' : undefined} suggestions={busy ? [] : suggestions} suggestionsNote={live ? 'suggested from the last reply' : undefined} />
+        placeholder={stage === 'generate' && !counts.hypothesis ? 'Ask the lead for strategies: /generate 3' : undefined} suggestions={busy ? [] : suggestions} suggestionsNote={live ? 'suggested from the last reply' : undefined}
+        dial={{ initial: summary.data?.row.default_template || 'explore', applies: opensRequest }} />
       {drawer ? <ContextDrawer threadId={threadId} campaignId={campaignId} onClose={() => setDrawer(false)} /> : null}
     </div>
   );

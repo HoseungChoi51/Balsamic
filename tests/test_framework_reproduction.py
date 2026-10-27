@@ -177,7 +177,7 @@ def test_generated_evaluator_reproduction_requires_current_validation_and_verifi
     portable = tmp_path / "legacy-evidence.zip"
     shutil.copyfile(archive, portable)
     (tmp_path / "source").rename(tmp_path / "original-unavailable")
-    service = ImplementationService(tmp_path / "destination-library", adapter_factory=no_model)
+    service = ImplementationService(tmp_path / "destination-library")
     client = Client(service)
     client.resolve_runtime = lambda version, request: resolve(service, version, request)
     client.runtime_resolution = lambda owner, key: receipt(service, owner, key)
@@ -214,7 +214,7 @@ def test_generated_evaluator_reproduction_requires_current_validation_and_verifi
     assert comparison["runtime_limitations"] == conversion["limitations"]
     assert service.artifact(version_id)["artifact"] == artifact
     assert service.version(version_id)["runtime_digest"] == before["runtime_digest"]
-    assert workspace.assets.attributed_costs(completed["output_asset_ids"])["quantities"]["evaluation_requests"]["total"] == 43
+    assert workspace.assets.attributed_costs(completed["output_asset_ids"])["quantities"]["evaluation_requests"]["known"] == 43
     assert workspace.assets.actual_costs(owner)["quantities"]["evaluation_requests"]["total"] == 23
     assert len(service.store.list("implementation_job")) == 1
     # A later local conversion cannot silently replace a frozen legacy binding.

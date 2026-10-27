@@ -12,7 +12,7 @@ from optimization_framework.contracts.templates import TemplateFreezeInput, Exec
 from optimization_framework.contracts.references import ReferenceImportInput
 from optimization_framework.contracts.bundles import BundleExportInput, BundleInspectInput, BundlePublishInput
 from optimization_framework.contracts.commands import EvaluatorCommissionInput, EvaluatorAttachInput, ImplementationControlInput, WaiverRevocationInput, RevalidationInput, ExecutableReuseInput, RuntimeResolutionInput
-from optimization_framework.contracts.commands import CampaignUpdateInput, ContextEditInput, IssueResolveInput, TrialControlInput, TrialValidationInput
+from optimization_framework.contracts.commands import CampaignUpdateInput, ContextEditInput, ProblemAdoptionInput, IssueResolveInput, TrialControlInput, TrialValidationInput
 from optimization_framework.contracts.commands import TrialExtensionRequestInput, JournalCompactInput, JournalCompactionRequestInput
 from optimization_framework.contracts.commands import ApprovalRequestInput, WorkerCeilingInput
 from optimization_framework.contracts.commands import HypothesisReviewInput, HypothesisStatusInput, HypothesisNominateInput
@@ -28,7 +28,7 @@ DELEGATED = {"trial.create", "draft.save", "draft.launch", "reproduction.draft",
              "implementation.commission", "implementation.attach", "evaluator.commission", "evaluator.attach", "implementation.control", "implementation.revalidate", "implementation.reuse", "implementation.resolve_runtime", "literature.search", "source.ingest", "confirmation.schedule", "confirmation.validate", "confirmation.release", "asset.import_reference_set"}
 
 
-DELEGATED.update({"fixed_mask.run", "hypothesis.create", "hypothesis.review", "hypothesis.status",
+DELEGATED.update({"hypothesis.create", "hypothesis.review", "hypothesis.status",
                   "trial.control", "study.create", "study.activate", "implementation.bind_builtin"})
 DELEGATED.update({"study.race.control", "study.race.decide"})
 DELEGATED.add("asset.snapshot")
@@ -47,8 +47,11 @@ DELEGATED.update({"resources.plan", "resources.estimate"})
 # The lead works the evolution graph on request (docs/ui-workspace.md): allocations, batched interventions, new rounds, library reuse.
 DELEGATED.update({"hypothesis.allocate", "intervention.batch", "research.generate", "library.apply"})
 # Balsamic's own system actor (decision 6) runs only these, each citing what it acts under: binding a proposal to a method an
-# install delivered (B4). Its receipts name it as their origin.
-SYSTEM_OPERATIONS = frozenset({"implementation.bind_builtin"})
+# install delivered (B4), starting a run an approved plan lists, under that consent (B5), and adopting the problem an install
+# provides for tasks nothing ran yet (E5). Its receipts name it as their origin.
+SYSTEM_OPERATIONS = frozenset({"implementation.bind_builtin", "trial.create", "campaign.adopt_problem"})
+# The lead may have the campaign's tasks adopt an installed library's problem (roadmap E4): it starts no compute.
+DELEGATED.add("campaign.adopt_problem")
 
 
 class CommandService:
@@ -58,23 +61,31 @@ class CommandService:
         # Operations the service layer adds (threads, notes, interventions, autopilot, library): handler(command, actor) -> outcome.
         self.handlers, self.models = {}, {}
         self.delegated = set(DELEGATED)
+        # Operations registered by a problem pack: operation -> the pack's package.
+        self.packed = {}
         # Called with the receipt after a command completes (outside the transaction): lab events, placeholders.
         self.listeners = []
-        # Checked before an agent's command runs: guard(command, actor, campaign) raises to refuse (autopilot's cap).
+        # Checked before an agent's command runs: guard(command, actor, campaign) raises to refuse (the go-ahead, the request's mandate).
         self.guards = []
         # Nothing that computes longer than the researcher's go-ahead threshold starts from an agent without their go-ahead.
         from .compute_consent import register as register_compute_consent
         register_compute_consent(self)
+        # A request with no mandate has Explore, recorded at its first work-starting command, and charged (campaigns/mandates.py).
+        from .mandates import register as register_mandates
+        register_mandates(self)
         # Set by the service layer: thread_revision(command) -> the current revision of the command's origin thread.
         self.thread_revision = None
 
-    def register(self, operation, handler, *, model=None, delegable=False):
-        """Add an operation to the bus. Its name must be a declared Operation (contracts/commands.py)."""
+    def register(self, operation, handler, *, model=None, delegable=False, pack=None):
+        """Add an operation to the bus. Its name must be a declared Operation (contracts/commands.py). An operation a problem
+        pack registers names the pack's package, and runs only in campaigns that have that pack (roadmap N4)."""
         from typing import get_args
         from optimization_framework.contracts.commands import Operation
         if operation not in get_args(Operation):
             raise ValueError(f"{operation} is not a declared command operation")
         self.handlers[operation] = handler
+        if pack is not None:
+            self.packed[operation] = pack
         if model is not None:
             self.models[operation] = model
         if delegable:
@@ -144,13 +155,12 @@ class CommandService:
         from .experiment_rules import ExperimentRulesInput, TrialHideInput
         from optimization_framework.execution.admission import ResourcePlanInput, UsageEstimateInput
         from optimization_framework.agents.models import Activate, Configure, Message, Control, QuestionDismiss, Rollback, UiRespond
-        from optimization_framework.agents.diagnostics import FixedMaskInput
         from optimization_framework.implementations.references import ReferenceInput
         from optimization_framework.implementations.builtin import BuiltinBindingInput
         models = {"agent.activate": Activate, "agent.message": Message, "agent.control": Control, "agent.rollback": Rollback,
             "agent.configure": Configure, "agent.question_dismiss": QuestionDismiss, "agent.ui_respond": UiRespond,
-            "fixed_mask.run": FixedMaskInput, "comparison.report": ComparisonReportInput, "campaign.create": CampaignInput, "campaign.update": CampaignUpdateInput,
-            "context.edit": ContextEditInput, "issue.resolve": IssueResolveInput,
+            "comparison.report": ComparisonReportInput, "campaign.create": CampaignInput, "campaign.update": CampaignUpdateInput,
+            "campaign.adopt_problem": ProblemAdoptionInput, "context.edit": ContextEditInput, "issue.resolve": IssueResolveInput,
             "hypothesis.create": HypothesisInput, "hypothesis.review": HypothesisReviewInput,
             "hypothesis.status": HypothesisStatusInput, "hypothesis.nominate": HypothesisNominateInput,
             "trial.create": TrialInput, "trial.control": TrialControlInput, "trial.extension_request": TrialExtensionRequestInput, "trial.validate": TrialValidationInput, "inference.run": InferenceRunInput,
@@ -184,8 +194,15 @@ class CommandService:
             "confirmation.validate": ConfirmationScheduleInput}
         return {**models, **self.models}
 
+    def packages(self, campaign_id):
+        """The packages of the campaign's problem packs; their hooks have registered its operations when this returns."""
+        packs = getattr(self.workspace, "packs", None)
+        return packs.packages(campaign_id) if packs is not None else set()
+
     def execute(self, command, *, actor="researcher", ignored_fields=()):
         command = command if isinstance(command, Command) else Command(**command)
+        if command.operation not in self.handlers and command.operation not in self.payload_models():
+            self.packages(command.campaign_id)   # an operation of the campaign's packs is registered before it is checked
         try:
             prepared = None
             if command.operation == "hypothesis.create" and command.payload.get("implementation_version_id"):
@@ -196,7 +213,7 @@ class CommandService:
                     # Fetch and verify the artifact before opening the command's
                     # transaction. Accepted replay requires no library access.
                     prepared = self.workspace.implementations.prepare(values.implementation_version_id, None, values.algorithm_config)
-            if command.operation in {"implementation.commission", "evaluator.commission", "implementation.revalidate", "implementation.reuse", "implementation.resolve_runtime", "implementation.attach", "evaluator.attach"}:
+            if command.operation in {"implementation.revalidate", "implementation.reuse", "implementation.resolve_runtime", "implementation.attach", "evaluator.attach"}:
                 try:
                     self.store.get(command.id, "work_command")
                 except KeyError:
@@ -230,9 +247,16 @@ class CommandService:
         for key in ("origin", "expected_thread_revision"):
             if request.get(key) is None:
                 request.pop(key, None)
+        for key in ("consent_id", "mandate_id"):
+            if request.get("origin") and request["origin"].get(key) is None:
+                request["origin"].pop(key)
         request_hash = content_hash({"command": request, "actor": actor})
-        # A receipt hashed with those fields present but unset (written between the two conventions) still matches.
+        # A receipt hashed with those fields present but unset (written between the two conventions) still matches, with or
+        # without the origin's mandate_id (R3), which came after them.
         full_hash = content_hash({"command": command.model_dump(mode="json"), "actor": actor})
+        hashes = {request_hash, full_hash}
+        if command.origin is not None and command.origin.mandate_id is None:
+            hashes.add(content_hash({"command": command.model_dump(mode="json", exclude={"origin": {"mandate_id"}}), "actor": actor}))
         with self.workspace.lock:
             with self.store.transaction():
                 try:
@@ -240,7 +264,7 @@ class CommandService:
                 except KeyError:
                     previous = None
                 if previous:
-                    if previous["request_hash"] not in {request_hash, full_hash}:
+                    if previous["request_hash"] not in hashes:
                         raise ValueError("Command identity already belongs to a different request or authority")
                     return previous
                 if command.operation == "campaign.create":
@@ -262,6 +286,9 @@ class CommandService:
                     authority = self.authority_hash(campaign)
                     if command.expected_authority_hash is not None and command.expected_authority_hash != authority:
                         raise ValueError("The command's resource grant changed")
+                if actor == "balsamic":
+                    for guard in self.guards:
+                        guard(command, actor, campaign)
                 if actor in {"manager", "autopilot"}:
                     if command.expected_guidance_revision is None or command.expected_authority_hash is None:
                         raise ValueError("Manager commands must pin guidance and delegated authority")
@@ -291,7 +318,8 @@ class CommandService:
                 outcome = self._apply(command, actor, prepared=prepared) if prepared is not None else self._apply(command, actor)
                 record = {"id": command.id, "campaign_id": command.campaign_id, "request_hash": request_hash,
                     "request": command.model_dump(mode="json"), "actor": actor, "authority_hash": authority,
-                    "origin": command.origin.model_dump(mode="json") if command.origin else None,
+                    "origin": command.origin.model_dump(mode="json", exclude={key for key in ("consent_id", "mandate_id") if getattr(command.origin, key) is None})
+                              if command.origin else None,
                     "status": "completed", "outcome": outcome, "created_at": now(), "finished_at": now(),
                     # The payload's unknown top-level keys an agent sent, dropped before it ran (decision 5).
                     **({"ignored_fields": list(ignored_fields)} if ignored_fields else {})}
@@ -341,6 +369,9 @@ class CommandService:
         payload = dict(command.payload)
         if payload.get("campaign_id", command.campaign_id) != command.campaign_id:
             raise ValueError("Command payload refers to another campaign")
+        if command.operation in self.packed and self.packed[command.operation] not in self.packages(command.campaign_id):
+            raise ValueError(f"{command.operation} comes with the problem pack {self.packed[command.operation]}, and none of this "
+                             "campaign's problems declares it")
         if command.operation in self.handlers:
             return self.handlers[command.operation](command, actor)
         if command.operation == "agent.activate":
@@ -357,9 +388,6 @@ class CommandService:
             return self.workspace.pi.dismiss_question(command.campaign_id, payload)
         if command.operation == "agent.ui_respond":
             return self.workspace.pi.ui_respond(command.campaign_id, payload)
-        if command.operation == "fixed_mask.run":
-            from optimization_framework.agents.diagnostics import reserve
-            return reserve(self.workspace, command.campaign_id, payload, command.id)
         if command.operation in {"hypothesis.create", "hypothesis.review", "hypothesis.status", "hypothesis.nominate"}:
             from optimization_framework.campaigns import hypotheses
             if command.operation == "hypothesis.create":
@@ -508,6 +536,9 @@ class CommandService:
             self._target(command, "draft_id", "experiment_draft")
             launched = self.workspace.drafts.launch(command.campaign_id, DraftLaunchInput(**payload), authority=actor)
             return {"draft_id": launched["draft_id"], "trial_id": launched["trial_id"]}
+        if command.operation == "campaign.adopt_problem":
+            values = ProblemAdoptionInput(**payload)
+            return self.workspace.adopt_library_problem(command.campaign_id, values.install_id, authority=actor)
         if command.operation == "implementation.bind_builtin":
             from optimization_framework.implementations.builtin import bind
             return bind(self.workspace, command.campaign_id, payload, command.id, actor=actor)
@@ -515,12 +546,11 @@ class CommandService:
             self._target(command, "hypothesis_id", "hypothesis")
             from optimization_framework.implementations.references import capture
             return capture(self.workspace, command.campaign_id, payload, command.id)
-        if command.operation == "implementation.commission":
-            self._target(command, "hypothesis_id", "hypothesis")
-            values = CommissionInput(**payload).model_dump(exclude={"schema_version"})
-            service_key = values.pop("service_idempotency_key") or command.id
-            grant = self.workspace.implementations.reserve_commission(**values, idempotency_key=service_key)
-            return {"grant_id": grant["id"]}
+        if command.operation in {"implementation.commission", "evaluator.commission"}:
+            # A headless coding box on a ticket (roadmap H7), the one route that builds code (H8), or the refusal saying why not.
+            self._target(command, "hypothesis_id" if command.operation == "implementation.commission" else "task_id",
+                         "hypothesis" if command.operation == "implementation.commission" else "task")
+            return self.workspace.implementations.commission(command, actor)
         if command.operation == "implementation.revalidate":
             values = RevalidationInput(**payload).model_dump(mode="json", exclude={"schema_version"})
             grant = self.workspace.implementations.reserve_revalidation(command.campaign_id, **values, idempotency_key=command.id)
@@ -552,11 +582,6 @@ class CommandService:
                 "status": "pending", "created_at": now()}
             self.store.put("outbox", effect, "effect.queued")
             return {"effect_id": effect["id"], "reuse_decision_id": effect["identity"], "version_id": values["version_id"]}
-        if command.operation == "evaluator.commission":
-            self._target(command, "task_id", "task")
-            values = EvaluatorCommissionInput(**payload).model_dump(exclude={"schema_version"})
-            grant = self.workspace.implementations.reserve_commission(hypothesis_id=None, **values, idempotency_key=command.id)
-            return {"grant_id": grant["id"]}
         if command.operation in {"evaluator.attach", "implementation.control"}:
             model = EvaluatorAttachInput if command.operation == "evaluator.attach" else ImplementationControlInput
             target, kind = ("task_id", "task") if command.operation == "evaluator.attach" else ("grant_id", "implementation_grant")
@@ -716,12 +741,12 @@ class CommandService:
             values = ApprovalRequestInput(**payload)
             campaign = self.store.get(command.campaign_id, "campaign")
             asker = "The lead agent" if self.workspace.pi.owns(command.campaign_id) else "The campaign manager"
-            request, planned, root = {"kind": values.kind}, None, None
+            request, planned, root, options = {"kind": values.kind}, None, None, None
             if values.kind == "campaign_limits":
                 CampaignUpdate(**values.limits)
                 ceiling, asked = campaign.get("implementation_compute_budget_seconds") or 0, values.limits.get("implementation_compute_budget_seconds")
                 if asked is not None and asked != ceiling and not 0 < asked < ceiling:
-                    raise ValueError("Ask for a compute go-ahead (kind compute) instead; the implementation allocation is only an optional ceiling")
+                    raise ValueError("Propose a mandate with mandate_propose instead; the implementation allocation is only an optional ceiling")
                 changes = {key: value for key, value in values.limits.items() if campaign.get(key) != value}
                 if not changes:
                     raise ValueError("The campaign already has these limits")
@@ -740,9 +765,11 @@ class CommandService:
                 proposal = (f"{asker} asks you to waive a check that now blocks work. " +
                     (f"Its last result: {results[-1]['verdict']}. {results[-1].get('rationale', '')} " if results else "It has no result yet. ") +
                     "A waiver is yours alone, is recorded with this reason, and can be revoked.")
-            elif values.kind == "compute":
+            elif values.kind in {"compute", "mandate"}:
                 from .compute_consent import _minutes
-                request.update(plan=values.plan, wall_seconds=values.wall_seconds, worker_seconds=values.worker_seconds,
+                # A mandate's card says how long until results: its own estimate, else its deadline, else its worker time.
+                wall = values.wall_seconds or (values.deadline_minutes * 60 if values.deadline_minutes else values.worker_seconds)
+                request.update(plan=values.plan, wall_seconds=wall, worker_seconds=values.worker_seconds,
                                coding_workspaces=values.coding_workspaces, meanwhile=values.meanwhile)
                 named = list(dict.fromkeys([*values.hypothesis_ids, *(run.hypothesis_id for run in values.runs if run.hypothesis_id)]))
                 for identity in named:
@@ -754,16 +781,34 @@ class CommandService:
                         raise ValueError(f"Proposal {identity} belongs to another campaign")
                 if values.hypothesis_ids:
                     request["hypothesis_ids"] = list(dict.fromkeys(values.hypothesis_ids))
+                if values.egress_hosts:
+                    request["egress_hosts"] = sorted(set(values.egress_hosts))
                 if values.runs:
                     # The experiments' plan, from the records: what the researcher reads before approving.
                     from .experiment_plan import plan as experiment_plan
                     request["runs"] = [run.model_dump(exclude_none=True, exclude={"schema_version"}) for run in values.runs]
                     planned = experiment_plan(self.workspace, command.campaign_id, request["runs"])
                 coding = f" and opens {values.coding_workspaces} coding workspace{'s' if values.coding_workspaces > 1 else ''}" if values.coding_workspaces else ""
-                title, approve = f"Start this work now? About {_minutes(values.wall_seconds)} until results", "Start now"
-                proposal = (f"{asker} asks to start: {values.plan}\nIt takes about {_minutes(values.wall_seconds)} until results and uses up to "
-                    f"{_minutes(values.worker_seconds)} of worker time{coding}.\nMeanwhile: {values.meanwhile}" +
-                    (f"\nIt covers only the work for {', '.join(named)}." if named else ""))
+                # The hosts beyond their model and the package index its coding workspaces may reach (H5): approved with it.
+                reach = (f"\nIts coding workspaces may also reach {', '.join(request['egress_hosts'])}, beyond their model and the package index."
+                         if values.egress_hosts else "")
+                if values.kind == "mandate":
+                    from .mandates import LABELS, OPTIONS as options
+                    request.update(template=values.template, model_usd=values.model_usd, deadline_minutes=values.deadline_minutes,
+                                   stop_when=values.stop_when.model_dump(exclude={"schema_version"}) if values.stop_when else None)
+                    label = LABELS[values.template]
+                    title, approve = f"Approve a {label} mandate for this request? About {_minutes(wall)} until results", "Approve"
+                    proposal = (f"{asker} proposes a {label} mandate for this request: {values.plan}\nEnvelope: up to {_minutes(values.worker_seconds)} "
+                        f"of worker time{coding}" + (f" and ${values.model_usd:g} of model spend" if values.model_usd is not None else "") + ". "
+                        + (f"Deadline: {_minutes(values.deadline_minutes * 60)} after you approve. " if values.deadline_minutes else "No deadline. ")
+                        + (f"It stops when: {values.stop_when.text}" if values.stop_when else "")
+                        + (f"\nMeanwhile: {values.meanwhile}" if values.meanwhile else "")
+                        + (f"\nIt covers only the work for {', '.join(named)}." if named else "") + reach)
+                else:
+                    title, approve = f"Start this work now? About {_minutes(values.wall_seconds)} until results", "Start now"
+                    proposal = (f"{asker} asks to start: {values.plan}\nIt takes about {_minutes(values.wall_seconds)} until results and uses up to "
+                        f"{_minutes(values.worker_seconds)} of worker time{coding}.\nMeanwhile: {values.meanwhile}" +
+                        (f"\nIt covers only the work for {', '.join(named)}." if named else "") + reach)
                 from .compute_consent import request_root
                 root = request_root(self.workspace, command.origin)
             else:
@@ -780,7 +825,8 @@ class CommandService:
             decision = {"id": "approval_" + command.id, "campaign_id": command.campaign_id, "charter_version": campaign["version"],
                 "guidance_revision": self.workspace.memory.state(command.campaign_id)["guidance_revision"],
                 "question": title, "title": title, "rationale": values.rationale, "context": values.rationale, "proposal": proposal,
-                "options": [{"id": "0", "label": approve, "description": "The requester starts it at once." if values.kind == "compute" else "Applied at once as your own command."},
+                "options": options or
+                           [{"id": "0", "label": approve, "description": "The requester starts it at once; Balsamic starts each listed run once its proposal can run." if values.kind == "compute" else "Applied at once as your own command."},
                             {"id": "1", "label": "Not now" if values.kind == "compute" else "Leave it as it is", "description": "The requester is told and nothing changes."}],
                 "recommendation": "0", "approval_request": request,
                 "requested_by": "lead" if self.workspace.pi.owns(command.campaign_id) else "manager", "audience": "researcher",

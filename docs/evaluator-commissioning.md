@@ -2,8 +2,12 @@
 
 The workspace can retain a problem declaration before its evaluator exists. A
 saved experiment draft keeps that requirement alongside any missing optimizer.
-The implementation service builds or imports each executable separately and
-checks it before the workspace can bind an exact version.
+Since roadmap H8 code is built in one place, a coding workspace: a commission
+(`implementation.commission`, `evaluator.commission`) opens one headless, and what
+it delivers is validated outside the box and installed as a library
+([implementation service](implementation-service.md)). The implementation library
+checks a package supplied to its own API against the frozen checks and publishes
+it as a version the workspace can attach.
 
 This workflow is part of the ongoing [consolidation](history/architecture-consolidation-plan.md#12-further-development-from-the-current-branch).
 Default commissioning requires independent numerical fixtures for generated
@@ -24,14 +28,16 @@ acceptance and the complete product release remain separate gates.
 2. Assign an implementation compute cap. Save an experiment draft from an idea
    even while its optimizer or evaluator is missing. Readiness lists the missing
    requirements; saving the design does not allocate numerical work.
-3. In the problem workbench, choose **Build or reuse evaluator**. Supply the
-   intended computation, acceptance criteria, exact dependencies, independent
-   reference candidates/values and their basis. Source can be supplied as a
-   package, or the configured model can construct a candidate. The model build
-   and isolated candidate process do not receive the protected reference answers.
-4. A successful commission binds the published evaluator to its original
-   requirement. An existing library version can also be attached with a reuse
-   rationale. The manifest must match; a binding cannot be replaced in place.
+3. Commission the evaluator (`evaluator.commission`) when the campaign's charter
+   declares the problem: supply the intended computation, acceptance criteria,
+   exact dependencies, independent reference candidates/values and their basis.
+   The coding box sees the specification without the reference answers, which
+   become a protected test run outside the box. For a task no charter declares,
+   attach a validated evaluator version instead; a package you already have is
+   delivered from your own coding agent or checked by the library's own API.
+4. The task adopts the problem the installed library provides. An existing
+   library version can also be attached with a reuse rationale. The manifest must
+   match; a binding cannot be replaced in place.
 5. Request the optimizer implementation from its idea. Select the validation
    problem, supported dimension range, capabilities, parameters and optional
    independent behavioral checks. For a commissioned problem, the request pins
@@ -233,8 +239,9 @@ operations inside candidate code.
 
 The browser and manager submit `POST /api/v1/commands` with a stable command ID,
 campaign ID and expected campaign revision. Commissioning operations are
-`implementation.commission`, `evaluator.commission`, `implementation.attach`,
-`evaluator.attach` and `implementation.control`. Draft operations are
+`implementation.commission`, `evaluator.commission` (each opens a coding box, or is
+refused with what to do instead), `implementation.attach`, `evaluator.attach` and
+`implementation.control` (for grants recorded before roadmap H8). Draft operations are
 `draft.save` and `draft.launch`. `study.create` freezes the waiver policy;
 `validation.waive` and `validation.revoke_waiver` record separate decisions.
 The server checks authority and scope and records
@@ -249,9 +256,11 @@ Already running work retains its captured code and produces a manager issue.
 ## Isolated supplied-code qualification
 
 `scripts/serve_commissioning_fixture.py` starts either side of the actual HTTP
-connection with a mocked semantic reviewer. Its builder rejects requests without
-supplied code. It never contacts a model provider. Run the two roles in separate
-terminals, using the same disposable evidence directory:
+connection. The library checks and publishes supplied packages only (it calls no
+model since roadmap H8), and a workspace's commission opens a coding box, which
+this fixture does not run: import packages through the library's `POST /v1/jobs` and
+attach them. Run the two roles in separate terminals, using the same disposable
+evidence directory:
 
 ```bash
 .venv/bin/python scripts/serve_commissioning_fixture.py library \
@@ -261,9 +270,5 @@ terminals, using the same disposable evidence directory:
   --library-url http://127.0.0.1:8768
 ```
 
-Build the frontend, then run `frontend/tests/commissioning.spec.ts` with
-`COMMISSIONING_TEST_URL=http://127.0.0.1:8769`. The scenario declares the problem,
-keeps a missing-code draft, commissions both supplied packages, revises only the
-budget and launches the original draft. It writes the evidence record and two
-screenshots to the test output directory. Real-model qualification remains a
-separate release gate.
+The browser scenario that commissioned both supplied packages through the
+workspace is not in the repository; a commission no longer imports a package.

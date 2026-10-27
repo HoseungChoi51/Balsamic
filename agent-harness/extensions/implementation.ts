@@ -1,5 +1,8 @@
 /** One native Pi TUI owns this implementation session. The host only exchanges
- * immutable command and event files across the workspace boundary. */
+ * immutable command and event files across the workspace boundary. Other harnesses write the same events with
+ * balsamic-workspace (deploy/implementation-workspace/balsamic-workspace.mjs); keep the two in step
+ * (agent-harness/test/workspace-cli.test.mjs). Headless, the harness adapter (harness.mjs beside it) maps Pi's events as
+ * this file does (agent-harness/test/harness.test.mjs). */
 import {StringEnum, Type} from '@earendil-works/pi-ai';
 import {defineTool, type ExtensionAPI} from '@earendil-works/pi-coding-agent';
 import fs from 'node:fs';
@@ -96,7 +99,7 @@ const Report = Type.Object({
     tests: Type.Optional(Tests()),
     conformance: StringEnum(['passed', 'failed', 'not_run'], {description: "Balsamic's contract check (tests/test_contract.py)"}),
     note: Type.Optional(Type.String({maxLength: 1000})),
-  }), {minItems: 1, maxItems: 30}),
+  }), {maxItems: 30, description: 'Each method the library registers; none only when it provides an evaluator alone'}),
   tests: Type.Object({...Tests().properties, command: Type.Optional(Type.String({maxLength: 1000, description: 'The command that ran them'}))}),
   limitations: Type.Array(Type.String({maxLength: 1000}), {maxItems: 30}),
   next_actions: Type.Array(Type.Object({owner: StringEnum(['researcher', 'lead', 'validator']), action: Type.String({minLength: 1, maxLength: 1000})}),
@@ -134,6 +137,9 @@ const submit = defineTool({
 export default function(pi: ExtensionAPI) {
   pi.registerTool(checkpoint);
   pi.registerTool(submit);
+  // Headless (roadmap H2): the harness adapter delivers the host's commands and maps Pi's JSON stream to these same events
+  // (deploy/implementation-workspace/harness.mjs), so the extension gives only its tools.
+  if (process.env.BALSAMIC_HARNESS_MODE === 'headless') return;
   pi.registerCommand('campaign-status', {
     description: 'Show campaign bridge state and latest command receipt',
     handler: async (_args, ctx) => {
