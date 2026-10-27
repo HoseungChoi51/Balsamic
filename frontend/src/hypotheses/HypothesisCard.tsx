@@ -1,7 +1,7 @@
 /** One strategy: the card with its lineage, reviews, runs, race cell, implementation and provenance; Open in graph, Trace origin, Discuss. */
 import { useState } from 'react';
 import { useRead } from '../api/queries';
-import type { HypothesisCard as Card } from '../api/evolution';
+import { FAMILY, type HypothesisCard as Card } from '../api/evolution';
 import { Failed, Kv, Loading, Pill, Section, duration, num, statusTone, when } from '../primitives/ui';
 import { Markdown } from '../chat/render/Markdown';
 import { Curve } from '../primitives/charts';
@@ -27,7 +27,7 @@ export function HypothesisCard({ id, thread, back, onDiscuss }: { id: string; th
         {onDiscuss ? <button className="btn small" onClick={() => onDiscuss(id, title)} data-testid="discuss">Discuss in a branch</button> : null}
       </div>
       {row?.stop ? <p className="pill attention">{row.stop.label[0].toUpperCase() + row.stop.label.slice(1)}{row.stop_reason ? `: ${row.stop_reason}` : ''}{row.stop.evidence_ids.length ? ` (evidence: ${row.stop.evidence_ids.join(', ')})` : ''}</p> : null}
-      <Kv rows={[['Algorithm', String(h.algorithm || 'none yet')], ['Origin', `${String(h.origin || 'unknown')}${row?.actor ? ` (${row.actor})` : ''}`], ['Round', row?.round ?? 'unassigned'],
+      <Kv rows={[['Family', h.family ? FAMILY[String(h.family)] || String(h.family) : 'not stated'], ['Algorithm', h.algorithm === 'unchosen' ? 'none chosen yet: it cannot run until one is' : String(h.algorithm || 'none yet')], ['Origin', `${String(h.origin || 'unknown')}${row?.actor ? ` (${row.actor})` : ''}`], ['Round', row?.round ?? 'unassigned'],
         ['Parents', parents.length ? parents.map(p => <a key={p.id} href={formatHash({ page: 'hypotheses', id: p.id, sel: p.id }, thread)}>{p.title} </a>) : 'root'],
         ['Children', children.length ? children.map(c => <a key={c.id} href={formatHash({ page: 'hypotheses', id: c.id, sel: c.id }, thread)}>{c.title} </a>) : 'none'],
         ['Best (measured)', row ? num(row.best.score, 5) : 'unknown'], ['Worker time', row ? <>{duration(row.worker_seconds)} of {duration(row.allotted_seconds)}</> : 'unknown'],

@@ -151,7 +151,7 @@ def rows(workspace, campaign_id, *, with_curves=False):
         row = {"id": hypothesis["id"], "label": aliases.get(hypothesis["id"]), "title": hypothesis["title"], "short_title": hypothesis.get("short_title"), "status": hypothesis.get("status", "proposed"),
                "origin": hypothesis.get("origin"), "actor": origin.get("actor"), "autonomous": origin.get("actor") == "autopilot", "round": hypothesis.get("round"),
                "parent_links": hypothesis.get("parent_links") or [{"id": p, "kind": "revision"} for p in hypothesis.get("parent_ids") or []],
-               "algorithm": hypothesis.get("algorithm"), "worker_seconds": sum(float(t.get("execution_seconds") or 0) for t in own),
+               "family": hypothesis.get("family"), "algorithm": hypothesis.get("algorithm"), "worker_seconds": sum(float(t.get("execution_seconds") or 0) for t in own),
                "allotted_seconds": sum(float(t.get("wall_seconds") or 0) for t in own),
                "evaluations": sum(int(((t.get("result") or t.get("progress") or {}).get("evaluations") or 0)) for t in own) or None,
                "best": {"score": best, "basis": "measured" if best is not None else None, "source": basis, "trial_id": best_trial["id"] if best_trial else None, "interval": None,
