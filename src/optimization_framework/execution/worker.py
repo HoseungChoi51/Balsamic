@@ -260,7 +260,7 @@ class ExperimentWorker:
                 raise ValueError("Pinned implementation changed after this experiment was queued")
             def factory(descriptor, parameters, seed, assets):
                 return PackageOptimizer(package_dir, bundle_runtime_root(bundle, package_dir.parent), artifact["runtime"], artifact["package"]["entrypoint"],
-                    {"n_cells": self.problem.candidate_schema.dimensions, "seed": seed, "parameters": parameters,
+                    {"dimensions": self.problem.candidate_schema.dimensions, "n_cells": self.problem.candidate_schema.dimensions, "seed": seed, "parameters": parameters,
                      "schedule_steps": self.spec["schedule_steps"], "problem": descriptor, "capabilities": self.problem.capabilities,
                      "declared_assets": self.spec.get("declared_assets", [])},
                     assets_dir=self.directory / "inputs" if self.spec.get("declared_assets") else None,
