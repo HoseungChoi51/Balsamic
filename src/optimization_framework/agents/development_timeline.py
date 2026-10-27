@@ -123,6 +123,10 @@ def entries(store, record):
         elif kind == "budget_warning":
             found.append(entry(at, "budget", f"CPU allowance nearly used: {payload.get('used', 0):.0f} of {payload.get('budget', 0):.0f} s",
                                "The coding agent was asked to save a checkpoint.", "warn"))
+        elif kind == "deadline_reached":
+            found.append(entry(at, "budget", "Deadline reached: paused",
+                               "The workspace and its session are saved; going on is a new go-ahead. Its last state: "
+                               + (payload.get("checkpoint") or payload.get("activity") or "none recorded"), "bad"))
         elif kind == "budget_reached":
             found.append(entry(at, "budget", f"CPU allowance used up ({payload.get('budget', 0):.0f} s): paused",
                                "The workspace and its session are saved; resuming needs a larger allowance.", "bad"))
