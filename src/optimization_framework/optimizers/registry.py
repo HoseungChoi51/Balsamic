@@ -12,11 +12,13 @@ from . import plugins
 
 BUILTINS = [
     {"id": "random", "name": "Uniform random", "description": "Independent feasible samples; reference baseline.", "representations": ["binary", "discrete", "continuous", "permutation"], "constraints": True, "parameters": {}},
+    {"id": "swap_search", "name": "Swap search", "description": "Swap and insertion moves on an order, first improvement, random restarts after a plateau.",
+     "representations": ["permutation"], "constraints": False, "parameters": {}},
     {"id": "coordinate", "name": "Coordinate search", "description": "Bounded coordinate improvement with global restarts.", "representations": ["continuous"], "constraints": True, "parameters": {"radius": .2}},
     {"id": "evaluate_asset", "name": "Evaluate a reference solution", "description": "One evaluation of an explicitly declared solution asset; no search move.",
-     "representations": ["binary", "discrete", "continuous"], "constraints": True, "parameters": {}, "purpose": "reference_evaluation"},
+     "representations": ["binary", "discrete", "continuous", "permutation"], "constraints": True, "parameters": {}, "purpose": "reference_evaluation"},
     {"id": "replay", "name": "Evaluate listed candidates", "description": "One evaluation of each listed candidate, in order; no search move.",
-     "representations": ["binary", "discrete", "continuous"], "constraints": True, "parameters": {}, "purpose": "reference_evaluation"},
+     "representations": ["binary", "discrete", "continuous", "permutation"], "constraints": True, "parameters": {}, "purpose": "reference_evaluation"},
     {"id": "artifact_inference", "name": "Declared artifact inference", "description": "Evaluate a versioned artifact with its registered inference adapter.",
      "representations": ["binary", "discrete", "continuous"], "constraints": True, "parameters": {}, "purpose": "artifact_inference"},
     *[{"id": name, "name": title, "description": description, "representations": ["binary"], "constraints": False, "parameters": {}} for name, title, description in (
@@ -38,6 +40,7 @@ PROPERTIES = {
     **FOURIER_PROPERTIES,
     "artifact_inference": {"adapter_id": {"type": "string"}, "parameters": {"type": "object"}},
     "random": {}, "evaluate_asset": {}, "replay": {"candidates": {"type": "array", "description": "Candidates in this instance's declared schema"}},
+    "swap_search": {"restarts_after": {**INTEGER, "description": "Evaluations without improving the current order before a random restart; default a whole neighbourhood"}},
     "coordinate": {"radius": {**POSITIVE, "maximum": 1, "default": .2}},
     "hillclimb": {"restart_patience": INTEGER, "neighborhood": {"type": "string", "enum": ["permuted", "random"]},
         "accept_equal": {"type": "boolean"}, "initialization": {"type": "string", "enum": ["random", "ones"]}},
@@ -64,7 +67,7 @@ def _declare(method, properties, completion_units):
 for method in BUILTINS:
     name = method["id"]
     properties = dict(TypeAdapter(TrainConfig).json_schema()["properties"]) if name == "dqn" else dict(PROPERTIES[name])
-    if name not in FOURIER_PROPERTIES and name not in {"coordinate", "frozen_policy", "evaluate_asset", "artifact_inference", "replay"}:
+    if name not in FOURIER_PROPERTIES and name not in {"coordinate", "frozen_policy", "evaluate_asset", "artifact_inference", "replay", "swap_search"}:
         properties["initial_design"] = {"type": "array", "description": "A candidate in this instance's declared schema"}
     _declare(method, properties, ["evaluation_requests", "optimizer_decisions"]
         if name in {"dqn", "frozen_policy", "coordinate", "flrl_autograd_adam"} else ["evaluation_requests"])
@@ -228,6 +231,9 @@ def create(name, instance, parameters, seed, schedule_steps, training=None, asse
             config = bind_inputs(name, instance, config, declared_assets)
             policy = next(item for item in declared_assets if item["kind"] == "policy")
             return FrozenPolicy(instance, config, seed, policy, artifact_store)
+        if name == "swap_search":
+            from .swap_search import SwapSearch
+            return SwapSearch(schema.dimensions, seed, config)
         if name == "coordinate" or schema.representation != "binary" or schema.constraints:
             return BoundedSearch(schema, config, seed, coordinate=name == "coordinate")
         from .binary import make_optimizer

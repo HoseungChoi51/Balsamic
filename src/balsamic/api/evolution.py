@@ -32,8 +32,9 @@ def install(app, workspace):
                 "stage": campaign_stage(workspace, campaign), "interventions": workspace.store.list("intervention", campaign_id)[-20:]}
         if progress:
             live = workspace.store.list_trials_in_status({"queued", "running", "pausing", "stopping"}, campaign_id)
-            best = max((row["best"]["score"] for row in rows if row["best"]["score"] is not None), default=None)
-            body["progress"] = {"best_so_far": best, "live_trials": [{"id": t["id"], "hypothesis_id": t.get("hypothesis_id"), "status": t["status"]} for t in live],
+            # The best under the campaign's direction; none when its strategies disagree on direction.
+            best, direction = ledger.best_of((row["best"]["score"], row["best"]["direction"], row) for row in rows)
+            body["progress"] = {"best_so_far": best[0] if best else None, "direction": direction, "live_trials": [{"id": t["id"], "hypothesis_id": t.get("hypothesis_id"), "status": t["status"]} for t in live],
                                 "finalist_rungs": [{"id": row["id"], "rung": row["highest_rung_seconds"]} for row in rows if row["finalist"]]}
         return _no_store(body)
 

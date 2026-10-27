@@ -260,7 +260,7 @@ class LLMAdapter:
                   "Consolidate related proposed work into coherent typed actions instead of producing repetitive approval requests. "
                   "When useful, propose concise memory_updates citing supplied record IDs. Label interpretations, preserve counterevidence, and never rewrite measurements. "
                   "An implement action commissions the independent implementation service, never proposal evolution. "
-                  "For reuse provide an available implementation_version_id. For building provide implementation_spec (name, mechanism, acceptance_criteria, capabilities, exact dependencies, parameters and parameter_schema) and implementation_compute_seconds within the separate allocation. Unsupported gradients need an explicit capability decision. "
+                  "For reuse provide an available implementation_version_id. For building provide implementation_spec (name, mechanism, acceptance_criteria, capabilities, exact dependencies, parameters and parameter_schema) and implementation_compute_seconds covered by a compute go-ahead. Unsupported gradients need an explicit capability decision. "
                   "Consult available implementations and asset applicability before commissioning work; explain why existing options fit or were declined. "
                   "Tasks with missing evaluator readiness can still have experiment drafts. Use typed evaluator.commission or evaluator.attach commands against that task. "
                   "Historical reproduction sources identify exact imported snapshots. Use reproduction.draft to declare a new reproduction and its comparison reference; retain its original science and inspect draft readiness before draft.launch. "

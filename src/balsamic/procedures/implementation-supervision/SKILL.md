@@ -42,5 +42,5 @@ charges failures and costs; none of that is the library's job.
 
 When coding workspaces are off (`implementation_workspace_create` refuses), tell the researcher once what turns them on, as the
 refusal says. The implementation service is the other route (`implementation.commission`): builders, a test designer and a
-reviewer build and check a package within the campaign's implementation allocation. Its specification is all they see, so it
+reviewer build and check a package under a compute go-ahead. Its specification is all they see, so it
 states the mechanism in full; a package holds at most 256 KiB per file and 1 MiB in all.
