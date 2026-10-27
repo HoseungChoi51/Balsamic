@@ -45,6 +45,7 @@ to replace that outside session.
 | The pages' operations routed in code: refused from the lead with the agent to ask; the lead reads experiment progress itself | Implemented, tested; checked live by the evals; see Parts P and S |
 | Workflow procedures read on demand; the lead's instructions cut from 2,889 to 886 words | Implemented, tested; two domain procedures await review; checked live by the evals; see Parts Q and S |
 | Specialists with briefs, tool scopes and output schemas; results submitted before completion | Implemented, tested; checked live by the evals; see Parts R and S |
+| A delivered library installs without a false "needs confirmation"; a stale one is tried once more | Implemented, tested; the live install is for Hoseung to check; see Part T |
 
 "Live" means the running services on X670 use the code (last restarted on 14 October 2026).
 "Not live" means the code is in the working tree and tested, and the services still run the old
@@ -1083,6 +1084,38 @@ The suite of Part L, 12 scenarios with three repeats each, on the dev profile's 
   campaign starts cold (S2: 2,219 cached tokens of 13,680); within a session the share stayed about two thirds.
 - **S11 passes at the baseline too.** The old lead already sent experiments to the operator; Phase 5 makes it the only way.
 - Other models (DeepSeek, the subscription's `openai-codex`) not run.
+
+## Part T — Install without a false confirmation (27 October 2026; roadmap A1)
+
+### What was wrong
+
+- **Every install of a delivered library waited for a confirmation it did not need.** The dry run's package lines were
+  read with `name==version` only. uv 0.11 reinstalls the lab's root project from its own path whenever `pyproject.toml`
+  changes, and prints it as `- balsamic==… (from file:///…)` then `+ balsamic @ file:///…`: the second line was not
+  parsed, so the root project counted as removed, and the install stopped at `needs_confirmation`. A reinstall at the same
+  version counted as a change too, and so did the lab's other libraries. Baking order's install waits for a confirmation;
+  this is the likely cause, reproduced with uv 0.11 (its live `log_tail` was not read).
+- **A waiting install was never tried again.** `install_delivered()` skips every submission that has any install record.
+
+### What changed
+
+| Change | Where |
+|---|---|
+| The dry run's lines are read as `name==version`, `name==version (from url)` and `name @ url`; a package removed and added at the same version, or from the same url, is a reinstall, not a change | `agents/library_install.py` `CHANGE`, `changed_packages()` |
+| The lab's own projects never count: the root `pyproject.toml`'s name and each `libraries/*/pyproject.toml`'s | `lab_projects()`, `Installer.install()` |
+| Balsamic's own install that waits for a confirmation is requested once more when its dry run, read again from its log, changes nothing (`request_key="automatic:reparsed"`, `retry_of`); a record with `retry_of` ends it | `Installer.reparsed()`, `request(retry_of=)`; `agents/development.py` `install_delivered()` |
+
+### Checked
+
+- `tests/test_library_install.py`: uv 0.11's own dry-run lines, from a lab laid out like this one, give no change; a
+  package from the index upgraded still needs confirmation; a stale confirmation is tried once and a second sync does
+  nothing; a retry that waits again is not tried a third time; a real change, the researcher's own install, a failed one
+  and a log that lost the dry run's start are not tried again.
+
+### Not done
+
+- The fixture is uv's output from a reproduction, not the live record's `log_tail`. The live check is Hoseung's: baking
+  order's pending install completes, and its four methods appear on the Implementations page.
 
 ## Not planned
 
