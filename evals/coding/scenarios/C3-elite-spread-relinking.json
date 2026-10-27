@@ -1,0 +1,21 @@
+{
+  "id": "C3-elite-spread-relinking",
+  "source": "Proposal H14 of the 2d-gratnig campaign (R4-C). Its mechanism is not in the repository (the library's doc is the compatibility revision only), so the proposal text is written from elite_spread_relinking.py at 0.1.2",
+  "method_id": "elite_spread_relinking",
+  "library": "libraries/grating-mask-search",
+  "example": "flrl_2d_deflector_1050nm_75deg",
+  "withhold": [
+    "libraries/grating-mask-search/src/grating_mask_search/elite_spread_relinking.py",
+    "libraries/grating-mask-search/tests/test_elite_spread_relinking.py",
+    "libraries/grating-mask-search/docs/elite_spread_relinking.md"
+  ],
+  "proposal": {
+    "title": "Elite-plus-spread archive relinking on full binary masks",
+    "mechanism": "Every candidate is a full 128-row by 256-column row-major binary mask; maximize the primary objective (the mean of the TE and TM +1-order transmission when the worker supplies them; keep TE, TM and their minimum as received, never synthesized). One seeded RNG (Python random.Random(seed)). A coarse draw samples Bernoulli(0.5) independently on 8 rows by 16 columns and expands each bit into a 16 by 16 pixel block. Initialization: four coarse draws. Archive: an elite of the 4 best distinct masks, ties broken by the earliest first successful insertion, and a spread of 4 other masks chosen greedily from the previous spread, the masks the elite displaced and the new mask, each pick maximizing its minimum Hamming distance to the elite and to the spread picked so far (ties: earliest insertion). The global best is kept apart from both. An episode starts from the global best A. Its partner B is the mask farthest from A in Hamming distance, from the elite in odd episodes and from the spread in even ones, A excluded; when that pool is empty, from both pools; with no partner the episode goes straight to its local moves. The corridor is the cells where A and B differ, in a toroidal traversal from a uniform origin, x-first or y-first by one fair bit. Seven relinking steps: step k (1 to 7) is B with A's values copied onto the first ceil(k·n/8) corridor cells, n the corridor's length. Then four local moves, each inverting a toroidal square of side uniform in {1, 2, 4, 8, 16} at a uniform origin of the current global best. After each episode a stall counter resets to zero if the episode improved the global best and otherwise increments; at two stalls, two coarse draws are injected and the counter resets. Every request is proposed to the worker, duplicates included, and every successful observation is offered to the archive. A failed or non-finite observation is not archived and ends the search. The method has no tunable parameters and no scored assets. Responsibilities: the optimizer_v1 package only proposes and observes. The worker owns physical evaluation, the exact evaluation cache, deadlines, timeouts, failure charging and full-worker timing. Each propose returns exactly one request, duplicates included, and each observe makes one decision; a cache hit reported by the worker still counts as a request.",
+    "rationale": "Relinking toward a distant elite or spread mask explores the corridor between good basins, and the spread archive keeps the search from collapsing onto one basin; short local moves around the best refine what the corridor finds.",
+    "algorithm": "custom"
+  },
+  "say": "Please implement proposal {hypothesis_id} (\"{title}\") as a library in a coding workspace, with the method id `{method_id}`. The library has to pass libraries/grating-mask-search/tests/test_contract.py: copy it into the library and name your method in it. Ask me for the go-ahead to open the workspace.",
+  "answer": "Decide from the proposal as written, and say what you assumed in the delivery report.",
+  "timeout_s": 14400
+}
