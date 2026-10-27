@@ -102,3 +102,65 @@ def test_the_trap_check_kinds_pass_and_fail_on_fixtures():
     scores = {"scores": "0.123, 0.4567"}
     assert not evals.check_reply_contains_none(context(evals, reply="Coordinate leads, 0.4567.", values=scores), ["{scores}"])[0]
     assert evals.check_reply_contains_none(context(evals, reply="Two cells have finished.", values=scores), ["{scores}"])[0]
+
+
+def test_a_preset_runs_the_scenarios_that_support_it_on_another_problem_and_names_the_rest(tmp_path):
+    evals = runner()
+    for scenario in evals.load_scenarios(REPO / "evals" / "lead" / "scenarios"):
+        presets = evals.supported_presets(scenario)
+        assert set(presets) <= set(evals.PRESETS) and scenario["setup"]["preset"] in presets, scenario["id"]
+    # The flow reactor: made from its confirmed charter, a declared problem from another field.
+    assert evals.main(["--fake", "--preset", "reactor", "--scenarios", "S2,S3,S6", "--repeats", "1", "--out", str(tmp_path / "reactor")]) == 0
+    results = json.loads((tmp_path / "reactor" / "results.json").read_text())
+    assert results["preset"] == "reactor" and [row["id"] for row in results["scenarios"]] == ["S2-capabilities-question"]
+    run = results["scenarios"][0]["runs"][0]
+    assert run["status"] == "pass" and run["preset"] == "reactor" and run["problems"] == ["flow_reactor_yield"]
+    assert {row["id"]: row["reason"] for row in results["unsupported"]} == {
+        "S3-narrow-request": "supports quadratic, deflector_2d, not reactor", "S6-gate-closed": "supports formulating, not reactor"}
+    summary = (tmp_path / "reactor" / "summary.md").read_text()
+    assert "- Preset: reactor" in summary and "## Not run on reactor" in summary and "- S6-gate-closed: supports formulating, not reactor" in summary
+    assert "- Preset: reactor (flow_reactor_yield)" in (tmp_path / "reactor" / "transcripts" / "S2-capabilities-question-r1.md").read_text()
+    # The 2D deflector at its installed example's configuration (its evaluator needs MEENT only when a run starts).
+    assert evals.main(["--fake", "--preset", "deflector_2d", "--scenarios", "S3", "--repeats", "1", "--out", str(tmp_path / "deflector")]) == 0
+    run = json.loads((tmp_path / "deflector" / "results.json").read_text())["scenarios"][0]["runs"][0]
+    assert run["status"] == "pass" and run["problems"] == ["meent_2d_dual_polarization_deflector"]
+    # Without --preset each scenario runs on its own, as before.
+    assert evals.main(["--fake", "--scenarios", "S6", "--repeats", "1", "--out", str(tmp_path / "own")]) == 0
+    results = json.loads((tmp_path / "own" / "results.json").read_text())
+    assert results["preset"] is None and results["unsupported"] == [] and results["scenarios"][0]["runs"][0]["preset"] == "formulating"
+
+
+def test_a_baseline_is_named_by_its_model_and_preset_and_several_compare(tmp_path):
+    evals = runner()
+    (tmp_path / "settings.json").write_text(json.dumps({"defaultProvider": "centinels", "defaultModel": "gpt-6.1-sol"}))
+    assert evals.profile_model(tmp_path) == "centinels/gpt-6.1-sol" and evals.profile_model(tmp_path / "missing") is None
+    real = {"mode": "real", "commit": "abc1234", "model_id": "centinels/gpt-6.1-sol", "preset": None}
+    assert evals.baseline_path(real).name == "abc1234-centinels-gpt-6.1-sol.json"
+    assert evals.baseline_path({**real, "model_id": "deepseek/deepseek-v4-flash:low", "preset": "deflector_2d"}).name == \
+        "abc1234-deepseek-deepseek-v4-flash-low-deflector_2d.json"
+    assert evals.baseline_path({**real, "mode": "fake", "model_id": None}).name == "abc1234-fake.json"
+    assert evals.baseline_path(real).parent == REPO / "evals" / "lead" / "baselines"
+
+    row = {"id": "S3-narrow-request", "status": "fail", "passes": 1, "repeats": 3, "passed": False, "scoring": "all", "known_failure": None,
+           "metrics_mean": {"lead_turns": 2, "continue_turns": 0, "model_calls": 4, "cost_usd": 0.01, "cache_read_tokens": 0}, "runs": []}
+    results = {"mode": "real", "commit": "def", "started_at": "now", "seconds": 1, "model": None, "model_id": "centinels/gpt-6.1-sol",
+               "preset": None, "cost_usd": 0.01, "suite_cap": 5, "scenarios": [row]}
+    passing = evals.baseline_record({**results, "commit": "abc", "scenarios": [{**row, "status": "pass", "passes": 3, "passed": True}]})
+    other = evals.baseline_record({**results, "commit": "abc", "model": "deepseek/deepseek-v4-flash", "model_id": "deepseek/deepseek-v4-flash",
+                                   "preset": "deflector_2d"})
+    assert passing["model_id"] == "centinels/gpt-6.1-sol" and other["preset"] == "deflector_2d"
+    paths = []
+    for name, record in (("a.json", passing), ("b.json", other)):
+        (tmp_path / name).write_text(json.dumps(record))
+        paths.append(tmp_path / name)
+    lines = evals.summary_markdown(results, [json.loads(path.read_text()) for path in paths]).splitlines()
+    header = next(line for line in lines if line.startswith("| Scenario"))
+    assert header.endswith("| abc · centinels/gpt-6.1-sol | abc · deepseek/deepseek-v4-flash · deflector_2d |")
+    s3 = next(line for line in lines if line.startswith("| S3-narrow-request"))
+    assert s3.endswith("| 3/3 **regressed** | 1/3 |")   # regressed against the baseline that passed, not the one that failed too
+    # An older baseline without a model is the profile's default.
+    assert "| a7e89b8 · profile default |" in evals.summary_markdown(results, [json.loads((REPO / "evals/lead/baselines/a7e89b8.json").read_text())])
+    # The command line takes several files, a column each.
+    assert evals.main(["--fake", "--scenarios", "S3", "--repeats", "1", "--out", str(tmp_path / "run"), "--compare", *map(str, paths)]) == 0
+    s3 = next(line for line in (tmp_path / "run" / "summary.md").read_text().splitlines() if line.startswith("| S3-narrow-request"))
+    assert s3.startswith("| S3-narrow-request | pass |") and s3.endswith("| 3/3 | 1/3 |")

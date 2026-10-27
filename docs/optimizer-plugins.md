@@ -131,7 +131,10 @@ comes first: a change to a package the lab already has waits for the researcher'
 `pyproject.toml`, `uv.lock` and `libraries/` back as they were. Each install is a `library_install` record with the methods it
 added (`agents/library_install.py`); the researcher commits the edited `pyproject.toml` and `uv.lock`. A new delivery of the
 same library needs a new version: the running lab loads a library's new code only when its version changes. The running lab lists its methods for the
-problems they name at the next listing, without a restart (see "Installed while the lab runs" below). A proposal runs a method once it is bound to it (`implementation.bind_builtin`). Frozen runs
+problems they name at the next listing, without a restart (see "Installed while the lab runs" below). A proposal runs a method once it is bound to it (`implementation.bind_builtin`). After an install Balsamic binds each proposal the delivery serves by itself, when exactly one of the methods
+the delivery reports for it is installed and runs on a current task: through the command bus as its system actor `balsamic`, citing the install, which lists
+its `bindings` and the proposals it `skipped` with why (a proposal someone bound, one using another method, one with several candidates). A binding keeps the
+proposal's concept review: the review's revision counts the configuration the first binding replaced (`pre_binding_config`). Frozen runs
 snapshot the library's source and record its version like any other plug-in. When a second project needs a library, it
 moves to its own repository, as `mask-optimizers` did.
 
@@ -235,6 +238,54 @@ class MaskLibraryPlugin:
     def create(self, name, instance, parameters, seed):
         return MaskLibraryAdapter(name, instance, parameters, seed)
 ```
+
+### Plain-function methods
+
+A few lines of search should not need the six calls of the ask/tell contract. A library can offer plain functions
+instead (`optimizers/functions.py`):
+
+```python
+# <pkg>/methods.py
+METHODS = {"greedy_order": {"name": "Earliest due date", "description": "Sort by due date, then evaluate once.",
+                            "hypothesis_id": "hypothesis_2"}}
+
+def greedy_order(problem, evaluate, rng):
+    evaluate(sorted(range(len(problem["public"]["due"])), key=problem["public"]["due"].__getitem__))
+    return "one order evaluated"
+
+# <pkg>/plugin.py, named by the entry point
+from optimization_framework.optimizers.functions import FunctionPlugin
+
+class Plugin(FunctionPlugin):
+    MODULE = "<pkg>.methods"
+    REPRESENTATIONS = ["permutation"]
+```
+
+- **The function.** `def <method_id>(problem, evaluate, rng) -> None`. `evaluate(candidate)` records the candidate and
+  returns its primary objective in the charter's units and direction; it raises `ValueError` for a candidate that was not
+  evaluated and `StopSearch` (a `BaseException`) once the run is over. Returning finishes the method (a returned string is
+  its reason). `rng` is a seeded `numpy.random.Generator`, and `random` and `np.random` are seeded from the same seed.
+  `problem` is the library's own problem object when the plug-in's `problem(instance)` gives one, else a read-only view of
+  the instance's descriptor.
+- **Listing runs none of it.** `METHODS` is a literal: `FunctionPlugin.methods()` reads it from the module's source
+  (`find_spec`, then `ast.literal_eval`) and never imports the module, so agent code does not run in the server, and a
+  module that imports something only the worker has is still listed. Each entry has `name` and `description`, and may
+  have `hypothesis_id`, `parameters` (defaults), `parameter_properties` (their JSON Schema), `representations`,
+  `problem_ids` and `completion_units`. A key must be the name of a public function in the module; `create()` refuses one
+  that is not.
+- **The worker imports it.** `create()` imports the module, in the worker only, and wraps the function in a
+  `FunctionMethod`: each `evaluate` is one proposal and its observation, the checkpoint is the journal of answers, and a
+  resume runs the function again from the start and answers from the journal, refusing it if the function proposes
+  another candidate ("not deterministic for its seed"). A frozen capture pins the module's source with the plug-in's
+  (`OptimizerPlugins.worker_modules()`), though no static import reaches it.
+- **Seeded workers.** Workers start with `PYTHONHASHSEED=0` in both launch paths, so iterating a set of strings goes in
+  the same order in every run. The isolated worker starts Python with `-s -P -S` instead of `-I`, which would ignore the
+  variable, and sets `PYTHONPATH` only once it runs, so at startup only the standard library is importable, as before.
+- **Conformance.** `conformance.check_function(plugin, method_id, instance, *, seeds=(0, 7), max_evaluations=50)` runs the
+  method on the problem the instance resolves to, so a library's own evaluator is what it runs: every candidate valid,
+  the same candidates for the same seed, a checkpoint at half the run continuing to the same run, and a clean end, by
+  returning or at the cap. Each distinct candidate is evaluated once, so the replays compare what the method proposes,
+  not the evaluator's noise.
 
 ### Failure policy
 

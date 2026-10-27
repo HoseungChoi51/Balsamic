@@ -1,4 +1,4 @@
-/** The monitor's pages: resources, model usage, race progress, the agent team, the log, models, guidance, the away digest. */
+/** The monitor's pages: resources, model usage, race progress, the agent team, the log, models, guidance, the away digest, partnership. */
 import { useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import type { PageProps } from '../shell/StagePanel';
@@ -17,7 +17,7 @@ const WORKSPACE_TABS = new Set(['resources', 'models']);
 export default function MonitorPage({ campaignId, route }: PageProps) {
   const sub = route.sub || 'resources';
   const monitor = useMonitor(campaignId);
-  const tabs = ([['resources', 'Resources'], ['usage', 'Model usage'], ['races', 'Race progress'], ['agents', 'Agents'], ['log', 'Agent log'], ['models', 'Models'], ['guidance', 'Guidance'], ['digest', 'Away digest']] as const)
+  const tabs = ([['resources', 'Resources'], ['usage', 'Model usage'], ['races', 'Race progress'], ['agents', 'Agents'], ['log', 'Agent log'], ['models', 'Models'], ['guidance', 'Guidance'], ['digest', 'Away digest'], ['partnership', 'Partnership']] as const)
     .filter(([key]) => campaignId || WORKSPACE_TABS.has(key));
   if (!campaignId && !WORKSPACE_TABS.has(sub)) return <div className="empty" data-testid="no-campaign">Choose a campaign above, or start one.</div>;
   return (
@@ -32,6 +32,7 @@ export default function MonitorPage({ campaignId, route }: PageProps) {
       {sub === 'models' ? <Models campaignId={campaignId} /> : null}
       {sub === 'guidance' ? <Guidance campaignId={campaignId} /> : null}
       {sub === 'digest' ? <AwayDigest campaignId={campaignId} /> : null}
+      {sub === 'partnership' ? <Partnership campaignId={campaignId} /> : null}
       {monitor.data && sub === 'resources' ? <Rows monitor={monitor.data} /> : null}
     </div>
   );
@@ -180,6 +181,36 @@ function Log({ campaignId }: { campaignId: string }) {
   if (page.isPending) return <Loading />;
   if (page.error) return <Failed error={page.error} />;
   return <Section title="Agent log" right={<a href={`/api/campaigns/${campaignId}/agent-log/download`}>download</a>}>{page.data.lines?.length ? <pre style={{ maxHeight: 520 }}>{page.data.lines.join('\n')}</pre> : <Empty>No tool call recorded yet.</Empty>}</Section>;
+}
+
+interface PartnershipRow {
+  run_id: string; text: string; asked_at: string | null; closed: boolean;
+  researcher_actions: { messages: number; decisions: number; commands: number; total: number };
+  seconds_to_report: number | null; seconds_to_first_ranked: number | null; runs: number; worker_seconds: number;
+  model_calls: number; model_usd: number | null; model_charged_usd: number; best: { value: number; direction: string; trial_id: string } | null;
+}
+
+/** Per request of the researcher's: what they had to do, how long until the report and a ranked result, what it cost, the best by then (J3). */
+function Partnership({ campaignId }: { campaignId: string }) {
+  const table = useRead<{ requests: PartnershipRow[]; basis: Record<string, string> }>(['partnership', campaignId], `/api/v1/campaigns/${campaignId}/partnership`, { refetchInterval: 10000 });
+  if (table.isPending) return <Loading />;
+  if (table.error) return <Failed error={table.error} />;
+  const rows = table.data.requests;
+  return (
+    <Section title="Partnership" right={<span className="small faint">one row per request you made</span>}>
+      {rows.length ? <table data-testid="partnership"><thead><tr><th>Request</th><th>Your actions</th><th>To report</th><th>To ranked result</th><th>Worker time</th><th>Model $</th><th>Best by then</th></tr></thead>
+        <tbody>{rows.map(r => <tr key={r.run_id} data-testid="partnership-row">
+          <td>{r.text}<div className="small faint">{when(r.asked_at)}{r.closed ? '' : ' · open'}</div></td>
+          <td title={`${r.researcher_actions.messages} messages, ${r.researcher_actions.decisions} decisions, ${r.researcher_actions.commands} other commands`}>{r.researcher_actions.total}</td>
+          <td>{r.closed ? duration(r.seconds_to_report) : <span className="faint">not reported</span>}</td>
+          <td>{r.seconds_to_first_ranked != null ? duration(r.seconds_to_first_ranked) : <span className="faint">none</span>}</td>
+          <td>{duration(r.worker_seconds)}<span className="small faint"> · {r.runs} runs</span></td>
+          <td>{num(r.model_usd, 3, ' $')}</td>
+          <td>{r.best ? <>{num(r.best.value, 4)}<span className="small faint"> · {r.best.direction === 'minimize' ? 'lower is better' : 'higher is better'}</span></> : <span className="faint">none</span>}</td>
+        </tr>)}</tbody></table> : <Empty>No request yet: each message you send the lead becomes a row.</Empty>}
+      <details><summary className="small">How each number is measured</summary><Kv rows={Object.entries(table.data.basis).map(([k, v]) => [k.replace(/_/g, ' '), v])} /></details>
+    </Section>
+  );
 }
 
 function Models({ campaignId }: { campaignId: string }) {

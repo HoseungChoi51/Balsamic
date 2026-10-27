@@ -45,7 +45,7 @@ export interface Inbox extends Scoped { decisions: Decision[]; issues: Issue[]; 
   thresholds?: ComputeThresholds; unacknowledged?: InboxItem[] }
 export interface Monitor extends Scoped { rows: { problem: Record<string, unknown>; budget: { worker: Record<string, unknown>; llm: Record<string, unknown> }; compute: Record<string, unknown>;
   agents: Record<string, unknown>; autopilot?: Record<string, unknown>; needs_you: { decisions: number; issues: number; questions: number } }; pill: { state: 'clear' | 'attention' | 'digest'; text: string; row: string | null }; attention?: { row: string; text: string }[]; digest_id: string | null }
-export interface Files extends Scoped { assets: Record<string, unknown>[]; findings: Record<string, unknown>[]; reports: Record<string, unknown>[]; report_jobs: Record<string, unknown>[]; sources: Record<string, unknown>[]; artifacts: Record<string, unknown>[] }
+export interface Files extends Scoped { assets: Record<string, unknown>[]; findings: Record<string, unknown>[]; superseded_findings?: Record<string, unknown>[]; reports: Record<string, unknown>[]; report_jobs: Record<string, unknown>[]; sources: Record<string, unknown>[]; artifacts: Record<string, unknown>[] }
 export interface CommandReceipt { id: string; campaign_id: string; status: string; outcome: Record<string, unknown>; actor: string; origin: unknown; request: { operation: string; payload: Record<string, unknown> }; created_at: string }
 export interface EventFrame { last_event_id: number; events: { id: number; kind: string; record_id: string | null; campaign_id: string | null; status?: string | null; revision?: number | null }[] }
 

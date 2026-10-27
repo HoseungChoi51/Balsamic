@@ -1,0 +1,163 @@
+{
+  "title": "Flow reactor yield",
+  "summary": "Maximize the yield of a flow reaction at {pressure_bar}.",
+  "text": "A tubular reactor of {reactor_volume_ml} runs at {pressure_bar} and {temperature_c}. The residence time follows from the flow rate: {residence_time_s:.3g}.",
+  "quantities": {
+    "reactor_volume_ml": {
+      "description": "Reactor volume",
+      "value": 10.0,
+      "units": "mL",
+      "range": [
+        0,
+        null
+      ],
+      "citation": 1
+    },
+    "flow_rate_ml_min": {
+      "description": "Flow rate",
+      "value": 2.0,
+      "units": "mL/min",
+      "range": [
+        0.1,
+        20.0
+      ],
+      "citation": 1
+    },
+    "residence_time_s": {
+      "description": "Residence time",
+      "role": "derived",
+      "units": "s",
+      "expression": "reactor_volume_ml / flow_rate_ml_min * 60"
+    },
+    "pressure_bar": {
+      "description": "Back pressure",
+      "value": 5.0,
+      "units": "bar",
+      "citation": 1
+    },
+    "temperature_c": {
+      "description": "Reaction temperature",
+      "value": 80.0,
+      "units": "C",
+      "range": [
+        20.0,
+        200.0
+      ],
+      "citation": 1
+    },
+    "max_temperature_c": {
+      "description": "Decomposition temperature of the product",
+      "value": 150.0,
+      "units": "C",
+      "citation": 1
+    },
+    "solvent_viscosity_cp": {
+      "description": "Solvent viscosity at the temperature",
+      "role": "derived",
+      "units": "cP",
+      "expression": "table(viscosity, temperature_c)"
+    },
+    "repeats": {
+      "description": "Repeat measurements per condition",
+      "kind": "integer",
+      "value": 3,
+      "units": "1",
+      "citation": 1
+    }
+  },
+  "tables": {
+    "viscosity": {
+      "description": "Solvent viscosity",
+      "x_units": "C",
+      "y_units": "cP",
+      "points": [
+        [
+          20.0,
+          1.0
+        ],
+        [
+          100.0,
+          0.3
+        ],
+        [
+          200.0,
+          0.15
+        ]
+      ],
+      "citation": 1
+    }
+  },
+  "variables": [
+    {
+      "name": "loadings",
+      "description": "Catalyst, ligand and additive loading, scaled",
+      "representation": "continuous",
+      "shape": [
+        3
+      ],
+      "lower": 0.0,
+      "upper": 1.0
+    }
+  ],
+  "constraints": [
+    {
+      "id": "below_decomposition",
+      "form": "quantities",
+      "statement": "Run below {max_temperature_c}.",
+      "test": "temperature_c <= max_temperature_c"
+    },
+    {
+      "id": "loading_budget",
+      "form": "linear",
+      "statement": "The scaled loadings add up to at most 2.",
+      "terms": [
+        {
+          "variable": "loadings",
+          "weight": "sum"
+        }
+      ],
+      "relation": "le",
+      "bound": 2.0
+    }
+  ],
+  "objective": {
+    "name": "isolated_yield",
+    "direction": "maximize",
+    "units": "fraction",
+    "definition": "Isolated yield, mean of {repeats} repeats"
+  },
+  "metrics": [
+    {
+      "name": "selectivity",
+      "units": "fraction",
+      "direction": "maximize"
+    }
+  ],
+  "evaluator": {
+    "kind": "declared",
+    "problem_id": "flow_reactor_yield",
+    "deterministic": false,
+    "configuration": {
+      "residence_time_s": "residence_time_s",
+      "temperature_c": "temperature_c",
+      "pressure_bar": "pressure_bar"
+    },
+    "fidelity": {
+      "repeats": "repeats"
+    },
+    "notes": "Run the reaction and measure yield by HPLC."
+  },
+  "instances": [
+    {
+      "name": "Base conditions",
+      "split": "development"
+    }
+  ],
+  "citations": [
+    {
+      "id": 1,
+      "source": "documents/statement.md.txt",
+      "location": "para 2"
+    }
+  ]
+}
