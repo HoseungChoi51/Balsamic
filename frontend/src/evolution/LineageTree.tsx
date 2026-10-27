@@ -1,5 +1,5 @@
 /** The lineage forest as hand-written SVG: rounds as columns, lanes as rows, typed edges, stage as colour. */
-import type { Evolution } from '../api/evolution';
+import { FAMILY, type Evolution } from '../api/evolution';
 
 const COLOUR: Record<string, string> = { proposed: 'var(--ink-3)', reviewed: 'var(--info)', screening: 'var(--agent)', extended: 'var(--accent)', finalist: 'var(--good)', confirmed: 'var(--good)', stopped: 'var(--warn)' };
 const DASH: Record<string, string> = { revision: '', variant: '4 3', hybrid: '1 3', inspired_by: '8 4' };
@@ -41,8 +41,8 @@ export function LineageTree({ data, selectedId, onSelect, onOpen }: { data: Evol
             <rect width={nodeW} height={28} rx={6} fill="var(--panel)" stroke={selectedId === n.id ? 'var(--accent)' : COLOUR[n.stage]} strokeWidth={selectedId === n.id ? 2.5 : 1.5} />
             <circle cx={12} cy={14} r={5} fill={COLOUR[n.stage]} />
             <text x={22} y={18} fontSize="11" fill="var(--ink)">{n.label ? <tspan fontWeight={600}>{n.label} </tspan> : null}{nodeText(n.short_title || n.title, n.label ? 17 : 22)}</text>
-            {n.autonomous ? <text x={nodeW - 8} y={10} fontSize="8" fill="var(--agent)" textAnchor="end">auto</text> : null}
-            <title>{`${n.title}\n${n.stage}${n.stop_reason ? ': ' + n.stop_reason : ''}${row?.best.score != null ? `\nbest ${row.best.score}` : ''}`}</title>
+            {n.family || n.autonomous ? <text x={nodeW - 8} y={10} fontSize="8" textAnchor="end" data-testid="lineage-family">{n.family ? <tspan fill="var(--ink-3)">{FAMILY[n.family] || n.family}</tspan> : null}{n.autonomous ? <tspan fill="var(--agent)">{n.family ? ' · ' : ''}auto</tspan> : null}</text> : null}
+            <title>{`${n.title}${n.family ? ` (${FAMILY[n.family] || n.family})` : ''}\n${n.stage}${n.stop_reason ? ': ' + n.stop_reason : ''}${row?.best.score != null ? `\nbest ${row.best.score}` : ''}`}</title>
           </g>; })}
       </svg>
       <Legend />

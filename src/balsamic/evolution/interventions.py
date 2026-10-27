@@ -70,6 +70,8 @@ def register(workspace):
                 if "no saved state" not in str(exc):
                     raise
                 # Nothing to go on from: a fresh run of the same strategy, said so in the outcome.
+        if hypothesis.get("algorithm") == "unchosen" and not hypothesis.get("implementation_version_id"):
+            raise ValueError("No method is chosen for this strategy yet; choose one (hypothesis.edit) before running it")
         if not hypothesis.get("executable") and not hypothesis.get("implementation_version_id"):
             raise ValueError("This strategy has no runnable algorithm yet; ask for an implementation first")
         from optimization_framework.contracts.requests import TrialInput
