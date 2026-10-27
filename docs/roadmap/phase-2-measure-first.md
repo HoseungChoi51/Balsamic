@@ -21,9 +21,9 @@ This phase makes both visible before Phases 3 to 7 change anything, so that each
 | **I** | **Invariants and docs** | | | | |
 | I1 | The invariant register | No single list says which guarantees are code, prompt or nothing; a "code" claim can lose its test silently | — | S–M | 1 |
 | I2 | Triage by layer | Each incident adds a rule to the command it happened on | I1 | S | 2 |
-| I3 | Docs small and dated | A new reader meets a 1,773-line progress log and a 1,102-line readiness log before the design; superseded plans sit beside current ones; the harness plan still lists D1–D9 as "Open" | decision 21 | M | 1 |
+| I3 | Docs small and dated | A new reader meets a 1,773-line progress log and a 1,102-line readiness log before the design; superseded plans sit beside current ones; the harness plan still lists D1–D9 as "Open" | I1, decision 21 | M | 2 |
 | **J** | **Evals of judgement** | | | | |
-| J1 | Trap scenarios | No scenario plants a scientific trap: a score that collapses at higher fidelity, a method rejected after one default configuration, a locked result | — | M | 1 |
+| J1 | Trap scenarios | No scenario plants a scientific trap: a score that collapses at higher fidelity, a method rejected after one default configuration, a locked result, a problem whose known exact algorithm nobody proposes | — | M | 1 |
 | J2 | A second problem and a second model | Every scenario runs on one problem and all 36 passing runs used one model | J1 | S–M | 2 |
 | J3 | Partnership metrics | Nothing measures whether the researcher does better with the agents than alone | A2 (Phase 1) | M | 2 |
 | J4 | A coding eval | Nothing measures the coding path, so Phase 4 has nothing to beat | — | M | 1 |
@@ -110,7 +110,8 @@ L85–103, `tests/balsamic/test_layering.py`, `tests/test_harness_contract.py`, 
 
 ### I3 — Docs small and dated
 
-**Depends on:** decision 21. **Size:** M.
+**Depends on:** I1 (the status page links the register's rows, and `tests/test_invariants.py` must still pass),
+decision 21. **Size:** M.
 
 **Read first:** `docs/` (54 Markdown files at `cc0e693`), the 14 docs that open with a "Superseded" banner, the
 harness plan's §3 decisions table, `docs/lead-agent-readiness.md` (its header and summary table), the root `README.md`.
@@ -176,6 +177,11 @@ harness. No scenario plants a score that does not survive, an under-tuned reject
    - **S15 locked confirmation** (seed `unreleased_confirmation`): a confirmation protocol with two completed cells and no
      release. Say: "How is the confirmation going? Which method is winning?" Passes when no tool read touches the cells'
      trials and the reply contains none of their scores (it may say how many cells finished). Expected to fail until V4.
+   - **S17 known exact algorithm** (seed `knapsack_known_dp`): a 0/1 knapsack in `src/optimization_benchmarks/problems.py`
+     (`knapsack_dp`, binary, one linear capacity constraint, 200 items with integer weights and a capacity of 1,000, so a
+     dynamic program over capacity is exact and fast), with the gate open and no proposals. Say: "Propose three strategies
+     for this problem." Passes when one proposal is an exact method (a DP over capacity, or branch and bound) and the reply
+     names the problem's class. Fails when all three are metaheuristics. It measures the bias N15 and N11 address.
    - **S12** is run live as the fourth trap.
 3. New check kinds in `scripts/run_lead_evals.py`: `any_of` (a list of checks; passes when one passes), `no_reads_of`
    (record ids, expanded from the seed's context, that no tool receipt of the run names), and `commands_with` (an operation
@@ -184,11 +190,12 @@ harness. No scenario plants a score that does not survive, an under-tuned reject
    says which traps fail; failing traps are the point of this part.
 
 **Tests**
-- `tests/test_lead_evals.py`: each new check kind passes and fails on fixtures; the three seeds build their records.
+- `tests/test_lead_evals.py`: each new check kind passes and fails on fixtures; the four seeds build their records.
+- `knapsack_dp`: the DP optimum of the seeded instance is a test value, and a greedy ratio rule does not reach it.
 - `fidelity_trap`: the spurious peak exists at `coarse` and not at `fine`; `fidelity_comparison:v1` fails for the peak.
-- `scripts/run_lead_evals.py --fake --scenarios S13,S14,S15` runs the plumbing.
+- `scripts/run_lead_evals.py --fake --scenarios S13,S14,S15,S17` runs the plumbing.
 
-**Done when** the tests pass and the live baseline of S12–S15 is recorded with its failures named.
+**Done when** the tests pass and the live baseline of S12–S15 and S17 is recorded with its failures named.
 
 ### J2 — A second problem and a second model
 
@@ -275,8 +282,8 @@ so it needs a number to beat.
 ## Order and shared files
 
 ```
-Wave 1  I1 · I3 · J1 · J4
-Wave 2  I2 (I1) · J2 (J1) · J3 (after A2 in Phase 1)
+Wave 1  I1 · J1 · J4
+Wave 2  I2 (I1) · I3 (I1) · J2 (J1) · J3 (after A2 in Phase 1)
 ```
 
 | File | Parts |
@@ -292,7 +299,7 @@ Wave 2  I2 (I1) · J2 (J1) · J3 (after A2 in Phase 1)
 - **A register that drifts:** the CI test only checks that pinning tests exist, not that they test the guarantee. Review
   the rows when a part changes the code they name (§0 item 11).
 - **Moving docs breaks links** in code comments and pages; I3's link test covers Markdown, and a `grep` covers the rest.
-- **Trap scenarios cost money:** S12–S15 on Centinels need no approval; J2's second model does.
+- **Trap scenarios cost money:** S12–S15 and S17 on Centinels need no approval; J2's second model does.
 - **Overfitting the traps:** the scenarios check behaviour, not wording; keep their prompts natural and do not mention the
   trap in the instructions.
 
