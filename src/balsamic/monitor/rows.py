@@ -57,13 +57,14 @@ def implementation_outcomes(workspace, campaign_id):
 def install_outcomes(workspace, campaign_id):
     """Each delivered library's latest install that is news: installed (with its methods), waiting for the researcher's yes
     because it would change installed packages, or failed."""
+    from optimization_framework.agents.library_install import added
     latest = {}
     for row in sorted(workspace.store.list("library_install", campaign_id), key=lambda row: row["requested_at"]):
         latest[row["submission_id"]] = row
     rows = []
     for row in latest.values():
         name = row.get("package") or row.get("path") or "the library"
-        title = {"installed": f"Installed {name} {row.get('version') or ''}: methods {', '.join(row.get('methods_added') or []) or 'none new'}",
+        title = {"installed": f"Installed {name} {row.get('version') or ''}: {added(row)}",
                  "needs_confirmation": f"Installing {name} waits for your yes: it would change "
                                        + ", ".join(f"{c['name']} {c['from']} → {c.get('to') or 'removed'}" for c in row.get("changes", [])),
                  "failed": f"Installing {name} failed: {_first_line(row.get('error'), 120)}"}.get(row["status"])
