@@ -92,6 +92,8 @@ class Workspace:
         self.implementations = ImplementationBridge(self, implementation_client)
         from optimization_framework.evaluation.commissioning import EvaluatorService
         self.evaluators = EvaluatorService(self)
+        from optimization_framework.evaluation.packs import CampaignPacks
+        self.packs = CampaignPacks(self)
         from optimization_framework.assets.catalog import AssetCatalog
         self.assets = AssetCatalog(self.store)
         from optimization_framework.assets.bundles import BundleService
