@@ -8,11 +8,14 @@ from optimization_framework.contracts.requests import CampaignInput, TaskInput
 from optimization_framework.execution.service import Workspace
 from optimization_framework.storage.sqlite import now
 
+from test_mandates import granted
+
 
 def prepare(path):
     workspace = Workspace(path)
     campaign = workspace.create_campaign(CampaignInput(name="Stops", autonomy="delegated", compute_budget_seconds=100,
         validation_reserve_seconds=0, tasks=[TaskInput(name="Quadratic", problem_id="bounded_continuous")]))
+    granted(workspace, campaign["id"])   # a stop is decide work: the agents' request needs Screen or Run the campaign (R3)
     target = workspace.commands.execute(Command(id="create", campaign_id=campaign["id"], expected_revision=campaign["version"],
         operation="hypothesis.create", payload={"title": "Annealing", "mechanism": "m", "rationale": "r", "algorithm": "coordinate"}))
     return workspace, campaign, target["outcome"]["hypothesis"]
