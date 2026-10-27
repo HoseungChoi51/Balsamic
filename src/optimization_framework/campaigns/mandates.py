@@ -211,17 +211,17 @@ def active(workspace, campaign_id, root):
     return next((mandate for mandate in reversed(mandates(workspace, campaign_id)) if mandate.status == "active" and serves(mandate, root)), None)
 
 
-def governing(workspace, campaign_id, root, found=None):
+def governing(workspace, campaign_id, root, found=None, hypothesis_ids=()):
     """The mandate an agent's work for this request is checked against (R3): the request's own newest, ended or not, else the newest
-    campaign-wide standing mandate in force (one for no request that names no proposals, as a consent from before B2); None when
-    neither, and the request has the default, Explore. A consent for named proposals in no request pays for their work (decision
-    4) but governs no request."""
+    standing mandate in force (one for no request) that covers the work: campaign-wide when it names no proposals (as a consent from
+    before B2), else only work for the proposals it names (decision 4); None when neither, and the request has the default, Explore."""
     root = _root(root)
     found = [mandate for mandate in (mandates(workspace, campaign_id) if found is None else found) if mandate.status != "proposed"]
     own = [mandate for mandate in found if root and mandate.root and same_root(mandate.root.model_dump(), root)]
     if own:
         return own[-1]
-    return next((mandate for mandate in reversed(found) if mandate.root is None and mandate.status == "active" and not mandate.hypothesis_ids), None)
+    return next((mandate for mandate in reversed(found) if mandate.root is None and mandate.status == "active" and (not mandate.hypothesis_ids
+                 or (hypothesis_ids and set(hypothesis_ids) <= set(mandate.hypothesis_ids)))), None)
 
 
 def current(workspace, campaign_id, root):
@@ -378,7 +378,7 @@ def require(workspace, campaign_id, root, classes, *, what, hypothesis_ids=(), s
     classes = set(classes)
     if not classes:
         return None
-    mandate = governing(workspace, campaign_id, root)
+    mandate = governing(workspace, campaign_id, root, hypothesis_ids=hypothesis_ids)
     template = mandate.template if mandate is not None else "explore"
     allowed = set(mandate.classes if mandate is not None else TEMPLATES["explore"]["classes"])
     named = (f"this request's {LABELS[template]} mandate ({mandate.id})" if mandate.root is not None else
