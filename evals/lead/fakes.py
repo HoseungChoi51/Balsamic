@@ -140,16 +140,19 @@ def review_round(turn):
              "falsifying_test": "Read the task's candidate schema", "cost": "none", "severity": "high"}]})
         return turn.finish("Two high-severity failure modes: the lane is not installed and the representation is wrong.", summary="Two failure modes")
     if turn.role == "proposal_reviewer":
-        hypothesis = turn.call("campaign_inspect")["hypotheses"][0]
-        turn.call("proposal_review", hypothesis_id=hypothesis["id"], hypothesis_hash=hypothesis["hypothesis_hash"], verdict="reject",
-                  rationale="The algorithm is not installed and the mechanism contradicts the continuous representation.",
-                  suggested_tests=["Restate the strategy with an installed continuous method"])
-        return turn.finish("Reject: not installed, wrong representation.", summary="Rejected")
+        # One call (roadmap T1): the verdict is the reply, judged from the assembled input, which names the installed methods.
+        proposal, installed = turn.input["proposal"], {method["id"] for method in turn.input["methods"]}
+        return {"verdict": "reject", "rationale": f"{proposal['algorithm']} is not among the installed methods "
+                f"({', '.join(sorted(installed))}) and the mechanism contradicts the continuous representation.",
+                "mechanism_checks": ["The algorithm against the installed methods", "The mechanism against the task's representation"],
+                "suggested_tests": ["Restate the strategy with an installed continuous method"]}
     if turn.role == "discussion_moderator":
         if not turn.memory.get("asked"):
             turn.memory["asked"] = True
+            proposal = turn.call("campaign_inspect")["hypotheses"][0]["id"]
             for role in ("skeptical_domain_analyst", "proposal_reviewer"):
-                turn.call("delegate", role=role, objective="Review the proposal on Hypotheses: how could it fail here, and should it be tested?", request_key=role)
+                turn.call("delegate", role=role, objective="Review the proposal on Hypotheses: how could it fail here, and should it be tested?", request_key=role,
+                          hypothesis_id=proposal)
             return turn.finish("", summary="Asked a skeptical analyst and a reviewer", disposition="waiting")
         result = turn.call("yield_work", disposition="complete", summary="Reviewed", report="The skeptical analyst found two high-severity "
                            "failure modes; the reviewer rejected the proposal. See [Review rounds](#hypotheses/rounds).", evidence_ids=[])

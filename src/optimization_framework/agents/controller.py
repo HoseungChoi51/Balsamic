@@ -82,6 +82,7 @@ class PiController:
         self.schedule_lock = threading.Lock()
         self.diagnostic_processes = {}
         self.tool_locks = {}
+        self.calls = set()   # the runs of one-shot agents whose call is in flight in this process (agents/calls.py)
         self.message_thread = None   # (agent, run) -> thread id; installed by the service
         from .development import DevelopmentWorkspaces
         self.development = DevelopmentWorkspaces(self)
@@ -302,6 +303,12 @@ class PiController:
             choice = {"provider": lead.get("provider"), "model": lead["model"], "effort": lead.get("reasoning_effort")}
         else:
             choice = self.lead_model()
+        return self.harness_model(choice, cached=cached, max_output_tokens=REPORT_CALL_OUTPUT_TOKENS,
+                                  reason="Report stages run on the lead agent's model.")
+
+    def harness_model(self, choice, *, cached, max_output_tokens, reason):
+        """A model choice as an LLMAdapter provider for single calls through the agent service, with its billing and listed
+        price; None when the harness does not offer it (not signed in, or gone from the catalogue)."""
         if not choice or not choice.get("provider"):
             return None
         try:
@@ -318,8 +325,8 @@ class PiController:
             "model": choice["model"], "reasoning_effort": choice.get("effort"), "billing_mode": "subscription" if billing == "subscription" else "api",
             "pricing_known": priced, "input_usd_per_million": cost["input"] if priced else None,
             "output_usd_per_million": cost["output"] if priced else None, "pricing_basis": "Model catalogue of the agent service",
-            "max_output_tokens": min(model.get("max_tokens") or 32000, REPORT_CALL_OUTPUT_TOKENS), "base_url": None, "local": False,
-            "status_reason": "Report stages run on the lead agent's model."}
+            "max_output_tokens": min(model.get("max_tokens") or 32000, max_output_tokens), "base_url": None, "local": False,
+            "status_reason": reason}
 
     def model_allowance(self, campaign_id):
         """Dollars of the campaign's model budget that are not spent or committed; None when the campaign has no cap."""
@@ -725,6 +732,14 @@ class PiController:
                     config.pop("sync_error", None)
                     self.store.put("agent_campaign", config)
             for agent in self.store.list("agent_session", campaign_id):
+                if agent.get("one_shot"):
+                    # No harness session: its run is one call in a thread of this process. A run left running by a restart
+                    # ended with the process; the call is not repeated.
+                    for run in self.store.list_agent_runs(agent["id"]):
+                        if run["status"] == "running" and run["id"] not in self.calls:
+                            self.finish_call(agent["id"], run["id"], "failed", error="The call was interrupted by a restart of the workspace. "
+                                             "It may have been charged and is not repeated; delegate again for another answer.")
+                    continue
                 if not (sweep or agent["id"] in dirty or agent.get("pending_control")
                         or any(run["status"] == "submitted" for run in self.store.list_agent_runs(agent["id"]))):
                     continue
@@ -779,9 +794,17 @@ class PiController:
                     if agent["id"] not in occupied and agent["role"] not in STANDING:
                         children += 1
                     occupied.add(agent["id"])
-                    run.update(status="submitted", dispatched_at=now()); self.store.put("agent_run", run)
+                    if agent.get("one_shot"):
+                        self.calls.add(run["id"])
+                    run.update(status="running" if agent.get("one_shot") else "submitted", dispatched_at=now()); self.store.put("agent_run", run)
                     pending.append((agent, run))
             for agent, run in pending:
+                if agent.get("one_shot"):
+                    # A role that answers once (roadmap T1) is one model call, made here, not a turn of a harness session.
+                    thread = threading.Thread(target=self._call, args=(agent["id"], run["id"]), daemon=True, name="call-" + run["id"])
+                    self.workspace.research_threads["call_" + run["id"]] = thread
+                    thread.start()
+                    continue
                 # A lost POST response is reconciled by exact run ID on the next
                 # tick. Never generate a new run ID for a transport retry.
                 try:
@@ -809,6 +832,32 @@ class PiController:
             if sweep or failed:
                 # A failed pass retries soon with a full sweep, which covers its dirty agents.
                 state["sweep_at"] = clock + (UNCONFIGURED_STATUS_SECONDS if failed else SWEEP_SECONDS)
+
+    def _call(self, agent_id, run_id):
+        from . import calls
+        try:
+            calls.run(self.workspace, agent_id, run_id)
+        finally:
+            self.calls.discard(run_id)
+            self.workspace.research_threads.pop("call_" + run_id, None)
+
+    def finish_call(self, agent_id, run_id, status, *, text=None, summary=None, error=None, usage=None):
+        """End a one-shot agent's run as _receive ends a harness turn: its reply, the asker's notice, the agent's status."""
+        with self.workspace.lock, self.store.transaction():
+            run = self.store.get(run_id, "agent_run")
+            if run["status"] in TERMINAL:
+                return
+            run.update(status="running", error=error, **({"disposition": {"disposition": "complete", "summary": summary}} if summary else {}))
+            self.store.put("agent_run", run)
+            if usage:
+                agent = self.store.get(agent_id, "agent_session")
+                totals = agent["usage"]
+                for key, value in usage.items():
+                    totals[key] = totals.get(key, 0) + value
+                self.store.put("agent_session", agent)
+            agent = self.store.get(agent_id, "agent_session")
+            self._receive(agent_id, {"runs": {run_id: {"status": status, "result": {"text": text} if text else None, "error": error}},
+                                     "events": [], "cursor": agent.get("event_cursor", 0)})
 
     def _receive(self, agent_id, remote):
         with self.workspace.lock, self.store.transaction():

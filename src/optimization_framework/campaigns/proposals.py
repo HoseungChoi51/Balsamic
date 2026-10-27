@@ -6,23 +6,30 @@ A proposal the researcher asked for (decision 7) or approved in a compute plan n
 """
 from typing import Literal
 
-from pydantic import Field
+from pydantic import Field, model_validator
 
 from optimization_framework.contracts.base import Contract
 from optimization_framework.contracts.base import content_hash
+from optimization_framework.storage.sqlite import now
 
 
-def hypothesis_revision(hypothesis):
-    """The exact revision a review judges. A bound proposal counts the configuration its first binding replaced, so binding
-    it to an installed method does not void its review."""
+def revision_fields(hypothesis):
+    """The fields of the exact revision a review judges. A bound proposal counts the configuration its first binding replaced,
+    so binding it to an installed method does not void its review."""
     fields = {key: hypothesis.get(key) for key in ("id", "title", "mechanism", "rationale", "parent_ids", "algorithm_config", "candidate_id")}
     if "pre_binding_config" in hypothesis:
         fields["algorithm_config"] = hypothesis["pre_binding_config"]
-    return content_hash(fields)
+    return fields
 
 
-class ProposalReview(Contract):
-    candidate_id: str
+def hypothesis_revision(hypothesis):
+    """The hash of the exact revision a review judges (revision_fields)."""
+    return content_hash(revision_fields(hypothesis))
+
+
+class Review(Contract):
+    """A reviewer's verdict on one revision. A one-shot review call returns exactly this (roadmap T1): the backend adds the
+    hypothesis and the revision's hash, so a model never names or pins them."""
     verdict: Literal["test", "revise", "reject"]
     rationale: str = Field(min_length=1, max_length=8000)
     mechanism_checks: list[str] = Field(min_length=1, max_length=20)
@@ -32,6 +39,31 @@ class ProposalReview(Contract):
     implementation_followup: list[str] = Field(default_factory=list, max_length=20,
         description="Separate implementation/readiness concerns; these do not determine conceptual plausibility.")
     suggested_tests: list[str] = Field(min_length=1, max_length=20)
+
+    @model_validator(mode="after")
+    def settled_before_test(self):
+        if self.verdict == "test" and self.required_changes:
+            raise ValueError("Required mechanism changes must be resolved before a test verdict")
+        return self
+
+
+class ProposalReview(Review):
+    candidate_id: str
+
+
+def record_review(store, hypothesis, content, *, artifact_id, agent_id, run_id):
+    """Save a verdict on a revision as proposal_review always has: an immutable agent_artifact of kind proposal_review pinning
+    the hash (content holds hypothesis_id and hypothesis_hash), and the verdict appended to the hypothesis's reviews."""
+    if content["verdict"] == "test" and content.get("required_changes"):
+        raise ValueError("Required mechanism changes must be resolved before a test verdict")
+    artifact = store.put_immutable("agent_artifact", {"id": artifact_id, "campaign_id": hypothesis["campaign_id"],
+        "agent_id": agent_id, "run_id": run_id, "kind": "proposal_review", "content": content,
+        "created_at": now()}, "hypothesis.concept_reviewed")
+    hypothesis = store.get(hypothesis["id"], "hypothesis")
+    hypothesis.setdefault("reviews", []).append({"id": artifact["id"], "author": "proposal_reviewer", "kind": "conceptual",
+        "verdict": content["verdict"], "text": content["rationale"], "created_at": now()})
+    store.put("hypothesis", hypothesis)
+    return artifact
 
 
 def researcher_request(workspace, origin):

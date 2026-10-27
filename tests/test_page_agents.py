@@ -24,6 +24,12 @@ def guidance(w, c):
     return w.memory.state(c['id'])['guidance_revision']
 
 
+def proposal(w, c):
+    """H1, the proposal a reviewer is asked about: a one-shot reviewer is delegated one proposal of the campaign (roadmap T1)."""
+    w.store.put('hypothesis', {'id': 'h1', 'candidate_id': 'H1', 'campaign_id': c['id'], 'title': 'H1', 'mechanism': 'Coordinate search.',
+                               'requires_concept_review': True, 'created_at': '2026-10-27T10:00:00+00:00'})
+
+
 def wakes(w, agent, prefix):
     return [run for run in w.store.list('agent_run') if run['agent_id'] == agent['id'] and run['id'].startswith(prefix)]
 
@@ -99,6 +105,7 @@ def test_the_leads_request_to_a_page_agent_holds_the_lead_and_its_result_comes_b
     assert 'Outstanding assignments' in held['error']
     # The moderator asks a reviewer; the reviewer's answer goes to the moderator, not to the lead.
     run = submitted(w, w.store.get(sent['run_id'], 'agent_run'))
+    proposal(w, c)
     asked = call(w, moderator, run, 'delegate', {'role': 'proposal_reviewer', 'objective': 'Review H1.', 'request_key': 'h1'}, 'review')
     reviewer = w.store.get(asked['agent_id'], 'agent_session')
     assert reviewer['parent_agent_id'] == moderator['id']
@@ -173,6 +180,7 @@ def test_a_round_the_moderator_runs_is_shown_with_the_request_that_started_it(tm
     sent = call(w, lead, lead_run, 'page_agent_message', {'page_agent': 'discussion_moderator', 'message': 'Review H1 with one reviewer.'}, 'ask')
     moderator = w.store.get(sent['agent_id'], 'agent_session')
     run = submitted(w, w.store.get(sent['run_id'], 'agent_run'))
+    proposal(w, c)
     asked = call(w, moderator, run, 'delegate', {'role': 'proposal_reviewer', 'objective': 'Review H1.', 'request_key': 'h1'}, 'review')
     saved = call(w, moderator, run, 'artifact_save', {'title': 'Round plan', 'kind': 'analysis', 'content': 'One reviewer on H1.'}, 'plan')
     on_page = w.pi.message(c['id'], {'message': 'Add a skeptic.', 'page_agent': 'discussion_moderator'}, 'on_page')
