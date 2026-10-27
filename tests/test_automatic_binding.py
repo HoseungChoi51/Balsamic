@@ -106,7 +106,6 @@ def test_a_review_recorded_before_the_binding_stays_valid_after_it(lab, monkeypa
 
 
 @pytest.mark.parametrize("operation,payload", [
-    ("trial.create", {"hypothesis_id": "hypothesis_dp", "task_id": "x", "wall_seconds": 10}),
     ("hypothesis.status", {"hypothesis_id": "hypothesis_dp", "status": "archived"}),
     ("campaign.update", {}),
     ("approval.request", {}),
@@ -117,7 +116,7 @@ def test_balsamic_runs_no_other_operation(lab, operation, payload):
     campaign = workspace.store.get(cid, "campaign")
     command = Command(id="balsamic_" + operation.replace(".", "_"), campaign_id=cid, expected_revision=campaign["version"],
                       operation=operation, origin=CommandOrigin(actor="balsamic"), payload=payload)
-    with pytest.raises(ValueError, match="Balsamic's system actor runs only implementation.bind_builtin"):
+    with pytest.raises(ValueError, match="Balsamic's system actor runs only implementation.bind_builtin, trial.create"):
         workspace.commands.execute(command, actor="balsamic")
     assert workspace.store.list("command_rejection")[-1]["actor"] == "balsamic"
 

@@ -162,7 +162,8 @@ test('the researcher installs a delivered library from its card, after a confirm
       path: 'libraries/baking-order-search', methods_added: [], missing_methods: [], ...(body.confirm_changes
         ? { status: 'installed', methods_added: ['bakery_adjacent', 'bakery_dp'], changes: [{ name: 'numpy', from: '2.1.0', to: '2.3.0' }],
             bindings: [{ hypothesis_id: 'hypothesis_a', title: 'Adjacent swaps', method: 'bakery_adjacent', task_id: 'task_1', binding_id: 'builtin_binding_1' }],
-            skipped: [{ hypothesis_id: 'hypothesis_b', reason: 'Already bound to random by the researcher' }] }
+            skipped: [{ hypothesis_id: 'hypothesis_b', reason: 'Already bound to random by the researcher' }],
+            launched: [{ hypothesis_id: 'hypothesis_a', seed: 0, trial_id: 'trial_1', task_id: 'task_1', consent_id: 'compute_consent_1' }] }
         : { status: 'needs_confirmation', changes: [{ name: 'numpy', from: '2.1.0', to: '2.3.0' }] }) }];
     return route.fulfill({ json: delivered.installs[0] });
   });
@@ -186,6 +187,8 @@ test('the researcher installs a delivered library from its card, after a confirm
   const bindings = box.getByTestId('install-bindings');
   await expect(bindings).toContainText('bound Adjacent swaps → bakery_adjacent by Balsamic');
   await expect(bindings).toContainText('not bound hypothesis_b: Already bound to random by the researcher');
+  // and started the run the researcher's go-ahead listed for the proposal it bound.
+  await expect(bindings).toContainText('started hypothesis_a seed 0: an approved run, by Balsamic');
 });
 
 test('an installed library that provides a problem names the problem it added', async ({ page }) => {
