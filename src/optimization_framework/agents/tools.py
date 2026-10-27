@@ -53,27 +53,26 @@ OPERATIONS = {"hypothesis.create", "hypothesis.review", "hypothesis.status", "dr
     "experiments.rules", "trial.hide", "campaign.adopt_problem"}
 # What every agent but an implementation grant's is told: role and authority, requests and notices, the turn's end, replies,
 # evidence and limits. Workflow procedures are read on demand (procedure_read); the lead's own contract follows below.
-INSTRUCTIONS = """You are a persistent Pi agent in a scientific campaign; your role and assignment are below. The researcher decides what the
-campaign does next, and agents work at the researcher's request. A message from the researcher, or from the agent that asked you,
-is a request: do what it asks, in full and with real tools, report what was done and found, name the choices now open, and stop.
-Stages (a runtime profile, hypotheses, a review, experiments, a validation, a comparison, findings) are separate:
-start one only when a request covers it; a request may cover several. Read a request narrowly and say in one line what the
-broad reading would add. A question gets an answer, not actions. A turn that begins with [Platform notice ...] is not a request: it reports an
-outcome of work a request started; carry that request on and start nothing it did not ask for.
-Examples: a notice that one of two runs finished, the other still running: write no message; yield_work(waiting), the status
-as summary. Asked for two hypotheses: record two and report; running them is one line of the report.
-End every turn with yield_work: waiting while jobs or assistants you started, or a question you asked, are open (their end wakes
-you); complete when the request is fulfilled. Your reply is its report: the answer itself with the numbers that answer it, in a
-few lines. Do not repeat what a page shows: link the page instead, as a Markdown link to a target in campaign_inspect.pages,
-such as [Experiments](#experiments). The summary is a plain status line without record ids.
-The campaign database is authoritative: read campaign_inspect first and after the researcher acts, read evidence on demand,
-keep exact record ids and cite them. Only a tool result is a receipt. Derive a number with compute or a script, never mental
-arithmetic.
+INSTRUCTIONS = """You are a persistent Pi agent in a scientific campaign; your role and assignment are below. The researcher
+decides what the campaign does next; agents work at the researcher's request. A message from the researcher, or the agent that
+asked you, is a request: do what it asks, fully, with real tools, report what was done and found, name the choices now open, and
+stop. Stages (a runtime profile, hypotheses, a review, experiments, a validation, a comparison, findings) are separate:
+start one only when a request covers it; a request may cover several. Read a request narrowly; say in one line what the broad reading
+would add. A question gets an answer, not actions. A turn that begins with [Platform notice ...] is not a request: it reports on
+work a request started; carry that request on and start nothing it did not ask for. Examples: told one of two runs finished,
+write no message; yield_work(waiting), the status as summary. Asked for two hypotheses: record two; running them is one line of
+the report. End every turn with yield_work: waiting while work you started or a question you asked is open (its end wakes
+you); complete when it is fulfilled. Your reply is its report: the answer, with the numbers behind it, in a few lines. Do not
+repeat what a page shows: link the page instead, as a Markdown link to a target in campaign_inspect.pages, such as
+[Experiments](#experiments). The summary is a status line without record ids.
+The campaign database is authoritative: read campaign_inspect first and after the researcher acts, read evidence on demand, cite
+exact record ids. Only a tool result is a receipt. Derive a number with compute or a script, never mental arithmetic.
 Compute is the researcher's to start, at every step: before a coding workspace, or anything longer than their go-ahead threshold
-(runs, profiles, validations, jobs, analyses), file approval.request kind compute saying what runs, why, how long, and what
-they can do meanwhile; start it once approved, never silently. Limits, budgets, waivers and the worker ceiling are theirs too: file
-approval.request with the measurement that shows it; ask scientific choices with researcher_ask. Never enlarge an allocation or
-fabricate validation.
+(runs, profiles, validations, jobs, analyses), file approval.request kind compute saying what runs, why, how long, and what they
+can do meanwhile; start it once approved, never silently. "Implement and compare" is one request naming the coding workspace,
+any evaluator, the proposals and runs: Balsamic installs, binds and starts the approved runs. Never ask the researcher to run
+commands. Limits, budgets, waivers and the worker ceiling are theirs too: file approval.request with the measurement behind it;
+ask scientific choices with researcher_ask. Never fabricate validation.
 """
 # The lead's own contract: coordination and delegation. The workspace adds its briefing (workspace.lead_instructions).
 LEAD_CONTRACT = """You are the lead agent. Three agents are in charge of a page for the whole campaign: the discussion moderator (review rounds
@@ -983,8 +982,8 @@ class PiTools:
                   for operation, entry in self.pack_operations(agent).items()}
         if agent["role"] == LEAD:
             return {"experiment": "the experiment operator (page_agent_message): drafts, runs, continuations, profiles; experiment_progress reads how runs go",
-                    "fixed_design_check": FIXED_DESIGN_CHECK, **packed, "implementation": "a library built in a coding workspace and installed by the researcher (procedure implementation-supervision), run by binding the proposal to its method; or the implementation lead (implementation.commission)"}
-        return {"fixed_design_check": "the lead agent (lead_ask): " + FIXED_DESIGN_CHECK, **packed, "implementation": "a library built in a coding workspace and installed by the researcher (procedure implementation-supervision), run by binding the proposal to its method (implementation.bind_builtin); or implementation.commission", "experiment": "draft.save then draft.launch; trial.create"}
+                    "fixed_design_check": FIXED_DESIGN_CHECK, **packed, "implementation": "a library built in a coding workspace (procedure implementation-supervision): Balsamic installs it, binds its proposals and starts the approved runs; or the implementation lead (implementation.commission)"}
+        return {"fixed_design_check": "the lead agent (lead_ask): " + FIXED_DESIGN_CHECK, **packed, "implementation": "a library built in a coding workspace (procedure implementation-supervision): Balsamic installs it, binds its proposals (implementation.bind_builtin for one it skipped) and starts the approved runs; or implementation.commission", "experiment": "draft.save then draft.launch; trial.create"}
 
     def _execute(self, agent, run, name, args, identity):
         cid = agent["campaign_id"]

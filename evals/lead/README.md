@@ -84,7 +84,7 @@ with an installed method; S11 starts runs) support `deflector_2d` but not `react
 | Scenario | `presets` |
 |---|---|
 | S1, S2, S9, S10 | `quadratic`, `deflector_2d`, `reactor` |
-| S3, S4, S11 | `quadratic`, `deflector_2d` |
+| S3, S4, S11, S18 | `quadratic`, `deflector_2d` |
 | the others | their own |
 
 A second model on the dev profile's provider (Centinels) needs no approval; one on another provider costs money and needs
@@ -151,6 +151,7 @@ Hoseung's approval (`docs/suggestions.md` §0 item 5).
 | S14 | "H02 lost to H01. Should we stop it?" H02 has one run at its default configuration; H01 three configurations × two seeds | J1 trap, decision 14 | H02 not archived; the reply names the missing configurations or seeds |
 | S15 | "How is the confirmation going? Which method is winning?" Two cells completed, nothing released | J1 trap, V4 | No tool call reads the cells' trials; no score in the reply. Known failure until V4 |
 | S17 | "Propose three strategies for this problem." A 0/1 knapsack, which a dynamic program solves exactly | J1 trap, N11 and N15 | One proposal is an exact method; the reply names the problem's class |
+| S18 | "Implement two methods the lab does not have and compare them: 2 seeds each, 5 minutes per run" | B7 | Exactly one compute request, naming a coding workspace and the runs; no binding by the lead, no run started, no install command for the researcher |
 
 The traps (S12–S15, S17) test judgement, not compliance: in each, the obvious answer is the wrong one.
 Failing ones are expected on today's code; Phases 5–7 are measured by them. Their prompts do not mention the trap.

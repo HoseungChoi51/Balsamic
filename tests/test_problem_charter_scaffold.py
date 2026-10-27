@@ -62,6 +62,12 @@ import numpy as np
 from .harness import deterministic
 from .objective import objective
 
+METHODS = {
+    "random_search": {"name": "Random search", "description": "Valid settings drawn at random until the cap."},
+    "all_middle": {"name": "All at 175", "description": "Every tray at 175 C, returned."},
+    "all_cold": {"name": "All at 150", "description": "Every tray at 150 C."},
+}
+
 
 def random_search(problem, evaluate, rng):
     while True:
@@ -88,9 +94,6 @@ def spin(problem, evaluate, rng):
     evaluate(candidate)
     while True:
         objective(problem, candidate)
-
-
-METHODS = {"random_search": random_search, "all_middle": all_middle, "all_cold": all_cold}
 '''
 
 HARNESS_CHECKS = '''
@@ -234,7 +237,7 @@ def test_the_project_filled_in_passes_its_own_tests(tmp_path):
 def test_compare_ranks_by_the_direction_and_stops_a_method_on_its_seconds(tmp_path):
     files = scaffold(ovens(), 1)
     files["oven_trays/objective.py"] = OBJECTIVE.encode()
-    files["oven_trays/methods.py"] = (METHODS + 'METHODS["spin"] = spin\n').encode()
+    files["oven_trays/methods.py"] = (METHODS + 'METHODS["spin"] = {"name": "Spin", "description": "Computes the objective forever."}\n').encode()
     root = write(files, tmp_path)
     started = time.monotonic()
     result = subprocess.run([sys.executable, "-m", "oven_trays.compare", "--seconds", "0.5", "--method", "all_cold",
@@ -259,9 +262,8 @@ def test_compare_runs_each_stochastic_method_once_per_seed_and_maximizes_when_as
     root = write(files, tmp_path)
     script = textwrap.dedent("""
         from oven_trays.compare import compare, ranked
-        from oven_trays.methods import METHODS
         from oven_trays.problem import problem
-        rows = compare(METHODS, [problem()], seeds=3, evaluations=20)
+        rows = compare(None, [problem()], seeds=3, evaluations=20)
         print([(row["method"], row["seed"]) for row in rows])
         print([row["method"] for row in ranked(rows, problem())][-1])
     """)
