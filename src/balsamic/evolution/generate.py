@@ -15,7 +15,10 @@ class GenerateInput(Contract):
 
 
 PROMPTS = {
-    "diversify": "Propose {count} new strategies for this problem, each with a different mechanism from the others and from the recorded proposals.",
+    "diversify": ("Propose {count} new strategies for this problem, each with a different mechanism from the others and from the recorded proposals. "
+                  "Where the problem allows, take them from different families (exact, solver, constructive, local_search, learning, hybrid), "
+                  "including an exact or problem-specific method when the instance sizes make one plausible; set each one's family, "
+                  "and say why a family is left out."),
     "hybrid": "Propose {count} strategies that combine the mechanisms of {parents}; each names its parents in parent_ids.",
     "revise": "Revise {parents} in the light of its reviews and results: propose {count} revision(s), each naming it in parent_ids with a change_summary.",
 }

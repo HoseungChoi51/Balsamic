@@ -242,6 +242,13 @@ class ParentLink(Model):
     kind: Literal["revision", "variant", "hybrid", "inspired_by"] = "revision"
 
 
+# The algorithm family a proposal belongs to (roadmap N15): exact (DP, enumeration, branch and bound), solver (MILP, CP, SAT
+# through a library), constructive (greedy and problem-specific rules), local_search (metaheuristics), learning, hybrid.
+Family = Literal["exact", "solver", "constructive", "local_search", "learning", "hybrid"]
+# What the algorithm field holds until a method is chosen: no default method is recorded as if it were a choice.
+UNCHOSEN = "unchosen"
+
+
 class HypothesisInput(Model):
     campaign_id: str
     title: str = Field(min_length=1, max_length=300)
@@ -256,7 +263,8 @@ class HypothesisInput(Model):
     parent_links: list[ParentLink] = Field(default_factory=list, max_length=10)
     round: int | None = Field(default=None, ge=0, le=10000)
     library_entry_id: str | None = None
-    algorithm: str = "hillclimb"
+    family: Family | None = Field(default=None, description="The algorithm family: exact (DP, enumeration, branch and bound), solver (MILP, CP, SAT through a library), constructive (greedy, problem-specific rules), local_search (metaheuristics), learning, or hybrid.")
+    algorithm: str = Field(default=UNCHOSEN, description="The installed method from campaign_inspect.methods, or custom; left out, it is recorded as unchosen.")
     algorithm_config: dict[str, Any] = Field(default_factory=dict)
     status: Literal["proposed", "investigating", "archived", "finalist"] = "proposed"
     source: str | None = Field(default=None, max_length=100000)
