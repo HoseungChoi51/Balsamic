@@ -1,40 +1,19 @@
+"""The implementation library's own API since roadmap H8: it builds nothing and calls no model. A package supplied to it is checked
+against its specification's frozen checks, once, and published as an immutable artifact; a job without a package is blocked; jobs
+recorded before (an uncertain model call at a restart) stay as they were, conservatively charged."""
 from pathlib import Path
-import json
 import time
 
 from fastapi.testclient import TestClient
 import pytest
 
 from dqn_meent.implementations.api import create_app
-from dqn_meent.implementations.models import BuildResult, ImplementationSpec, JobRequest, Package, ReviewResult
+from dqn_meent.implementations.models import ImplementationSpec, JobRequest, Package
 from dqn_meent.implementations.runtime import PackageOptimizer, prepare_runtime, write_package
-from dqn_meent.implementations.service import ImplementationService
-from optimization_framework.agents.implementation import review_context
-from optimization_framework.contracts.base import content_hash
+from dqn_meent.implementations.service import NO_BUILDING, NO_CHECKS, ImplementationService
 
 
 REFERENCE = (Path(__file__).resolve().parents[1] / "examples/implementation-reference/optimizer.py").read_text()
-
-
-def test_pi_review_report_compacts_full_masks_without_losing_check_results():
-    mask = [index % 2 for index in range(256 * 128)]
-    report = {"id": "validation_one", "passed": True, "checks": [
-        {"name": "full-mask fixture", "passed": True,
-         "detail": {"designs": [mask, mask[::-1]], "efficiencies": [.2, .3]}},
-        {"name": "covariance cap", "passed": True,
-         "detail": {"unshrunk_max": 5.475, "post_shrink_max": 4.0}}]}
-    context = {"spec": {"acceptance_criteria": ["cover all criteria"]},
-               "package": {"files": [{"path": "optimizer.py", "content": REFERENCE}]},
-               "report": report}
-    bounded = review_context(context)
-    assert len(json.dumps(bounded)) < 100_000
-    assert bounded["report"]["full_report_digest"] == content_hash(report)
-    assert bounded["report"]["checks"][0]["detail"]["designs"][0] == {
-        "array_digest": content_hash(mask), "length": len(mask), "minimum": 0,
-        "maximum": 1, "sum": len(mask) // 2}
-    assert bounded["report"]["checks"][1] == report["checks"][1]
-    assert bounded["package"] == context["package"]
-    assert report["checks"][0]["detail"]["designs"][0] == mask
 
 
 def specification(**changes):
@@ -49,90 +28,40 @@ def package(source=REFERENCE):
     return Package(files=[{"path": "optimizer.py", "content": source}])
 
 
-class FakeAdapter:
-    sources = [REFERENCE]
-
-    def __init__(self, **kwargs):
-        self.usage = kwargs.get("usage") or {"calls": 0, "api_cost_usd": 0, "subscription_calls": 0}
-        self.callback = kwargs["reservation_callback"]
-
-    def call(self, role, payload, *, result_type, instructions):
-        self.usage["calls"] += 1
-        self.callback({"type": "provider_call_reserved", "usage": self.usage})
-        if result_type is BuildResult:
-            index = min(len(payload.get("previous_attempts", [])), len(self.sources)-1)
-            return BuildResult(explanation="Candidate", package=package(self.sources[index]), blocker=None)
-        return ReviewResult(passed=True, criteria=payload["spec"]["acceptance_criteria"], findings=["Checked each criterion against source and report"])
-
-
-@pytest.mark.meent
-def test_submitted_package_charges_execution_separately_from_model_wait(tmp_path):
-    class SlowReviewAdapter(FakeAdapter):
-        def call(self, *args, **kwargs):
-            time.sleep(1.1)
-            return super().call(*args, **kwargs)
-
-    assert 'accounting_mode' not in request().model_dump()
-    service = ImplementationService(tmp_path, adapter_factory=SlowReviewAdapter)
-    submitted = request(package=package().model_dump(), accounting_mode='execution_v1', compute_seconds=20)
-    began = time.monotonic()
-    result = service.run_job(service.submit(submitted)['id'])
-    elapsed = time.monotonic() - began
-    assert result['status'] == 'completed', result
-    assert 0 < result['compute_seconds'] < elapsed - .8
-
-
-def test_submitted_package_failure_returns_to_coding_workspace_without_rebuild(tmp_path):
-    class NoRebuildAdapter(FakeAdapter):
-        def call(self, role, payload, *, result_type, instructions):
-            assert result_type is not BuildResult, "submitted source must not be replaced by a short-form builder"
-            return super().call(role, payload, result_type=result_type, instructions=instructions)
-
-    service = ImplementationService(tmp_path, adapter_factory=NoRebuildAdapter)
-    invalid = REFERENCE.replace("efficiency > self.score", "True")
-    submitted = request(package=package(invalid).model_dump(), accounting_mode="execution_v1")
-    result = service.run_job(service.submit(submitted)["id"])
-    assert result["status"] == "failed"
-    assert len(result["attempts"]) == 1
-    assert result["attempts"][0]["report"]["passed"] is False
-
-
-@pytest.mark.meent
-def test_pre_review_transport_failure_resumes_same_protected_report(tmp_path):
-    class LostReviewAdapter(FakeAdapter):
-        first = True
-
-        def call(self, role, payload, *, result_type, instructions):
-            if role == "implementation_validator" and self.first:
-                type(self).first = False
-                raise ValueError("Review transport was unavailable")
-            return super().call(role, payload, result_type=result_type, instructions=instructions)
-
-    service = ImplementationService(tmp_path, adapter_factory=LostReviewAdapter)
-    job = service.submit(request(package=package().model_dump(), accounting_mode="execution_v1"))
-    failed = service.run_job(job["id"])
-    assert failed["status"] == "failed"
-    assert failed["attempts"][0]["report"]["passed"] is True
-    report_id = failed["attempts"][0]["report"]["id"]
-    assert not failed["attempts"][0].get("review")
-    service.control(job["id"], "resume")
-    completed = service.run_job(job["id"])
-    assert completed["status"] == "completed"
-    assert len(completed["attempts"]) == 1
-    assert completed["attempts"][0]["report"]["id"] == report_id
-
-
 def request(**changes):
     return JobRequest.model_validate({"workspace_id": "workspace_one", "campaign_id": "campaign_one", "idempotency_key": "build-one",
         "grant_id": "grant_one", "spec": specification().model_dump(), "compute_seconds": 120, **changes})
 
 
+def test_a_job_without_a_package_is_blocked_and_calls_no_model(tmp_path):
+    service = ImplementationService(tmp_path)
+    result = service.run_job(service.submit(request())["id"])
+    assert result["status"] == "blocked" and result["error"] == NO_BUILDING
+    assert not result["usage"] and not result["attempts"] and not service.store.list("implementation_version")
+
+
+def test_a_package_whose_specification_has_no_frozen_checks_is_blocked(tmp_path):
+    service = ImplementationService(tmp_path)
+    result = service.run_job(service.submit(request(spec=specification(behavior_checks=[]).model_dump(), package=package().model_dump()))["id"])
+    assert result["status"] == "blocked" and result["error"] == NO_CHECKS
+    assert not result["attempts"] and not service.store.list("implementation_version")
+
+
+def test_a_supplied_package_that_fails_its_checks_fails_once_without_a_rebuild(tmp_path):
+    service = ImplementationService(tmp_path)
+    invalid = REFERENCE.replace("efficiency > self.score", "True")
+    result = service.run_job(service.submit(request(package=package(invalid).model_dump(), accounting_mode="execution_v1"))["id"])
+    assert result["status"] == "failed"
+    assert len(result["attempts"]) == 1 and result["attempts"][0]["report"]["passed"] is False
+    assert not result["usage"].get("calls") and not service.store.list("implementation_version")
+
+
 def test_service_auth_idempotency_and_capabilities(tmp_path):
-    app = create_app(tmp_path, token="secret", start_workers=False, adapter_factory=FakeAdapter)
+    app = create_app(tmp_path, token="secret", start_workers=False)
     with TestClient(app) as client:
         assert client.get("/v1/versions").status_code == 401
         headers = {"Authorization": "Bearer secret"}
-        payload = request(spec=specification(capabilities=["gradients"]).model_dump()).model_dump()
+        payload = request(spec=specification(capabilities=["gradients"]).model_dump(), package=package().model_dump()).model_dump()
         first = client.post("/v1/jobs", json=payload, headers=headers)
         assert first.status_code == 202
         assert client.post("/v1/jobs", json=payload, headers=headers).json()["id"] == first.json()["id"]
@@ -144,17 +73,15 @@ def test_service_auth_idempotency_and_capabilities(tmp_path):
 
 
 @pytest.mark.meent
-def test_full_repair_validation_and_immutable_artifact(tmp_path):
-    class RepairAdapter(FakeAdapter):
-        sources = [REFERENCE.replace("efficiency > self.score", "True"), REFERENCE]
-    service = ImplementationService(tmp_path, adapter_factory=RepairAdapter)
-    job = service.submit(request())
-    result = service.run_job(job["id"])
+def test_a_supplied_package_is_published_as_an_immutable_artifact(tmp_path):
+    service = ImplementationService(tmp_path)
+    began = time.monotonic()
+    result = service.run_job(service.submit(request(package=package().model_dump()))["id"])
     assert result["status"] == "completed", result
-    assert len(result["attempts"]) == 2
-    assert result["attempts"][0]["report"]["passed"] is False
+    assert len(result["attempts"]) == 1 and 0 < result["compute_seconds"] <= time.monotonic() - began
     bundle = service.artifact(result["version_id"])
     assert bundle["version"]["validation_report"]["kind"] == "implementation_correctness"
+    assert bundle["version"]["validation_report"]["review"] is None   # no model reviewed it
     assert bundle["version"]["exposed_conditions"]
     path = tmp_path / "artifacts" / bundle["version"]["artifact_digest"] / "package/optimizer.py"
     path.write_text("changed")
@@ -163,8 +90,8 @@ def test_full_repair_validation_and_immutable_artifact(tmp_path):
 
 
 def test_cancel_is_terminal_and_does_not_spend_again(tmp_path):
-    service = ImplementationService(tmp_path, adapter_factory=FakeAdapter)
-    job = service.submit(request())
+    service = ImplementationService(tmp_path)
+    job = service.submit(request(package=package().model_dump()))
     assert service.control(job["id"], "cancel")["status"] == "cancelled"
     assert service.run_job(job["id"])["status"] == "cancelled"
     with pytest.raises(ValueError, match="Only interrupted"):
@@ -172,8 +99,8 @@ def test_cancel_is_terminal_and_does_not_spend_again(tmp_path):
 
 
 def test_control_receipt_lookup_is_authenticated_and_never_reissues_control(tmp_path):
-    app = create_app(tmp_path, token="secret", start_workers=False, adapter_factory=FakeAdapter)
-    job = app.state.service.submit(request())
+    app = create_app(tmp_path, token="secret", start_workers=False)
+    job = app.state.service.submit(request(package=package().model_dump()))
     path = f"/v1/jobs/{job['id']}/control-receipt?idempotency_key=cancel_once"
     headers = {"Authorization": "Bearer secret"}
     with TestClient(app) as client:
@@ -214,7 +141,7 @@ def test_package_isolation_and_checkpoint(tmp_path):
 
 @pytest.mark.meent
 def test_validation_profile_change_requires_revalidation(tmp_path, monkeypatch):
-    service = ImplementationService(tmp_path, adapter_factory=FakeAdapter)
+    service = ImplementationService(tmp_path)
     result = service.run_job(service.submit(request(package=package().model_dump()))["id"])
     assert result["status"] == "completed", result
     monkeypatch.setattr("dqn_meent.implementations.service.profile_identity", lambda: "different")
@@ -222,32 +149,10 @@ def test_validation_profile_change_requires_revalidation(tmp_path, monkeypatch):
         service.artifact(result["version_id"])
 
 
-class DirectClient:
-    """Exercise the real service boundary without a second HTTP test server."""
-    def __init__(self, service):
-        self.service = service
-
-    def submit(self, payload):
-        return self.service.submit(JobRequest.model_validate(payload))
-
-    def job(self, job_id):
-        return self.service.store.get(job_id, "implementation_job")
-
-    def artifact(self, version_id):
-        return self.service.artifact(version_id)
-
-    def version(self, version_id):
-        return self.service.store.get(version_id, "implementation_version")
-
-    def versions(self):
-        return self.service.store.list("implementation_version")
-
-    def control(self, job_id, action):
-        return self.service.control(job_id, action)
-
-
-def test_restart_preserves_uncertain_call_and_conservatively_charges_grant(tmp_path):
-    service = ImplementationService(tmp_path, adapter_factory=FakeAdapter)
+def test_a_job_in_flight_before_h8_with_an_uncertain_model_call_is_conservatively_charged_at_restart(tmp_path):
+    """A job the library's builder or reviewer was running when the lab was upgraded (a model call reserved, its outcome unknown)
+    is not resumed: at the restart it needs reconciliation, its unobserved time charged within its grant."""
+    service = ImplementationService(tmp_path)
     job = service.submit(request())
     service.update_job(job["id"], status="reviewing", execution_started_at=time.time()-10,
         prior_compute_seconds=2, compute_seconds=3, usage={"calls": 1, "pending_reservation": {"id": "uncertain"}})
@@ -266,24 +171,9 @@ def test_restart_preserves_uncertain_call_and_conservatively_charges_grant(tmp_p
         service.close()
 
 
-def test_cancel_during_provider_call_retains_uncertain_usage(tmp_path):
-    class InterruptingAdapter(FakeAdapter):
-        def call(self, role, payload, **kwargs):
-            self.usage.update(calls=1, pending_reservation={"id": "active-call"})
-            service.control(job["id"], "cancel")
-            self.callback({"usage": self.usage})
-            raise AssertionError("Cancellation must interrupt before another call")
-    service = ImplementationService(tmp_path, adapter_factory=InterruptingAdapter)
-    job = service.submit(request())
-    result = service.run_job(job["id"])
-    assert result["status"] == "needs_reconciliation"
-    assert result["usage"]["calls"] == 1
-    assert not service.store.list("implementation_version")
-
-
 @pytest.mark.meent
 def test_revalidation_retains_version_and_history_without_rebuilding(tmp_path):
-    service = ImplementationService(tmp_path, adapter_factory=FakeAdapter)
+    service = ImplementationService(tmp_path)
     first = service.run_job(service.submit(request(package=package().model_dump()))["id"])
     second = service.run_job(service.submit(request(package=package().model_dump(), grant_id="grant_two", idempotency_key="second"))["id"])
     assert second["status"] == "completed", second.get("error")
@@ -291,25 +181,3 @@ def test_revalidation_retains_version_and_history_without_rebuilding(tmp_path):
     version = service.version(first["version_id"])
     assert len(version["validation_history"]) == 1
     assert version["validation_history"][0]["id"] != version["validation_report"]["id"]
-
-
-@pytest.mark.meent
-def test_service_designs_and_freezes_checks_before_building(tmp_path):
-    from dqn_meent.implementations.service import ValidationPlan
-    roles = []
-    class PlanningAdapter(FakeAdapter):
-        def call(self, role, payload, **kwargs):
-            roles.append(role)
-            if kwargs['result_type'] is ValidationPlan:
-                assert 'package' not in payload
-                self.usage['calls'] += 1
-                return ValidationPlan(checks=specification().behavior_checks,
-                                      rationale='Check rejection of deteriorating proposals', blocker=None)
-            if role == 'implementation_builder':
-                assert payload['spec']['behavior_checks'][0]['assertion'] == 'one_bit_from_incumbent'
-            return super().call(role, payload, **kwargs)
-    service = ImplementationService(tmp_path, adapter_factory=PlanningAdapter)
-    result = service.run_job(service.submit(request(spec=specification(behavior_checks=[]).model_dump()))['id'])
-    assert result['status'] == 'completed', result.get('error')
-    assert roles == ['implementation_test_designer', 'implementation_builder', 'implementation_validator']
-    assert service.version(result['version_id'])['spec']['behavior_checks'] == result['validation_plan']['checks']

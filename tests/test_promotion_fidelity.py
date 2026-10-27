@@ -13,6 +13,7 @@ from optimization_framework.contracts.validation import ValidationRequirement, V
 from optimization_framework.evaluation.recipes import compile_recipe
 from optimization_framework.execution.service import Workspace
 from optimization_framework.storage.sqlite import now
+from test_mandates import granted
 
 CONFIGURATION = {"wavelength_nm": 1050, "target_angle_deg": 75, "period_x_nm": 1050 / math.sin(math.radians(75)),
     "period_y_nm": 525, "thickness_nm": 325, "grid_x": 4, "grid_y": 2, "incident_n": 1.45, "exit_n": 1.0,
@@ -37,7 +38,9 @@ def campaign_of(workspace, problem_id="meent_2d_dual_polarization_deflector"):
     task = (TaskInput(name="2D deflector", problem_id=problem_id, configuration=CONFIGURATION, fidelity=LADDER[0])
             if problem_id.startswith("meent") else TaskInput(name="Trap", problem_id=problem_id, fidelity={"resolution": "coarse"})
             if problem_id == "fidelity_trap" else TaskInput(name="Quadratic", problem_id=problem_id))
-    return workspace.create_campaign(CampaignInput(name="Promotion", autonomy="delegated", compute_budget_seconds=10000, validation_reserve_seconds=0, tasks=[task]))
+    campaign = workspace.create_campaign(CampaignInput(name="Promotion", autonomy="delegated", compute_budget_seconds=10000, validation_reserve_seconds=0, tasks=[task]))
+    granted(workspace, campaign["id"], "screen")   # an agent's promotion is decide work, which a Screen mandate allows (R3)
+    return campaign
 
 
 def strategy(workspace, campaign, *, score, title="Level-set search"):

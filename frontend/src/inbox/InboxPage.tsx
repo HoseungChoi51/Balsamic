@@ -77,6 +77,7 @@ function DecisionCard({ decision, version, campaignId, selected, onDone, isNew, 
       {decision.proposal ? <Markdown text={decision.proposal} thread={thread} /> : null}
       {decision.rationale && decision.rationale !== decision.proposal ? <Markdown text={decision.rationale} thread={thread} className="md muted small" /> : null}
       {decision.plan ? <PlanCard plan={decision.plan} /> : null}
+      <MandateTerms decision={decision} />
       {decision.freshness?.reason ? <p className="why">{decision.freshness.reason}</p> : null}
       <textarea placeholder="A note with your choice (optional)" value={comment} onChange={e => setComment(e.target.value)} style={{ width: '100%', minHeight: 40 }} />
       <div className="row wrap" style={{ marginTop: 6 }}>
@@ -88,6 +89,20 @@ function DecisionCard({ decision, version, campaignId, selected, onDone, isNew, 
       {error ? <div className="pill bad" style={{ marginTop: 6 }}>{error}</div> : null}
     </article>
   );
+}
+
+const TEMPLATES: Record<string, string> = { screen: 'Screen: the proposals, workspaces and runs the plan names', run_campaign: 'Run the campaign: every stage within this envelope' };
+
+/** A mandate an agent proposes (roadmap R2): the template and its envelope at a glance, above the three choices. */
+function MandateTerms({ decision }: { decision: Decision }) {
+  const request = decision.approval_request as { kind?: string; template?: string; worker_seconds?: number; coding_workspaces?: number; model_usd?: number | null; deadline_minutes?: number | null } | undefined;
+  if (request?.kind !== 'mandate' || !request.template) return null;
+  const terms = [`up to ${String(duration(request.worker_seconds ?? 0))} of worker time`,
+    ...(request.coding_workspaces ? [`${request.coding_workspaces} coding workspace${request.coding_workspaces > 1 ? 's' : ''}`] : []),
+    ...(request.model_usd != null ? [`$${request.model_usd} of model spend`] : []),
+    request.deadline_minutes ? `deadline ${String(duration(request.deadline_minutes * 60))} after you approve` : 'no deadline'];
+  return <p className="why" data-testid="mandate-terms"><Pill tone="agent">mandate</Pill> {TEMPLATES[request.template] || request.template}; {terms.join(', ')}.
+    {' '}Approve as Explore only keeps it to your go-ahead threshold in total, with no coding workspace.</p>;
 }
 
 function IssueCard({ issue, version, campaignId, onDone, isNew, thread }: { issue: Issue; version?: number; campaignId: string; onDone: () => unknown; isNew: boolean; thread: string | null }) {

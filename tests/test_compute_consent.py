@@ -16,12 +16,12 @@ def lab(tmp_path):
     return workspace, campaign, workspace.current_tasks(campaign["id"])[0]
 
 
-def send(workspace, campaign_id, identity, operation, payload, actor="manager"):
+def send(workspace, campaign_id, identity, operation, payload, actor="manager", origin=None):
     campaign = workspace.store.get(campaign_id, "campaign")
     pins = {"expected_guidance_revision": workspace.memory.state(campaign_id)["guidance_revision"],
             "expected_authority_hash": workspace.commands.authority_hash(campaign)} if actor != "researcher" else {}
     return workspace.commands.execute(Command(id=identity, campaign_id=campaign_id, expected_revision=campaign["version"],
-        operation=operation, payload=payload, **pins), actor=actor)
+        operation=operation, payload=payload, origin=origin, **pins), actor=actor)
 
 
 def run(task, seconds):
@@ -31,13 +31,13 @@ def run(task, seconds):
 def test_an_agent_starts_nothing_over_the_go_ahead_threshold_without_the_researchers_go_ahead(lab):
     workspace, campaign, task = lab
     cid = campaign["id"]
-    with pytest.raises(ValueError, match="approval.request with kind compute") as refused:
+    with pytest.raises(ValueError, match="mandate_propose") as refused:
         send(workspace, cid, "screen_1", "trial.create", run(task, 590))
     assert "about 10 min" in str(refused.value) and "more than 5 min (the researcher's go-ahead threshold)" in str(refused.value)
     assert "even when a request implies the work" in str(refused.value)
     send(workspace, cid, "short_probe", "trial.create", run(task, 30))           # up to the go-ahead threshold needs no go-ahead
     send(workspace, cid, "researcher_run", "trial.create", run(task, 590), actor="researcher")   # the researcher's own run
-    with pytest.raises(ValueError, match="approval.request with kind compute"):
+    with pytest.raises(ValueError, match="mandate_propose"):
         send(workspace, cid, "profile", "runtime.profile", {"task_id": task["id"], "probe_seconds": 300})   # every step, not only experiments
 
     send(workspace, cid, "ask", "approval.request", {"kind": "compute", "plan": "Two screening runs of H13, seeds 0 and 1",
@@ -109,9 +109,24 @@ def test_the_researcher_sets_the_two_thresholds_for_the_campaign(lab):
 
 
 def test_autopilot_runs_within_the_cap_the_researcher_set(lab):
+    """Autopilot's go-ahead is the standing Run-the-campaign mandate its switch granted (R4): its cap, not a consent. The cap counts
+    every allocation in the campaign since the switch, and the bus's mandate guard refuses what would pass it."""
+    from optimization_framework.campaigns import mandates
+    from optimization_framework.contracts.commands import CommandOrigin
     workspace, campaign, task = lab
-    send(workspace, campaign["id"], "autopilot_run", "trial.create", run(task, 590), actor="autopilot")
-    assert workspace.store.list("compute_consent", campaign["id"]) == []
+    cid = campaign["id"]
+    workspace.store.put("decision", {"id": "decision_switch", "campaign_id": cid, "title": "Autopilot on", "status": "resolved", "requested_by": "researcher"})
+    root = {"thread_id": "thread_autopilot", "message_id": "decision_switch", "run_id": None}
+    mandates.grant(workspace, cid, "run_campaign", root=root, granted_by="decision_switch", compute={"worker_seconds": 600},
+                   campaign_baseline=workspace.allocated_seconds(cid))
+    workspace.store.put("agent_session", {"id": "agent_lead", "campaign_id": cid, "role": "lead"})
+    workspace.store.put("agent_run", {"id": "round_1", "campaign_id": cid, "agent_id": "agent_lead", "status": "running", "autopilot": True,
+        "origin": {"thread_id": "thread_autopilot", "message_id": "message_round_1", "actor": "autopilot", "root": {**root, "run_id": "round_1"}}})
+    origin = CommandOrigin(thread_id="thread_autopilot", actor="autopilot", agent_id="agent_lead", run_id="round_1", rationale="The frontier is thin")
+    send(workspace, cid, "autopilot_run", "trial.create", run(task, 590), actor="autopilot", origin=origin)
+    assert workspace.store.list("compute_consent", cid) == []
+    with pytest.raises(ValueError, match=r"would reserve 30 s of worker time, .* has 10 s left of its compute cap of 600 s"):
+        send(workspace, cid, "autopilot_more", "trial.create", run(task, 30), actor="autopilot", origin=origin)
 
 
 def test_a_compute_plan_states_its_times_and_what_to_do_meanwhile(lab):
@@ -314,3 +329,37 @@ def test_a_consent_stays_in_force_while_its_workspace_builds_and_for_three_wall_
     assert compute_consent.consents(workspace, cid) == []
     with pytest.raises(ValueError, match="No approved plan has time left"):
         compute_consent.require(workspace, cid, "A run", 590, hypothesis_ids=["H1"])
+
+
+def test_the_hosts_a_coding_workspace_reaches_beyond_its_model_and_index_are_approved_with_the_plan(lab):
+    workspace, campaign, task = lab
+    cid = campaign["id"]
+    ask = {"kind": "compute", "plan": "A coding workspace for H13", "rationale": "Build H13", "wall_seconds": 3600,
+           "worker_seconds": 600, "coding_workspaces": 1, "meanwhile": "Read the results", "egress_hosts": ["github.com"]}
+    with pytest.raises(ValueError, match="egress_hosts are for the coding workspaces"):
+        send(workspace, cid, "ask_none", "approval.request", {**ask, "coding_workspaces": 0})
+    with pytest.raises(ValueError, match="lowercase DNS name"):
+        send(workspace, cid, "ask_url", "approval.request", {**ask, "egress_hosts": ["https://github.com/x"]})
+    send(workspace, cid, "ask", "approval.request", ask)
+    decision = workspace.store.list("decision", cid)[-1]
+    assert "Its coding workspaces may also reach github.com, beyond their model and the package index." in decision["proposal"]
+    send(workspace, cid, "approve", "decision.resolve", {"decision_id": decision["id"], "choice": "0", "comment": "",
+        "expected_resolution_revision": 0}, actor="researcher")
+    [consent] = workspace.store.list("compute_consent", cid)
+    assert consent["egress_hosts"] == ["github.com"] and consent["used_wall_seconds"] == 0
+    # A mandate (R2, an agent's go-ahead since Phase 3) names them the same way; its consent, the mandate's compute part, keeps them.
+    mandate = {**{key: value for key, value in ask.items() if key not in {"kind"}}, "kind": "mandate", "template": "screen",
+               "egress_hosts": ["gitlab.com", "github.com"]}
+    with pytest.raises(ValueError, match="belong to a mandate or a compute request"):
+        send(workspace, cid, "ask_limits", "approval.request", {"kind": "campaign_limits", "rationale": "More", "limits": {"compute_budget_seconds": 30000},
+                                                                "egress_hosts": ["github.com"]})
+    send(workspace, cid, "ask_mandate", "approval.request", mandate)
+    decision = workspace.store.list("decision", cid)[-1]
+    assert decision["approval_request"]["egress_hosts"] == ["github.com", "gitlab.com"]
+    assert "Its coding workspaces may also reach github.com, gitlab.com, beyond their model and the package index." in decision["proposal"]
+    send(workspace, cid, "approve_mandate", "decision.resolve", {"decision_id": decision["id"], "choice": "0", "comment": "",
+        "expected_resolution_revision": 0}, actor="researcher")
+    from optimization_framework.campaigns import mandates
+    consent = workspace.store.get(workspace.store.get(decision["id"], "decision")["outcome"]["consent_id"], "compute_consent")
+    assert consent["egress_hosts"] == ["github.com", "gitlab.com"]
+    assert mandates.of_consent(workspace, consent).template == "screen"

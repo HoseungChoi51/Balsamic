@@ -1,0 +1,13 @@
+{
+  "providers": {
+    "centinels": {
+      "baseUrl": "${CENTINELS_BASE_URL}",
+      "api": "openai-completions",
+      "apiKey": "$CENTINELS_API_KEY",
+      "models": [
+        {"id": "gpt-6.1-sol", "reasoning": true, "thinkingLevelMap": {"xhigh": "xhigh", "max": "max"}},
+        {"id": "gpt-6-astra", "reasoning": true, "thinkingLevelMap": {"xhigh": "xhigh", "max": "max"}}
+      ]
+    }
+  }
+}

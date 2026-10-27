@@ -100,7 +100,7 @@ def agents_thread(workspace, campaign_id, root):
     return record
 
 
-IMPLEMENTATION_ROLES = {"implementation_lead", "implementation_builder", "implementation_test_designer", "implementation_validator"}
+IMPLEMENTATION_ROLES = {"implementation_lead"}   # its builder, test designer and validator roles were retired in roadmap H8
 
 
 def route_message(workspace, agent, run):

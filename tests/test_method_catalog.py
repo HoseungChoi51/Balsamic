@@ -88,3 +88,35 @@ def test_the_catalog_lists_what_runs_what_waits_to_be_installed_and_why_the_rest
     assert all(row['id'] != 'replay' for row in view['methods']) and any(o['id'] == 'replay' and 'not a search method' in o['reason'] for o in view['other'])
     agents = unavailable(workspace, cid)
     assert [m['id'] for m in agents['methods']] == ['bakery_dp', 'bakery.plugin:create'] and agents['tasks_blocked'] == []
+
+
+def test_balsamic_binds_after_an_install_and_the_lead_binds_only_what_it_left(campaign):
+    """B7: an installed, unbound proposal waits for Balsamic's post-install step; the lead is named only for a proposal that step
+    skipped (with its reason) or one no recorded install covers."""
+    workspace, cid = campaign
+    h = proposal(workspace, cid, 'hypothesis_dp')
+    submission(workspace, cid, 'one', ['hypothesis_dp'], methods=[('random', 'hypothesis_dp')])
+    step = lambda: {row['id']: row for row in catalog(workspace, cid)['methods']}['random']['next_action']
+    reason = lambda: workspace.implementations.readiness(h)['reason']
+    assert step() == {'owner': 'lead', 'text': 'Bind hypothesis_dp to it (implementation.bind_builtin)'}   # no recorded install
+    install = {'id': 'library_install_one', 'campaign_id': cid, 'submission_id': 'one', 'status': 'installed', 'requested_at': '2026-10-27T04:00:00+00:00'}
+    workspace.store.put('library_install', install)
+    assert step() == {'owner': 'balsamic', 'text': 'Balsamic binds hypothesis_dp to it as its install finishes'}
+    assert reason() == 'Installed: random. Balsamic binds this proposal to its method as its install finishes.'
+    workspace.store.put('library_install', {**install, 'bindings': [], 'skipped': [{'hypothesis_id': 'hypothesis_dp', 'reason': 'Several candidate methods'}]})
+    assert step() == {'owner': 'lead', 'text': 'Bind hypothesis_dp to it (implementation.bind_builtin); Balsamic left it: Several candidate methods'}
+    assert reason() == 'Installed: random. Bind this proposal to its method (implementation.bind_builtin); Balsamic left it: Several candidate methods.'
+
+
+def test_a_task_waiting_for_its_evaluator_names_the_one_route_that_builds_code(tmp_path):
+    """Roadmap H8: a coding workspace's library is the one route that builds code, and the catalog's next step for a task whose
+    evaluator is missing says so, beside attaching a validated version."""
+    from test_framework_evaluators import specification
+    manifest = specification().manifest
+    workspace = Workspace(tmp_path)
+    cid = workspace.create_campaign(CampaignInput(name='Evaluator', compute_budget_seconds=100, validation_reserve_seconds=10,
+        tasks=[TaskInput(name='Declared quadratic', problem_id=manifest.id, evaluator_manifest=manifest)]))['id']
+    [row] = catalog(workspace, cid)['tasks']
+    assert row['blocker'] and row['next_action']['owner'] == 'lead'
+    assert 'coding workspace' in row['next_action']['text'] and 'evaluator.commission' in row['next_action']['text']
+    assert unavailable(workspace, cid)['tasks_blocked'] == [row]

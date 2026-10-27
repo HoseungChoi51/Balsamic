@@ -82,3 +82,21 @@ test('curves and the experiment log read a run honestly; Discuss forks a branch 
   await page.getByTestId('trace-origin-button').click();
   await expect(page.getByTestId('trace-origin').getByTestId('hop')).toHaveCount(5);
 });
+
+test('the baking order (roadmap G1): four ways to order the bakes rank by total tardiness, least late first', async ({ page }) => {
+  const rows: [string, string, string, number][] = [['hypothesis_edd', 'H01', 'Earliest due date', 415], ['hypothesis_swap', 'H02', 'Adjacent swap search', 330],
+    ['hypothesis_restarts', 'H03', 'Random restarts', 295], ['hypothesis_exact', 'H04', 'Exact enumeration', 290]];
+  const base = evolution.nodes[0];
+  const nodes = rows.map(([id, label, title, score]) => ({ ...base, id, label, title, status: 'investigating', algorithm: id.replace('hypothesis_', 'bakery_'),
+    live_trials: 0, trial_ids: [], stage: 'extended', best: { ...base.best, score, trial_id: null, direction: 'minimize' } }));
+  const baking = { ...evolution, progress: { ...evolution.progress, best_so_far: 290, direction: 'minimize', live_trials: [] }, nodes, edges: [],
+    layout: nodes.map((n, lane) => ({ id: n.id, round: 0, lane, stage: n.stage, label: n.label, title: n.title, autonomous: false, stop_reason: null })) };
+  await mockWorkspace(page, { [`/api/v1/campaigns/${CAMPAIGN_ID}/evolution`]: baking });
+  await page.goto(`/#t/${THREAD_ID}/evolution/frontier`);
+  const table = page.getByTestId('frontier');
+  await expect(table.getByTestId('lower-is-better')).toBeVisible();
+  await expect(table.locator('tbody tr')).toHaveCount(4);
+  expect(await table.locator('tbody tr').evaluateAll(r => r.map(row => row.getAttribute('data-record-id'))))
+    .toEqual(['hypothesis_exact', 'hypothesis_restarts', 'hypothesis_swap', 'hypothesis_edd']);
+  await expect(page.getByTestId('page-evolution')).toContainText('best so far 290');
+});

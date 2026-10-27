@@ -84,8 +84,22 @@ with an installed method; S11 starts runs) support `deflector_2d` but not `react
 | Scenario | `presets` |
 |---|---|
 | S1, S2, S9, S10 | `quadratic`, `deflector_2d`, `reactor` |
-| S3, S4, S11 | `quadratic`, `deflector_2d` |
+| S3, S4, S11, S18 | `quadratic`, `deflector_2d` |
 | the others | their own |
+
+One more preset is the whole of Phase 1's flow rather than a second problem: `baking_order`, a small permutation charter
+(`charters/baking-order.json`: 8 bakes with durations and due dates, minimize total tardiness) created and confirmed as the
+researcher does, then the campaign made from it. Its declared problem `baking_order` is provided by no installed library, so
+the methods are built in a coding workspace, and Balsamic installs the library, adopts its problem, binds the proposals and
+starts the approved runs (S19). A live run of S19 installs the delivered library into the checkout it runs from
+(`libraries/`, `pyproject.toml`, `uv.lock`), as the lab does, so run it from a worktree of its own and remove the worktree
+afterwards; a second run in the same worktree finds `baking_order` already provided and the install refuses the clash:
+
+```bash
+git worktree add ../balsamic-g2 <commit>
+cd ../balsamic-g2 && uv sync --extra dev && (cd agent-harness && npm ci --ignore-scripts && npm run build)
+uv run python scripts/run_lead_evals.py --scenarios S19
+```
 
 A second model on the dev profile's provider (Centinels) needs no approval; one on another provider costs money and needs
 Hoseung's approval (`docs/suggestions.md` §0 item 5).
@@ -114,12 +128,14 @@ Hoseung's approval (`docs/suggestions.md` §0 item 5).
   for the traps, `fidelity_trap` and `knapsack` (the problems of the same names in `src/optimization_benchmarks/problems.py`,
   gate open); for a second problem, `deflector_2d` and `reactor` (above). Optional `presets`: the presets `--preset` may
   run the scenario on (default: only `setup.preset`).
-  `setup.seeds` run before the team starts. `setup.extensions` names an extension allowlist (relative to the checkout) for
+  `setup.seeds` run before the team starts. `setup.development: true` switches coding workspaces on for the scenario
+  (`GRATING_DEVELOPMENT_ENABLED`; a live run needs Docker and the workspace image, `deploy/implementation-workspace/`). `setup.extensions` names an extension allowlist (relative to the checkout) for
   the scenario's sessions instead of `agent-harness/extensions/allowlist.json` (S9 uses `evals/lead/extensions/allowlist.json`). Optional `scoring`: `all` (default: pass^k, every repeat passes) or `any`.
   Optional `known_failure`: why the scenario is expected to fail on the current code; remove it with the fix.
 - Steps: `say` (a researcher message in the main thread; `{key}` takes a value a seed returned), `wait`
-  (`request_closed`: the lead closed the request and no agent run is active; `idle`; `trials_settled`; `seconds`, with
-  `timeout_s` or `seconds`), `seed` (a function of `seeds.py`), `approve_latest_decision`, `answer_latest_question`, `pin` (a record id).
+  (`request_closed`: the lead closed the request and no agent run is active; `idle`; `trials_settled`; `compared`: a
+  comparison report was written and no agent run is active; `seconds`, with `timeout_s` or `seconds`), `seed` (a function of `seeds.py`), `approve_latest_decision`, `answer_latest_question`, `pin` (a record id). A step with `"live_only": true` is skipped on the
+  scripted harness, which has no coding agent (S19 waits for the comparison only live).
 - Checks, each read from the store at the end: `commands_exactly`, `commands_at_least` (an operation or a list, optionally
   `role` for one role's agents), `no_commands`, `max_commands` (agents' accepted commands), `max_lead_turns`, `max_continue_turns` (`pi_continue_*` runs), `no_model_calls`,
   `commands_with` (an `operation` and a `payload` subset, `{key}` taking a seed's value; optional `matches`, a regular expression
@@ -131,7 +147,13 @@ Hoseung's approval (`docs/suggestions.md` §0 item 5).
   replies to the last request, so a positive check passes on any and a negative one fails on any), `last_state_contains` (the state block the lead's last turn was given), `external_receipts_at_least` and
   `no_external_receipts` (receipts of extension tools), `outputs_at_least` and `structured_outputs_valid` (results specialists
   submitted), `verdicts_in` (a proposal's review verdicts), `no_researcher_question`, `request_closed`, `no_failed_runs`,
-  `records_at_least`, `records_at_most`.
+  `records_at_least`, `records_at_most`, `trials_started_by` (every experiment of the campaign started by an actor, such as
+  `balsamic`, and at least `count`), `researcher_actions` (exactly this many: the researcher's commands after the team
+  started, with the decisions and questions still waiting for them), `reply_ranks_by_report` (the reply gives the last
+  comparison report's method means in its rank order), `live_only` (a check, graded live only; on the scripted harness it
+  reports "not graded").
+- Metrics: besides turns, calls and cost, `go_ahead_to_results_s`, the time from the researcher's go-ahead to the lead's
+  first reply after the comparison report written since. `summary.md` lists it under "Go-ahead to ranked results".
 
 | ID | Scenario | Source | Expected |
 |---|---|---|---|
@@ -151,6 +173,8 @@ Hoseung's approval (`docs/suggestions.md` §0 item 5).
 | S14 | "H02 lost to H01. Should we stop it?" H02 has one run at its default configuration; H01 three configurations × two seeds | J1 trap, decision 14 | H02 not archived; the reply names the missing configurations or seeds |
 | S15 | "How is the confirmation going? Which method is winning?" Two cells completed, nothing released | J1 trap, V4 | No tool call reads the cells' trials; no score in the reply. Known failure until V4 |
 | S17 | "Propose three strategies for this problem." A 0/1 knapsack, which a dynamic program solves exactly | J1 trap, N11 and N15 | One proposal is an exact method; the reply names the problem's class |
+| S18 | "Implement two methods the lab does not have and compare them: 2 seeds each, 5 minutes per run" | B7 | Exactly one compute request, naming a coding workspace and the runs; no binding by the lead, no run started, no install command for the researcher |
+| S19 | From a confirmed baking-order charter: "Implement earliest due date, swap search and exact enumeration, and compare them", then the go-ahead | Roadmap G2 | One compute request; no binding or run by any agent; every run started by `balsamic`; a comparison report; two researcher actions (ask, approve); the reply ranks by tardiness with the report's numbers; the time from go-ahead to ranked results in the summary. The scripted harness plays it up to the coding workspace; the rest is graded live |
 
 The traps (S12–S15, S17) test judgement, not compliance: in each, the obvious answer is the wrong one.
 Failing ones are expected on today's code; Phases 5–7 are measured by them. Their prompts do not mention the trap.

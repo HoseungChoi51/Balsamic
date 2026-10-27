@@ -1,5 +1,5 @@
 """Real isolated numerical execution and safe publication into ordinary readers."""
-from framework_fixtures import researcher_idea
+from framework_fixtures import library_job, researcher_idea
 import json
 import os
 from pathlib import Path
@@ -129,7 +129,7 @@ def test_generated_evaluator_runs_in_a_separate_declared_package_host(tmp_path):
 def test_two_generated_packages_stream_large_checkpoints_and_restore_under_supervision(tmp_path):
     from optimization_framework.implementations.models import BoundOptimizerSpec, Package
     from optimization_framework.execution.worker import read_journal
-    from test_framework_evaluators import specification, MockReviewer, SOURCE
+    from test_framework_evaluators import specification, SOURCE
     from test_framework_revalidation import campaign_fixture
 
     # This check runs both during independent package validation and later in
@@ -137,7 +137,6 @@ def test_two_generated_packages_stream_large_checkpoints_and_restore_under_super
     isolated = ("import os\nassert not os.path.exists('/run/optimization-package.sock')\n"
         f"assert not os.path.exists({str(tmp_path / 'generated/workspace')!r})\n")
     workspace, service, owner, task = campaign_fixture(tmp_path / "generated", source=isolated + SOURCE, spec=specification())
-    service.adapter_factory = MockReviewer
     hypothesis = researcher_idea(workspace, owner["id"])
     source = (Path(__file__).resolve().parents[1] / "examples/implementation-reference/continuous_optimizer_v1.py").read_text()
     source = isolated + source.replace('return pickle.dumps(self.__dict__)',
@@ -148,12 +147,10 @@ def test_two_generated_packages_stream_large_checkpoints_and_restore_under_super
         n_cells_min=2, n_cells_max=2, max_checkpoint_bytes=32 * 1024**2,
         behavior_checks=[{"name": "Keep the best incumbent", "n_cells": 2,
             "assertion": "one_coordinate_from_incumbent", "efficiencies": [-1, -3, -2, 1]}])
-    grant = workspace.implementations.commission(hypothesis["id"], optimizer,
-        package=Package(contract="optimizer_v1", files=[{"path": "optimizer.py", "content": source}]),
-        compute_seconds=60, max_calls=1, idempotency_key="large-checkpoint")
-    built = service.run_job(grant["job_id"])
-    assert built["status"] == "completed", built
-    workspace.implementations.reconcile()
+    built = library_job(service, optimizer, Package(contract="optimizer_v1", files=[{"path": "optimizer.py", "content": source}]),
+                        key="large-checkpoint", campaign_id=owner["id"], workspace_id=workspace.implementations.workspace_id,
+                        hypothesis_id=hypothesis["id"])
+    workspace.implementations.attach(hypothesis["id"], built["version_id"])
     trial = prepared(workspace, owner["id"], task["id"], hypothesis_id=hypothesis["id"],
         algorithm="package", recovery={"every_observations": 2, "max_checkpoint_bytes": 64 * 1024**2})
     directory = workspace.job_dir(trial["id"])
