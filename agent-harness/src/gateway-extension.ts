@@ -2,7 +2,7 @@ import type { ExtensionAPI, ExtensionFactory } from '@earendil-works/pi-coding-a
 import { brief } from './brief.js';
 
 /**
- * The Balsamic extension, loaded first in every session that is not an implementation grant's.
+ * The Balsamic extension, loaded first in every session whose manifest hosts extensions (every role's since roadmap H8).
  *
  * Extensions may change how an agent thinks; what acts goes through the gateway or reports to it (harness plan, §2.5):
  * - tool_call: the gateway's tools pass; another tool runs only if the manifest allowlists it for the agent's role.

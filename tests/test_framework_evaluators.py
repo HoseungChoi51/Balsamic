@@ -1,13 +1,12 @@
-"""Real isolated evaluator builds; model transport fixtures are explicitly mocked."""
+"""Real isolated evaluator checks of supplied packages; since roadmap H8 the implementation library calls no model."""
 from pathlib import Path
 
 import pytest
 
 from optimization_framework.implementations.evaluator_runtime import PackageEvaluator
 from optimization_framework.implementations.evaluator_validation import validate_package
-from optimization_framework.implementations.models import (
-    BoundOptimizerSpec, BuildResult, EvaluatorPackage, EvaluatorSpec, JobRequest, Package, ReviewResult,
-)
+from framework_fixtures import library_job
+from optimization_framework.implementations.models import BoundOptimizerSpec, EvaluatorPackage, EvaluatorSpec, JobRequest, Package
 from optimization_framework.implementations.runtime import prepare_runtime, write_package
 from optimization_framework.implementations.service import ImplementationService
 
@@ -40,35 +39,15 @@ def package(source=SOURCE):
     return EvaluatorPackage(files=[{"path": "evaluator.py", "content": source}])
 
 
-class MockReviewer:
-    """Transport double; host execution and protected numerical checks are real."""
-    calls = []
-
-    def __init__(self, **kwargs):
-        self.usage = {"calls": 0, "api_cost_usd": 0}
-        self.callback = kwargs["reservation_callback"]
-
-    def call(self, role, payload, *, result_type, instructions):
-        self.usage["calls"] += 1
-        self.callback({"type": "provider_call_reserved", "usage": self.usage})
-        self.calls.append((role, payload))
-        if role == "implementation_builder":
-            assert "correctness_cases" not in payload["spec"]
-            assert "evaluator_v1" in instructions
-            return BuildResult(explanation="Supplied fixture candidate", package=package(), blocker=None)
-        assert role == "implementation_validator"
-        return ReviewResult(passed=True, criteria=payload["spec"]["acceptance_criteria"], findings=["Mock semantic review"])
-
-
 def request(**changes):
     return JobRequest(**{**dict(workspace_id="workspace", campaign_id="campaign", grant_id="grant",
         idempotency_key="evaluator", spec=specification(), compute_seconds=30, max_attempts=1, max_calls=3), **changes})
 
 
-def test_commissioned_evaluator_is_independently_checked_published_and_revocable(tmp_path):
-    service = ImplementationService(tmp_path / "library", adapter_factory=MockReviewer)
-    submitted = service.submit(request())
-    assert service.submit(request())["id"] == submitted["id"]
+def test_a_supplied_evaluator_is_independently_checked_published_and_revocable(tmp_path):
+    service = ImplementationService(tmp_path / "library")
+    submitted = service.submit(request(package=package()))
+    assert service.submit(request(package=package()))["id"] == submitted["id"]
     result = service.run_job(submitted["id"])
     assert result["status"] == "completed", result
     bundle = service.artifact(result["version_id"])
@@ -88,7 +67,7 @@ def test_commissioned_evaluator_is_independently_checked_published_and_revocable
 
 
 def test_optimizer_contract_checks_do_not_claim_evaluator_numerical_correctness(tmp_path):
-    service = ImplementationService(tmp_path, adapter_factory=MockReviewer)
+    service = ImplementationService(tmp_path)
     spec = contract_specification()
     job = service.run_job(service.submit(request(spec=spec, package=package()))["id"])
     optimizer_spec = BoundOptimizerSpec(name="Optimizer for an unverified evaluator", mechanism="Coordinate search",
@@ -107,7 +86,7 @@ def test_optimizer_contract_checks_do_not_claim_evaluator_numerical_correctness(
 
 
 def test_no_oracle_is_a_blocker_and_does_not_spend_model_calls(tmp_path):
-    service = ImplementationService(tmp_path, adapter_factory=MockReviewer)
+    service = ImplementationService(tmp_path)
     spec = specification().model_copy(update={"correctness_cases": []})
     submitted = service.submit(request(spec=spec))
     result = service.run_job(submitted["id"])
@@ -117,7 +96,7 @@ def test_no_oracle_is_a_blocker_and_does_not_spend_model_calls(tmp_path):
 
 
 def test_wrong_numerics_cannot_publish_even_with_a_positive_semantic_reviewer(tmp_path):
-    service = ImplementationService(tmp_path, adapter_factory=MockReviewer)
+    service = ImplementationService(tmp_path)
     wrong = package(SOURCE.replace('value = round(value,', 'value = 1 + round(value,'))
     submitted = service.submit(request(package=wrong))
     result = service.run_job(submitted["id"])
@@ -199,14 +178,14 @@ def test_executable_kinds_are_checked_without_rewriting_legacy_package_serializa
         specification().manifest.model_validate({**specification().manifest.model_dump(), "resolver": "untrusted:load"})
 
 
-def test_missing_evaluator_draft_commissions_binds_once_and_runs_with_upstream_costs(tmp_path):
+def test_a_missing_evaluator_bound_once_lets_its_draft_run_with_upstream_costs(tmp_path):
     import time
     from optimization_framework.contracts.commands import Command
     from optimization_framework.contracts.drafts import DraftSaveInput, DraftLaunchInput
     from optimization_framework.contracts.requests import CampaignInput, CampaignUpdate, ControlInput, TaskInput, TrialInput
     from optimization_framework.execution.service import Workspace
 
-    service = ImplementationService(tmp_path / "library", adapter_factory=MockReviewer)
+    service = ImplementationService(tmp_path / "library")
     class Client:
         def submit(self, payload): return service.submit(JobRequest(**payload))
         def version(self, identity): return service.version(identity)
@@ -232,15 +211,13 @@ def test_missing_evaluator_draft_commissions_binds_once_and_runs_with_upstream_c
         workspace.create_trial(TrialInput(campaign_id=campaign["id"], task_id=task["id"], algorithm="random", wall_seconds=5))
     assert not workspace.store.list("trial") and workspace.allocated_seconds(campaign["id"]) == 0
 
-    command = Command(id="commission-evaluator", campaign_id=campaign["id"], expected_revision=1,
-        operation="evaluator.commission", payload={"task_id": task["id"], "spec": spec.model_dump(mode="json"),
-            "compute_seconds": 30, "max_calls": 3})
+    # The library checks the supplied evaluator against its independent fixtures; the researcher binds it to the task.
+    job = library_job(service, spec, package(), key="evaluator", campaign_id=campaign["id"], workspace_id=workspace.implementations.workspace_id,
+                      compute_seconds=30)
+    command = Command(id="attach-evaluator", campaign_id=campaign["id"], expected_revision=1, operation="evaluator.attach",
+                      payload={"task_id": task["id"], "version_id": job["version_id"], "rationale": "Checked against its independent fixtures"})
     outcome = workspace.commands.execute(command)
     assert workspace.commands.execute(command) == outcome
-    grant = workspace.store.get(outcome["outcome"]["grant_id"], "implementation_grant")
-    job = service.run_job(grant["job_id"])
-    assert job["status"] == "completed", job
-    workspace.implementations.reconcile()
     assert len(workspace.store.list("evaluator_binding")) == 1
     assert workspace.store.get(campaign["active_study_id"], "study") == study_before
     ready = workspace.drafts.readiness(draft["id"])
@@ -278,15 +255,12 @@ def test_missing_evaluator_draft_commissions_binds_once_and_runs_with_upstream_c
     hypothesis = {"id": "missing-optimizer", "campaign_id": campaign["id"], "status": "proposed", "algorithm": "",
         "title": optimizer_spec.name, "mechanism": optimizer_spec.mechanism, "algorithm_config": {}}
     workspace.store.put("hypothesis", hypothesis)
-    optimizer_command = Command(id="commission-optimizer", campaign_id=campaign["id"], expected_revision=1,
-        operation="implementation.commission", payload={"hypothesis_id": hypothesis["id"], "spec": optimizer_spec.model_dump(mode="json"),
-            "package": optimizer_package.model_dump(), "compute_seconds": 30, "max_calls": 3})
-    outcome = workspace.commands.execute(optimizer_command)
-    optimizer_grant = workspace.store.get(outcome["outcome"]["grant_id"], "implementation_grant")
-    optimizer_job = service.run_job(optimizer_grant["job_id"])
-    assert optimizer_job["status"] == "completed", optimizer_job
-    workspace.implementations.reconcile()
-    paired_draft = workspace.drafts.save(campaign["id"], DraftSaveInput(title="Both commissioned executables",
+    optimizer_job = library_job(service, optimizer_spec, optimizer_package, key="optimizer", campaign_id=campaign["id"],
+                                workspace_id=workspace.implementations.workspace_id, hypothesis_id=hypothesis["id"], compute_seconds=30)
+    workspace.commands.execute(Command(id="attach-optimizer", campaign_id=campaign["id"], operation="implementation.attach",
+        expected_revision=workspace.store.get(campaign["id"], "campaign")["version"],
+        payload={"hypothesis_id": hypothesis["id"], "version_id": optimizer_job["version_id"]}))
+    paired_draft = workspace.drafts.save(campaign["id"], DraftSaveInput(title="Both published executables",
         follow_proposal_implementation=True, procedure={"task_id": task["id"], "hypothesis_id": hypothesis["id"], "max_steps": 4, "wall_seconds": 5}))
     paired_ready = workspace.drafts.readiness(paired_draft["id"])
     assert paired_ready["ready"], paired_ready
@@ -310,8 +284,10 @@ def test_missing_evaluator_draft_commissions_binds_once_and_runs_with_upstream_c
     workspace.reconcile_assets()
     paired = workspace.store.get(paired["id"], "trial")
     costs = workspace.assets.attributed_costs(paired["latest_output_asset_ids"])["quantities"]
-    assert costs["evaluation_requests"]["total"] == 28  # evaluator fixtures + optimizer integration + this experiment
-    assert costs["solver_executions"]["total"] == 28
+    # Evaluator fixtures + optimizer integration + this experiment. The versions were published by the library and attached here,
+    # not commissioned by this workspace, so their research lineage is unknown to it and the total stays a known lower bound.
+    assert costs["evaluation_requests"]["known"] == 28 and costs["evaluation_requests"]["total"] is None
+    assert costs["solver_executions"]["known"] == 28
     task_view = workspace.evaluators.task_view(workspace.current_tasks(campaign["id"])[0])
     assert workspace.evaluators.readiness(task_view)["runnable"]
     assert workspace.evaluators.describe_task(task_view).evaluator_version == job["version_id"]
@@ -347,7 +323,7 @@ def test_missing_evaluator_draft_commissions_binds_once_and_runs_with_upstream_c
         workspace.reconcile()
         paused = workspace.store.get(reused["id"], "trial")
         assert paused["status"] == "paused" and 2 <= paused["result"]["evaluations"] < 200
-        service = ImplementationService(tmp_path / "library", adapter_factory=MockReviewer)
+        service = ImplementationService(tmp_path / "library")
         workspace = Workspace(tmp_path / "workspace", implementation_client=Client())
         workspace.implementations.reconcile()
         queued = workspace.control(reused["id"], ControlInput(action="resume"))
@@ -364,8 +340,8 @@ def test_missing_evaluator_draft_commissions_binds_once_and_runs_with_upstream_c
         assert resumed["implementation_version_id"] == optimizer_job["version_id"]
         rows = list(iter_journal(directory / "observations.jsonl"))
         assert [row["metadata"]["generated_evaluator"]["evaluations"] for row in rows] == list(range(1, 201))
-        assert len(workspace.store.list("implementation_grant")) == 2
-        assert workspace.assets.attributed_costs(resumed["latest_output_asset_ids"])["quantities"]["evaluation_requests"]["total"] == 224
+        assert workspace.store.list("implementation_grant") == []   # no service job of the workspace's: versions it attached
+        assert workspace.assets.attributed_costs(resumed["latest_output_asset_ids"])["quantities"]["evaluation_requests"]["known"] == 224
         assert workspace.current_tasks(campaign["id"])[0]["evaluator_binding_id"] == before["evaluator_binding_id"]
     finally:
         if process.poll() is None:
@@ -380,7 +356,7 @@ def test_missing_evaluator_draft_commissions_binds_once_and_runs_with_upstream_c
 
 
 def test_implementation_control_receipts_survive_lost_acknowledgement(tmp_path):
-    service = ImplementationService(tmp_path, adapter_factory=MockReviewer)
+    service = ImplementationService(tmp_path)
     submitted = service.submit(request(spec=specification().model_copy(update={"correctness_cases": []})))
     assert service.run_job(submitted["id"])["status"] == "blocked"
     resumed = service.control_once(submitted["id"], "resume", "resume-once")
@@ -394,48 +370,6 @@ def test_implementation_control_receipts_survive_lost_acknowledgement(tmp_path):
     assert len(service.store.list("implementation_control")) == 2
 
 
-def test_failed_evaluator_has_one_manager_issue_while_independent_work_continues(tmp_path):
-    from optimization_framework.contracts.commands import Command
-    from optimization_framework.contracts.requests import CampaignInput, TaskInput, TrialInput
-    from optimization_framework.execution.service import Workspace
-
-    service = ImplementationService(tmp_path / "library", adapter_factory=MockReviewer)
-
-    class Client:
-        def submit(self, payload): return service.submit(JobRequest(**payload))
-        def job(self, identity): return service.store.get(identity, "implementation_job")
-        def versions(self): return service.store.list("implementation_version")
-
-    workspace = Workspace(tmp_path / "workspace", implementation_client=Client())
-    spec = specification()
-    campaign = workspace.create_campaign(CampaignInput(name="Scoped evaluator failure", compute_budget_seconds=60,
-        implementation_compute_budget_seconds=30, validation_reserve_seconds=0,
-        tasks=[TaskInput(name="Evaluator needed", problem_id=spec.manifest.id, evaluator_manifest=spec.manifest),
-               TaskInput(name="Independent benchmark", problem_id="bounded_continuous")]))
-    task, independent = workspace.current_tasks(campaign["id"])
-    # Missing independent evidence is a durable blocker with zero model calls.
-    command = Command(id="missing-oracle", campaign_id=campaign["id"], expected_revision=1,
-        operation="evaluator.commission", payload={"task_id": task["id"],
-            "spec": spec.model_copy(update={"correctness_cases": []}).model_dump(mode="json"), "compute_seconds": 10, "max_calls": 1})
-    outcome = workspace.commands.execute(command)
-    grant = workspace.store.get(outcome["outcome"]["grant_id"], "implementation_grant")
-    result = service.run_job(grant["job_id"])
-    assert result["status"] == "blocked" and not result["usage"].get("calls")
-    for _ in range(3):
-        workspace.implementations.reconcile()
-    issues = workspace.store.list("manager_issue", campaign["id"])
-    assert len(issues) == 1 and issues[0]["status"] == "pending"
-    assert grant["id"] in str(issues[0])
-    assert not workspace.evaluators.readiness(task)["runnable"]
-    trial = workspace.create_trial(TrialInput(campaign_id=campaign["id"], task_id=independent["id"],
-        algorithm="coordinate", max_steps=4, wall_seconds=5))
-    workspace._start_trial(trial)
-    assert workspace.processes[trial["id"]].wait(timeout=10) == 0
-    workspace.reconcile()
-    assert workspace.store.get(trial["id"], "trial")["result"]["scientific_complete"]
-    assert workspace.store.list("manager_issue", campaign["id"]) == issues
-
-
 def contract_specification():
     original = specification().model_dump(mode="json")
     probes = [{key: value for key, value in case.items() if key in {"name", "candidate", "configuration", "fidelity"}}
@@ -445,7 +379,7 @@ def contract_specification():
 
 def test_contract_publication_is_not_numerical_validation_or_a_contract_bypass(tmp_path):
     from optimization_framework.implementations.evaluator_validation import current
-    service = ImplementationService(tmp_path, adapter_factory=MockReviewer)
+    service = ImplementationService(tmp_path)
     spec = contract_specification()
     submitted = service.submit(request(spec=spec, package=package()))
     result = service.run_job(submitted["id"])
@@ -467,7 +401,6 @@ def test_contract_publication_is_not_numerical_validation_or_a_contract_bypass(t
 
 
 def test_exploratory_evaluator_waiver_is_scoped_pinned_and_rechecked_before_launch(tmp_path):
-    import json
     import time
     from optimization_framework.contracts.commands import Command
     from optimization_framework.contracts.requests import CampaignInput, ControlInput, StudyInput, TaskInput, TrialInput
@@ -475,7 +408,7 @@ def test_exploratory_evaluator_waiver_is_scoped_pinned_and_rechecked_before_laun
     from optimization_framework.execution.service import Workspace
     from optimization_framework.storage.sqlite import now, read_json
 
-    service = ImplementationService(tmp_path / "library", adapter_factory=MockReviewer)
+    service = ImplementationService(tmp_path / "library")
     spec = contract_specification()
 
     class Client:
@@ -551,7 +484,7 @@ def test_exploratory_evaluator_waiver_is_scoped_pinned_and_rechecked_before_laun
         workspace.reconcile()
         paused = workspace.store.get(queued["id"], "trial")
         assert paused["status"] == "paused" and paused["progress"]["checkpoint_available"]
-        service = ImplementationService(tmp_path / "library", adapter_factory=MockReviewer)
+        service = ImplementationService(tmp_path / "library")
         workspace = Workspace(tmp_path / "workspace", implementation_client=Client())
         queued = workspace.control(queued["id"], ControlInput(action="resume"))
         assert queued["evaluator_eligibility"] == ready["eligibility"]

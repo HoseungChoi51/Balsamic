@@ -1,5 +1,5 @@
 """The ordinary scheduler owns isolated attempts, controls and cost receipts."""
-from framework_fixtures import researcher_idea
+from framework_fixtures import library_job, researcher_idea
 import copy
 import os
 from pathlib import Path
@@ -144,11 +144,13 @@ def test_reconstruction_adopts_host_ignores_namespace_lease_and_resumes_checkpoi
         assert len(resumed["execution_host_receipt_ids"]) == 2
         receipts = [current.store.get(identity, "execution_host_receipt") for identity in resumed["execution_host_receipt_ids"]]
         attributed = current.assets.attributed_costs(resumed["output_asset_ids"])["quantities"]
-        # The fixture's implementation-production worker time is unknown. Its
-        # 20 validation requests remain upstream of these 100 numerical calls.
+        # The library's check of the fixture's evaluator calls no model (roadmap H8), so its worker time is measured and counts;
+        # the version was attached rather than commissioned, so its research lineage is unknown and no total is claimed.
+        # Its 20 validation requests remain upstream of these 100 numerical calls.
+        checked = current.implementations.client.service.store.list("implementation_job")[0]
         assert attributed["worker_seconds"]["total"] is None
-        assert attributed["worker_seconds"]["known"] == pytest.approx(sum(row["elapsed_seconds"] for row in receipts))
-        assert attributed["evaluation_requests"]["total"] == 120
+        assert attributed["worker_seconds"]["known"] == pytest.approx(sum(row["elapsed_seconds"] for row in receipts) + checked["compute_seconds"])
+        assert attributed["evaluation_requests"]["known"] == 120
     finally:
         if process.poll() is None:
             process.kill()
@@ -194,10 +196,9 @@ def test_dead_host_is_reconciled_once_without_source_and_cost_uncertainty_surviv
 def test_generated_optimizer_and_evaluator_use_the_scheduler_and_export_host_evidence(tmp_path):
     from optimization_framework.implementations.models import BoundOptimizerSpec, Package
     from optimization_framework.assets.bundle_export import Exporter
-    from test_framework_evaluators import specification, MockReviewer
+    from test_framework_evaluators import specification
     from test_framework_revalidation import campaign_fixture
     workspace, service, owner, task = campaign_fixture(tmp_path, spec=specification())
-    service.adapter_factory = MockReviewer
     hypothesis = researcher_idea(workspace, owner["id"])
     source = (Path(__file__).resolve().parents[1] / "examples/implementation-reference/continuous_optimizer_v1.py").read_text()
     optimizer = BoundOptimizerSpec(name="Specialized optimizer", mechanism="Coordinate search on the commissioned problem",
@@ -206,11 +207,10 @@ def test_generated_optimizer_and_evaluator_use_the_scheduler_and_export_host_evi
         n_cells_min=2, n_cells_max=2,
         behavior_checks=[{"name": "Keep the best incumbent", "n_cells": 2,
             "assertion": "one_coordinate_from_incumbent", "efficiencies": [-1, -3, -2, 1]}])
-    grant = workspace.implementations.commission(hypothesis["id"], optimizer,
-        package=Package(contract="optimizer_v1", files=[{"path": "optimizer.py", "content": source}]),
-        compute_seconds=30, max_calls=1, idempotency_key="scheduler-optimizer")
-    assert service.run_job(grant["job_id"])["status"] == "completed"
-    workspace.implementations.reconcile()
+    built = library_job(service, optimizer, Package(contract="optimizer_v1", files=[{"path": "optimizer.py", "content": source}]),
+                        key="scheduler-optimizer", campaign_id=owner["id"], workspace_id=workspace.implementations.workspace_id,
+                        hypothesis_id=hypothesis["id"], compute_seconds=30)
+    workspace.implementations.attach(hypothesis["id"], built["version_id"])
     trial = workspace.create_trial(TrialInput(campaign_id=owner["id"], task_id=task["id"], hypothesis_id=hypothesis["id"],
         algorithm="package", max_steps=4, wall_seconds=15), isolation_policy=IsolationPolicy())
     result = finish(workspace, trial)

@@ -22,8 +22,11 @@ SPECIALIST_WORDS = 389
 GROWTH = 1.10
 # The plan's targets: the lead's contract at most 900 words, the shared core at most 350. Raised on 2026-10-26 by the researcher's
 # decisions: one global rule (nothing that computes for more than a minute starts without their go-ahead, +40 for both) and one
-# statement for the lead (availability, soundness and performance are separate questions, +30).
-LEAD_LIMIT, CORE_LIMIT = 970, 390
+# statement for the lead (availability, soundness and performance are separate questions, +30). Lowered by R6 to the new size: the
+# request-scope lines the mandate now enforces gave way to one line on proposing it (-25 for both). Lowered by H4 (-1): the
+# implementation procedure's catalog line names the work ticket in fewer words. H8 removed GRANT_INSTRUCTIONS, the implementation
+# grant roles' own text, which these limits never counted: they stay.
+LEAD_LIMIT, CORE_LIMIT = 940, 365
 
 
 @pytest.fixture
@@ -87,12 +90,6 @@ def test_the_manifest_is_static_per_role(tmp_path, monkeypatch):
             assert one["tools"] == other["tools"], f"{role}'s tools depend on the campaign's state"
             assert (one["extension_host"], one["extensions"]) == (other["extension_host"], other["extensions"]), f"{role}'s extensions depend on the campaign"
             assert one["extension_host"] is True
-        # An implementation grant's roles take no extensions at all.
-        lead = defined["lead"][0]
-        builder = workspace.pi.create_agent("defined", "implementation_builder", "Build", "builder_contract", parent_id=lead["id"], grant_id="grant_contract")
-        built = submitted(workspace, workspace.pi.enqueue(builder, "builder_contract_run", "Build it")["id"])
-        grant = tools.manifest(builder["id"], built["id"])
-        assert grant["extension_host"] is False and grant["extensions"] == []
 
 
 def words(text):
