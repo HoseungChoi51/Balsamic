@@ -159,10 +159,13 @@ Three consequences to remember:
   enforces this. The first draft of this change loaded plug-ins at import and failed that test, so keep it in mind
   when you add a registry.
 - **Installed while the lab runs.** The installed registry compares what is installed (each entry and its
-  distribution's version) with what it loaded, at most once a second (`plugins.RECHECK_SECONDS`). On a change it
+  distribution's version) with what it loaded, at most once a second (`installed.RECHECK_SECONDS`). On a change it
   reloads: the directories that new `.pth` files name (an editable install) join `sys.path`, as at a restart, the
   modules of a plug-in upgraded in place import afresh, and `registry.methods()` rebuilds its descriptors. The lab's
   own packages (`src/`) are never re-imported. Runs already queued keep the plug-ins captured in their manifests.
+  The problem registry (`evaluation/registry.py`, `problems`) follows installs the same way, through the same helpers in
+  `optimization_framework/installed.py`: a new problem is listed, one upgraded in place loads afresh, and one removed
+  is no longer listed. Frozen hosts' registries (`from_entries()`) and `extended()` copies never change.
 - Entry points are recorded **at install time**. After adding or renaming one, run `uv sync`; an editable install
   does not see new entry points until then.
 - The framework imports only the module named in metadata, and only an administrator can change it. Model output
