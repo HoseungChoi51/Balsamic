@@ -17,6 +17,63 @@ IMAGE = "grating-implementation-workspace:pi-1.3.0"
 LEGACY_MODEL = {"provider": "openai-codex", "model": "gpt-6-sol", "effort": "xhigh"}
 # What the container's network refuses (deploy/implementation-workspace/network.sh), and its own loopback.
 UNREACHABLE = [ipaddress.ip_network(n) for n in ("127.0.0.0/8", "10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16", "100.64.0.0/10", "169.254.0.0/16")]
+# The hosts each provider Pi knows itself is served from, with its sign-in refresh; a custom provider's is its baseUrl's.
+PROVIDER_HOSTS = {"openai-codex": ["chatgpt.com", "auth.openai.com"], "openai": ["api.openai.com"],
+                  "anthropic": ["api.anthropic.com", "console.anthropic.com"], "google": ["generativelanguage.googleapis.com"],
+                  "openrouter": ["openrouter.ai"], "groq": ["api.groq.com"], "mistral": ["api.mistral.ai"], "xai": ["api.x.ai"]}
+PACKAGE_INDEX = ["pypi.org", "files.pythonhosted.org"]
+# What a workspace gets when its request names no limits, and the researcher's ceilings when the launcher sets none.
+LIMITS = {"cpus": 4.0, "memory_gb": 8.0, "gpus": 0}
+
+
+def ceilings():
+    """The most a workspace may ask for, set by the researcher (the launcher's development_max_*); no GPU unless they allow one."""
+    found = {}
+    for key, default in LIMITS.items():
+        raw = os.environ.get("GRATING_DEVELOPMENT_MAX_" + key.upper())
+        try:
+            found[key] = type(default)(float(raw)) if raw else default
+        except ValueError:
+            found[key] = default
+        if found[key] < 0 or (key != "gpus" and not found[key]):   # never an unlimited container
+            found[key] = default
+    return found
+
+
+def model_hosts(model):
+    """The hosts the coding agent's model is reached at, or ValueError for a provider whose host Balsamic does not know."""
+    provider = (model or LEGACY_MODEL)["provider"]
+    endpoint = custom_provider(provider)
+    host = urlparse((endpoint or {}).get("baseUrl") or "").hostname
+    if host:
+        return [host]
+    if provider in PROVIDER_HOSTS:
+        return list(PROVIDER_HOSTS[provider])
+    raise ValueError(f"The coding workspace's network allows only named hosts, and Balsamic does not know where the model provider "
+                     f"{provider} is served from. Name its host in egress_hosts")
+
+
+def package_index():
+    """The package index the box installs from: a configured mirror (GRATING_PACKAGE_INDEX_URL), else PyPI."""
+    host = urlparse(os.environ.get("GRATING_PACKAGE_INDEX_URL", "")).hostname
+    return [host] if host else list(PACKAGE_INDEX)
+
+
+def egress(model, named=()):
+    """The box's egress allowlist (decision 18), by why each host is on it. A provider whose host is unknown needs it named."""
+    try:
+        hosts = model_hosts(model)
+    except ValueError:
+        if not named:
+            raise
+        hosts = []
+    return {"model": hosts, "package_index": package_index(), "named": sorted(set(named))}
+
+
+def allowed_hosts(record):
+    """Every host the box may reach; a workspace recorded before the allowlist gets its model's and the package index."""
+    found = record.get("egress") or egress(record.get("model"))
+    return list(dict.fromkeys([*found["model"], *found["package_index"], *found["named"]]))
 
 
 def models_file():
@@ -229,7 +286,7 @@ class DockerWorkspace:
         root = self.root(record)
         args = ["docker", "run", "-d", "--init", "--name", self.name(record),
                 "--label", "grating.development=" + record["id"], "--restart", "unless-stopped",
-                "--cpus", "4", "--memory", "8g", "--pids-limit", "1024", "--read-only",
+                *self.limit_args(record), "--pids-limit", "1024", "--read-only",
                 "--cap-drop", "ALL", "--cap-add", "NET_ADMIN", "--cap-add", "SETUID", "--cap-add", "SETGID",
                 "--security-opt", "no-new-privileges", "--tmpfs", "/tmp:rw,nosuid,nodev,size=2g",
                 "--tmpfs", "/run:rw,nosuid,nodev,size=16m", "-p", "127.0.0.1::8080"]
@@ -241,9 +298,17 @@ class DockerWorkspace:
             args += ["--mount", f"type=bind,src={source},dst={target}" + (",readonly" if readonly else "")]
         model = record.get("model") or LEGACY_MODEL
         args += ["-e", f"PI_PROVIDER={model['provider']}", "-e", f"PI_MODEL={model['model']}", "-e", f"PI_THINKING={model.get('effort') or ''}"]
+        args += ["-e", "EGRESS_HOSTS=" + " ".join(allowed_hosts(record))]
         args += ["-e", f"WORKSPACE_UID={os.getuid()}", "-e", f"WORKSPACE_GID={os.getgid()}", self.image]
         run(args, timeout=60)
         return self.inspect(record)
+
+    @staticmethod
+    def limit_args(record):
+        """The container's limits from the workspace's record (today's 4 CPUs and 8 GB for one recorded before); no GPU unless named."""
+        limits = {**LIMITS, **(record.get("limits") or {})}
+        return ["--cpus", f"{limits['cpus']:g}", "--memory", f"{limits['memory_gb'] * 1024:.0f}m",
+                *(["--gpus", str(limits["gpus"])] if limits["gpus"] else [])]
 
     def pause(self, record):
         current = self.inspect(record)

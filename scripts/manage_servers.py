@@ -108,6 +108,12 @@ def configuration(path, no_llm=False):
         raise LauncherError("codex_timeout_seconds must be between 5 and 600 seconds.")
     if type(config.get("development_enabled", False)) is not bool:
         raise LauncherError("development_enabled must be a boolean.")
+    # The most one coding workspace may ask for (agents/development_runtime.py ceilings()); no GPU unless set.
+    for key in ("development_max_cpus", "development_max_memory_gb", "development_max_gpus"):
+        value = config.get(key)
+        gpus = key == "development_max_gpus"
+        if value is not None and (type(value) not in (int, float) or value < 0 or (not gpus and value == 0) or (gpus and type(value) is not int)):
+            raise LauncherError(f"{key} must be a positive number (a nonnegative whole number for GPUs), or null for the default.")
     if config.get("development_public_url"):
         parsed = urlparse(str(config["development_public_url"]))
         # Tailscale's authenticated HTTP listener is encrypted on the TailNet
@@ -233,6 +239,10 @@ def service_environment(config):
         env["GRATING_CODEX_TIMEOUT_SECONDS"] = str(config["codex_timeout_seconds"])
     if config.get("paper_reference"):
         env["GRATING_PAPER_REFERENCE"] = config["paper_reference"]
+    for key in ("cpus", "memory_gb", "gpus"):
+        env.pop("GRATING_DEVELOPMENT_MAX_" + key.upper(), None)
+        if config.get("development_max_" + key) is not None:
+            env["GRATING_DEVELOPMENT_MAX_" + key.upper()] = str(config["development_max_" + key])
     # The scheduler sets each worker's device; a variable left in the calling shell must not.
     env.pop("GRATING_DEVICE", None)
     if config.get("cuda_mps"):
