@@ -461,3 +461,83 @@ def test_each_validation_of_a_submission_has_its_result_recorded(setup, monkeypa
     development.validation_feedback(development.get(cid, record['id']))
     assert workspace.store.get(submission['id'], 'development_submission')['status'] == 'needs_revision'
     assert len([c for c in workspace.store.list('development_command', cid) if c['request_key'].startswith('validation-feedback-')]) == 2
+
+
+def notices(workspace, cid, agent_id):
+    return [r for r in workspace.store.list('agent_run', cid) if r['agent_id'] == agent_id and r['id'].startswith('pi_development_')]
+
+
+def test_a_workspace_opened_by_the_implementation_lead_sends_its_notices_there_continuing_its_request(setup):
+    from optimization_framework.agents.models import NOTICE
+    from optimization_framework.agents.tools import PiTools
+    from optimization_framework.agents.turn_state import common
+    from optimization_framework.campaigns import compute_consent
+    workspace, campaign, development, driver = setup
+    cid = campaign['id']
+    lead_id = workspace.pi.configuration(cid)['lead_id']
+    opener = workspace.pi.page_agent(cid, 'implementation_lead')
+    root = {'thread_id': 'thread_main', 'message_id': 'message_ask', 'run_id': 'run_ask'}
+    compute_consent.grant(workspace, {'id': 'decision_go', 'campaign_id': cid},
+                          {'plan': 'Implement the method', 'wall_seconds': 3600, 'worker_seconds': 600, 'coding_workspaces': 1})
+    record = development.create(cid, {'hypothesis_id': 'hypothesis_dev', 'objective': 'Implement', 'request_key': 'opened'},
+                                actor='lead', opener={'agent_id': opener['id'], 'role': opener['role']}, root=root)
+    assert record['request_root'] == root
+    development.sync(cid)
+    outgoing(driver, record, 'q1', 'checkpoint', {'summary': 'Reading the brief', 'question': 'Which seed range?'})
+    development.sync(cid)
+    [notice] = notices(workspace, cid, opener['id'])
+    assert notices(workspace, cid, lead_id) == []
+    # A notice that names what changed and where to read it, not the checkpoint's JSON; it continues the opening request.
+    assert notice['input'].startswith(NOTICE) and 'The coding agent asks' in notice['input'] and 'Which seed range?' in notice['input']
+    assert 'Read questions in implementation_workspace_inspect' in notice['input'] and '"summary"' not in notice['input']
+    assert notice['origin']['root'] == root and workspace.pi.request_root(notice) == root
+    assert common(PiTools(workspace.pi), opener, notice)[0] == 'Turn: a platform notice, not a request'
+    # Once the opener is no longer a live agent, the lead gets them.
+    workspace.store.put('agent_session', {**workspace.store.get(opener['id'], 'agent_session'), 'status': 'stopped'})
+    outgoing(driver, record, 'b1', 'checkpoint', {'summary': 'Stuck', 'blocker': 'The solver import fails'})
+    development.sync(cid)
+    [lead_notice] = notices(workspace, cid, lead_id)
+    assert 'The coding agent is blocked: The solver import fails' in lead_notice['input']
+    assert lead_notice['origin']['root'] == root
+
+
+def test_progress_checkpoints_send_no_notice_and_a_question_or_a_new_blocker_sends_one(setup):
+    workspace, campaign, development, driver = setup
+    cid = campaign['id']
+    lead_id = workspace.pi.configuration(cid)['lead_id']
+    record = development.create(cid, {'hypothesis_id': 'hypothesis_dev', 'objective': 'Implement', 'request_key': 'progress'})
+    development.sync(cid)
+    before = len(notices(workspace, cid, lead_id))   # the researcher's opening instruction
+    for step in range(5):
+        outgoing(driver, record, f'p{step}', 'checkpoint', {'summary': f'Step {step}', 'phase': 'implementing',
+                                                           'done': [f'part {step}'], 'eta_minutes': 10 - step})
+    development.sync(cid)
+    saved = development.public(development.get(cid, record['id']))
+    assert len(notices(workspace, cid, lead_id)) == before
+    # The record and the timeline still follow every checkpoint.
+    assert len(saved['checkpoints']) == 5 and saved['activity'] == 'Step 4' and saved['estimate']['remaining_minutes'] == 6
+    outgoing(driver, record, 'q', 'checkpoint', {'summary': 'Asking', 'phase': 'implementing', 'question': 'Minimize or maximize?'})
+    development.sync(cid)
+    assert len(notices(workspace, cid, lead_id)) == before + 1
+    # A blocker is news once; the same blocker again, or more of the blocked phase, is not.
+    for key in ('b1', 'b2'):
+        outgoing(driver, record, key, 'checkpoint', {'summary': 'Blocked', 'phase': 'blocked', 'blocker': 'No license file'})
+        development.sync(cid)
+    assert len(notices(workspace, cid, lead_id)) == before + 2
+    outgoing(driver, record, 'b3', 'checkpoint', {'summary': 'Still blocked', 'phase': 'blocked', 'blocker': 'The license expired'})
+    development.sync(cid)
+    assert len(notices(workspace, cid, lead_id)) == before + 3
+
+
+def test_the_lead_opening_a_workspace_records_the_request_its_turn_works_on(setup, monkeypatch):
+    from optimization_framework.agents.tools import PiTools
+    workspace, campaign, development, driver = setup
+    cid = campaign['id']
+    lead = workspace.store.get(workspace.pi.configuration(cid)['lead_id'], 'agent_session')
+    run = {'id': 'run_ask', 'origin': {'thread_id': 'thread_main', 'message_id': 'message_ask'}}
+    captured = {}
+    monkeypatch.setattr(development, 'create', lambda cid, args, **options: captured.update(options) or {})
+    PiTools(workspace.pi)._execute(lead, run, 'implementation_workspace_create', {'hypothesis_id': 'hypothesis_dev',
+                                   'objective': 'Implement', 'request_key': 'tool'}, 'call_one')
+    assert captured['root'] == {'thread_id': 'thread_main', 'message_id': 'message_ask', 'run_id': 'run_ask'}
+    assert captured['opener'] == {'agent_id': lead['id'], 'role': 'lead'}
