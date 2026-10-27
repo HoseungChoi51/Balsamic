@@ -399,6 +399,10 @@ the page shows it in a sandboxed frame that can only ask to open a page). `probl
 the note's markdown into the statement of a problem import and starts the formulator; the charter it writes appears on
 the note's Charter tab, where the researcher confirms it (`/problem-charters/{id}/confirm`, then `campaign.update` with
 the charter reference sets the tasks and ends the formulation stage). A revision after adoption reopens the draft.
+"Export as Python project" on the Charter tab (`export-charter`) downloads the revision on screen, confirmed or not, from
+`GET /api/v1/problem-charters/{id}/revisions/{n}/export.zip`: `scaffold()` (`problem_charter/scaffold.py`) zipped under
+`<project-name>/` as `<project-name>-r<n>.zip`, the same bytes for the same revision. A charter the generator cannot turn
+into a project (no objective, no decision variables, a value that does not resolve) answers 409 and the tab says why.
 
 **Fake harness.** `tests/fake_harness.py` speaks the harness protocol with a scripted turn (read the campaign, reply
 through `yield_work`) and a session tree; `tests/balsamic/test_e2e_fake_harness.py` runs a message, a fork and a branch
