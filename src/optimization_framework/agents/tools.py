@@ -9,7 +9,7 @@ import tempfile
 import threading
 import time
 
-from optimization_framework.contracts.base import content_hash
+from optimization_framework.contracts.base import content_hash, lenient
 from optimization_framework.contracts.commands import Command
 from optimization_framework.storage.sqlite import now
 from optimization_framework.campaigns.record_view import view_record
@@ -1080,9 +1080,14 @@ class PiTools:
                 raise ValueError(self.page_work(agent, name, args))
             campaign = self.store.get(cid, "campaign")
             command_id = "pi_command_" + content_hash([cid, args["operation"], args["request_key"]])[:32]
+            # Unknown top-level payload keys are dropped and reported, a near-miss refused (decision 5); nested objects stay strict.
+            payload, ignored = args["payload"], []
+            known = self.workspace.commands.payload_keys(args["operation"])
+            if known is not None and isinstance(payload, dict):
+                payload, ignored = lenient(payload, known)
             try:
                 accepted = self.store.get(command_id, "work_command")
-                if accepted["request"]["operation"] != args["operation"] or accepted["request"]["payload"] != args["payload"]:
+                if accepted["request"]["operation"] != args["operation"] or accepted["request"]["payload"] != payload:
                     raise ValueError("Request key belongs to a different command")
                 return self.receipt(accepted)
             except KeyError:
@@ -1101,10 +1106,10 @@ class PiTools:
                 # The campaign-wide guidance pin is the run's, or a newer one the agent read in this run (campaign_inspect); a revision the model
                 # states is ignored (D7). The thread pin is never overridden.
                 operation=args["operation"], expected_revision=campaign["version"], expected_guidance_revision=self.guidance_pin(run),
-                expected_thread_revision=run.get("thread_revision"), expected_authority_hash=self.workspace.commands.authority_hash(campaign), payload=args["payload"],
+                expected_thread_revision=run.get("thread_revision"), expected_authority_hash=self.workspace.commands.authority_hash(campaign), payload=payload,
                 origin=CommandOrigin(thread_id=origin.get("thread_id"), message_id=origin.get("message_id"), actor=actor, agent_id=agent["id"], run_id=run["id"],
                                      rationale=(args.get("rationale") or None)))
-            return self.receipt(self.workspace.commands.execute(command, actor="autopilot" if actor == "autopilot" else "manager"))
+            return self.receipt(self.workspace.commands.execute(command, actor="autopilot" if actor == "autopilot" else "manager", ignored_fields=ignored))
         if name in {"report_write", "report_answer"}:
             writer = self.workspace.report_writer
             if name == "report_write":

@@ -124,6 +124,20 @@ class CommandService:
 
     def describe(self):
         """Use the application's schemas in prompts instead of a second tool model."""
+        return {key: {"payload_schema": model.model_json_schema(), "delegable": key in self.delegated,
+                      **({"additional_required_target": "trial_id"} if key in {"validation.run", "validation.require"} else {})}
+                for key, model in self.payload_models().items()}
+
+    def payload_keys(self, operation):
+        """The top-level keys an operation's payload accepts, or None for an operation without a payload model."""
+        from optimization_framework.contracts.base import field_names
+        model = self.payload_models().get(operation)
+        if model is None:
+            return None
+        return field_names(model) | {"campaign_id"} | ({"trial_id"} if operation in {"validation.run", "validation.require"} else set())
+
+    def payload_models(self):
+        """Each operation's payload model."""
         from .experiment_rules import ExperimentRulesInput, TrialHideInput
         from optimization_framework.execution.admission import ResourcePlanInput, UsageEstimateInput
         from optimization_framework.agents.models import Activate, Configure, Message, Control, QuestionDismiss, Rollback, UiRespond
@@ -165,11 +179,9 @@ class CommandService:
             "implementation.resolve_runtime": RuntimeResolutionInput,
             "confirmation.release": ConfirmationReleaseInput, "confirmation.schedule": ConfirmationScheduleInput,
             "confirmation.validate": ConfirmationScheduleInput}
-        return {key: {"payload_schema": model.model_json_schema(), "delegable": key in self.delegated,
-                      **({"additional_required_target": "trial_id"} if key in {"validation.run", "validation.require"} else {})}
-                for key, model in {**models, **self.models}.items()}
+        return {**models, **self.models}
 
-    def execute(self, command, *, actor="researcher"):
+    def execute(self, command, *, actor="researcher", ignored_fields=()):
         command = command if isinstance(command, Command) else Command(**command)
         try:
             prepared = None
@@ -188,7 +200,7 @@ class CommandService:
                     # Read fresh library evidence before reserving or attaching.
                     # Accepted retries retain their original outcome and need no service call.
                     self.workspace.implementations.catalog(refresh=True)
-            return self._execute(command, actor=actor, prepared=prepared)
+            return self._execute(command, actor=actor, prepared=prepared, ignored_fields=list(ignored_fields))
         except ValueError as exc:
             # Rejected attempts remain reviewable without owning a successful
             # command identity or overwriting an earlier accepted outcome.
@@ -202,7 +214,7 @@ class CommandService:
                         "reason": str(exc), "created_at": now()}, "command.rejected")
             raise
 
-    def _execute(self, command, *, actor, prepared=None):
+    def _execute(self, command, *, actor, prepared=None, ignored_fields=()):
         if actor not in {"researcher", "manager", "autopilot"}:
             raise ValueError("Unknown command authority")
         # The fields the rebuild added are left out of the hash when unset, so receipts written before them still replay.
@@ -272,7 +284,9 @@ class CommandService:
                 record = {"id": command.id, "campaign_id": command.campaign_id, "request_hash": request_hash,
                     "request": command.model_dump(mode="json"), "actor": actor, "authority_hash": authority,
                     "origin": command.origin.model_dump(mode="json") if command.origin else None,
-                    "status": "completed", "outcome": outcome, "created_at": now(), "finished_at": now()}
+                    "status": "completed", "outcome": outcome, "created_at": now(), "finished_at": now(),
+                    # The payload's unknown top-level keys an agent sent, dropped before it ran (decision 5).
+                    **({"ignored_fields": list(ignored_fields)} if ignored_fields else {})}
                 self.store.put("work_command", record, "command.completed")
         for listener in self.listeners:
             try:

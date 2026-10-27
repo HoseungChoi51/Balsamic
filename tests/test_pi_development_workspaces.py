@@ -17,6 +17,7 @@ class Driver:
         self.prepared = 0
         self.started = 0
         self.paused = 0
+        self.ignored = []
 
     def root(self, record):
         return self.directory / record['id']
@@ -55,7 +56,7 @@ class Driver:
         return ({'contract': 'optimizer_v1', 'entrypoint': 'optimizer:create_optimizer',
                  'files': [{'path': 'optimizer.py', 'content': 'def create_optimizer(*args): pass\n'}]},
                 {'contract': 'optimizer_v1', 'entrypoint': 'optimizer:create_optimizer',
-                 'files': ['optimizer.py'], 'dependencies': {}, 'test_summary': 'Development tests passed'})
+                 'files': ['optimizer.py'], 'dependencies': {}, 'test_summary': 'Development tests passed'}, self.ignored)
 
 
 @pytest.fixture

@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import Literal
 
 from pydantic import Field, model_validator
-from optimization_framework.contracts.base import Contract, content_hash
+from optimization_framework.contracts.base import Contract, content_hash, field_names, lenient
 from optimization_framework.storage.sqlite import atomic_json, now
 from .development_runtime import IMAGE, LEGACY_MODEL, DockerWorkspace
 
@@ -42,6 +42,31 @@ class SubmissionManifest(Contract):
     files: list[str] = Field(min_length=1, max_length=100)
     dependencies: dict[str, str] = Field(default_factory=dict, max_length=20)
     test_summary: str = Field(default="", max_length=10000)
+
+
+def submission_manifest(text, tracked):
+    """A submission's manifest and the keys it ignored (decision 5).
+
+    ``text`` is the committed manifest, None when the commit has none; ``tracked`` lists the commit's files under
+    ``libraries/``. Unknown keys are dropped and reported, a near-miss is refused. With no manifest one is derived: every
+    tracked file of the commit's single library, with the default contract and entry point.
+    """
+    if text is None:
+        libraries = {}
+        for path in tracked:
+            parts = path.split("/")
+            if len(parts) > 2 and parts[0] == "libraries":
+                libraries.setdefault(parts[1], []).append(path)
+        if len(libraries) != 1:
+            raise ValueError("Commit an implementation-manifest.json: the commit has " + (
+                f"{len(libraries)} libraries ({', '.join(sorted(libraries))})" if libraries else "no library under libraries/")
+                + ", so its files cannot be derived")
+        return SubmissionManifest(files=sorted(next(iter(libraries.values())))), []
+    raw = json.loads(text)
+    if not isinstance(raw, dict):
+        return SubmissionManifest.model_validate(raw), []
+    known, ignored = lenient(raw, field_names(SubmissionManifest))
+    return SubmissionManifest.model_validate(known), ignored
 
 
 class TestCounts(Contract):
@@ -620,7 +645,7 @@ class DevelopmentWorkspaces:
 
     def capture_submission(self, record, key, payload):
         report = self.delivery_report(record, payload.get("report"))
-        package, manifest = self.driver.snapshot(record, payload["commit"], payload.get("manifest_path", "implementation-manifest.json"))
+        package, manifest, ignored = self.driver.snapshot(record, payload["commit"], payload.get("manifest_path", "implementation-manifest.json"))
         with self.workspace.lock, self.store.transaction():
             identity = "development_submission_" + content_hash([record["id"], payload["commit"], package, manifest])[:24]
             submission = {"id": identity, "campaign_id": record["campaign_id"], "workspace_id": record["id"],
@@ -638,7 +663,8 @@ class DevelopmentWorkspaces:
                     f"{a['owner']}: {a['action']}" for a in report["next_actions"]) or "nothing named") + "." if report else " It sent no delivery report."
                 self.notify(record, identity, f"Commit {submission['commit']} submitted as {identity}.{verdict} Review its manifest and commission independent validation using implementation_workspace_validate within the remaining implementation allocation.")
             self.event(record, key, "submission", {"submission_id": identity, "commit": payload["commit"]})
-        atomic_json(self.driver.root(record) / "incoming/results" / (key + ".json"), {"submission_id": saved["id"], "status": saved["status"]})
+        atomic_json(self.driver.root(record) / "incoming/results" / (key + ".json"), {"submission_id": saved["id"], "status": saved["status"],
+            **({"ignored_fields": ignored} if ignored else {})})
 
     def validate(self, campaign_id, identity, payload, *, actor="researcher"):
         from optimization_framework.implementations.models import BoundOptimizerSpec, ImplementationSpec
