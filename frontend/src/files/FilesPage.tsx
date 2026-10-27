@@ -1,7 +1,7 @@
 /** Files: assets and findings, report drafts, the notebook (findings in order), the sources read. */
 import type { PageProps } from '../shell/StagePanel';
 import { useFiles } from '../api/queries';
-import { Empty, Failed, Loading, Pill, Section, when } from '../primitives/ui';
+import { Empty, Failed, Loading, Pill, Section, UnverifiedNumbers, when } from '../primitives/ui';
 import { formatHash } from '../router/routes';
 
 const STATEMENT: Record<string, [string, string]> = {
@@ -19,8 +19,9 @@ function FindingCard({ f, selected, thread }: { f: Record<string, unknown>; sele
   const restates = (f.restates || []) as string[];
   const supersededBy = (f.superseded_by || []) as string[];
   const n = support.measurement_ids.length;
+  const unverified = (f.unverified_numbers || []) as string[];
   return <div className={'card' + (selected ? ' selected' : '')} data-record-id={String(f.id)} data-testid="finding">
-    <div className="row"><Pill tone={tone}>{label}</Pill>{f.kind === 'counterevidence' ? <Pill>counterevidence</Pill> : null}{restates.length ? <Pill tone="warn" title="Cites no source the finding it supports does not already cite">restates</Pill> : null}<strong className="grow">{String(f.title || f.claim || f.id)}</strong><span className="faint small">{when(f.created_at)}</span></div>
+    <div className="row"><Pill tone={tone}>{label}</Pill>{f.kind === 'counterevidence' ? <Pill>counterevidence</Pill> : null}{restates.length ? <Pill tone="warn" title="Cites no source the finding it supports does not already cite">restates</Pill> : null}{unverified.length ? <UnverifiedNumbers numbers={unverified} /> : null}<strong className="grow">{String(f.title || f.claim || f.id)}</strong><span className="faint small">{when(f.created_at)}</span></div>
     <p className="small">{String(f.content || f.summary || '')}</p>
     {f.statement === 'promise' ? null : <p className="small muted" data-testid="finding-measurements">{n === 1 ? '1 distinct measurement' : `${n} distinct measurements`}{support.supporters.length ? ' behind it and its supporting findings' : ' behind it'}</p>}
     {support.supporters.length ? <p className="small muted" data-testid="finding-supporters">Supported by {support.supporters.map((s, i) => <span key={s.id}>{i ? ', ' : ''}{ref(s.id)}{s.restates ? ' (restates)' : ''}</span>)}</p> : null}
