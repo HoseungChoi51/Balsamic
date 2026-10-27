@@ -34,6 +34,16 @@ def test_library_entry_carries_signature_and_evidence_and_is_immutable(client, w
     assert client.get(f"/api/v1/library/{entry['id']}").json()["id"] == entry["id"]
 
 
+def test_only_the_researcher_publishes_to_the_library(client, workspace, campaign):
+    import pytest
+    from balsamic.library.service import PublishInput, publish
+    winner = finalist(client, workspace, campaign)
+    for actor in ("manager", "autopilot", "balsamic"):
+        with pytest.raises(ValueError, match="Only the researcher publishes"):
+            publish(workspace, campaign["id"], PublishInput(hypothesis_id=winner["id"]), command_id="by_" + actor, actor=actor)
+    assert workspace.store.list("library_entry") == [] and not workspace.store.get(winner["id"], "hypothesis").get("library_entry_id")
+
+
 def test_library_search_ranks_the_same_problem_first(client, workspace, campaign):
     winner = finalist(client, workspace, campaign)
     command(client, "library.publish", campaign["id"], {"hypothesis_id": winner["id"]}, campaign["version"])
