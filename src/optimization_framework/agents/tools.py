@@ -50,7 +50,7 @@ OPERATIONS = {"hypothesis.create", "hypothesis.review", "hypothesis.status", "dr
     "implementation.resolve_runtime", "evaluator.commission", "evaluator.attach", "finding.record", "comparison.report",
     "validation.run", "validation.execute", "study.create", "study.activate",
     "study.race.control", "study.race.decide", "asset.snapshot", "runtime.profile", "evaluator.equivalence", "trial.continue", "journal.compaction_request", "approval.request",
-    "experiments.rules", "trial.hide"}
+    "experiments.rules", "trial.hide", "campaign.adopt_problem"}
 # What every agent but an implementation grant's is told: role and authority, requests and notices, the turn's end, replies,
 # evidence and limits. Workflow procedures are read on demand (procedure_read); the lead's own contract follows below.
 INSTRUCTIONS = """You are a persistent Pi agent in a scientific campaign; your role and assignment are below. The researcher
