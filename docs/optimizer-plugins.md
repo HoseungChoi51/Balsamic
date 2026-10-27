@@ -115,8 +115,10 @@ specification. A coding workspace builds it under `libraries/<name>/` (`librarie
   export of another kind is not cataloged: it stays in the run's files and is listed in the trial's `uncataloged_outputs`.
 
 The library is done when `uv run pytest libraries/<name>` passes. Installing it runs its code in the lab's workers, as
-`mask-optimizers` does, so the researcher decides: Install on the coding workspace's card (Hypotheses → Implementations)
-copies the exact submitted commit's `libraries/<name>/` from the workspace, pins it in the root `pyproject.toml` as an
+`mask-optimizers` does. Balsamic installs a delivered library by itself (not one its coding agent reports not ready; set
+`GRATING_AUTO_INSTALL=false` to stop it), and the researcher can install again with Install on the coding workspace's card
+(Hypotheses → Implementations). Either way it copies the exact submitted commit's `libraries/<name>/` from the workspace,
+pins it in the root `pyproject.toml` as an
 editable path dependency in the `libraries` extra, and runs `uv lock` and `uv sync --inexact --extra libraries`. A dry run
 comes first: a change to a package the lab already has waits for the researcher's confirmation, and a failure puts
 `pyproject.toml`, `uv.lock` and `libraries/` back as they were. Each install is a `library_install` record with the methods it

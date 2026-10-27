@@ -326,8 +326,9 @@ built, and why the others cannot run, each with the proposals that use it and th
 evaluator blocks says so (`GET /api/v1/campaigns/{id}/methods`, `campaigns/method_catalog.py`). Then a card per coding
 workspace: the proposals it serves, who opened it under which go-ahead, its phase, tests and the coding agent's own estimate,
 its CPU against the allowance, its latest checkpoint, its result (the delivery with the agent's verdict, each method, the
-limitations and the next steps by owner; a validation's result; a failure), Install for a delivered library (the
-researcher's, `agents/library_install.py`), a box to message the coding agent, and its history newest first
+limitations and the next steps by owner; a validation's result; a failure), how its library was installed (Balsamic installs
+a delivered one by itself and asks only when installed packages would change; Install there installs it again,
+`agents/library_install.py`), a box to message the coding agent, and its history newest first
 (`.../implementation-workspaces/{id}/timeline`). Each result is an inbox item until acknowledged.
 
 **Detached chat.** "Detach" in the chat header opens `#t/<thread>/chat`, a chat-only window (`window.name = balsamic-chat`);

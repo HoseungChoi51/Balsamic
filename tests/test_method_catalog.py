@@ -59,7 +59,7 @@ def test_a_proposal_a_workspace_serves_is_building_then_delivered_then_installed
     assert workspace.implementations.readiness(h)['reason'] == 'Being built in a coding workspace (testing).'
     submission(workspace, cid, 'one', ['hypothesis_other', 'hypothesis_dp'], methods=[('bakery_dp', 'hypothesis_dp')])
     delivered = workspace.implementations.readiness(h)
-    assert delivered['state'] == 'submitted_not_installed' and 'install it on the Implementations page' in delivered['reason']
+    assert delivered['state'] == 'submitted_not_installed' and delivered['reason'].endswith('not installed yet. Balsamic installs it at its next check.')
     submission(workspace, cid, 'one', ['hypothesis_other', 'hypothesis_dp'], methods=[('random', 'hypothesis_dp')])   # its method is installed now
     installed = workspace.implementations.readiness(h)
     assert installed['state'] == 'installed_not_bound' and 'implementation.bind_builtin' in installed['reason']
@@ -78,7 +78,12 @@ def test_the_catalog_lists_what_runs_what_waits_to_be_installed_and_why_the_rest
     assert rows['random']['proposals'] == [{'hypothesis_id': 'hypothesis_random', 'bound': True, 'default': False}]
     dp = rows['bakery_dp']
     assert (dp['source'], dp['state'], dp['package']['name']) == ('submitted', 'not_installed', 'bakery')
-    assert dp['next_action'] == {'owner': 'researcher', 'text': 'Install the library on this page'}
+    assert dp['next_action'] == {'owner': 'balsamic', 'text': 'Balsamic installs it at its next check'}
+    # An install that would change installed packages waits for the researcher, and says what it would change.
+    workspace.store.put('library_install', {'id': 'library_install_x', 'campaign_id': cid, 'submission_id': 'lib', 'status': 'needs_confirmation',
+                                            'requested_at': '2026-10-27T04:00:00+00:00', 'changes': [{'name': 'numpy', 'from': '2.1.0', 'to': '2.3.0'}]})
+    waiting = {row['id']: row for row in catalog(workspace, cid)['methods']}['bakery_dp']['next_action']
+    assert waiting == {'owner': 'researcher', 'text': 'Confirm the install on the Implementations page: it would change numpy 2.1.0 → 2.3.0'}
     assert rows['bakery.plugin:create']['state'] == 'legacy' and rows['bakery.plugin:create']['reported'] is False
     assert all(row['id'] != 'replay' for row in view['methods']) and any(o['id'] == 'replay' and 'not a search method' in o['reason'] for o in view['other'])
     agents = unavailable(workspace, cid)

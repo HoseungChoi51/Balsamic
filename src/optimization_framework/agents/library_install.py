@@ -1,12 +1,14 @@
-"""Installing a coding workspace's library into the lab: the researcher's step, one click on the Implementations page.
+"""Installing a coding workspace's library into the lab. Balsamic does it by itself once a workspace delivers (not a delivery
+its coding agent reports not ready); the researcher can install again from the Implementations page.
 
 The exact submitted commit's `libraries/<name>/` is read from the workspace's own Git store (listed and read as blobs: no
 filter, hook or attribute of a repository the coding agent could write runs on the host), checked against what was
 submitted, and copied into the lab's `libraries/<name>/`. The root pyproject.toml pins it in the `libraries` extra as an
 editable path dependency, `uv lock` and `uv sync --inexact --extra libraries` install it, and the running lab picks its
 methods up at the next listing. A dry run first: a change to any package already installed waits for the researcher's
-confirmation, and every file this touched is put back when it stops or fails. Each install is a `library_install` record:
-who, when, what (package, version, commit, workspace, submission), the methods it added, and how it ended.
+confirmation (it could affect their other campaigns), and every file this touched is put back when it stops or fails. Each
+install is a `library_install` record: who (balsamic or the researcher), when, what (package, version, commit, workspace,
+submission), the methods it added, and how it ended.
 """
 from __future__ import annotations
 
@@ -116,8 +118,31 @@ class Installer:
                 "record": record, "submission": submission}
 
     # Install ----------------------------------------------------------------------------------------------------------
-    def request(self, campaign_id, workspace_id, submission_id, *, request_key, confirm_changes=False, accept_not_ready=False, background=True):
-        """Record the researcher's install and start it; the record says how it goes."""
+    def automatic(self, campaign_id, workspace_id, submission, *, background=True):
+        """Balsamic's own install of a delivered library, once per submission: none for a delivery its coding agent reports not
+        ready, or one delivered as loose files. A refusal (the same version with other code, files that differ from what was
+        submitted) is recorded as a failed install and told to the lead."""
+        from optimization_framework.campaigns.method_catalog import library_of
+        if (submission.get("report") or {}).get("verdict") == "not_ready" or not library_of(submission):
+            return None
+        if any(row.get("submission_id") == submission["id"] for row in self.store.list("library_install", campaign_id)):
+            return None
+        try:
+            return self.request(campaign_id, workspace_id, submission["id"], request_key="automatic", actor="balsamic", background=background)
+        except ValueError as exc:
+            identity = "library_install_" + content_hash([submission["id"], "automatic"])[:24]
+            record = self.store.put("library_install", {"id": identity, "campaign_id": campaign_id, "workspace_id": workspace_id,
+                "submission_id": submission["id"], "commit": submission["commit"], "package": None, "version": None,
+                "path": f"libraries/{library_of(submission)}", "entry_points": {}, "actor": "balsamic", "status": "failed",
+                "requested_at": now(), "finished_at": now(), "error": str(exc)[:2000], "methods_added": [], "missing_methods": [],
+                "changes": [], "log_tail": ""}, "library.install_failed")
+            self.development.notify(self.development.get(campaign_id, workspace_id), identity, f"Balsamic could not install the library "
+                f"from commit {submission['commit'][:7]}: {exc} Have the coding agent fix it and deliver again.")
+            return record
+
+    def request(self, campaign_id, workspace_id, submission_id, *, request_key, confirm_changes=False, accept_not_ready=False,
+                background=True, actor="researcher"):
+        """Record an install (Balsamic's own, or the researcher's) and start it; the record says how it goes."""
         if not self.uv:
             raise ValueError("uv is not available to the lab; install by hand: copy the library into libraries/<name>/, "
                              "add it to the libraries extra in pyproject.toml, and run `uv sync --inexact --extra libraries`")
@@ -129,7 +154,7 @@ class Installer:
             pass
         install = {"id": identity, "campaign_id": campaign_id, "workspace_id": workspace_id, "submission_id": submission_id,
                    "commit": plan["submission"]["commit"], "package": plan["package"], "version": plan["version"], "path": f"libraries/{plan['name']}",
-                   "entry_points": plan["entry_points"], "actor": "researcher", "status": "queued", "requested_at": now(),
+                   "entry_points": plan["entry_points"], "actor": actor, "status": "queued", "requested_at": now(),
                    "confirm_changes": confirm_changes, "methods_added": [], "missing_methods": [], "changes": [], "log_tail": ""}
         self.store.put("library_install", install, "library.install_requested")
         if background:
@@ -184,7 +209,8 @@ class Installer:
                 record = self._update(identity, "library.installed", status="installed", finished_at=now(), changes=changes,
                                       methods_added=sorted(after - before), missing_methods=sorted(set(reported) - after),
                                       log_tail="\n".join(log)[-4000:])
-                self.development.notify(plan["record"], identity, f"The researcher installed {plan['package']} {plan['version']} from commit "
+                who = "The researcher" if self.store.get(identity, "library_install")["actor"] == "researcher" else "Balsamic"
+                self.development.notify(plan["record"], identity, f"{who} installed {plan['package']} {plan['version']} from commit "
                     f"{plan['submission']['commit'][:7]}: methods {', '.join(record['methods_added']) or 'none new'}"
                     + (f"; not found: {', '.join(record['missing_methods'])}" if record["missing_methods"] else "")
                     + ". Bind each proposal to its method (implementation.bind_builtin) and tell the researcher which can run now.")

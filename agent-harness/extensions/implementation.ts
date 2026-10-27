@@ -100,7 +100,7 @@ const Report = Type.Object({
   tests: Type.Object({...Tests().properties, command: Type.Optional(Type.String({maxLength: 1000, description: 'The command that ran them'}))}),
   limitations: Type.Array(Type.String({maxLength: 1000}), {maxItems: 30}),
   next_actions: Type.Array(Type.Object({owner: StringEnum(['researcher', 'lead', 'validator']), action: Type.String({minLength: 1, maxLength: 1000})}),
-    {maxItems: 20, description: 'What must happen for the methods to run, and who does it (installing the library is the researcher\'s)'}),
+    {maxItems: 20, description: 'What must happen for the methods to run, and who does it (Balsamic installs a delivered library itself)'}),
 });
 
 const submit = defineTool({

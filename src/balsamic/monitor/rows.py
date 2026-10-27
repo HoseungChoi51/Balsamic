@@ -13,7 +13,7 @@ def inbox_view(workspace, campaign_id):
     closed = sorted((row for row in store.list("manager_issue", campaign_id) if row.get("status") == "resolved" and row.get("resolved_by") == "lead"),
                     key=lambda row: row.get("resolved_at") or "")[-30:]
     notices = compute_notices(workspace, campaign_id)
-    implementations = implementation_outcomes(workspace, campaign_id)
+    implementations = implementation_outcomes(workspace, campaign_id) + install_outcomes(workspace, campaign_id)
     items = inbox_items(decisions, issues, questions, closed, notices, implementations)
     seen = set(acknowledged(workspace, campaign_id))
     from optimization_framework.campaigns.compute_consent import thresholds
@@ -52,6 +52,25 @@ def implementation_outcomes(workspace, campaign_id):
             rows.append({**result, "workspace_id": record["id"], "workspace_title": record.get("title", ""),
                          "title": outcome_title(record, result, by_id.get(result.get("submission_id")))})
     return sorted(rows, key=lambda row: row["at"] or "")
+
+
+def install_outcomes(workspace, campaign_id):
+    """Each delivered library's latest install that is news: installed (with its methods), waiting for the researcher's yes
+    because it would change installed packages, or failed."""
+    latest = {}
+    for row in sorted(workspace.store.list("library_install", campaign_id), key=lambda row: row["requested_at"]):
+        latest[row["submission_id"]] = row
+    rows = []
+    for row in latest.values():
+        name = row.get("package") or row.get("path") or "the library"
+        title = {"installed": f"Installed {name} {row.get('version') or ''}: methods {', '.join(row.get('methods_added') or []) or 'none new'}",
+                 "needs_confirmation": f"Installing {name} waits for your yes: it would change "
+                                       + ", ".join(f"{c['name']} {c['from']} → {c.get('to') or 'removed'}" for c in row.get("changes", [])),
+                 "failed": f"Installing {name} failed: {_first_line(row.get('error'), 120)}"}.get(row["status"])
+        if title:
+            rows.append({"workspace_id": row["workspace_id"], "workspace_title": "", "state": "install_" + row["status"], "at": row.get("finished_at") or row["requested_at"],
+                         "submission_id": row["id"], "title": title.replace("  ", " ")})
+    return rows
 
 
 def outcome_title(record, result, submission):

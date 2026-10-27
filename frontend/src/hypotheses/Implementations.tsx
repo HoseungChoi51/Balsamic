@@ -22,7 +22,7 @@ const STATUS: Record<string, [string, string]> = {
 const TONE: Record<string, string> = { ok: 'good', warn: 'warn', attention: 'warn', bad: 'bad', info: 'info', you: 'you', agent: 'agent' };
 const OUTCOME: Record<string, [string, string]> = { delivered: ['delivered', 'clear'], validating: ['being validated', 'agent'], validated: ['validated', 'clear'],
   needs_revision: ['needs revision', 'bad'], stopped: ['stopped', ''], failed: ['failed', 'bad'] };
-const OWNER: Record<string, string> = { researcher: 'You', lead: 'The lead', validator: 'Independent validation' };
+const OWNER: Record<string, string> = { researcher: 'You', lead: 'The lead', validator: 'Independent validation', balsamic: 'Balsamic' };
 export const testsText = (t?: Tests | null) => t ? `${t.passed} passed, ${t.failed} failed${t.skipped ? `, ${t.skipped} skipped` : ''}` : '';
 const minutes = (ms: number) => ms < 90_000 ? `${Math.round(ms / 1000)} s` : ms < 5_400_000 ? `${Math.round(ms / 60_000)} min` : `${(ms / 3_600_000).toFixed(1)} h`;
 
@@ -200,6 +200,7 @@ function InstallBox({ workspace: w, submission }: { workspace: Workspace; submis
     <div className="install" data-testid="install-box">
       <div className="row wrap">
         {latest ? <Pill tone={tone} live={latest.status === 'installing'}>{label}</Pill> : null}
+        {latest ? <span className="faint small">{latest.actor === 'researcher' ? 'by you' : 'by Balsamic'}</span> : null}
         {latest?.status === 'installed' ? <span className="small">{latest.package} {latest.version} · methods {latest.methods_added.join(', ') || 'none new'}
           {latest.missing_methods.length ? <span className="pill bad"> not found: {latest.missing_methods.join(', ')}</span> : null}</span> : null}
         {!open && latest?.status !== 'installing' && latest?.status !== 'queued' ? <button className="btn small primary" onClick={() => setOpen(true)} data-testid="install-open">
@@ -214,8 +215,9 @@ function InstallBox({ workspace: w, submission }: { workspace: Workspace; submis
           <p>Install <code>libraries/{library}</code> from commit <code>{submission.commit.slice(0, 7)}</code>
             {report ? <>: the coding agent reports it <strong>{(VERDICT[report.verdict] || [report.verdict])[0]}</strong></> : ', delivered without a report'}.</p>
           {report?.limitations.length ? <ul>{report.limitations.map((l, i) => <li key={i}>{l}</li>)}</ul> : null}
-          <p className="faint">Its code runs in the lab's workers. Balsamic copies that exact commit into <code>libraries/{library}</code>, pins it in
-            pyproject.toml and uv.lock (commit them), and runs <code>uv sync</code>; a change to packages the lab already has waits for your yes.</p>
+          <p className="faint">Balsamic installs a delivered library by itself; this installs it again. Its code runs in the lab's workers: Balsamic
+            copies that exact commit into <code>libraries/{library}</code>, pins it in pyproject.toml and uv.lock (commit them), and runs <code>uv sync</code>;
+            a change to packages the lab already has waits for your yes.</p>
           {report?.verdict === 'not_ready' ? <label className="row"><input type="checkbox" checked={notReady} onChange={e => setNotReady(e.target.checked)} data-testid="install-not-ready" />
             Install it although the coding agent reported it not ready</label> : null}
         </div>

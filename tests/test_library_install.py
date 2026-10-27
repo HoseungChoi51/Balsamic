@@ -166,3 +166,32 @@ def test_what_cannot_be_installed_is_refused_before_anything_changes(lab):
 def test_a_dry_run_names_only_other_packages_it_would_change():
     output = "Would install 3 packages\n - numpy==2.1.0\n + numpy==2.3.0\n + scipy==1.18.1\n + bakery-search==0.2.0\n - bakery_search==0.1.0\n"
     assert changed_packages(output, "bakery-search") == [{"name": "numpy", "from": "2.1.0", "to": "2.3.0"}]
+
+
+def test_balsamic_installs_a_delivered_library_by_itself_once_and_records_what_stops_it(lab, monkeypatch):
+    workspace, cid, development, root, submission = lab
+    install, commands = installer(lab)
+    done = install.automatic(cid, "development_bakery", submission, background=False)
+    assert done["status"] == "installed" and done["actor"] == "balsamic" and done["methods_added"] == ["bakery_dp"]
+    assert install.automatic(cid, "development_bakery", submission, background=False) is None   # once per delivery
+    assert len([c for c in commands if c[0] == "sync" and "--dry-run" not in c]) == 1
+    # Not a delivery its coding agent reports not ready, nor loose files.
+    for changed in ({"report": {**submission["report"], "verdict": "not_ready"}}, {"manifest": {"files": ["h12_optimizer.py"]}}):
+        assert installer(lab)[0].automatic(cid, "development_bakery", {**submission, "id": "other", **changed}, background=False) is None
+    # A refusal is a failed install, told to the lead.
+    workspace.store.put("development_submission", {**submission, "id": "development_submission_2",
+        "package": {"files": [{"path": "libraries/bakery/src/bakery/plugin.py", "content": "other"}]}})
+    refused = installer(lab)[0].automatic(cid, "development_bakery", workspace.store.get("development_submission_2", "development_submission"), background=False)
+    assert refused["status"] == "failed" and "differs from what was submitted" in refused["error"] and refused["actor"] == "balsamic"
+
+
+def test_the_workspaces_sync_installs_what_was_delivered_unless_turned_off(lab, monkeypatch):
+    workspace, cid, development, root, submission = lab
+    calls = []
+    monkeypatch.setattr(Installer, "automatic", lambda self, campaign_id, workspace_id, row, background=True: calls.append(row["id"]))
+    monkeypatch.setenv("GRATING_AUTO_INSTALL", "false")
+    development.install_delivered(cid)
+    assert calls == []
+    monkeypatch.delenv("GRATING_AUTO_INSTALL")
+    development.install_delivered(cid)
+    assert calls == [submission["id"]]

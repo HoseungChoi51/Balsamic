@@ -22,8 +22,10 @@ it, and no experiment waits for such proof.
    seeded replay, checkpoint continuation), and the workspace has submitted the commit with its delivery report: the coding
    agent's verdict (ready, ready with limits, not ready), each method's state, conformance and tests, the limitations, and the
    next steps with who does each. The researcher reads that report on the Implementations page and in the inbox; relay its
-   verdict and next steps as it states them, never better. Installing runs its code in the lab, so only the researcher does it,
-   with Install on the workspace's card; you hear when it is installed and which methods it added.
+   verdict and next steps as it states them, never better. Balsamic installs a delivered library by itself (not one the coding
+   agent reports not ready), and asks the researcher only when installing would change packages the lab already has. Never ask
+   the researcher to run commands to install anything. You hear when it is installed and which methods it added, or why it
+   could not be (often: the library's version has to rise), which the coding agent then fixes.
 4. Once it is installed, its methods appear in `campaign_inspect.methods` within a second; the lab needs no restart. Bind
    each proposal to its method with `implementation.bind_builtin` and hand the runs to the experiment operator.
    `campaign_inspect.methods_unavailable` lists what matters here but cannot run, with the reason and the next step: delivered

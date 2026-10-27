@@ -196,6 +196,22 @@ class DevelopmentWorkspaces:
     def enabled(self):
         return os.environ.get("GRATING_DEVELOPMENT_ENABLED", "false").lower() == "true"
 
+    def installing(self):
+        """Whether Balsamic installs delivered libraries by itself (GRATING_AUTO_INSTALL, on unless set to false)."""
+        return os.environ.get("GRATING_AUTO_INSTALL", "true").lower() != "false"
+
+    def install_delivered(self, campaign_id):
+        """Install each workspace's latest delivered library that nobody installed or tried to (Installer.automatic)."""
+        if not self.installing():
+            return
+        from optimization_framework.campaigns.method_catalog import latest_submissions
+        from .development_runtime import ROOT
+        from .library_install import Installer
+        tried = {row.get("submission_id") for row in self.store.list("library_install", campaign_id)}
+        for submission in latest_submissions(self.store, campaign_id):
+            if submission["status"] in {"submitted", "validated"} and submission["id"] not in tried:
+                Installer(self.workspace, self, ROOT).automatic(campaign_id, submission["workspace_id"], submission)
+
     def get(self, campaign_id, identity):
         record = self.store.get(identity, "development_workspace")
         if record["campaign_id"] != campaign_id:
@@ -225,7 +241,7 @@ class DevelopmentWorkspaces:
             "submissions": sorted(({k: v for k, v in s.items() if k != "package"} for s in self.store.list("development_submission", record["campaign_id"])
                                    if s["workspace_id"] == record["id"]), key=lambda s: s["created_at"]),
             "questions": [q for q in self.store.list("development_question", record["campaign_id"]) if q["workspace_id"] == record["id"] and q["status"] == "pending"],
-            # The researcher's installs of what it delivered, newest last.
+            # The installs of what it delivered (Balsamic's own and the researcher's), newest last.
             "installs": sorted((i for i in self.store.list("library_install", record["campaign_id"]) if i.get("workspace_id") == record["id"]),
                                key=lambda i: i["requested_at"])}
 
@@ -410,6 +426,11 @@ class DevelopmentWorkspaces:
         return {"workspace": self.public(record), "events": events, "cursor": events[-1]["seq"] if events else after, "commands": commands[-100:]}
 
     def sync(self, campaign_id):
+        try:
+            self.install_delivered(campaign_id)
+        except Exception as exc:   # an install never stops the workspaces' own sync
+            import logging
+            logging.getLogger(__name__).warning("Installing a delivered library failed: %s", exc)
         for saved in self.store.list("development_workspace", campaign_id):
             try:
                 self._sync_one(saved)
@@ -739,15 +760,16 @@ Submit the full commit hash with `campaign_submit` and your delivery report: you
 (ready only when every method is implemented, its conformance check passed, no test fails
 and nothing is limited; ready_with_limits with the limitations; not_ready with what must
 happen next), each method's id, proposal, state, tests and conformance, the totals of your
-test run with its command, and the next actions with who does each (installing the library
-is the researcher's). The researcher reads this report as the outcome of your work. Raise the
+test run with its command, and the next actions with who does each. The researcher reads this
+report as the outcome of your work. Balsamic installs the library in the lab when you deliver
+it (unless you report it not ready), so installing is nobody's next action. Raise the
 library's version with each new delivery: the running lab loads its new code only when the
 version changes.
 
 At each `campaign_checkpoint`, give your phase, what is done and what remains, the latest
 test counts and your estimate of the minutes left until you submit: the researcher follows
-your work by these. The researcher installs the library once its tests
-pass (`uv run pytest libraries/<name>`); a proposal then runs by naming its method.
+your work by these. Balsamic installs the library once you deliver it with its tests
+passing (`uv run pytest libraries/<name>`); a proposal then runs by naming its method.
 Use a new commit for each repair. Whether the method performs well is for the
 campaign's experiments and the researcher, not something the implementation proves.
 

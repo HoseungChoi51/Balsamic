@@ -7,7 +7,7 @@ export interface Report {
   methods: { method_id: string; hypothesis_id?: string | null; state: string; conformance: string; tests?: Tests | null; note?: string }[];
   next_actions: { owner: 'researcher' | 'lead' | 'validator'; action: string }[];
 }
-export interface Install { id: string; submission_id: string; status: string; package: string; version: string; path: string; requested_at: string;
+export interface Install { id: string; submission_id: string; status: string; actor?: string; package: string; version: string; path: string; requested_at: string;
   finished_at?: string; methods_added: string[]; missing_methods: string[]; changes: { name: string; from: string; to: string | null }[]; error?: string; log_tail?: string }
 export interface Submission { id: string; commit: string; status: string; notes?: string; report?: Report | null; created_at: string; manifest?: { files?: string[] };
   validation_outcome?: { status?: string; error?: string | null; findings?: Record<string, string>[] } }

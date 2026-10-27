@@ -39,6 +39,23 @@ def methods_for(submission, hypothesis_id):
     return mine or ([method["method_id"] for method in methods] if not any(method.get("hypothesis_id") for method in methods) else [])
 
 
+def installing(store, submission):
+    """Where a delivered, not yet installed library stands, as the next step and who takes it."""
+    tries = sorted((row for row in store.list("library_install", submission["campaign_id"]) if row.get("submission_id") == submission["id"]),
+                   key=lambda row: row["requested_at"])
+    latest = tries[-1] if tries else None
+    if latest and latest["status"] == "needs_confirmation":
+        changes = ", ".join(f"{c['name']} {c['from']} → {c.get('to') or 'removed'}" for c in latest.get("changes", []))
+        return {"owner": "researcher", "text": f"Confirm the install on the Implementations page: it would change {changes}"}
+    if latest and latest["status"] == "failed":
+        return {"owner": "lead", "text": "Have the coding agent fix what stopped the install: " + str(latest.get("error", ""))[:300]}
+    if latest and latest["status"] in {"queued", "installing"}:
+        return {"owner": "balsamic", "text": "Balsamic is installing it"}
+    if (submission.get("report") or {}).get("verdict") == "not_ready":
+        return {"owner": "lead", "text": "The coding agent reported it not ready; the researcher can still install it on the Implementations page"}
+    return {"owner": "balsamic", "text": "Balsamic installs it at its next check"}
+
+
 def development_readiness(store, hypothesis, installed):
     """A proposal whose method a coding workspace builds or delivered: building, submitted_not_installed, or
     installed_not_bound; None when no workspace serves it."""
@@ -54,11 +71,12 @@ def development_readiness(store, hypothesis, installed):
             return {"state": "installed_not_bound", "runnable": False, "methods": ready, "submission_id": submission["id"],
                     "reason": f"Installed: {', '.join(ready)}. Bind this proposal to its method (implementation.bind_builtin) to run it."}
         verdict = ((submission.get("report") or {}).get("verdict") or "no delivery report").replace("_", " ")
+        install = installing(store, submission)
         if submission["status"] == "needs_revision":
             return {"state": "needs_revision", "runnable": False, "submission_id": submission["id"], "workspace_id": submission["workspace_id"],
                     "reason": f"Delivered in commit {submission['commit'][:7]}; independent validation found problems to repair."}
         return {"state": "submitted_not_installed", "runnable": False, "submission_id": submission["id"], "workspace_id": submission["workspace_id"],
-                "methods": methods, "reason": f"Delivered in commit {submission['commit'][:7]} ({verdict}), not installed yet: install it on the Implementations page."}
+                "methods": methods, "reason": f"Delivered in commit {submission['commit'][:7]} ({verdict}), not installed yet. {install['text']}."}
     for record in store.list("development_workspace", hypothesis["campaign_id"]):
         if hypothesis_id in (record.get("hypothesis_ids") or [record["hypothesis_id"]]) and record.get("desired_status") == "running":
             return {"state": "building", "runnable": False, "workspace_id": record["id"],
@@ -125,7 +143,7 @@ def catalog(workspace, campaign_id, *, other_limit=40):
         # Files delivered outside libraries/<name>/ (before libraries were the rule) cannot be installed as a library.
         state = "needs_revision" if submission["status"] == "needs_revision" else "not_installed" if library_of(submission) else "legacy"
         action = {"needs_revision": {"owner": "lead", "text": "Have the coding agent repair what validation found"},
-                  "not_installed": {"owner": "researcher", "text": "Install the library on this page"},
+                  "not_installed": installing(store, submission),
                   "legacy": {"owner": "lead", "text": "Have the coding agent rebuild it as a library under libraries/<name>/ if it is still wanted"}}[state]
         listed = [method for method in report.get("methods", []) if method["method_id"] not in installed] if report else [None]
         for method in listed:
