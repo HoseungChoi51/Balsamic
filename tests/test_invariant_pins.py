@@ -71,3 +71,60 @@ def test_the_coding_box_rejects_private_networks_and_drops_its_capabilities_befo
     *_, last = [line for line in script.splitlines() if line.strip() and not line.lstrip().startswith("#")]
     assert "start.sh" in last
     assert "exec setpriv" in script and "--bounding-set=-all" in script and "--ambient-caps=-all" in script
+    # The harness (H2) is chosen and started by start.sh, after the rules and without capabilities: its setting never reaches
+    # network.sh, and nothing in start.sh changes the rules.
+    start = (folder / "start.sh").read_text()
+    assert "BALSAMIC_HARNESS" in start and "harness.mjs" in start
+    assert not any(word in start for word in ("iptables", "setpriv", "sudo")) and "BALSAMIC_HARNESS" not in script
+
+
+def egress_rules(tmp_path, hosts, resolved):
+    """network.sh run against stubs: the iptables rules it writes, in order, for these allowed hosts and their addresses."""
+    import os
+    import subprocess
+    bin_dir, log = tmp_path / "bin", tmp_path / "rules.log"
+    bin_dir.mkdir()
+    for name in ("iptables", "ip6tables"):
+        (bin_dir / name).write_text(f'#!/bin/sh\necho "{name} $*" >> {log}\n')
+    (bin_dir / "setpriv").write_text("#!/bin/sh\nexit 0\n")
+    (bin_dir / "getent").write_text("#!/bin/sh\ncase \"$2\" in\n" + "".join(
+        f'  {host}) printf "{"".join(f"{a} STREAM {host}\\n" for a in addresses)}";;\n' for host, addresses in resolved.items()) + "  *) exit 2;;\nesac\n")
+    for path in bin_dir.iterdir():
+        path.chmod(0o755)
+    resolv = tmp_path / "resolv.conf"
+    resolv.write_text("nameserver 192.0.2.53\n")
+    subprocess.run(["bash", str(ROOT / "deploy/implementation-workspace/network.sh")], check=True, env={**os.environ,
+        "PATH": f"{bin_dir}:{os.environ['PATH']}", "RESOLV_CONF": str(resolv), "EGRESS_HOSTS": " ".join(hosts)})
+    return [line.split()[1:] for line in log.read_text().splitlines() if line.startswith("iptables ")]
+
+
+def verdict(rules, address, port=443):
+    """What the generated OUTPUT chain does with a new TCP connection to this address: the first rule that matches."""
+    import ipaddress
+    for rule in rules:
+        if "conntrack" in rule:
+            continue
+        options = dict(zip(rule[::2], rule[1::2]))
+        if "-d" in options and ipaddress.ip_address(address) not in ipaddress.ip_network(options["-d"]):
+            continue
+        if options.get("-p", "tcp") != "tcp" or ("--dport" in options and int(options["--dport"]) != port):
+            continue
+        return options["-j"]
+    return "ACCEPT"   # the chain's default policy
+
+
+def test_the_coding_box_reaches_only_its_allowed_hosts_and_dns(tmp_path):
+    rules = egress_rules(tmp_path, ["chatgpt.com", "pypi.org", "files.pythonhosted.org", "nowhere.invalid"],
+                         {"chatgpt.com": ["104.18.32.47"], "pypi.org": ["151.101.0.223", "151.101.64.223"],
+                          "files.pythonhosted.org": ["151.101.1.63"]})
+    for allowed in ("104.18.32.47", "151.101.0.223", "151.101.64.223", "151.101.1.63"):
+        assert verdict(rules, allowed) == "ACCEPT"
+    assert verdict(rules, "192.0.2.53", 53) == "ACCEPT"          # DNS, to the resolver only
+    assert verdict(rules, "93.184.215.14") == "REJECT"            # another public host
+    assert verdict(rules, "192.0.2.53", 443) == "REJECT"
+    assert verdict(rules, "10.1.2.3") == "REJECT" and verdict(rules, "100.100.1.1") == "REJECT"
+    # An allowed host that resolves to a private address stays unreachable, and no list at all allows nothing public.
+    for name in ("private", "none"):
+        (tmp_path / name).mkdir()
+    assert verdict(egress_rules(tmp_path / "private", ["router.example"], {"router.example": ["10.0.0.5"]}), "10.0.0.5") == "REJECT"
+    assert verdict(egress_rules(tmp_path / "none", [], {}), "151.101.0.223") == "REJECT"

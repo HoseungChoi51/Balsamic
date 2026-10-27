@@ -60,6 +60,9 @@ def validate(workspace, campaign_id, values):
                 raise ValueError(f"Button {component['id']}: {operation} is not a command operation")
             if operation.startswith(("agent.", "campaign.create", "context.")) and operation != "agent.message":
                 raise ValueError(f"Button {component['id']}: {operation} is not a button's to issue")
+            if operation == "agent.message" and "mandate" in (component["command"].get("payload") or {}):
+                # A mandate is the researcher's to grant with their own message (R7), never one an agent's button carries.
+                raise ValueError(f"Button {component['id']}: a message's mandate is the researcher's to choose in the chat")
     return values
 
 

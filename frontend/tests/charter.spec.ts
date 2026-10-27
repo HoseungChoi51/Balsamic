@@ -415,3 +415,23 @@ test('Export as Python project downloads the revision on screen as a zip, and sa
   await panel.getByTestId('export-charter').click();
   await expect(panel.getByTestId('charter-error')).toHaveText('Could not export the charter: The charter has no objective');
 });
+
+test('the baking order (roadmap G1): a confirmed order of 8 bakes exports as a Python project', async ({ page }) => {
+  await mockWorkspace(page, { [`/api/v1/campaigns/${CAMPAIGN_ID}/problem-note`]: f.adoptedNoteView });
+  const variable = { name: 'bake_order', description: 'The order the bakes go into the oven', representation: 'permutation', shape: ['n_bakes'], lower: null, upper: null, values: [], units: '1' };
+  const view = { ...f.charterView, charter: { ...f.charterView.charter, title: 'Baking order', variables: [variable] }, findings: [], blocking: 0 };
+  await page.route('**/api/v1/problem-charters/charter_1', route => route.fulfill({ json: view }));
+  const asked: string[] = [];
+  await page.route('**/api/v1/problem-charters/charter_1/revisions/*/export.zip', route => {
+    asked.push(new URL(route.request().url()).pathname);
+    return route.fulfill({ body: Buffer.from('PK\u0005\u0006' + '\u0000'.repeat(18), 'binary'), contentType: 'application/zip',
+      headers: { 'Content-Disposition': 'attachment; filename="baking-order-r2.zip"' } });
+  });
+  await page.goto(`/#t/${THREAD_ID}/note/charter`);
+  const panel = page.getByTestId('charter-panel');
+  await expect(panel.locator('[data-testid="variable"][data-name="bake_order"]').getByTestId('order-bake_order')).toHaveText('an order of n_bakes items');
+  const [download] = await Promise.all([page.waitForEvent('download'), panel.getByTestId('export-charter').click()]);
+  expect(download.suggestedFilename()).toBe('baking-order-r2.zip');
+  expect(asked).toEqual([`/api/v1/problem-charters/charter_1/revisions/${view.revision}/export.zip`]);
+  await expect(panel.getByTestId('charter-error')).toHaveCount(0);
+});

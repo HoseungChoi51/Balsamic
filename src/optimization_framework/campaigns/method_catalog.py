@@ -23,7 +23,7 @@ def latest_submissions(store, campaign_id):
 def served(submission):
     """The proposals a submission serves: those its report's methods name, else those its workspace was opened for."""
     named = [method["hypothesis_id"] for method in (submission.get("report") or {}).get("methods", []) if method.get("hypothesis_id")]
-    return list(dict.fromkeys(named + (submission.get("hypothesis_ids") or [submission["hypothesis_id"]])))
+    return list(dict.fromkeys(named + [value for value in submission.get("hypothesis_ids") or [submission.get("hypothesis_id")] if value]))
 
 
 def library_of(submission):
@@ -56,6 +56,16 @@ def installing(store, submission):
     return {"owner": "balsamic", "text": "Balsamic installs it at its next check"}
 
 
+def binding(install, hypothesis_ids, *, subject=None):
+    """Who binds installed, unbound proposals, as the next step: Balsamic while their install's post-install step has not run,
+    else the lead, for a proposal Balsamic left (with its reason) or one no recorded install covers."""
+    subject = subject or ", ".join(hypothesis_ids) + " to it"
+    if install and "bindings" not in install and not install.get("after_install_error"):
+        return {"owner": "balsamic", "text": f"Balsamic binds {subject} as its install finishes"}
+    reasons = [row["reason"] for row in (install or {}).get("skipped") or [] if row["hypothesis_id"] in hypothesis_ids]
+    return {"owner": "lead", "text": f"Bind {subject} (implementation.bind_builtin)" + (f"; Balsamic left it: {'; '.join(reasons)}" if reasons else "")}
+
+
 def development_readiness(store, hypothesis, installed):
     """A proposal whose method a coding workspace builds or delivered: building, submitted_not_installed, or
     installed_not_bound; None when no workspace serves it."""
@@ -68,8 +78,10 @@ def development_readiness(store, hypothesis, installed):
         methods = methods_for(submission, hypothesis_id)
         ready = [method for method in methods if method in installed]
         if ready:
+            install = next((row for row in sorted(store.list("library_install", hypothesis["campaign_id"]), key=lambda row: row["requested_at"],
+                                                  reverse=True) if row.get("submission_id") == submission["id"] and row.get("status") == "installed"), None)
             return {"state": "installed_not_bound", "runnable": False, "methods": ready, "submission_id": submission["id"],
-                    "reason": f"Installed: {', '.join(ready)}. Bind this proposal to its method (implementation.bind_builtin) to run it."}
+                    "reason": f"Installed: {', '.join(ready)}. {binding(install, [hypothesis_id], subject='this proposal to its method')['text']}."}
         verdict = ((submission.get("report") or {}).get("verdict") or "no delivery report").replace("_", " ")
         install = installing(store, submission)
         if submission["status"] == "needs_revision":
@@ -78,7 +90,7 @@ def development_readiness(store, hypothesis, installed):
         return {"state": "submitted_not_installed", "runnable": False, "submission_id": submission["id"], "workspace_id": submission["workspace_id"],
                 "methods": methods, "reason": f"Delivered in commit {submission['commit'][:7]} ({verdict}), not installed yet. {install['text']}."}
     for record in store.list("development_workspace", hypothesis["campaign_id"]):
-        if hypothesis_id in (record.get("hypothesis_ids") or [record["hypothesis_id"]]) and record.get("desired_status") == "running":
+        if hypothesis_id in (record.get("hypothesis_ids") or [record.get("hypothesis_id")]) and record.get("desired_status") == "running":
             return {"state": "building", "runnable": False, "workspace_id": record["id"],
                     "reason": "Being built in a coding workspace" + (f" ({record['phase']})" if record.get("phase") else "") + "."}
     return None
@@ -97,8 +109,12 @@ def catalog(workspace, campaign_id, *, other_limit=40):
             evaluator = workspace.evaluators.readiness(task, wait=False)
         except (KeyError, ValueError) as exc:
             evaluator = {"runnable": False, "reason": str(exc)}
-        task_rows.append({"id": task["id"], "name": task.get("name") or task["id"], "problem_id": task.get("problem_id"),
-                          "blocker": None if evaluator.get("runnable") else evaluator.get("reason") or "Its evaluator is not ready."})
+        blocker = None if evaluator.get("runnable") else evaluator.get("reason") or "Its evaluator is not ready."
+        task_rows.append({"id": task["id"], "name": task.get("name") or task["id"], "problem_id": task.get("problem_id"), "blocker": blocker,
+                          # The one route that builds code (roadmap H8): a coding workspace's library, commissioned or not.
+                          "next_action": None if blocker is None or not task.get("evaluator_requirement_id") or evaluator.get("state") == "building" else
+                          {"owner": "lead", "text": "Build its evaluator in a coding workspace's library (evaluator.commission opens one "
+                                                    "for a problem the charter declares), or attach a validated evaluator version"}})
     hypotheses = [row for row in store.list("hypothesis", campaign_id) if row.get("status") != "archived"]
     installs = {row.get("submission_id"): row for row in store.list("library_install", campaign_id) if row.get("status") == "installed"}
     submissions = latest_submissions(store, campaign_id)
@@ -108,10 +124,11 @@ def catalog(workspace, campaign_id, *, other_limit=40):
             built_by.setdefault(method["method_id"], submission)
     rows, other = [], []
     installed = {method["id"]: method for method in algorithms()}
+    from optimization_framework.agents.library_validation import refused_reason
     for method in installed.values():
-        per_task = []
+        per_task, refused = [], refused_reason(store, method["id"])   # failed validation outside the box (H6): not installed
         for task in tasks:
-            reason = capability_reason(method["id"], task["problem"]) if task.get("problem") else "The task has no problem definition yet"
+            reason = refused or (capability_reason(method["id"], task["problem"]) if task.get("problem") else "The task has no problem definition yet")
             per_task.append({"task_id": task["id"], "runnable": reason is None, "reason": reason})
         proposals = [{"hypothesis_id": h["id"], "bound": True, "default": h.get("algorithm_chosen") is False}
                      for h in hypotheses if h.get("algorithm") == method["id"]]
@@ -129,8 +146,7 @@ def catalog(workspace, campaign_id, *, other_limit=40):
             continue
         install = installs.get(submission["id"]) if submission else None
         unbound = [p["hypothesis_id"] for p in proposals if not p["bound"]]
-        next_action = ({"owner": "lead", "text": "Bind " + ", ".join(unbound) + " to it (implementation.bind_builtin)"} if unbound and any(r["runnable"] for r in per_task)
-                       else None)
+        next_action = binding(install, unbound) if unbound and any(r["runnable"] for r in per_task) else None
         rows.append({"id": method["id"], "name": method["name"], "source": "library" if library else "bundled",
                      "package": {"name": (origin or {}).get("distribution"), "version": (origin or {}).get("version"),
                                  "commit": (submission or {}).get("commit"), "install_id": (install or {}).get("id")} if library else None,
@@ -160,7 +176,7 @@ def catalog(workspace, campaign_id, *, other_limit=40):
                          "next_action": action})
     delivered = {submission["workspace_id"] for submission in submissions}
     building = [{"workspace_id": record["id"], "title": record.get("title", ""), "phase": record.get("phase"),
-                 "hypothesis_ids": record.get("hypothesis_ids") or [record["hypothesis_id"]]}
+                 "hypothesis_ids": [value for value in record.get("hypothesis_ids") or [record.get("hypothesis_id")] if value]}
                 for record in store.list("development_workspace", campaign_id) if record.get("desired_status") == "running" and record["id"] not in delivered]
     order = {"runnable": 0, "not_installed": 1, "needs_revision": 2, "incompatible": 3, "legacy": 4}
     rows.sort(key=lambda row: (order.get(row["state"], 4), row["source"] == "bundled", row["id"]))

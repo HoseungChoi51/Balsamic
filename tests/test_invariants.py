@@ -1,5 +1,6 @@
 """docs/invariants.md keeps its promises: a `code` row names tests that exist, a `prompt` row names eval scenarios that exist,
-and no row is ambiguous. A guarantee that loses its test fails here rather than silently."""
+and no row is ambiguous. A guarantee that loses its test fails here rather than silently. The register is the numbered rows of
+docs/invariants.md and the part files of docs/invariants/, one per roadmap part, each holding only its own keyed rows."""
 import ast
 import json
 import re
@@ -9,6 +10,7 @@ import pytest
 
 ROOT = Path(__file__).resolve().parents[1]
 REGISTER = ROOT / "docs" / "invariants.md"
+PARTS = ROOT / "docs" / "invariants"
 SCENARIOS = ROOT / "evals" / "lead" / "scenarios"
 COLUMNS = ["ID", "Guarantee", "State", "Where", "Pinned by", "Closed by"]
 STATES = {"code", "prompt", "none"}
@@ -96,19 +98,59 @@ def problems(text, root=ROOT, scenarios=SCENARIOS):
     return found
 
 
+def register_files(main=REGISTER, parts=PARTS):
+    """{name: text} of the register's files: the numbered table, then each part's file in name order."""
+    return {main.name: main.read_text(encoding="utf-8"),
+            **{f"{parts.name}/{path.name}": path.read_text(encoding="utf-8") for path in sorted(parts.glob("*.md"))}}
+
+
+def layout(files):
+    """What is wrong with how the rows are spread over the files: a keyed row in the numbered table, a part file holding
+    another part's id or none, an id in two files."""
+    found, owners = [], {}
+    for name, text in files.items():
+        part = name.split("/", 1)[1].removesuffix(".md") if "/" in name else None
+        for row in rows(text):
+            identity = row["ID"]
+            form = ID.fullmatch(identity)
+            keyed = form.group(1).split("-")[0] if form and not form.group(1).isdigit() else None
+            if part is None and keyed:
+                found.append(f"{identity}: a keyed row goes in docs/invariants/{keyed}.md, not in {name}")
+            elif part is not None and keyed != part:
+                found.append(f"{identity}: {name} holds only INV-{part}-<n> rows")
+            if identity in owners and owners[identity] != name:
+                found.append(f"{identity}: in both {owners[identity]} and {name}")
+            owners.setdefault(identity, name)
+    return found
+
+
 def test_the_register_holds():
-    assert problems(REGISTER.read_text(encoding="utf-8")) == []
+    files = register_files()
+    assert len(files) > 1, "the part files of docs/invariants/ are part of the register"
+    for name, text in files.items():
+        assert problems(text) == [], name
+    assert layout(files) == []
+
+
+def test_the_rows_are_spread_over_the_files_by_part():
+    numbered = HEADER + GOOD["numbered"] + "\n"
+    assert layout({"invariants.md": numbered, "invariants/X1.md": HEADER + GOOD["code"] + "\n"}) == []
+    assert layout({"invariants.md": numbered + GOOD["code"] + "\n"}) == ["INV-X1-1: a keyed row goes in docs/invariants/X1.md, not in invariants.md"]
+    assert layout({"invariants.md": numbered, "invariants/Y2.md": HEADER + GOOD["code"] + "\n"}) == ["INV-X1-1: invariants/Y2.md holds only INV-Y2-<n> rows"]
+    assert layout({"invariants.md": numbered, "invariants/X1.md": HEADER + GOOD["code"] + "\n", "invariants/X1b.md": HEADER + GOOD["code"] + "\n"}) == [
+        "INV-X1-1: invariants/X1b.md holds only INV-X1b-<n> rows", "INV-X1-1: in both invariants/X1.md and invariants/X1b.md"]
 
 
 def test_the_register_holds_the_seeded_guarantees():
-    register = rows(REGISTER.read_text(encoding="utf-8"))
+    files = register_files()
+    register = [row for text in files.values() for row in rows(text)]
     states = {row["State"] for row in register}
     assert len(register) >= 25 and states == STATES
     # The guarantees the roadmap's part I1 seeded, by where they are enforced or which part closes them.
-    text = REGISTER.read_text(encoding="utf-8")
-    for anchor in ("compute_consent.py", "_request", "INSTRUCTIONS", "page_work", "cap_guard()", "guidance_pin", "_within_llm_budget()",
+    text = "\n".join(files.values())
+    for anchor in ("compute_consent.py", "_request", "INSTRUCTIONS", "page_work", "grant_mandate()", "guidance_pin", "_within_llm_budget()",
                    "readiness()", "| T1 |", "| T2 |", "| V1 |", "| V2 |", "promotion.py", "freeze()", "| V4 |", "| K2 |",
-                   "library/service.py", "findings.py", "library_install.py", "| H6 |", "network.sh", "| H5 |", "test_layering.py",
+                   "library/service.py", "findings.py", "library_install.py", "library_validation.py", "network.sh", "reach_deadline()", "test_layering.py",
                    "NAMES_A_DOMAIN", "test_harness_contract.py"):
         assert anchor in text, anchor
 

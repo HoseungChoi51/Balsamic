@@ -2,7 +2,7 @@
 import pytest
 
 from optimization_benchmarks.problems import ContinuousProblem
-from optimization_framework.contracts.packs import PackReference, PackTools, ProblemPack
+from optimization_framework.contracts.packs import PackEstimators, PackRacing, PackReference, PackTools, ProblemPack
 from optimization_framework.contracts.requests import CampaignInput, TaskInput
 from optimization_framework.evaluation.registry import ProblemRegistry, problems
 from optimization_framework.execution.service import Workspace
@@ -110,3 +110,32 @@ def test_a_reinstalled_problem_s_pack_is_read_again(fixture_package):
     registry._entries["packed_quadratic"] = ("pack_fixture.problem:Packed", "1")
     registry._sync({"packed_quadratic": ("pack_fixture.problem:Packed", "2")})
     assert "packed_quadratic" not in registry._packs
+
+
+def test_meents_pack_is_assembled_from_one_module_per_part_as_it_was_written_before():
+    """The pack's parts write a module each (pack/<part>_<topic>.py), so parallel parts never edit one file; assembled, it is the
+    pack as N4 wrote it in pack/__init__.py, field by field."""
+    from dqn_meent import pack as meent
+    from dqn_meent.pack import racing
+    assert [name for name, _ in meent.contributions()] == ["n4_tools", "n5_racing"]
+    expected = ProblemPack(package="dqn_meent.pack", problem_ids=["meent_grating", "meent_2d_dual_polarization_deflector"],
+                           tools=PackTools(agent_tools=["dqn_meent.pack.tools:register_agent_tools"],
+                                           operations=["dqn_meent.pack.tools:register_operations"]),
+                           estimators=PackEstimators(memory="dqn_meent.pack.memory:estimate"),
+                           racing=PackRacing(ladder=racing.LADDER, limit=racing.LIMIT, step=racing.STEP,
+                                             memory_checks=racing.MEMORY_CHECKS, cost_model="dqn_meent.pack.racing:growth",
+                                             preferred_methods=racing.PREFERRED))
+    assembled = meent.pack()
+    for field in ProblemPack.model_fields:
+        assert getattr(assembled, field) == getattr(expected, field), field
+
+
+def test_the_parts_of_a_pack_join_lists_merge_mappings_and_refuse_a_key_set_twice():
+    from dqn_meent.pack import assemble
+    parts = [("n3_procedures", {"procedures": "procedures", "presentation": {"labels": {"on": "metal"}}}),
+             ("n4_tools", {"tools": {"agent_tools": ["a:b"]}}),
+             ("n5_estimators", {"tools": {"agent_tools": ["c:d"]}, "presentation": {"defaults": {"render": "mask"}}})]
+    assert assemble(parts) == {"procedures": "procedures", "tools": {"agent_tools": ["a:b", "c:d"]},
+                               "presentation": {"labels": {"on": "metal"}, "defaults": {"render": "mask"}}}
+    with pytest.raises(ValueError, match="presentation.labels.on is set by both n3_procedures and n6_labels"):
+        assemble([*parts, ("n6_labels", {"presentation": {"labels": {"on": "air"}}})])

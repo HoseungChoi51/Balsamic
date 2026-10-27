@@ -100,8 +100,8 @@ def test_compute_goes_to_the_lead_the_page_agents_and_the_specialists_that_list_
     assert listed == {'results_analyst', 'empirical_assessor', 'methodology_specialist', 'skeptical_domain_analyst'}
     for role in ROLE_BRIEFS:
         assert ('compute' in tools.names({'role': role})) == (role in listed), role
-    builder = w.pi.create_agent(c['id'], 'implementation_builder', 'Build', 'builder_compute', parent_id=lead['id'], grant_id='grant_compute')
-    assert 'compute' not in tools.names(builder)
+    # An implementation grant's agent recorded before roadmap H8 retired its roles has no tools at all.
+    assert tools.names({'role': 'implementation_builder', 'grant_id': 'grant_compute', 'campaign_id': c['id']}) == set()
     # One sentence for the agents, and a label for the chat.
     flat = lambda text: ' '.join(text.split())
     assert 'Derive a number with compute or a script, never mental arithmetic' in flat(INSTRUCTIONS)

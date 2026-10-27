@@ -1,0 +1,69 @@
+{
+  "title": "Baking order",
+  "summary": "Order {n_bakes:.0f} bakes in one oven to minimize their total tardiness.",
+  "text": "One oven takes {n_bakes:.0f} bakes, one after another. Each bake has a duration and a due time; a bake that ends after its due time is late by the difference. Choose the order that minimizes the total lateness.",
+  "quantities": {
+    "n_bakes": {
+      "description": "Bakes to schedule",
+      "kind": "integer",
+      "value": 8,
+      "units": "1",
+      "citation": 1
+    },
+    "minutes": {
+      "description": "Duration of each bake, by its index",
+      "kind": "data",
+      "value": [30, 45, 20, 60, 35, 25, 50, 40],
+      "citation": 1
+    },
+    "due": {
+      "description": "Due time of each bake, by its index, from the oven's start",
+      "kind": "data",
+      "value": [210, 130, 200, 110, 190, 100, 40, 120],
+      "citation": 1
+    }
+  },
+  "variables": [
+    {
+      "name": "bake_order",
+      "description": "The order the bakes go into the oven",
+      "representation": "permutation",
+      "shape": [
+        "n_bakes"
+      ],
+      "meaning": "Each entry is the index of a bake in minutes and due"
+    }
+  ],
+  "constraints": [],
+  "objective": {
+    "name": "total_tardiness",
+    "direction": "minimize",
+    "units": "min",
+    "definition": "The sum over bakes of max(0, end time - due time)"
+  },
+  "metrics": [],
+  "evaluator": {
+    "kind": "declared",
+    "problem_id": "baking_order",
+    "deterministic": true,
+    "configuration": {
+      "minutes": "minutes",
+      "due": "due"
+    },
+    "fidelity": {},
+    "notes": "Run the bakes in the given order from time 0; sum each bake's lateness past its due time."
+  },
+  "instances": [
+    {
+      "name": "Eight bakes",
+      "split": "development"
+    }
+  ],
+  "citations": [
+    {
+      "id": 1,
+      "source": "documents/bakery.md.txt",
+      "location": "the order sheet"
+    }
+  ]
+}

@@ -6,6 +6,13 @@ protected test envelope is frozen. Its first run exposed a rank-zero JSON shape
 bug in the protected invariant checker; the checker has been corrected and the
 same immutable submission is ready for another bounded validation grant.
 
+Since roadmap H8 coding workspaces are the one route that builds code, and the
+service validation this page describes for the pilot (frozen envelopes and
+validation grants, `implementation_workspace_validate`) is retired: a submission
+is validated outside the box with its ticket's protected tests (H6). The pilot's
+records stay readable. [Open items after H8](#open-items-after-roadmap-h8) says
+what became of each item below.
+
 The browser IDE is available through the existing TailNet route at
 `http://strixhalo.tail096b61.ts.net:8765`. In the campaign's PI panel, select
 **Implementation workspaces** and open the H12 workspace. The integrated
@@ -78,10 +85,10 @@ The current integration constrains that work:
 - [Implementation tools](../src/optimization_framework/agents/tools.py) expose
   a restricted file interface and a Python-only `workspace_run` operation capped
   at 30 seconds, with network access disabled.
-- [The implementation adapter](../src/optimization_framework/agents/implementation.py)
-  applies a grant deadline across the development exchange, including model and
-  transport waits. A persistent session can outlive that exchange, but the job
-  still exits when its deadline expires.
+- The implementation adapter (`agents/implementation.py`, removed in roadmap H8)
+  applied a grant deadline across the development exchange, including model and
+  transport waits. A persistent session could outlive that exchange, but the job
+  still exited when its deadline expired.
 - A blocked host prerequisite can repeatedly return the user to a request for
   action without giving the implementation agent a usable development workspace.
 
@@ -113,7 +120,7 @@ questions, and results.
 | Developer ↔ implementation agent | Supply instructions and context; inspect messages, tool calls, command output, and diffs; answer questions; steer ongoing work; interrupt, resume, and edit files. |
 | PI ↔ implementation agent | Delegate a task with acceptance criteria; provide evidence and repository references; send corrections; receive progress, blockers, checkpoints, and submitted revisions. |
 | Implementation agent ↔ development environment | Use normal Pi file and shell tools, Git, dependency installation, tests, debugging commands, long-running processes, project instructions, and skills. |
-| Implementation ↔ validation service | Submit an exact revision and dependency identity; receive validation results; repair failures and submit a new revision. |
+| Implementation ↔ validation outside the box | Submit an exact revision and dependency identity; receive validation results (H6: the ticket's protected tests, run on the host); repair failures and submit a new revision. |
 
 The developer must be able to discuss implementation decisions with the agent
 throughout the task. A final-result form or a sequence of short script requests
@@ -128,7 +135,7 @@ flowchart LR
     PI[Campaign PI] <--> Bridge[Pi campaign extension]
     Bridge <--> Pi
     Pi <--> Work[Git worktree and development environment]
-    Work -->|Submitted commit and dependencies| Validation[Independent validation service]
+    Work -->|Submitted commit and dependencies| Validation[Validation outside the box]
     Validation -->|Report and repair feedback| PI
     PI -->|Validated version| Campaign[Campaign experiments]
 ```
@@ -142,6 +149,53 @@ Use a small Pi extension with authenticated local communication to deliver PI
 assignments and publish progress and results. Campaign control should use
 structured messages and lifecycle events. Terminal screen scraping and injected
 keystrokes are unsuitable as the control protocol.
+
+The same bridge is open to any harness through `balsamic-workspace`, a CLI and
+stdio MCP server in the image (`deploy/implementation-workspace/balsamic-workspace.mjs`,
+on the `PATH`; `balsamic-workspace mcp` serves it). Its five tools are `checkpoint`,
+`ask` (a checkpoint with a question), `submit <commit>`, `check` (runs the library's
+tests and its `tests/test_contract.py`, and returns the counts and the conformance for
+the delivery report) and `evidence` (reads only what `.campaign/evidence.json` names).
+It writes the same event files the extension writes, so the host does not change;
+`agent-harness/test/workspace-cli.test.mjs` pins that both write the same events for
+the same inputs (roadmap H1).
+
+A thin adapter, `deploy/implementation-workspace/harness.mjs`, runs the harness
+(roadmap H2). Each workspace records its harness and mode (`harness: {name, mode}`,
+from the create request's `harness` and `harness_mode`, else the lab's
+`GRATING_DEVELOPMENT_HARNESS_MODE`, which the launcher's `development_harness_mode` sets,
+else `tui`); the host passes them to the container
+and `start.sh` reads them. Only `pi` has an adapter, and any other name is refused with
+the same text by the host, `start.sh` and the adapter. At each start the adapter adds
+the `balsamic-workspace` MCP server to Pi's `~/.pi/agent/mcp.json`, with `checkpoint`
+and `submit` hidden because the extension already gives Pi `campaign_checkpoint` and
+`campaign_submit`, so Pi also gets `ask`, `check` and `evidence`. In `tui` mode tmux runs
+Pi's terminal UI, as before. In `headless` mode tmux runs the adapter's runner: it
+delivers each host instruction (steering before follow-ups) as one `pi --mode json`
+run on the same session file, with the instruction on stdin. The extension then gives
+only its tools, and the runner maps Pi's JSON stream to the extension's events
+(`agent_start`, `message` with its usage, `tool`, `agent_settled`) and the receipts.
+A pause or stop interrupts the running instruction, and a run that fails is reported
+as `harness_error`. Headless runs cannot be steered mid-run: a steering message waits
+for the running instruction to finish. Another harness would be one more adapter,
+opted into per workspace on the researcher's own credentials mounted read-only, with
+only its model endpoint added to the egress allowlist (decision 8).
+
+The researcher can deliver from their own coding agent instead (roadmap H3,
+`agents/own_session.py`). On the workspace's card they make a token, shown to them
+once (Balsamic keeps its SHA-256; a new one replaces it; stopping the workspace
+revokes it). With the workspace's address and that token
+(`BALSAMIC_WORKSPACE_URL`, `BALSAMIC_WORKSPACE_TOKEN`), the same CLI on their machine
+clones the workspace's library (`clone DIR`: the library generated from the charter,
+byte for byte what the box started from, as one commit) and sends a commit back
+(`submit HEAD --report FILE`) as a Git bundle that leaves out what the workspace has
+(`GET .../bundles/base`). The host takes it only while the workspace runs (a paused
+one, at its deadline among others, waits for its resume), checks the bundle carries
+the commit, fetches it into a store of its own (`own/git`, never mounted into the
+box; the box's store is its alternate) and captures it with `capture_submission()`,
+as `source: own_session`. Install, binding and the approved runs then follow as for
+the coding agent's commit. `checkpoint` and `ask` stay the box's; the box's walls
+(egress, limits) bound the box, not the researcher's machine.
 
 The initial application contract should support these operations; the names
 below are proposed application operations, not existing Pi API names:
@@ -176,6 +230,20 @@ steps in durable files and campaign artifacts. Store large command outputs as
 files with references. Pi can retrieve relevant material as needed and compact
 its conversation without discarding the underlying work.
 
+The specification is the workspace's work ticket (roadmap H4, `agents/development_ticket.py`):
+`TASK.md`, the house rules in `AGENTS.md` and `CLAUDE.md` for any harness, and
+`.balsamic/spec.json`, written into the worktree when it is prepared and never over
+the coding agent's edits. `.campaign/assignment.md` keeps only the Pi session's own
+rules (`DEVELOPMENT_INSTRUCTIONS`). Protected acceptance tests stay on the host.
+"A library generated from a charter" in `docs/optimizer-plugins.md` describes it.
+
+A commission opens the same workspace with Pi headless (roadmap H7, `agents/development_commission.py`): its ticket
+holds the commission's frozen specification, its deadline is the commission's compute time, and its protected tests
+are the commissioner's (and an evaluator's independent fixtures), written before the box opens. Nobody attaches to it;
+its questions go to whoever commissioned it, and its delivery is validated and installed as any workspace's.
+Since roadmap H8 it is the only way a commission builds code: one that cannot open a box is refused with what to do
+instead (`docs/implementation-service.md`).
+
 Each delegated programming task gets its own focused session and worktree. The
 PI receives progress summaries, blockers, artifact references, and commits. It
 does not need every specialist's full transcript in its active context.
@@ -204,8 +272,8 @@ validation fixtures or access unrelated personal files, service credentials, or
 reviewer sessions. Provision the model authentication it needs without exposing
 credentials through campaign artifacts or browser responses.
 
-Preserve the independent validation service. Validate the submitted commit and
-captured dependencies in a clean execution environment; development test results
+Preserve independent validation: since H6 it runs outside the box, on the host.
+Validate the submitted commit and captured dependencies in a clean execution environment; development test results
 are useful evidence but do not establish protected validation or effectiveness.
 Repairs create new revisions, and campaign experiments pin the resulting
 validated version.
@@ -280,6 +348,30 @@ Roll out the new implementation session path behind a configuration switch.
 Preserve existing sessions, artifacts, grants, and validation records. A rollback
 stops new launches through the new path while retaining its worktrees and history
 for inspection or later continuation.
+
+## Open items after roadmap H8
+
+Roadmap H8 left one route that builds code, the coding workspace, and closed or
+moved what this plan left open:
+
+- **The grant deadline across the exchange, and the 30-second `workspace_run`
+  interface**: closed. The implementation adapter and the grant roles that used
+  them (builder, test designer, validator) were removed; a workspace's deadline
+  is its own wall time, within the go-ahead (H5).
+- **Validation and campaign handoff (phase 4)**: closed by H6. A submission is
+  validated outside the box with its ticket's protected tests, then installed and
+  bound; the service validation of a submission (`implementation_workspace_validate`)
+  and its frozen envelopes are retired. A validation requested before still
+  finishes, and its result reaches the coding agent once.
+- **Migration of grants and usage**: closed. Nothing is migrated: grants, jobs,
+  envelopes and validation results recorded before stay readable on the pages and
+  to the agents, and a grant still running can be cancelled or closed.
+- **The configuration switch and rollback**: `GRATING_DEVELOPMENT_ENABLED`. With
+  workspaces off nothing builds code; a commission is refused with the switch
+  that turns them on.
+- **The H12 pilot (phase 5)**: moved. Its envelope and validation grant are
+  retired with the route; carrying it on means a coding workspace for H12 with its
+  checks as protected tests on the ticket, which is the researcher's decision.
 
 ## References
 

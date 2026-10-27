@@ -11,6 +11,7 @@ method.
   uv run python scripts/run_coding_evals.py --fake                    # plumbing only: scripted agents, a prepared library
   uv run python scripts/run_coding_evals.py --scenarios C1            # Pi in Docker, on the dev profile's model
   uv run python scripts/run_coding_evals.py --scenarios C1 --record-baseline
+  uv run python scripts/run_coding_evals.py --scenarios C1 --harness-mode headless --record-baseline   # Pi headless (H2)
 
 A real run needs Docker and the workspace image, calls a model and costs money. See evals/coding/README.md.
 """
@@ -245,6 +246,8 @@ class Run:
         submissions = self.submissions()
         workspace = workspaces[0] if workspaces else {}
         usage = workspace.get("usage") or {}
+        # The work ticket the workspace opened on (roadmap H4): the route the run took.
+        ticket = self.store.get(workspace["ticket_id"], "development_ticket") if workspace.get("ticket_id") else {}
         return {
             "seconds_to_workspace": seconds_between(asked_at, workspace.get("created_at")),
             "seconds_to_submission": seconds_between(asked_at, submissions[0]["created_at"] if submissions else None),
@@ -254,7 +257,8 @@ class Run:
                                             and not c["request_key"].startswith("initial-") for c in commands),
             "notices_from_workspace": sum(r["id"].startswith("pi_development_") for r in runs),
             "researcher_approvals": len(self.approved), "researcher_answers": len(self.answered),
-            "submissions": len(submissions), "workspace_status": workspace.get("status"),
+            "submissions": len(submissions), "workspace_status": workspace.get("status"), "harness": workspace.get("harness"),
+            "ticket": {key: len(ticket.get(key) or []) for key in ("acceptance_tests", "protected_tests")} if ticket else None,
             "coding_agent": {key: usage.get(key, 0) for key in ("subscription_calls", "input", "output", "cacheRead", "cacheWrite",
                                                                  "api_cost_usd", "container_cpu_seconds")},
             **lead_evals.Context.usage(self)}
@@ -310,7 +314,8 @@ def run_scenario(stack, scenario, *, model, poll, timeout_s, out):
 # The suite -------------------------------------------------------------------------------------------------------------
 def summary_markdown(results, baseline=None):
     lines = [f"# Coding evals · {results['mode']} · {results['commit']}", "",
-             f"- Started {results['started_at']}, {results['seconds']} s; model {results['model'] or 'profile default'}", "",
+             f"- Started {results['started_at']}, {results['seconds']} s; model {results['model'] or 'profile default'}; "
+             f"pi {results.get('harness_mode') or 'tui'}", "",
              "| Scenario | Status | To submission | Lead turns | To coding agent | Notices | Model $ | Coding agent calls | Contract | Conformance |"
              + (" Baseline |" if baseline else ""),
              "|---|---|---|---|---|---|---|---|---|---|" + ("---|" if baseline else "")]
@@ -336,7 +341,8 @@ def summary_markdown(results, baseline=None):
 
 def baseline_record(results):
     keep = ("method_id", "status", "passed", "timed_out", "metrics")
-    return {"commit": results["commit"], "mode": results["mode"], "model": results["model"], "recorded_at": results["started_at"],
+    return {"commit": results["commit"], "mode": results["mode"], "harness_mode": results.get("harness_mode") or "tui", "model": results["model"],
+            "recorded_at": results["started_at"],
             "scenarios": {row["id"]: {**{key: row[key] for key in keep}, "contract": ((row["delivery"] or {}).get("contract") or {}).get("ok", False),
                                       "conformance": ((row["delivery"] or {}).get("conformance") or {}).get("passed", False),
                                       "verdict": ((row.get("submission") or {}).get("report") or {}).get("verdict")}
@@ -355,6 +361,8 @@ def main(argv=None):
     parser.add_argument("--secrets", default=os.environ.get("BALSAMIC_SECRETS", str(Path.home() / ".config/balsamic/secrets.env")))
     parser.add_argument("--record-baseline", nargs="?", const="", help="also write the summary to evals/coding/baselines/<commit>.json (or the path given)")
     parser.add_argument("--compare", type=Path, help="a baseline file to compare with in summary.md")
+    parser.add_argument("--harness-mode", choices=("tui", "headless"), default="tui",
+                        help="how the workspace runs Pi: its terminal UI (the default) or headless, pi --mode json (roadmap H2)")
     args = parser.parse_args(argv)
     scenarios = load_scenarios(EVALS / "scenarios", args.scenarios)
     if not scenarios:
@@ -362,13 +370,14 @@ def main(argv=None):
     out = args.out or REPO / "runs" / "coding-evals" / (time.strftime("%Y%m%d-%H%M%S") + ("-fake" if args.fake else ""))
     out.mkdir(parents=True, exist_ok=True)
     source = args.source.resolve()
-    results = {"mode": "fake" if args.fake else "real", "commit": lead_evals.git_commit(source), "source": str(source), "model": args.model,
+    results = {"mode": "fake" if args.fake else "real", "harness_mode": args.harness_mode, "commit": lead_evals.git_commit(source),
+               "source": str(source), "model": args.model,
                "started_at": time.strftime("%Y-%m-%dT%H:%M:%S%z"), "scenarios": []}
     fakes = load_module(EVALS / "fakes.py", "coding_eval_fakes") if args.fake else None
     started = time.monotonic()
-    saved = {key: os.environ.get(key) for key in ("GRATING_DEVELOPMENT_ENABLED", "GRATING_AUTO_INSTALL")}
-    # Workspaces on; nothing delivered is installed in the eval's lab: the checks run on the delivery itself.
-    os.environ.update(GRATING_DEVELOPMENT_ENABLED="true", GRATING_AUTO_INSTALL="false")
+    saved = {key: os.environ.get(key) for key in ("GRATING_DEVELOPMENT_ENABLED", "GRATING_AUTO_INSTALL", "GRATING_DEVELOPMENT_HARNESS_MODE")}
+    # Workspaces on, in the harness mode asked for; nothing delivered is installed in the eval's lab: the checks run on the delivery itself.
+    os.environ.update(GRATING_DEVELOPMENT_ENABLED="true", GRATING_AUTO_INSTALL="false", GRATING_DEVELOPMENT_HARNESS_MODE=args.harness_mode)
     try:
         with tempfile.TemporaryDirectory(prefix="coding-evals-") as root, \
                 lead_evals.Stack(root, fake=args.fake, source=source, profile=args.profile or source / "agent-harness" / "profiles" / "dev",
@@ -403,7 +412,9 @@ def main(argv=None):
     (out / "results.json").write_text(json.dumps(results, indent=2, default=str))
     (out / "summary.md").write_text(summary_markdown(results, baseline))
     if args.record_baseline is not None:
-        path = Path(args.record_baseline) if args.record_baseline else EVALS / "baselines" / f"{results['commit']}.json"
+        # A headless run's baseline sits beside the terminal UI's of the same commit.
+        suffix = "" if args.harness_mode == "tui" else "-" + args.harness_mode
+        path = Path(args.record_baseline) if args.record_baseline else EVALS / "baselines" / f"{results['commit']}{suffix}.json"
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(json.dumps(baseline_record(results), indent=2) + "\n")
         print(f"baseline: {path}")
