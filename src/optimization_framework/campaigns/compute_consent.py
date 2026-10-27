@@ -10,6 +10,11 @@ covered (guard) and charges what it starts to the consent, or records the notice
 validations and analysis scripts are checked where they start. The researcher's own commands are never checked, and autopilot's
 compute cap, which the researcher set when switching it on, is autopilot's go-ahead. A request to do some work is not a go-ahead
 for its compute.
+
+A consent covers only the work its plan names (decision 4): a coding workspace for a proposal it names, a run or commission of
+such a proposal, and work for no proposal (a runtime profile, a validation) asked in the same researcher request. A plan that
+names no proposals, as every consent recorded before plans named them, covers any work in the campaign. A consent stays in force
+while a coding workspace it opened runs, and for three times its wall time after the last one stops.
 """
 from datetime import datetime, timedelta, timezone
 
@@ -63,20 +68,76 @@ def estimate(workspace, operation, payload):
     return None
 
 
+def proposals(workspace, operation, payload):
+    """The proposals an operation's work is for: the payload's, a draft's, a continued run's, a race's or a batch's items'."""
+    if operation == "intervention.batch":
+        return list(dict.fromkeys(found for item in payload.get("items", [])
+                                  for found in proposals(workspace, item.get("operation"), item.get("payload") or {})))
+    found = [payload.get("hypothesis_id")]
+    if operation == "draft.launch":
+        found.append(((_record(workspace, payload.get("draft_id"), "experiment_draft") or {}).get("request") or {}).get("hypothesis_id"))
+    if operation == "trial.continue":
+        found.append((_record(workspace, payload.get("trial_id"), "trial") or {}).get("hypothesis_id"))
+    if operation == "study.race.create":
+        found += [item.get("hypothesis_id") for item in payload.get("configurations", []) if isinstance(item, dict)]
+    return list(dict.fromkeys(value for value in found if isinstance(value, str)))
+
+
+def request_root(workspace, origin):
+    """The researcher's request an agent's command descends from: the lead turn's request root, or the one an assistant or page
+    agent was given with its assignment. None when it cannot be told."""
+    origin = origin if isinstance(origin, dict) else origin.model_dump() if origin is not None else {}
+    run = _record(workspace, origin.get("run_id"), "agent_run")
+    if run is None:
+        return None
+    from optimization_framework.agents.models import LEAD
+    agent = _record(workspace, run.get("agent_id"), "agent_session") or {}
+    return workspace.pi.request_root(run) if agent.get("role") == LEAD else agent.get("assignment_origin") or None
+
+
+def _record(workspace, identity, kind):
+    try:
+        return workspace.store.get(identity, kind) if isinstance(identity, str) else None
+    except KeyError:
+        return None
+
+
 def _clock(at):
     return datetime.fromisoformat(at.replace("Z", "+00:00"))
+
+
+def _in_force(workspace, row, current):
+    """Until its expiry, while a coding workspace it opened runs, and for 3 x its wall time after the last one stops."""
+    if _clock(row["expires_at"]) > current:
+        return True
+    opened = [found for found in (_record(workspace, identity, "development_workspace") for identity in row.get("workspace_ids") or []) if found]
+    if any(found.get("desired_status") == "running" for found in opened):
+        return True
+    stopped = [_clock(found.get("control_requested_at") or found["created_at"]) for found in opened]
+    return bool(stopped) and max(stopped) + timedelta(seconds=3 * row["wall_seconds"]) > current
 
 
 def consents(workspace, campaign_id):
     """The researcher's compute consents still in force, oldest first."""
     current = datetime.now(timezone.utc)
-    return sorted((row for row in workspace.store.list("compute_consent", campaign_id) if _clock(row["expires_at"]) > current),
+    return sorted((row for row in workspace.store.list("compute_consent", campaign_id) if _in_force(workspace, row, current)),
                   key=lambda row: row["granted_at"])
 
 
-def covering(workspace, campaign_id, seconds=0.0, *, coding=0):
-    """The first consent with this much worker time (and these coding workspaces) left, or None."""
-    return next((row for row in consents(workspace, campaign_id) if row["worker_seconds"] - row["used_seconds"] >= seconds
+def covers(row, hypothesis_ids=(), root=None):
+    """Whether a consent's plan names this work: every proposal it is for, or for no proposal, the same researcher request."""
+    named = row.get("hypothesis_ids")
+    if not named:
+        return True
+    if hypothesis_ids:
+        return set(hypothesis_ids) <= set(named)
+    return root is not None and row.get("request_root") == root
+
+
+def covering(workspace, campaign_id, seconds=0.0, *, coding=0, hypothesis_ids=(), root=None):
+    """The first consent that names this work and has this much worker time (and these coding workspaces) left, or None."""
+    return next((row for row in consents(workspace, campaign_id) if covers(row, hypothesis_ids, root)
+                 and row["worker_seconds"] - row["used_seconds"] >= seconds
                  and row["coding_workspaces"] - row["used_workspaces"] >= coding), None)
 
 
@@ -84,47 +145,68 @@ def _minutes(seconds):
     return "an unknown time" if seconds == UNKNOWN else f"{seconds / 60:.0f} min" if seconds >= 90 else f"{seconds:.0f} s"
 
 
-def refusal(workspace, campaign_id, what, seconds=None):
+def _left(row):
+    named = row.get("hypothesis_ids")
+    return (f"{_minutes(row['worker_seconds'] - row['used_seconds'])} of worker time and {row['coding_workspaces'] - row['used_workspaces']} "
+            f"coding workspaces for \"{row['plan'][:80]}\"" + (f" (for {', '.join(named)})" if named else ""))
+
+
+def refusal(workspace, campaign_id, what, seconds=None, *, hypothesis_ids=(), root=None):
     gate = _minutes(thresholds(workspace, campaign_id)[1])
-    left = [f"{_minutes(row['worker_seconds'] - row['used_seconds'])} of worker time and {row['coding_workspaces'] - row['used_workspaces']} "
-            f"coding workspaces for \"{row['plan'][:80]}\"" for row in consents(workspace, campaign_id)]
+    rows = consents(workspace, campaign_id)
+    named = [row for row in rows if covers(row, hypothesis_ids, root)]
+    work = f"work for {', '.join(hypothesis_ids)}" if hypothesis_ids else "this work"
+    if named:
+        state = "Approved and unused: " + "; ".join(map(_left, named)) + "."
+    elif rows:
+        state = (f"No approved plan covers {work}: each covers only the proposals it names, and work for no proposal only in "
+                 "the request it was approved for. Approved and unused: " + "; ".join(map(_left, rows)) + ".")
+    else:
+        state = "No approved plan has time left."
     return (f"{what} would compute for {'about ' + _minutes(seconds) if seconds is not None else 'an unknown time'}, and the researcher "
             f"has not given the go-ahead for it. Nothing that computes for more than {gate} (the researcher's go-ahead threshold), and no "
             "coding workspace, starts without it, even when a request implies the work. File approval.request with kind compute: plan "
-            "(what will run and why), wall_seconds (how long until results), worker_seconds, coding_workspaces, meanwhile (what the researcher can do while it runs), and for experiments "
+            "(what will run and why), wall_seconds (how long until results), worker_seconds, coding_workspaces, hypothesis_ids (the proposals it is for), "
+            "meanwhile (what the researcher can do while it runs), and for experiments "
             "runs (each: task_id, hypothesis_id or algorithm, seeds, wall_seconds, max_evaluations, device), so the researcher reads "
-            "their measured speed, outputs and disk use; start once they approve. " + ("Approved and unused: " + "; ".join(left) + "." if left else "No approved plan has time left."))
+            "their measured speed, outputs and disk use; start once they approve. " + state)
 
 
-def require(workspace, campaign_id, what, seconds=0.0, *, coding=0):
+def require(workspace, campaign_id, what, seconds=0.0, *, coding=0, hypothesis_ids=(), root=None):
     """The consent that covers this work, or ValueError with the refusal; work up to the go-ahead threshold needs none."""
     if not coding and seconds is not None and seconds <= thresholds(workspace, campaign_id)[1]:
         return None
-    consent = covering(workspace, campaign_id, seconds or 0.0, coding=coding)
+    consent = covering(workspace, campaign_id, seconds or 0.0, coding=coding, hypothesis_ids=hypothesis_ids, root=root)
     if consent is None:
-        raise ValueError(refusal(workspace, campaign_id, what, seconds))
+        raise ValueError(refusal(workspace, campaign_id, what, seconds, hypothesis_ids=hypothesis_ids, root=root))
     return consent
 
 
-def charge(workspace, campaign_id, seconds=0.0, *, coding=0, what="work", origin=None, subjects=()):
-    """Count started work against the consent that covers it. Work between the two thresholds that no consent covers is not
-    charged: it starts with a notice to the researcher (a compute_notice, in the inbox until they acknowledge it)."""
+def charge(workspace, campaign_id, seconds=0.0, *, coding=0, what="work", origin=None, subjects=(), hypothesis_ids=(), root=None,
+           trial_ids=()):
+    """Count started work against the consent that covers it, and record on it what it was spent on: the coding workspaces
+    (subjects) and the runs (trial_ids). Work between the two thresholds that no consent covers is not charged: it starts with a
+    notice to the researcher (a compute_notice, in the inbox until they acknowledge it)."""
     if not coding and seconds is None:
         return
     notice, gate = thresholds(workspace, campaign_id)
     if not coding and seconds <= notice:
         return
     with workspace.lock:
-        consent = covering(workspace, campaign_id, seconds or 0.0, coding=coding)
+        consent = covering(workspace, campaign_id, seconds or 0.0, coding=coding, hypothesis_ids=hypothesis_ids, root=root)
         if consent is None and not coding and seconds <= gate:
             origin = origin or {}
             workspace.store.put("compute_notice", {"id": identifier("compute_notice"), "campaign_id": campaign_id, "what": what,
                 "seconds": seconds, "agent_id": origin.get("agent_id"), "thread_id": origin.get("thread_id"), "subjects": list(subjects),
                 "thresholds": {"notice_seconds": notice, "gate_seconds": gate}, "created_at": now()}, "compute.notice")
             return
-        consent = consent or next(iter(consents(workspace, campaign_id)), None)
+        consent = consent or next((row for row in consents(workspace, campaign_id) if covers(row, hypothesis_ids, root)), None)
         if consent is not None:
             consent.update(used_seconds=consent["used_seconds"] + (seconds or 0.0), used_workspaces=consent["used_workspaces"] + coding)
+            if coding:
+                consent["workspace_ids"] = list(dict.fromkeys([*consent.get("workspace_ids", []), *subjects]))
+            if trial_ids:
+                consent["launched"] = list(dict.fromkeys([*consent.get("launched", []), *trial_ids]))
             workspace.store.put("compute_consent", consent, "compute.consent_used")
 
 
@@ -135,18 +217,27 @@ def _subjects(outcome):
     return found + [value for value in outcome.get("trial_ids") or [] if isinstance(value, str)]
 
 
+def _trials(outcome):
+    """The runs a started command launched."""
+    outcome = outcome if isinstance(outcome, dict) else {}
+    return [value for value in [outcome.get("trial_id"), *(outcome.get("trial_ids") or [])] if isinstance(value, str)]
+
+
 def grant(workspace, decision, request):
-    """Record the researcher's approval of a compute plan; returns the consent."""
+    """Record the researcher's approval of a compute plan, with what it names: the proposals (those it lists and those its runs
+    are for) and the researcher's request it was asked in. Returns the consent."""
     granted = datetime.now(timezone.utc)
+    named = [*(request.get("hypothesis_ids") or []), *(run.get("hypothesis_id") for run in request.get("runs") or [])]
     return workspace.store.put("compute_consent", {"id": identifier("compute_consent"), "campaign_id": decision["campaign_id"],
         "decision_id": decision["id"], "plan": request["plan"], "worker_seconds": request["worker_seconds"],
         "wall_seconds": request["wall_seconds"], "coding_workspaces": request.get("coding_workspaces", 0), "used_seconds": 0.0,
-        "used_workspaces": 0, "granted_at": now(),
+        "used_workspaces": 0, "hypothesis_ids": list(dict.fromkeys(value for value in named if value)), "runs": list(request.get("runs") or []),
+        "request_root": decision.get("request_root"), "workspace_ids": [], "launched": [], "granted_at": now(),
         "expires_at": (granted + timedelta(seconds=max(3600, 3 * request["wall_seconds"]))).isoformat()}, "compute.consent_granted")
 
 
 def register(bus):
-    """Check and charge every agent's work-starting command on the bus."""
+    """Check and charge every agent's work-starting command on the bus, against the consent that names its proposals."""
     workspace = bus.workspace
 
     def guard(command, actor, campaign):
@@ -154,13 +245,16 @@ def register(bus):
             return
         seconds = estimate(workspace, command.operation, command.payload)
         if seconds is not None:
-            require(workspace, command.campaign_id, command.operation, seconds)
+            require(workspace, command.campaign_id, command.operation, seconds,
+                    hypothesis_ids=proposals(workspace, command.operation, command.payload), root=request_root(workspace, command.origin))
 
     def listener(record):
         if record.get("actor") == "manager" and record.get("status") == "completed":
             request = record["request"]
             charge(workspace, request["campaign_id"], estimate(workspace, request["operation"], request["payload"]),
-                   what=WORDS.get(request["operation"], request["operation"]), origin=record.get("origin"), subjects=_subjects(record.get("outcome")))
+                   what=WORDS.get(request["operation"], request["operation"]), origin=record.get("origin"), subjects=_subjects(record.get("outcome")),
+                   hypothesis_ids=proposals(workspace, request["operation"], request["payload"]),
+                   root=request_root(workspace, record.get("origin")), trial_ids=_trials(record.get("outcome")))
 
     bus.guards.append(guard)
     bus.listeners.append(listener)

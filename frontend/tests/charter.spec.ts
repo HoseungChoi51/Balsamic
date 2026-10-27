@@ -357,3 +357,20 @@ test('values the material gave that are not one number show as they are, never a
   await expect(orders.locator('input')).toHaveCount(0);
   await expect(page.locator('[data-testid="quantity"][data-name="start_clock"]').getByTestId('data-value')).toHaveText('hour 6, minute 0');
 });
+
+test('an order of items reads as an order, with no bound inputs', async ({ page }) => {
+  await mockWorkspace(page, { [`/api/v1/campaigns/${CAMPAIGN_ID}/problem-note`]: f.adoptedNoteView });
+  const variable = { name: 'bake_order', description: 'The order the bakes go into the oven', representation: 'permutation', shape: ['n_seats'], lower: null, upper: null, values: [], units: '1' };
+  const finding = { key: 'variable.shape:bake_order', code: 'variable.shape', severity: 'blocking', about: ['bake_order'], waivable: false,
+    message: 'bake_order is an order and needs a one-dimensional shape: the number of items it orders.', suggestions: [] };
+  const view = { ...f.charterView, charter: { ...f.charterView.charter, variables: [variable] }, findings: [finding], blocking: 1 };
+  await page.route('**/api/v1/problem-charters/charter_1', route => route.fulfill({ json: view }));
+  await page.goto(`/#t/${THREAD_ID}/note/charter`);
+  const panel = page.getByTestId('charter-panel');
+  const row = panel.locator('[data-testid="variable"][data-name="bake_order"]');
+  await expect(row.getByTestId('order-bake_order')).toHaveText('an order of n_seats items');
+  await expect(row).not.toContainText('× n_seats');
+  await expect(row.getByTestId('lower-bake_order')).toHaveCount(0);
+  await expect(row.getByTestId('upper-bake_order')).toHaveCount(0);
+  await expect(panel.locator('[data-code="variable.shape"]').getByTestId('meaning')).toContainText('an order of n_seats items (n_seats = 12)');
+});

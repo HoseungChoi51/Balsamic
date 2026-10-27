@@ -11,6 +11,7 @@ from pydantic import Field, model_validator
 from optimization_framework.contracts.base import Contract, content_hash
 from optimization_framework.storage.sqlite import atomic_json, now
 from .development_runtime import IMAGE, LEGACY_MODEL, DockerWorkspace
+from .models import LEAD, NOTICE
 
 
 class WorkspaceCreate(Contract):
@@ -117,6 +118,12 @@ def progress(payload):
     except (KeyError, TypeError, ValueError):
         pass
     return found
+
+
+def excerpt(text, limit=600):
+    """A checkpoint's words in a notice: one paragraph, cut; the checkpoint itself keeps them whole."""
+    text = " ".join(str(text or "").split())
+    return text if len(text) <= limit else text[:limit - 1] + "…"
 
 
 def plain(value):
@@ -271,8 +278,9 @@ class DevelopmentWorkspaces:
         return {"enabled": self.enabled(), **({} if self.enabled() else {"disabled": self.disabled()}),
                 "workspaces": [self.public(r, events.get(r["id"], [])) for r in self.store.list("development_workspace", campaign_id)]}
 
-    def create(self, campaign_id, payload, *, actor="researcher", opener=None):
-        """opener: the agent that opens it ({agent_id, role}), when an agent does."""
+    def create(self, campaign_id, payload, *, actor="researcher", opener=None, root=None):
+        """opener: the agent that opens it ({agent_id, role}), when an agent does; root: the researcher's request its turn
+        works on (controller.request_root), which the workspace's notices continue."""
         if not self.enabled():
             raise ValueError(self.disabled())
         values = WorkspaceCreate.model_validate(payload)
@@ -301,7 +309,7 @@ class DevelopmentWorkspaces:
             from optimization_framework.campaigns import compute_consent
             consent = None
             if actor != "researcher":
-                consent = compute_consent.require(self.workspace, campaign_id, "Opening a coding workspace", coding=1)
+                consent = compute_consent.require(self.workspace, campaign_id, "Opening a coding workspace", coding=1, hypothesis_ids=served)
             for evidence_id in values.evidence_ids:
                 self.evidence(campaign_id, evidence_id)
             config = self.controller.configuration(campaign_id)
@@ -311,7 +319,7 @@ class DevelopmentWorkspaces:
             default = (config.get("models") or {}).get("default") or LEGACY_MODEL
             record = {"id": identity, "campaign_id": campaign_id, "hypothesis_id": values.hypothesis_id, "hypothesis_ids": served,
                 "title": hypothesis["title"], "parent_agent_id": config["lead_id"], "created_at": now(),
-                "opened_by": {"actor": actor, **(opener or {})},
+                "opened_by": {"actor": actor, **(opener or {})}, "request_root": root,
                 # The researcher's go-ahead it opened under, for the history: the approved plan, not a deadline.
                 "consent": {"id": consent["id"], "decision_id": consent.get("decision_id"), "plan": (consent.get("plan") or "")[:2000]} if consent else None,
                 "objective": values.objective, "evidence_ids": values.evidence_ids,
@@ -323,7 +331,7 @@ class DevelopmentWorkspaces:
                           "billing_mode": "subscription", "api_cost_usd": 0}, "event_files": [], "cursor": 0}
             self.store.put("development_workspace", record, "development.created")
             if actor != "researcher":
-                compute_consent.charge(self.workspace, campaign_id, coding=1, what="a coding workspace", subjects=[identity])
+                compute_consent.charge(self.workspace, campaign_id, coding=1, what="a coding workspace", subjects=[identity], hypothesis_ids=served)
             self.message(campaign_id, identity, {"message": values.objective +
                 "\nRead .campaign/assignment.md and .campaign/evidence.json first. Save checkpoints in .campaign/checkpoint.md. "
                 "Use the normal Pi coding tools to implement, debug, and test. Submit a committed package with campaign_submit. "
@@ -402,14 +410,32 @@ class DevelopmentWorkspaces:
             self.store.put("development_workspace", record, "development.control_requested")
             return self.public(record)
 
-    def notify(self, record, key, text):
+    def recipient(self, record, config):
+        """Who a workspace's notices go to: the agent that opened it while it is a live agent of this campaign, else the lead."""
+        opener = (record.get("opened_by") or {}).get("agent_id")
+        try:
+            agent = self.store.get(opener, "agent_session") if opener else None
+        except KeyError:
+            agent = None
+        if agent and agent["campaign_id"] == record["campaign_id"] and agent["status"] not in {"stopped", "completed", "failed"}:
+            return agent
+        return self.store.get(config["lead_id"], "agent_session")
+
+    def notify(self, record, key, text, read="its status"):
+        """A platform notice of a change in the workspace, to whoever opened it, continuing the request it was opened for.
+        read: the part of implementation_workspace_inspect that has the details."""
         config = self.controller.configuration(record["campaign_id"])
         if not config or not config["enabled"]:
             return
-        parent = self.store.get(config["lead_id"], "agent_session")
-        self.controller.enqueue(parent, "pi_development_" + content_hash([record["id"], key])[:24],
-            f"Implementation workspace {record['id']} ({record['title']}): {text}\n"
-            "Use implementation_workspace_inspect to read current status and saved evidence. A development result is not protected validation.")
+        agent, root = self.recipient(record, config), record.get("request_root")
+        text = (NOTICE + f"Implementation workspace {record['id']} ({record['title']}): {text}\n"
+                f"Read {read} in implementation_workspace_inspect. A development result is not protected validation.")
+        identity = "pi_development_" + content_hash([record["id"], key])[:24]
+        if agent["role"] == LEAD:
+            self.controller.enqueue(agent, identity, text, root=root)
+        else:
+            # Another agent's turn names the request it continues in its origin, as the lead's does (controller.enqueue).
+            self.controller.enqueue(agent, identity, text, origin={**root, "actor": "lab", "root": root} if root else None)
 
     def event(self, record, key, event_type, payload):
         identity = "development_event_" + content_hash([record["id"], key])[:24]
@@ -502,7 +528,8 @@ class DevelopmentWorkspaces:
         used = record["usage"]["container_cpu_seconds"]
         if budget is not None and used >= budget and record["desired_status"] == "running":
             with self.workspace.lock:
-                record.update(desired_status="paused", status="pausing", error="Development CPU allowance reached. Workspace and session are saved.")
+                record.update(desired_status="paused", status="pausing", control_requested_at=now(),
+                              error="Development CPU allowance reached. Workspace and session are saved.")
                 self.store.put("development_workspace", record, "development.budget_reached")
                 self.event(record, "budget_reached_" + str(budget), "budget_reached", {"used": used, "budget": budget})
                 self.notify(record, "budget_" + str(budget), record["error"])
@@ -579,16 +606,21 @@ class DevelopmentWorkspaces:
         elif kind == "agent_settled":
             record["status"] = "idle"
         elif kind == "checkpoint":
+            before, phase = record.get("checkpoint") or {}, record.get("phase")
             record["checkpoint"] = payload
             record["activity"] = payload.get("summary", "")[:2000]
             found = progress(payload)
             record.update({key: found[key] for key in ("phase", "tests") if key in found})
             if "eta_minutes" in found:
                 record["estimate"] = {"remaining_minutes": found["eta_minutes"], "given_at": now(), "source": "coding agent"}
+            # Progress updates only the record and the timeline; a question or a new blocker is a notice.
             if payload.get("question"):
-                self.store.put("development_question", {"id": "development_question_" + content_hash([record["id"], key])[:24],
+                question = self.store.put("development_question", {"id": "development_question_" + content_hash([record["id"], key])[:24],
                     "workspace_id": record["id"], "campaign_id": cid, "question": payload["question"], "status": "pending", "created_at": now()}, "development.question_created")
-            self.notify(record, key, json.dumps(payload))
+                self.notify(record, key, f"The coding agent asks ({question['id']}): {excerpt(payload['question'])} Answer with "
+                            "implementation_workspace_message and that question_id.", "questions")
+            elif (payload.get("blocker") and payload["blocker"] != before.get("blocker")) or (found.get("phase") == "blocked" and phase != "blocked"):
+                self.notify(record, key, "The coding agent is blocked: " + excerpt(payload.get("blocker") or payload.get("summary")), "checkpoints")
         elif kind == "message" and payload.get("role") == "assistant":
             usage = payload.get("usage")
             if usage:
@@ -635,7 +667,7 @@ class DevelopmentWorkspaces:
                 saved = self.store.put("development_submission", submission, "development.submitted")
                 verdict = f" The coding agent's verdict: {report['verdict'].replace('_', ' ')}; next: " + ("; ".join(
                     f"{a['owner']}: {a['action']}" for a in report["next_actions"]) or "nothing named") + "." if report else " It sent no delivery report."
-                self.notify(record, identity, f"Commit {submission['commit']} submitted as {identity}.{verdict} Review its manifest and commission independent validation using implementation_workspace_validate within the remaining implementation allocation.")
+                self.notify(record, identity, f"Commit {submission['commit']} submitted as {identity}.{verdict} Review its manifest and commission independent validation using implementation_workspace_validate within the remaining implementation allocation.", "submissions")
             self.event(record, key, "submission", {"submission_id": identity, "commit": payload["commit"]})
         atomic_json(self.driver.root(record) / "incoming/results" / (key + ".json"), {"submission_id": saved["id"], "status": saved["status"]})
 
@@ -660,15 +692,16 @@ class DevelopmentWorkspaces:
         if not capability["available"]:
             raise ValueError("Protected validation is unavailable: " + capability["reason"])
         from optimization_framework.campaigns import compute_consent
+        served = record.get("hypothesis_ids") or [record["hypothesis_id"]]   # a go-ahead covers the validation of what it opened
         if actor != "researcher":
-            compute_consent.require(self.workspace, campaign_id, "Validating a submission", values.compute_seconds)
+            compute_consent.require(self.workspace, campaign_id, "Validating a submission", values.compute_seconds, hypothesis_ids=served)
         grant = self.workspace.implementations.reserve_commission(record["hypothesis_id"], spec,
             compute_seconds=values.compute_seconds, max_calls=12, api_budget_usd=0,
             idempotency_key="development-" + content_hash([identity, values.request_key])[:24],
             package=submission["package"], accounting_mode="execution_v1")
         if actor != "researcher":
             compute_consent.charge(self.workspace, campaign_id, values.compute_seconds, what="a validation of a coding workspace's submission",
-                                   subjects=[identity])
+                                   subjects=[identity], hypothesis_ids=served)
         # A validation of the same submission again: its result is news to the coding agent, like the first one's.
         submission.update(grant_id=grant["id"], status="validating", feedback_sent=False)
         self.store.put("development_submission", submission, "development.validation_requested")
@@ -696,7 +729,7 @@ class DevelopmentWorkspaces:
                         "mechanism": len(spec.mechanism_checks), "diagnostic": len(spec.diagnostic_checks)},
                     "problem_id": spec.problem_id, "n_cells": [spec.n_cells_min, spec.n_cells_max],
                     "dependencies": spec.dependencies}, "development.envelope_frozen")
-                self.notify(record, envelope_id, f"Protected validation envelope {envelope_id} frozen with spec digest {identity_hash}. Use this ID with implementation_workspace_validate after an exact submission and explicit remaining allocation; do not reinsert the full specification into the lead agent's context.")
+                self.notify(record, envelope_id, f"Protected validation envelope {envelope_id} frozen with spec digest {identity_hash}. Use this ID with implementation_workspace_validate after an exact submission and explicit remaining allocation; do not reinsert the full specification into the lead agent's context.", "validation_envelopes")
             return {k: v for k, v in saved.items() if k != "spec"}
 
     def validation_feedback(self, record):

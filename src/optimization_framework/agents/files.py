@@ -172,8 +172,9 @@ def interpreter():
     return roots
 
 
-def analysis_run(tools, agent, args):
-    """Run the agent's own script over the experiments it names, in a sandbox that can read them and write only its work directory."""
+def analysis_run(tools, agent, args, root=None):
+    """Run the agent's own script over the experiments it names, in a sandbox that can read them and write only its work directory.
+    root: the researcher's request the agent works on, whose go-ahead covers it."""
     work = tools.workspace.directory / "agents" / agent["id"] / "work"
     work.mkdir(parents=True, exist_ok=True)
     script = relative(args["path"])
@@ -187,10 +188,10 @@ def analysis_run(tools, agent, args):
     if seconds <= 0:
         raise ValueError(f"This campaign's agents have used their {ANALYSIS_SECONDS_PER_CAMPAIGN:g} s of analysis time")
     from optimization_framework.campaigns import compute_consent   # an analysis is compute like any other, under the researcher's thresholds
-    compute_consent.require(tools.workspace, agent["campaign_id"], "An analysis script", seconds)
+    compute_consent.require(tools.workspace, agent["campaign_id"], "An analysis script", seconds, root=root)
     if not shutil.which("bwrap"):
         raise ValueError("Sandboxed analysis requires bubblewrap on this server")
-    compute_consent.charge(tools.workspace, agent["campaign_id"], seconds, what="an analysis script", origin={"agent_id": agent["id"]})
+    compute_consent.charge(tools.workspace, agent["campaign_id"], seconds, what="an analysis script", origin={"agent_id": agent["id"]}, root=root)
     command = ["bwrap", "--die-with-parent", "--unshare-all", "--new-session", "--proc", "/proc", "--dev", "/dev", "--tmpfs", "/tmp"]
     for root in dict.fromkeys(["/usr", "/lib", "/lib64", "/bin", *interpreter(), str(REPOSITORY / "src")]):
         if Path(root).exists():

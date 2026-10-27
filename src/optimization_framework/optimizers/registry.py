@@ -11,7 +11,7 @@ from . import plugins
 
 
 BUILTINS = [
-    {"id": "random", "name": "Uniform random", "description": "Independent feasible samples; reference baseline.", "representations": ["binary", "discrete", "continuous"], "constraints": True, "parameters": {}},
+    {"id": "random", "name": "Uniform random", "description": "Independent feasible samples; reference baseline.", "representations": ["binary", "discrete", "continuous", "permutation"], "constraints": True, "parameters": {}},
     {"id": "coordinate", "name": "Coordinate search", "description": "Bounded coordinate improvement with global restarts.", "representations": ["continuous"], "constraints": True, "parameters": {"radius": .2}},
     {"id": "evaluate_asset", "name": "Evaluate a reference solution", "description": "One evaluation of an explicitly declared solution asset; no search move.",
      "representations": ["binary", "discrete", "continuous"], "constraints": True, "parameters": {}, "purpose": "reference_evaluation"},

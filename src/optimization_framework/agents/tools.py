@@ -955,7 +955,8 @@ class PiTools:
                 snapshot["admission"] = detail
             return snapshot
         if name == "implementation_workspace_create":
-            return self.controller.development.create(cid, args, actor=LEAD, opener={"agent_id": agent["id"], "role": agent["role"]})
+            return self.controller.development.create(cid, args, actor=LEAD, opener={"agent_id": agent["id"], "role": agent["role"]},
+                                                     root=self.assignment_origin(agent, run))
         if name == "implementation_workspace_inspect":
             return self.controller.development.events(cid, args["workspace_id"], args.get("after", 0))
         if name == "implementation_workspace_message":
@@ -1163,7 +1164,7 @@ class PiTools:
             return getattr(Files(self, agent), name.removeprefix("file_"))(args)
         if name == "analysis_run":
             from .files import analysis_run
-            return analysis_run(self, agent, args)
+            return analysis_run(self, agent, args, root=self.assignment_origin(agent, run))
         if name.startswith("workspace_"):
             return self._files(agent, name, args)
         raise ValueError("Unknown tool")
