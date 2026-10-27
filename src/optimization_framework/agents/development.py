@@ -424,7 +424,7 @@ class DevelopmentWorkspaces:
             unapproved = sorted(set(values.egress_hosts) - set(consent.get("egress_hosts") or []))
             if unapproved:
                 raise ValueError("The go-ahead did not approve these hosts for the workspace: " + ", ".join(unapproved) + ". Name them in "
-                                 "the compute request's egress_hosts, so the researcher approves them with it")
+                                 "egress_hosts of the request's mandate (mandate_propose, template screen), so the researcher approves them with it")
         return {"limits": limits, "wall_seconds": wall, "deadline_at": None, "egress": egress(model, values.egress_hosts)}
 
     def evidence(self, campaign_id, identity):
@@ -671,7 +671,8 @@ class DevelopmentWorkspaces:
 
     def charge_wall(self, record):
         """Count the wall time the box has been running since the last sync, on the workspace and on the go-ahead it opened
-        under (the mandate after R3). A paused, stopped or blocked box is not charged."""
+        under: the consent that is its request's mandate's compute part (campaigns/mandates.py). A paused, stopped or blocked box
+        is not charged."""
         at = datetime.now(timezone.utc)
         running = record["desired_status"] == "running" and record["status"] not in {"queued", "blocked"}
         last = record.get("wall_last")

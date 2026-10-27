@@ -407,6 +407,7 @@ TOOLS = {
              "wall_seconds": {"type": "number", "exclusiveMinimum": 0, "maximum": 604800, "description": "How long until the researcher has the results"},
              "model_usd": {"type": "number", "minimum": 0, "maximum": 10000}, "deadline_minutes": {"type": "number", "exclusiveMinimum": 0, "maximum": 40320},
              "stop_when": obj({"text": S, "machine": {"enum": ["all_runs_terminal"]}}, ["text"]),
+             "egress_hosts": {"type": "array", "items": S, "maxItems": 20, "description": "Hosts its coding workspaces may reach beyond their model and the package index"},
              "meanwhile": {"type": "string", "minLength": 1, "maxLength": 2000, "description": "What the researcher can do while it runs"}},
             ["template", "plan"])),
     "researcher_ask": ("Save a concrete researcher question and stop for its answer only when required. The researcher sees question, "
@@ -808,7 +809,8 @@ class PiTools:
                     "next": "Granted at once. Say so in one line of your reply, and start the work."}
         payload = {"kind": "mandate", "template": args["template"], "rationale": args["plan"],
                    **{key: value for key, value in values.items()}, **({"wall_seconds": args["wall_seconds"]} if args.get("wall_seconds") else {}),
-                   **({"meanwhile": args["meanwhile"]} if args.get("meanwhile") else {})}
+                   **({"meanwhile": args["meanwhile"]} if args.get("meanwhile") else {}),
+                   **({"egress_hosts": args["egress_hosts"]} if args.get("egress_hosts") else {})}
         receipt = self._execute(agent, run, "campaign_command", {"operation": "approval.request", "payload": payload,
                                 "request_key": "mandate_" + identity, "rationale": args["plan"][:500]}, identity)
         return {**receipt, "status": "proposed", "page": "#inbox",

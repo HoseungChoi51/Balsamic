@@ -347,3 +347,19 @@ def test_the_hosts_a_coding_workspace_reaches_beyond_its_model_and_index_are_app
         "expected_resolution_revision": 0}, actor="researcher")
     [consent] = workspace.store.list("compute_consent", cid)
     assert consent["egress_hosts"] == ["github.com"] and consent["used_wall_seconds"] == 0
+    # A mandate (R2, an agent's go-ahead since Phase 3) names them the same way; its consent, the mandate's compute part, keeps them.
+    mandate = {**{key: value for key, value in ask.items() if key not in {"kind"}}, "kind": "mandate", "template": "screen",
+               "egress_hosts": ["gitlab.com", "github.com"]}
+    with pytest.raises(ValueError, match="belong to a mandate or a compute request"):
+        send(workspace, cid, "ask_limits", "approval.request", {"kind": "campaign_limits", "rationale": "More", "limits": {"compute_budget_seconds": 30000},
+                                                                "egress_hosts": ["github.com"]})
+    send(workspace, cid, "ask_mandate", "approval.request", mandate)
+    decision = workspace.store.list("decision", cid)[-1]
+    assert decision["approval_request"]["egress_hosts"] == ["github.com", "gitlab.com"]
+    assert "Its coding workspaces may also reach github.com, gitlab.com, beyond their model and the package index." in decision["proposal"]
+    send(workspace, cid, "approve_mandate", "decision.resolve", {"decision_id": decision["id"], "choice": "0", "comment": "",
+        "expected_resolution_revision": 0}, actor="researcher")
+    from optimization_framework.campaigns import mandates
+    consent = workspace.store.get(workspace.store.get(decision["id"], "decision")["outcome"]["consent_id"], "compute_consent")
+    assert consent["egress_hosts"] == ["github.com", "gitlab.com"]
+    assert mandates.of_consent(workspace, consent).template == "screen"

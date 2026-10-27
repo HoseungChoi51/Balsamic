@@ -653,3 +653,25 @@ def test_a_workspace_past_its_deadline_is_paused_its_last_state_kept_and_its_ope
     resumed = development.control(cid, record['id'], {'action': 'resume', 'request_key': 'go-on-hour', 'wall_seconds': 1800,
                                                       'expected_revision': saved['control_revision']})
     assert resumed['desired_status'] == 'running' and resumed['wall_seconds'] == 1800 and not resumed.get('deadline_reached')
+
+
+def test_an_agents_workspace_takes_its_deadline_and_hosts_from_its_requests_mandate(setup):
+    # Since Phase 3 an agent's go-ahead is its request's Screen mandate, whose compute part is a consent: the box's deadline
+    # defaults to that wall time and it may reach only the hosts the researcher approved with it (H5).
+    from optimization_framework.campaigns import mandates
+    from optimization_framework.storage.sqlite import now
+    workspace, campaign, development, driver = setup
+    cid = campaign['id']
+    root = {'thread_id': 'thread_main', 'message_id': 'message_ask', 'run_id': 'run_ask'}
+    decision = workspace.store.put('decision', {'id': 'decision_screen', 'campaign_id': cid, 'title': 'Screen', 'question': 'Screen',
+        'status': 'resolved', 'requested_by': 'lead', 'audience': 'researcher', 'created_at': now(), 'request_root': root,
+        'approval_request': {'kind': 'mandate', 'template': 'screen', 'plan': 'Build the method from its reference code', 'wall_seconds': 5400,
+                             'worker_seconds': 600, 'coding_workspaces': 1, 'hypothesis_ids': ['hypothesis_dev'], 'egress_hosts': ['github.com']}})
+    outcome = mandates.approve(workspace, decision)
+    request = {'hypothesis_id': 'hypothesis_dev', 'objective': 'Implement', 'request_key': 'screen'}
+    with pytest.raises(ValueError, match='did not approve these hosts for the workspace: gitlab.com'):
+        development.create(cid, {**request, 'egress_hosts': ['gitlab.com']}, actor='lead', root=root, asked=root)
+    with pytest.raises(ValueError, match=r"past the go-ahead's wall time \(5400 s\)"):
+        development.create(cid, {**request, 'wall_seconds': 6000}, actor='lead', root=root, asked=root)
+    record = development.create(cid, {**request, 'egress_hosts': ['github.com']}, actor='lead', root=root, asked=root)
+    assert (record['wall_seconds'], record['egress']['named'], record['consent']['id']) == (5400, ['github.com'], outcome['consent_id'])
