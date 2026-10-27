@@ -57,7 +57,7 @@ def rank(summaries, objective):
     return summaries
 
 
-def report(workspace, campaign_id, *, study_id=None, cost_axis=None, cost_view="full_attributed_cost", trial_ids=None):
+def report(workspace, campaign_id, *, study_id=None, cost_axis=None, cost_view="full_attributed_cost", trial_ids=None, withheld=frozenset()):
     """Compare a study's experiments, or only those named in trial_ids, at the costs they were observed.
 
     A run that was continued (trial.continue) is one run: its last experiment stands for it, with the
@@ -66,6 +66,7 @@ def report(workspace, campaign_id, *, study_id=None, cost_axis=None, cost_view="
     would otherwise set that cost. A run whose method finished on its own does not set that cost: it holds
     its final value after its last point (held_after_finish), unless every compared run finished.
     Each group names its objective's direction, and each method summary its rank by mean under it.
+    withheld: a locked confirmation's trials, left out (and only counted) when an agent asks; naming one is refused.
     """
     if cost_view not in {"full_attributed_cost", "actual_expenditure"}:
         raise ValueError("Choose full_attributed_cost or actual_expenditure")
@@ -97,11 +98,15 @@ def report(workspace, campaign_id, *, study_id=None, cost_axis=None, cost_view="
     chosen = None if trial_ids is None else set(trial_ids)
     if chosen is not None and chosen - set(by_id):
         raise ValueError("Not experiments of this campaign: " + ", ".join(sorted(chosen - set(by_id))))
+    if chosen is not None and chosen & withheld:
+        raise ValueError("A confirmation's runs are withheld until the confirmation is released; leave them out of trial_ids")
     groups = {}
     excluded = []
     compared = []
     for trial in trials:
         if chosen is not None and trial["id"] not in chosen:
+            continue
+        if trial["id"] in withheld:
             continue
         if study_id and trial.get("study_id") != study_id:
             if chosen is not None:
@@ -225,6 +230,7 @@ def report(workspace, campaign_id, *, study_id=None, cost_axis=None, cost_view="
         group["common_observed_cost"] = horizon
     return {"schema_version": 1, "campaign_id": campaign_id, "study_id": study_id, "cost_view": cost_view,
             "cost_axis": cost_axis, "groups": list(groups.values()), "excluded": excluded,
+            **({"withheld_runs": sum(trial["id"] in withheld for trial in trials if not study_id or trial.get("study_id") == study_id)} if withheld else {}),
             "actual_campaign_costs": costs.actual_costs(campaign_id,
                 axes=("worker_seconds", "evaluation_requests", "solver_executions", "implementation_seconds", "model_seconds", "model_calls", "model_input_tokens", "model_output_tokens", "api_usd")),
             "interpretation": "Raw objectives on compatible instances and fidelities at observed costs; no extrapolation or cross-problem ranking."

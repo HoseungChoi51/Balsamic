@@ -36,8 +36,10 @@ def register(workspace=None):
 
     def lab_events(tools, agent, run, args, identity):
         thread = thread_of_run(tools, run)
+        # A line about a locked confirmation's work stays out until it is released (V4).
+        withheld = tools.workspace.memory.protected_ids(agent["campaign_id"])
         rows = [m for m in tools.store.list("message", agent["campaign_id"]) if m.get("origin") == "lab_event"
-                and (thread is None or m.get("thread_id") == thread["id"])]
+                and (thread is None or m.get("thread_id") == thread["id"]) and m["id"] not in withheld]
         return {"events": [{"id": m["id"], "at": m["created_at"], "text": m["content"], "command_id": m.get("command_id")} for m in rows[-int(args.get("limit", 20)):]]}
 
     def render_visual(tools, agent, run, args, identity):
