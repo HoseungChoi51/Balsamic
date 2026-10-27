@@ -35,7 +35,7 @@ Each scenario is one method of `libraries/grating-mask-search`, whose own module
 | `cost_usd`, `model_calls`, tokens | the campaign's model use: the lead and the implementation lead |
 | `coding_agent` | the workspace's own use: the coding agent's model calls and tokens, `api_cost_usd` when billed by the API, container CPU seconds |
 | `lead_turns` | turns of the lead and the implementation lead |
-| `messages_to_coding_agent`, `notices_from_workspace` | the relayed messages: what the agents wrote to the coding agent after its assignment, and the workspace's notices to the lead |
+| `messages_to_coding_agent`, `notices_from_workspace` | the relayed messages: what the agents wrote to the coding agent after its assignment, and the workspace's notices to the agents (since A4, to the one that opened it) |
 | `researcher_approvals`, `researcher_answers` | what the runner did as the researcher |
 | `contract`, `tests`, `conformance` | the checks outside the box; the coding agent's own verdict is kept beside them |
 

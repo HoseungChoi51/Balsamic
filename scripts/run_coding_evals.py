@@ -249,7 +249,7 @@ class Run:
             "seconds_to_workspace": seconds_between(asked_at, workspace.get("created_at")),
             "seconds_to_submission": seconds_between(asked_at, submissions[0]["created_at"] if submissions else None),
             "lead_turns": sum((agents.get(r["agent_id"]) or {}).get("role") in {"lead", "implementation_lead"} for r in runs),
-            # Relayed: what the agents wrote to the coding agent after its assignment, and the workspace's notices to the lead.
+            # Relayed: what the agents wrote to the coding agent after its assignment, and the workspace's notices to the agents.
             "messages_to_coding_agent": sum(c["operation"] == "message" and c["actor"] not in {"researcher", "system"}
                                             and not c["request_key"].startswith("initial-") for c in commands),
             "notices_from_workspace": sum(r["id"].startswith("pi_development_") for r in runs),
