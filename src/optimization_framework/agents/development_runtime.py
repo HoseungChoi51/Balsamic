@@ -84,9 +84,11 @@ def run(args, *, timeout=45, cwd=None):
 
 
 class DockerWorkspace:
-    def __init__(self, directory, image=None):
+    def __init__(self, directory, image=None, source=None):
+        """source: the repository a workspace clones, this checkout unless given (the coding evals give one without the method)."""
         self.directory = Path(directory)
         self.image = image or os.environ.get("GRATING_DEVELOPMENT_IMAGE", IMAGE)
+        self.source = Path(source) if source else ROOT
 
     def root(self, record):
         return self.directory / record["id"]
@@ -148,7 +150,7 @@ class DockerWorkspace:
         self.configure_pi(record, root)
         work = root / "work"
         if not (work / "git").exists():
-            run(["git", "clone", "--bare", "--no-local", "--single-branch", str(ROOT), str(work / "git")], timeout=120)
+            run(["git", "clone", "--bare", "--no-local", "--single-branch", str(self.source), str(work / "git")], timeout=120)
         if not (work / "repo/.git").exists():
             (work / "repo").mkdir(exist_ok=True, mode=0o700)
             branch = "implementation/" + record["id"]
