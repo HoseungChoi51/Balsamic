@@ -64,7 +64,8 @@ def install_outcomes(workspace, campaign_id):
     for row in latest.values():
         name = row.get("package") or row.get("path") or "the library"
         title = {"installed": f"Installed {name} {row.get('version') or ''}: methods {', '.join(row.get('methods_added') or []) or 'none new'}"
-                              + (f"; Balsamic bound {len(row['bindings'])} proposal(s)" if row.get('bindings') else ""),
+                              + (f"; Balsamic bound {len(row['bindings'])} proposal(s)" if row.get('bindings') else "")
+                              + (f" and started {len(row['launched'])} approved run(s)" if row.get('launched') else ""),
                  "needs_confirmation": f"Installing {name} waits for your yes: it would change "
                                        + ", ".join(f"{c['name']} {c['from']} → {c.get('to') or 'removed'}" for c in row.get("changes", [])),
                  "failed": f"Installing {name} failed: {_first_line(row.get('error'), 120)}"}.get(row["status"])

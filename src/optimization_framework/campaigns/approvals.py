@@ -58,7 +58,7 @@ def resolve(workspace, command):
              "wall_seconds": trial["wall_seconds"] + (seconds if decision.get("requested_by") else max(5, seconds))})
         effect = {"child_command": child.model_dump(mode="json")}
     elif values.choice == "0" and (decision.get("approval_request") or {}).get("kind") == "compute":
-        # The go-ahead itself: the requester starts the work, charged to this consent.
+        # The go-ahead itself: the requester starts the work, charged to this consent; Balsamic starts the runs it lists (plan_runs).
         from .compute_consent import grant
         from .proposals import approve
         consent = grant(workspace, decision, decision["approval_request"])
