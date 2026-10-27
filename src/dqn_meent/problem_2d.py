@@ -8,7 +8,7 @@ from typing import Any
 
 from optimization_framework.contracts.base import content_hash
 from optimization_framework.contracts.problems import (
-    CandidateSchema, Evaluation, Objective, ProblemDefinition, ProblemInstance,
+    CandidateSchema, Evaluation, Objective, ProblemDefinition, ProblemInstance, PromotionCheck,
 )
 
 
@@ -244,6 +244,8 @@ class Meent2DProblem:
             resources={"cpu_threads": 1},
             validation_recipes=[ORDER_CONVERGENCE_RECIPE],
             recipe_schemas={ORDER_CONVERGENCE_RECIPE: deepcopy(ORDER_CONVERGENCE_SCHEMA)},
+            # Half a point at the two highest orders, as the rcwa-convergence-check procedure states (readiness Part F).
+            promotion_validation=[PromotionCheck(recipe_id=ORDER_CONVERGENCE_RECIPE, parameters={"absolute_tolerance": .005})],
         )
 
     def resolve(self, configuration: dict, fidelity: dict | None = None) -> ProblemInstance:

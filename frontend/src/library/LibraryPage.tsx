@@ -9,8 +9,17 @@ import { formatHash, navigate } from '../router/routes';
 import { useEvolution } from '../evolution/EvolutionPage';
 
 interface Entry { id: string; origin_campaign_id: string; hypothesis_id: string; strategy: { title: string; mechanism?: string; algorithm?: string }; signature: { problem_id: string | null; objective?: { name?: string; direction?: string }; representation?: string };
-  evidence: { best_score: number | null; best_basis?: string | null; worker_seconds?: number; seeds_won?: number | null; confirmation_protocol_id?: string | null }; notes?: string; created_at: string }
+  evidence: { best_score: number | null; best_basis?: string | null; worker_seconds?: number; seeds_won?: number | null; confirmation_protocol_id?: string | null; fidelity?: Fidelity }; notes?: string; created_at: string }
+interface Fidelity { state: string; trial_id?: string | null; checks: { recipe_id: string; state: string; validation_result_id?: string | null; waiver_id?: string | null }[] }
 interface Search { signature: { problem_id: string | null; basis?: string }; entries: { entry: Entry; match: { score: number; reasons: string[] } }[] }
+
+/** Whether the entry's score held at higher fidelity when it was published (roadmap V3), with the result or waiver it rests on. */
+function fidelityText(fidelity?: Fidelity) {
+  if (!fidelity) return 'not recorded (published before fidelity checks)';
+  if (fidelity.state === 'not_required') return 'not required for this problem';
+  const checks = fidelity.checks.map(c => `${c.recipe_id}${c.validation_result_id ? ` (${c.validation_result_id})` : ''}${c.waiver_id ? `, waiver ${c.waiver_id}` : ''}`).join('; ');
+  return `${fidelity.state === 'waived' ? 'waived by the researcher' : fidelity.state.replace('_', ' ')}: ${checks}`;
+}
 
 export default function LibraryPage({ campaignId, route, threadId }: PageProps) {
   const [q, setQ] = useState('');
@@ -52,6 +61,7 @@ export default function LibraryPage({ campaignId, route, threadId }: PageProps) 
               <p className="small muted">{(entry.strategy.mechanism || '').slice(0, 240)}</p>
               <Kv rows={[['Algorithm', entry.strategy.algorithm || 'none'], ['Problem', `${entry.signature.problem_id || 'unknown'} · ${entry.signature.objective?.name || ''} ${entry.signature.objective?.direction || ''} · ${entry.signature.representation || ''}`],
                 ['Evidence', <>{num(entry.evidence.best_score, 4)} best ({entry.evidence.best_basis || 'basis unknown'}), {duration(entry.evidence.worker_seconds)} of worker time{entry.evidence.seeds_won != null ? `, ${entry.evidence.seeds_won} seeds won` : ''}{entry.evidence.confirmation_protocol_id ? ', confirmed' : ', not confirmed'}</>],
+                ['Fidelity', fidelityText(entry.evidence.fidelity)],
                 ['Why it fits', match.reasons.join('; ') || 'nothing in common with this problem']]} />
               <div className="row"><button className="btn small" onClick={() => { setApplying(entry); setNote(''); }} data-testid="apply">Apply here…</button></div>
             </article>)) : <Empty>No library entry yet. Publish a finalist or a confirmed strategy from this campaign below, or from an earlier campaign of the same problem.</Empty>}

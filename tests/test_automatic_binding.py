@@ -4,7 +4,7 @@ runnable; a proposal someone bound and an incompatible method are skipped with t
 concept review. uv is faked as in test_library_install; the delivered methods are the lab's own, so they are installed."""
 import pytest
 
-from optimization_framework.agents.library_install import bind_served
+from optimization_framework.agents.library_install import Installer, bind_served
 from optimization_framework.campaigns.proposals import hypothesis_revision, readiness
 from optimization_framework.contracts.base import content_hash
 from optimization_framework.contracts.commands import Command, CommandOrigin
@@ -29,6 +29,9 @@ def install(lab, monkeypatch):
     workspace, cid, development, root, submission = lab
     notices = []
     monkeypatch.setattr(development, "notify", lambda record, key, text, read="": notices.append(text))
+    # The delivered methods are the lab's own, which a real install refuses as a clash (roadmap E2); here they stand in for
+    # a library's methods.
+    monkeypatch.setattr(Installer, "_refuse_clashes", lambda self, *args: None)
     done = installer(lab)[0].automatic(cid, "development_bakery", workspace.store.get(submission["id"], "development_submission"), background=False)
     return done, notices
 

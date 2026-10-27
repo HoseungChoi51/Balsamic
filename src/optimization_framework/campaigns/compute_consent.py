@@ -16,6 +16,8 @@ such a proposal, and work for no proposal (a runtime profile, a validation) aske
 names no proposals, as every consent recorded before plans named them, covers any work in the campaign. A consent stays in force
 while a coding workspace it opened runs, and for three times its wall time after the last one stops. The runs a plan lists
 start by themselves once their proposals can run (plan_runs.py), each charged to the consent it ran under.
+
+A consent is the compute part of a mandate (campaigns/mandates.py): one that no mandate names reads as a Screen mandate.
 """
 from datetime import datetime, timedelta, timezone
 
@@ -203,12 +205,17 @@ def charge(workspace, campaign_id, seconds=0.0, *, coding=0, what="work", origin
             return
         consent = consent or next((row for row in consents(workspace, campaign_id) if covers(row, hypothesis_ids, root)), None)
         if consent is not None:
-            consent.update(used_seconds=consent["used_seconds"] + (seconds or 0.0), used_workspaces=consent["used_workspaces"] + coding)
-            if coding:
-                consent["workspace_ids"] = list(dict.fromkeys([*consent.get("workspace_ids", []), *subjects]))
-            if trial_ids:
-                consent["launched"] = list(dict.fromkeys([*consent.get("launched", []), *trial_ids]))
-            workspace.store.put("compute_consent", consent, "compute.consent_used")
+            spend(workspace, consent, seconds, coding=coding, subjects=subjects, trial_ids=trial_ids)
+
+
+def spend(workspace, consent, seconds=0.0, *, coding=0, subjects=(), trial_ids=()):
+    """Count work against this consent, with the coding workspaces (subjects) and the runs it paid for. The caller holds the lock."""
+    consent.update(used_seconds=consent["used_seconds"] + (seconds or 0.0), used_workspaces=consent["used_workspaces"] + coding)
+    if coding:
+        consent["workspace_ids"] = list(dict.fromkeys([*consent.get("workspace_ids", []), *subjects]))
+    if trial_ids:
+        consent["launched"] = list(dict.fromkeys([*consent.get("launched", []), *trial_ids]))
+    return workspace.store.put("compute_consent", consent, "compute.consent_used")
 
 
 def _subjects(outcome):

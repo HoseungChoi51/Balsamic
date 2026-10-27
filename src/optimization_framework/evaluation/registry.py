@@ -6,6 +6,7 @@ RECHECK_SECONDS later), as the optimizer plug-ins do.
 from __future__ import annotations
 
 from importlib import import_module, invalidate_caches
+from importlib.metadata import entry_points
 from importlib.util import find_spec
 from pathlib import Path
 import threading
@@ -101,6 +102,13 @@ class ProblemRegistry:
             invalidate_caches()
             self._sync(current)
 
+    def refresh(self) -> list[str]:
+        """The ids after comparing with what is installed now, without waiting RECHECK_SECONDS: the installer calls it right
+        after uv sync, so that what an install added is read from this sync, not from a listing taken a moment before."""
+        with self._lock:
+            self._checked = 0.0
+            return self.ids()
+
     def register(self, name: str, loader: Callable):
         """Application installation hook; intentionally absent from the HTTP API."""
         if name in self._loaders:
@@ -119,6 +127,13 @@ class ProblemRegistry:
         self._recheck()
         return sorted(self._loaders)
 
+    def source(self, name: str) -> dict | None:
+        """The distribution and version an entry point came from, when it was discovered from one."""
+        if name not in self._entries:
+            return None
+        item = next(iter(entry_points(group=GROUP, name=name)), None)
+        return {"distribution": item.dist.name, "version": item.dist.version} if item is not None and item.dist is not None else None
+
     def extended(self, adapter):
         """Bind this exact adapter in a caller's scope, including an existing name.
 
@@ -130,6 +145,7 @@ class ProblemRegistry:
         registry._adapters = self._adapters.copy()
         registry._packs = self._packs.copy()
         name = adapter.describe().id
+        registry._entries = {key: value for key, value in self._entries.items() if key != name}   # for source() only
         registry._loaders[name] = lambda: lambda: adapter
         registry._adapters[name] = adapter
         registry._packs.pop(name, None)

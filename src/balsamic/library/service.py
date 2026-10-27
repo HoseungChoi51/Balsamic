@@ -58,6 +58,12 @@ def publish(workspace, campaign_id, values, *, command_id, actor):
     existing = [e for e in entries(workspace) if e["hypothesis_id"] == values.hypothesis_id]
     if existing:
         return {"entry_id": existing[-1]["id"], "entry": existing[-1], "already": True}
+    # Other campaigns reuse what is here: the best score passed the problem's fidelity check, or the researcher waived it (V3).
+    from optimization_framework.campaigns import promotion
+    fidelity = promotion.fidelity_state(workspace, hypothesis)
+    if fidelity["state"] not in promotion.OPEN:
+        raise ValueError("A library entry needs its best score to pass the problem's fidelity check, or your waiver. "
+                         + promotion.explain(fidelity, agent=False))
     signature = signature_of(workspace, campaign_id)
     trials = [t for t in store.list("trial", campaign_id) if t.get("hypothesis_id") == values.hypothesis_id]
     finalist = next((s for s in store.list("finalist_selection", campaign_id) if set(s.get("trial_ids", [])) & {t["id"] for t in trials}), None)
@@ -66,7 +72,8 @@ def publish(workspace, campaign_id, values, *, command_id, actor):
               "signature": {key: signature.get(key) for key in ("problem_id", "evaluator_version", "objective", "representation", "dimensions", "constraint_digest", "instance_digest", "charter_id")},
               "evidence": {"confirmation_protocol_id": (row.get("confirmation") or {}).get("protocol_id"), "race_id": (row.get("race") or {}).get("race_id"),
                            "finalist_selection_id": finalist["id"] if finalist else None, "best_score": row["best"]["score"], "best_basis": row["best"]["basis"], "interval": None,
-                           "seeds_won": (row.get("confirmation") or {}).get("seeds_won"), "worker_seconds": row["worker_seconds"], "trial_ids": row["trial_ids"]},
+                           "seeds_won": (row.get("confirmation") or {}).get("seeds_won"), "worker_seconds": row["worker_seconds"], "trial_ids": row["trial_ids"],
+                           "fidelity": promotion.record(fidelity)},
               "graph": {"thread_id": None, "round": row.get("round"), "stage": row["stage"], "parent_links": row.get("parent_links")},
               "notes": values.notes, "published_by": actor, "created_at": now()}
     record = store.put_immutable("library_entry", record, "library.published")

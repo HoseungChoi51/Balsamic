@@ -191,6 +191,23 @@ test('the researcher installs a delivered library from its card, after a confirm
   await expect(bindings).toContainText('started hypothesis_a seed 0: an approved run, by Balsamic');
 });
 
+test('an installed library that provides a problem names the problem it added', async ({ page }) => {
+  const submission = { id: 's1', commit: '2a3eb0899a', status: 'submitted', created_at: '2026-10-27T03:22:04Z', report,
+    manifest: { files: ['libraries/baking-order/pyproject.toml'] } };
+  const install = { id: 'library_install_1', submission_id: 's1', requested_at: '2026-10-27T04:00:00Z', finished_at: '2026-10-27T04:01:00Z',
+    status: 'installed', actor: 'balsamic', package: 'baking-order', version: '0.1.0', path: 'libraries/baking-order', changes: [],
+    entry_points: {}, problem_entry_points: { baking_order: 'baking_order.problem:Problem' }, methods_added: [], missing_methods: [],
+    problems_added: ['baking_order'], missing_problems: [] };
+  await mockWorkspace(page);
+  await page.route(`**/api/campaigns/${CAMPAIGN_ID}/implementation-workspaces`, route => route.fulfill({ json: { enabled: true, workspaces: [
+    { ...workspace, status: 'idle', outcome: { state: 'delivered', verdict: 'ready_with_limits', submission_id: 's1', commit: '2a3eb0899a', at: '2026-10-27T03:22:04Z' },
+      submissions: [submission], installs: [install] }] } }));
+  await page.goto(`/#t/${THREAD_ID}/hypotheses/implementations`);
+  const added = page.getByTestId('install-box').getByTestId('install-added');
+  await expect(added).toContainText('baking-order 0.1.0 · problems baking_order');
+  await expect(added).not.toContainText('methods');
+});
+
 test('a library the coding agent reported not ready installs only once the researcher says so; loose files cannot be installed', async ({ page }) => {
   const notReady = { ...report, verdict: 'not_ready', limitations: [], next_actions: [{ owner: 'lead', action: 'Fix the seed replay' }] };
   await mockWorkspace(page, { [`/api/campaigns/${CAMPAIGN_ID}/implementation-workspaces`]: { enabled: true, workspaces: [
