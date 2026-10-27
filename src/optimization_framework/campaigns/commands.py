@@ -65,7 +65,7 @@ class CommandService:
         self.packed = {}
         # Called with the receipt after a command completes (outside the transaction): lab events, placeholders.
         self.listeners = []
-        # Checked before an agent's command runs: guard(command, actor, campaign) raises to refuse (autopilot's cap).
+        # Checked before an agent's command runs: guard(command, actor, campaign) raises to refuse (the go-ahead, the request's mandate).
         self.guards = []
         # Nothing that computes longer than the researcher's go-ahead threshold starts from an agent without their go-ahead.
         from .compute_consent import register as register_compute_consent

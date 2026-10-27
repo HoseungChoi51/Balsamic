@@ -9,8 +9,8 @@ researcher's approval records a compute consent for that plan's worker time (and
 compute part. The command bus refuses an agent's work-starting command that is not
 covered (guard) and charges what it starts to the consent, or records the notice (listener); coding workspaces, their
 validations and analysis scripts are checked where they start. The researcher's own commands are never checked, and autopilot's
-compute cap, which the researcher set when switching it on, is autopilot's go-ahead. A request to do some work is not a go-ahead
-for its compute.
+go-ahead is the standing mandate its switch granted, with the cap the researcher set (mandates.py, R4). A request to do some work
+is not a go-ahead for its compute.
 
 A consent covers only the work its plan names (decision 4): a coding workspace for a proposal it names, a run or commission of
 such a proposal, and work for no proposal (a runtime profile, a validation) asked in the same researcher request. A plan that

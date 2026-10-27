@@ -28,7 +28,14 @@ passed, its envelope spent, or closed: decision 11) anything but answering, aski
 running goes on. A request's own newest mandate governs it (governing()); a standing one serves requests with none of their own.
 A request never narrows its own mandate, and has one Explore. The researcher's commands are never checked. When every run of a
 mandate with the stop condition all_runs_terminal has ended, it closes and the agent working for its request is told once
-(settle()); the researcher is told once when a mandate they granted ends."""
+(settle()); the researcher is told once when a mandate they granted ends.
+
+Autopilot is a standing mandate (R4, src/balsamic/autopilot/settings.py): Run the campaign for the request the researcher's switch
+opens in the autopilot thread, which every round carries. Its envelope is the compute cap, used by every allocation in the campaign
+since the switch (campaign_baseline_seconds), as the cap always counted, and its deadline the report date. The bus checks autopilot's
+commands (actor autopilot) as it checks the lead's; work that would take a mandate with an envelope of its own (no consent pays for
+it) past what is left is refused, by the charge estimate (estimate()), never less than the seconds a run, a continuation, an
+allocation or a batch's items state (the cap's own rule)."""
 from datetime import datetime, timedelta, timezone
 
 from optimization_framework.contracts.commands import PlannedRun
@@ -95,6 +102,28 @@ def classes_of(operation, payload=None):
     return {CLASSES[operation]}
 
 
+def stated(operation, payload):
+    """The worker seconds a command states it reserves, by the rule autopilot's cap guard had (R4): a run's, a continuation's or an
+    allocation's wall_seconds (else worker_seconds), a batch's items' worker_seconds (else wall_seconds); 0 when it states none."""
+    payload = payload if isinstance(payload, dict) else {}
+    if operation in {"trial.create", "trial.continue", "hypothesis.allocate"}:
+        return float(payload.get("wall_seconds") or payload.get("worker_seconds") or 0)
+    if operation == "intervention.batch":
+        return sum(float((item.get("payload") or {}).get("worker_seconds") or (item.get("payload") or {}).get("wall_seconds") or 0)
+                   for item in payload.get("items") or [] if isinstance(item, dict))
+    return 0.0
+
+
+def estimate(workspace, operation, payload):
+    """A command's charge estimate, checked against its mandate's envelope: the worker seconds it may compute
+    (compute_consent.estimate()), never less than what it states it reserves (stated()), so nothing autopilot's cap refused is
+    allowed. None when it starts no compute; UNKNOWN when that cannot be told and it states nothing."""
+    seconds, reserved = compute_consent.estimate(workspace, operation, payload), stated(operation, payload)
+    if seconds is None or seconds == compute_consent.UNKNOWN:
+        return reserved or seconds
+    return max(seconds, reserved)
+
+
 def envelope(workspace, campaign_id, template, compute=None):
     """A template's compute envelope: none for Answer, the go-ahead threshold in total for Explore (read now, so it follows the
     researcher's thresholds), the plan's own for Screen and Run the campaign."""
@@ -153,6 +182,8 @@ def read(workspace, row, current=None):
     else:
         compute = envelope(workspace, row["campaign_id"], row["template"], row.get("compute")).model_dump(exclude={"schema_version"})
         workspace_ids = list(dict.fromkeys([*row.get("workspace_ids", []), *row.get("opened", [])]))
+        if row.get("campaign_baseline_seconds") is not None:   # autopilot's cap (R4): every allocation in the campaign since the grant
+            used["worker_seconds"] = max(0.0, workspace.allocated_seconds(row["campaign_id"]) - row["campaign_baseline_seconds"])
     used = {"worker_seconds": 0.0, "coding_workspaces": 0, "model_usd": 0.0, **used}
     used["model_usd"] += model_spent(workspace, row)
     return Mandate(**{key: row.get(key) for key in ("id", "campaign_id", "root", "template", "classes", "plan", "hypothesis_ids", "runs",
@@ -276,10 +307,13 @@ def raise_model(workspace, mandate_id, model_usd, decision_id):
 
 
 def grant(workspace, campaign_id, template, *, root=None, granted_by="automatic", plan=None, hypothesis_ids=(), workspace_ids=(), runs=(),
-          compute=None, model_usd=None, deadline_at=None, stop_when=None, consent_id=None, status="active"):
+          compute=None, model_usd=None, deadline_at=None, stop_when=None, consent_id=None, status="active", campaign_baseline=None):
     """Record a mandate for a request (root; None for a standing one). Answer and Explore take their template's envelope and may be
     granted automatically. Screen and Run the campaign are the researcher's go-ahead (granted_by, a decision of this campaign),
-    with a compute envelope: the consent that is their compute part, or compute (worker_seconds, coding_workspaces)."""
+    with a compute envelope: the consent that is their compute part, or compute (worker_seconds, coding_workspaces). With
+    campaign_baseline (the campaign's allocated worker seconds at the grant), its use is every allocation since (autopilot's, R4)."""
+    if campaign_baseline is not None and compute is None:
+        raise ValueError("Only a mandate with a compute envelope of its own counts the campaign's allocations")
     if template not in TEMPLATES:
         raise ValueError("Unknown mandate template: " + str(template) + ". Choose one of " + ", ".join(TEMPLATES))
     if status not in {"proposed", "active"}:
@@ -312,7 +346,8 @@ def grant(workspace, campaign_id, template, *, root=None, granted_by="automatic"
            "model_usd": model_usd, "deadline_at": deadline_at,
            "stop_when": (stop_when if isinstance(stop_when, StopCondition) else StopCondition(**stop_when)).model_dump(exclude={"schema_version"}) if stop_when else None,
            "status": status, "granted_by": granted_by, "used": {"worker_seconds": 0.0, "coding_workspaces": 0, "model_usd": 0.0},
-           "opened": [], "launched": [], "consent_id": consent_id, "created_at": now()}
+           "opened": [], "launched": [], "consent_id": consent_id, "created_at": now(),
+           **({"campaign_baseline_seconds": float(campaign_baseline)} if campaign_baseline is not None else {})}
     read(workspace, row)   # a row that does not read as a mandate is never recorded
     workspace.store.put("mandate", row, "mandate.proposed" if status == "proposed" else "mandate.granted")
     return read(workspace, row)
@@ -374,7 +409,8 @@ def _ended(mandate):
 def require(workspace, campaign_id, root, classes, *, what, hypothesis_ids=(), seconds=None):
     """Refuse (ValueError) an agent's work that its request's mandate does not allow (R3): a class outside it; for a Screen mandate,
     work for a proposal it does not name; once it has ended, anything but answering, asking and recording (decision 11); past what
-    is left of an Answer or Explore envelope, unless a consent pays for the work. Returns the mandate, None for the default Explore."""
+    is left of an Answer or Explore envelope, unless a consent pays for the work, or of a go-ahead's envelope of its own (autopilot's).
+    Returns the mandate, None for the default Explore."""
     classes = set(classes)
     if not classes:
         return None
@@ -408,6 +444,13 @@ def require(workspace, campaign_id, root, classes, *, what, hypothesis_ids=(), s
             raise ValueError(f"{what} would compute for about {compute_consent._minutes(seconds)}, and {named} has "
                              f"{compute_consent._minutes(left)} of worker time left of {compute_consent._minutes(total)} in total. For more, propose "
                              "the request's mandate with mandate_propose, template screen; it goes to the researcher as one card.")
+    if mandate is not None and TEMPLATES[template]["go_ahead"] and not mandate.consent_id and seconds and seconds != compute_consent.UNKNOWN:
+        # An envelope of its own, which no consent pays for (autopilot's cap, R4): checked here, by what is left of it.
+        total = mandate.compute.worker_seconds
+        left = max(0.0, total - mandate.used.worker_seconds)
+        if seconds > left + 1e-6:
+            raise ValueError(f"{what} would reserve {seconds:g} s of worker time, and {named} has {left:g} s left of its compute cap of {total:g} s. "
+                             "Start nothing beyond the cap; only the researcher raises it.")
     return mandate
 
 
@@ -554,8 +597,9 @@ def approve(workspace, decision, explore_only=False):
 
 
 def register(bus):
-    """The bus checks an agent's command against its request's mandate (guard, require()), and Balsamic's planned runs against the
-    mandate whose consent they run under. A request's first command that starts work, from an agent, records the request's default,
+    """The bus checks an agent's command, autopilot's too (R4), against its request's mandate (guard, require(), with the charge
+    estimate()), and Balsamic's planned runs against the mandate whose consent they run under. A request's first command that starts
+    work, from an agent, records the request's default,
     Explore, when no mandate serves it; work an Answer or Explore mandate covers is charged to it, unless a consent pays for it
     (compute_consent.charge); every run started under a mandate is listed on it, for its stop condition."""
     from . import compute_consent as consents
@@ -569,11 +613,11 @@ def register(bus):
                 raise ValueError(f"The {LABELS[mandate.template]} mandate {mandate.id} that this planned run is approved under has ended "
                                  f"({_ended(mandate)}); Balsamic starts nothing more under it")
             return
-        if actor != "manager" or command.operation not in CLASSES:
+        if actor not in {"manager", "autopilot"} or command.operation not in CLASSES:
             return
         require(workspace, command.campaign_id, consents.request_root(workspace, command.origin), classes_of(command.operation, command.payload),
                 what=command.operation, hypothesis_ids=consents.proposals(workspace, command.operation, command.payload),
-                seconds=consents.estimate(workspace, command.operation, command.payload))
+                seconds=estimate(workspace, command.operation, command.payload))
 
     def listener(record):
         if record.get("actor") != "manager" or record.get("status") != "completed":
@@ -597,7 +641,7 @@ def register(bus):
             if trials and row is not None and set(trials) - set(row.get("launched", [])):
                 row["launched"] = list(dict.fromkeys([*row.get("launched", []), *trials]))
                 workspace.store.put("mandate", row, "mandate.launched")
-            seconds = consents.estimate(workspace, operation, payload)
+            seconds = estimate(workspace, operation, payload)
             if found.consent_id or found.template not in {"answer", "explore"} or not seconds or seconds == consents.UNKNOWN:
                 return
             notice, gate = consents.thresholds(workspace, campaign_id)
