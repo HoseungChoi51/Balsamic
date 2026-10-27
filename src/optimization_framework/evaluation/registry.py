@@ -102,6 +102,13 @@ class ProblemRegistry:
             invalidate_caches()
             self._sync(current)
 
+    def refresh(self) -> list[str]:
+        """The ids after comparing with what is installed now, without waiting RECHECK_SECONDS: the installer calls it right
+        after uv sync, so that what an install added is read from this sync, not from a listing taken a moment before."""
+        with self._lock:
+            self._checked = 0.0
+            return self.ids()
+
     def register(self, name: str, loader: Callable):
         """Application installation hook; intentionally absent from the HTTP API."""
         if name in self._loaders:

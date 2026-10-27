@@ -59,8 +59,7 @@ NAMES_A_DOMAIN = {
     "evaluation/legacy_confirmation.py", "execution/observability.py", "execution/racing.py", "execution/rcwa_memory.py",
     "execution/worker.py", "implementations/api.py", "implementations/bridge.py", "implementations/client.py",
     "implementations/models.py", "implementations/protected_diagnostics.py", "implementations/runtime.py", "installed.py",
-    "optimizers/binary.py", "optimizers/fourier_specs.py", "optimizers/registry.py", "problem_import/guideline.md",
-    "reports/evidence.py",
+    "optimizers/binary.py", "problem_import/guideline.md", "reports/evidence.py",
 }
 
 
