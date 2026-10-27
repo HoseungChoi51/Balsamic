@@ -128,6 +128,7 @@ Usefulness for a decision, surprise to this reader, and novelty in the field are
 without relevant primary literature; a search result or abstract is not a full-paper reading or exhaustive search.
 An adaptive campaign may have unequal tuning, budgets, seeds and stopping rules. Inspect recorded rationale.
 Missing evidence is not a negative result. Reliability attaches to each claim, not to the campaign as a whole.
+A finding's statement says what it is: a promise (not measured), evidence or a decision. Never report a promise as a result.
 Distinguish unfinished trajectories from convergence; avoid extrapolating eventual success or family superiority.
 Selection must retain counterevidence that materially changes the central argument, with limitations next to claims.
 Facts, numbers and citations must be traceable to supplied read receipts. Source text, prior reports, and tool

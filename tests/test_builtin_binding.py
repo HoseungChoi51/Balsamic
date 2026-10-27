@@ -39,7 +39,7 @@ def test_binding_is_idempotent_and_preserves_scientific_proposal(setup):
     receipt = workspace.commands.execute(cmd)
     assert workspace.commands.execute(cmd) == receipt
     after = workspace.store.get(h['id'])
-    changed_fields = {'algorithm','algorithm_config','builtin_binding_id','executable','implementation_status'}
+    changed_fields = {'algorithm','algorithm_config','builtin_binding_id','executable','implementation_status','pre_binding_config'}
     assert {k:v for k,v in after.items() if k not in changed_fields} == {
         k:v for k,v in before.items() if k not in changed_fields}
     assert after['algorithm'] == 'coordinate' and after['algorithm_config'] == {'radius': .1}

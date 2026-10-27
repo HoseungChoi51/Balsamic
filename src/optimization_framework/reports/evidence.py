@@ -7,6 +7,7 @@ import json
 import math
 
 from optimization_framework.contracts.base import content_hash
+from optimization_framework.campaigns.findings import FINDING_KINDS, normalized
 from optimization_framework.campaigns.record_view import view_record
 from optimization_framework.llm.adapter import _safe_context
 from optimization_framework.storage.sqlite import now
@@ -49,6 +50,13 @@ def freeze(workspace, job_id, campaign_id, supplied, references):
                 records[row["id"]], kinds[row["id"]] = row, kind
         for row in store.list("source", campaign_id):
             records[row["id"]], kinds[row["id"]] = row, "source"
+        # A finding keeps what it states and its links, so a report keeps a promise apart from a result.
+        for row in store.list("manager_note", campaign_id):
+            if row.get("kind") in FINDING_KINDS:
+                if references_withheld(row):
+                    gaps.append("One finding citing unreleased evidence was withheld.")
+                    continue
+                records[row["id"]], kinds[row["id"]] = normalized(row), "finding"
         # Studies/decisions may reference embargoed trials. Reuse only records with
         # no locked scope and with every explicit task/trial reference admitted above.
         for row in store.list("study", campaign_id):
@@ -68,7 +76,7 @@ def freeze(workspace, job_id, campaign_id, supplied, references):
             records["supplied-evidence"], kinds["supplied-evidence"] = supplied, "supplied"
     missing = [key for key in references if key not in records]
     if missing:
-        raise ValueError("Not in this campaign's report evidence (runs, hypotheses, decisions, sources, studies, agents' records): " + ", ".join(missing[:5]))
+        raise ValueError("Not in this campaign's report evidence (runs, hypotheses, decisions, sources, findings, studies, agents' records): " + ", ".join(missing[:5]))
     if len(records) > 3000 or len(json.dumps(records).encode()) > 20_000_000:
         raise ValueError("Campaign evidence exceeds the report snapshot limit; use a scoped evidence file through the report CLI")
     trials = [key for key in records if kinds[key] == "trial"]
@@ -93,7 +101,7 @@ def freeze(workspace, job_id, campaign_id, supplied, references):
 def summary(row):
     if isinstance(row, dict):
         keys = ("name", "title", "objective", "status", "algorithm", "task_id", "seed", "max_steps", "wall_seconds",
-                "progress", "result", "reason", "coverage", "row_count", "fields")
+                "progress", "result", "reason", "coverage", "row_count", "fields", "statement", "links", "content")
         text = json.dumps({key: row[key] for key in keys if key in row}, ensure_ascii=False)
         if text == "{}":
             text = "Fields: " + ", ".join(row.keys())
