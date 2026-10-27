@@ -28,7 +28,7 @@ DELEGATED = {"trial.create", "draft.save", "draft.launch", "reproduction.draft",
              "implementation.commission", "implementation.attach", "evaluator.commission", "evaluator.attach", "implementation.control", "implementation.revalidate", "implementation.reuse", "implementation.resolve_runtime", "literature.search", "source.ingest", "confirmation.schedule", "confirmation.validate", "confirmation.release", "asset.import_reference_set"}
 
 
-DELEGATED.update({"fixed_mask.run", "hypothesis.create", "hypothesis.review", "hypothesis.status",
+DELEGATED.update({"hypothesis.create", "hypothesis.review", "hypothesis.status",
                   "trial.control", "study.create", "study.activate", "implementation.bind_builtin"})
 DELEGATED.update({"study.race.control", "study.race.decide"})
 DELEGATED.add("asset.snapshot")
@@ -58,6 +58,8 @@ class CommandService:
         # Operations the service layer adds (threads, notes, interventions, autopilot, library): handler(command, actor) -> outcome.
         self.handlers, self.models = {}, {}
         self.delegated = set(DELEGATED)
+        # Operations registered by a problem pack: operation -> the pack's package.
+        self.packed = {}
         # Called with the receipt after a command completes (outside the transaction): lab events, placeholders.
         self.listeners = []
         # Checked before an agent's command runs: guard(command, actor, campaign) raises to refuse (autopilot's cap).
@@ -71,13 +73,16 @@ class CommandService:
         # Set by the service layer: thread_revision(command) -> the current revision of the command's origin thread.
         self.thread_revision = None
 
-    def register(self, operation, handler, *, model=None, delegable=False):
-        """Add an operation to the bus. Its name must be a declared Operation (contracts/commands.py)."""
+    def register(self, operation, handler, *, model=None, delegable=False, pack=None):
+        """Add an operation to the bus. Its name must be a declared Operation (contracts/commands.py). An operation a problem
+        pack registers names the pack's package, and runs only in campaigns that have that pack (roadmap N4)."""
         from typing import get_args
         from optimization_framework.contracts.commands import Operation
         if operation not in get_args(Operation):
             raise ValueError(f"{operation} is not a declared command operation")
         self.handlers[operation] = handler
+        if pack is not None:
+            self.packed[operation] = pack
         if model is not None:
             self.models[operation] = model
         if delegable:
@@ -147,12 +152,11 @@ class CommandService:
         from .experiment_rules import ExperimentRulesInput, TrialHideInput
         from optimization_framework.execution.admission import ResourcePlanInput, UsageEstimateInput
         from optimization_framework.agents.models import Activate, Configure, Message, Control, QuestionDismiss, Rollback, UiRespond
-        from optimization_framework.agents.diagnostics import FixedMaskInput
         from optimization_framework.implementations.references import ReferenceInput
         from optimization_framework.implementations.builtin import BuiltinBindingInput
         models = {"agent.activate": Activate, "agent.message": Message, "agent.control": Control, "agent.rollback": Rollback,
             "agent.configure": Configure, "agent.question_dismiss": QuestionDismiss, "agent.ui_respond": UiRespond,
-            "fixed_mask.run": FixedMaskInput, "comparison.report": ComparisonReportInput, "campaign.create": CampaignInput, "campaign.update": CampaignUpdateInput,
+            "comparison.report": ComparisonReportInput, "campaign.create": CampaignInput, "campaign.update": CampaignUpdateInput,
             "context.edit": ContextEditInput, "issue.resolve": IssueResolveInput,
             "hypothesis.create": HypothesisInput, "hypothesis.review": HypothesisReviewInput,
             "hypothesis.status": HypothesisStatusInput, "hypothesis.nominate": HypothesisNominateInput,
@@ -187,8 +191,15 @@ class CommandService:
             "confirmation.validate": ConfirmationScheduleInput}
         return {**models, **self.models}
 
+    def packages(self, campaign_id):
+        """The packages of the campaign's problem packs; their hooks have registered its operations when this returns."""
+        packs = getattr(self.workspace, "packs", None)
+        return packs.packages(campaign_id) if packs is not None else set()
+
     def execute(self, command, *, actor="researcher", ignored_fields=()):
         command = command if isinstance(command, Command) else Command(**command)
+        if command.operation not in self.handlers and command.operation not in self.payload_models():
+            self.packages(command.campaign_id)   # an operation of the campaign's packs is registered before it is checked
         try:
             prepared = None
             if command.operation == "hypothesis.create" and command.payload.get("implementation_version_id"):
@@ -344,6 +355,9 @@ class CommandService:
         payload = dict(command.payload)
         if payload.get("campaign_id", command.campaign_id) != command.campaign_id:
             raise ValueError("Command payload refers to another campaign")
+        if command.operation in self.packed and self.packed[command.operation] not in self.packages(command.campaign_id):
+            raise ValueError(f"{command.operation} comes with the problem pack {self.packed[command.operation]}, and none of this "
+                             "campaign's problems declares it")
         if command.operation in self.handlers:
             return self.handlers[command.operation](command, actor)
         if command.operation == "agent.activate":
@@ -360,9 +374,6 @@ class CommandService:
             return self.workspace.pi.dismiss_question(command.campaign_id, payload)
         if command.operation == "agent.ui_respond":
             return self.workspace.pi.ui_respond(command.campaign_id, payload)
-        if command.operation == "fixed_mask.run":
-            from optimization_framework.agents.diagnostics import reserve
-            return reserve(self.workspace, command.campaign_id, payload, command.id)
         if command.operation in {"hypothesis.create", "hypothesis.review", "hypothesis.status", "hypothesis.nominate"}:
             from optimization_framework.campaigns import hypotheses
             if command.operation == "hypothesis.create":
