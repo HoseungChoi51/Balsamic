@@ -22,7 +22,7 @@ ROLES = (LEAD, "literature_specialist", "methodology_specialist", "cross_domain_
 PAGE_OBJECTIVES = {
     "discussion_moderator": "Run the review of this campaign's proposals when the researcher or the lead agent asks: ask specialists and "
         "reviewers (delegate) for their views and verdicts on the proposals named, have proposals revised where the verdicts ask for it, "
-        "set each proposal's status, and report a short synthesis: which proposals stand, which were revised or rejected, and why.",
+        "set each proposal's status, and record a short synthesis with review_synthesis: which proposals stand, which were revised or rejected, and why.",
     "experiment_operator": "Run this campaign's experiments when the researcher or the lead agent asks: design, start, watch, pause, extend "
         "and stop runs within the campaign's allocations, find out why a run failed from its records and files, and report what ran and "
         "what it measured.",

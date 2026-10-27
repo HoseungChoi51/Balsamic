@@ -151,8 +151,16 @@ def review_round(turn):
             for role in ("skeptical_domain_analyst", "proposal_reviewer"):
                 turn.call("delegate", role=role, objective="Review the proposal on Hypotheses: how could it fail here, and should it be tested?", request_key=role)
             return turn.finish("", summary="Asked a skeptical analyst and a reviewer", disposition="waiting")
-        result = turn.call("yield_work", disposition="complete", summary="Reviewed", report="The skeptical analyst found two high-severity "
-                           "failure modes; the reviewer rejected the proposal. See [Review rounds](#hypotheses/rounds).", evidence_ids=[])
+        close = dict(disposition="complete", summary="Reviewed", report="The skeptical analyst found two high-severity failure modes; "
+                     "the reviewer rejected the proposal. See [Review rounds](#hypotheses/rounds).", evidence_ids=[])
+        result = turn.call("yield_work", **close)
+        if "review_synthesis" in str(result.get("error", "")):
+            # Every assistant has answered: the round's synthesis follows the reviewer's verdict (T2), then the round closes.
+            hypothesis = turn.call("campaign_inspect")["hypotheses"][0]
+            turn.call("review_synthesis", summary="The proposal is rejected: its lane is not installed and its mechanism is binary on a continuous task.",
+                      proposals=[{"hypothesis_id": hypothesis["id"], "standing": "rejected", "reason": "The reviewer rejected it, and the "
+                                  "skeptical analyst found two high-severity failure modes."}])
+            result = turn.call("yield_work", **close)
         return "Reviewed." if result.get("saved") else turn.finish("", summary="Waiting for the other assistant", disposition="waiting")
     match = re.search(r"agent run (\S+)", turn.text)
     if turn.notice and match:

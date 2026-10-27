@@ -104,10 +104,10 @@ def test_the_register_holds_the_seeded_guarantees():
     register = rows(REGISTER.read_text(encoding="utf-8"))
     states = {row["State"] for row in register}
     assert len(register) >= 25 and states == STATES
-    # The guarantees the roadmap's part I1 seeded, by where they are enforced or which part closes them.
+    # The guarantees the roadmap's part I1 seeded, by where they are enforced or which part closes them (T2 closed INV-13's, now in PiTools.synthesis()).
     text = REGISTER.read_text(encoding="utf-8")
     for anchor in ("compute_consent.py", "_request", "INSTRUCTIONS", "page_work", "cap_guard()", "guidance_pin", "_within_llm_budget()",
-                   "readiness()", "| T1 |", "| T2 |", "| V1 |", "| V2 |", "| V3 |", "freeze()", "| V4 |", "| K2 |",
+                   "readiness()", "| T1 |", "PiTools.synthesis()", "| V1 |", "| V2 |", "| V3 |", "freeze()", "| V4 |", "| K2 |",
                    "library/service.py", "findings.py", "library_install.py", "| H6 |", "network.sh", "| H5 |", "test_layering.py",
                    "| N1 |", "test_harness_contract.py"):
         assert anchor in text, anchor

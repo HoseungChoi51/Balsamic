@@ -20,6 +20,7 @@ from . import tiers
 from .models import (Activate, Configure, Message, Control, QuestionDismiss, UiRespond, ROLES, LEAD, STANDING_OBJECTIVE, FORMER_OBJECTIVE, NOTICE,
     PAGE_AGENTS, PAGE_OBJECTIVES, STANDING, DISCUSSION_ROLES)
 from .tools import step_label
+from .discussions import synthesis_notice
 
 ACTIVE = {"queued", "submitted", "running"}
 TERMINAL = {"completed", "failed", "stopped", "interrupted"}
@@ -854,13 +855,14 @@ class PiController:
                         ended = run["status"] != "completed" or (run.get("disposition") or {}).get("disposition") in {"complete", "handoff"}
                         later = any(other["status"] == "queued" for other in self.store.list_agent_runs(agent_id) if other["id"] != rid)
                         if ended and not later and agent.get("request_open"):
+                            synthesis = synthesis_notice(self.store, agent) if agent["role"] == "discussion_moderator" else ""
                             agent.update(request_open=False, request_changed_at=now())
                             if agent.get("requested_by") == agent["parent_agent_id"]:
                                 parent = self.store.get(agent["parent_agent_id"], "agent_session")
                                 self.enqueue(parent, "pi_child_result_" + content_hash(rid)[:28], NOTICE +
                                     f"The {agent['role'].replace('_', ' ')} ({agent_id}) finished the request you sent it, with status {run['status']}. "
                                     f"Read agent run {rid} and what it saved, and use them for the researcher's request; a completed response is "
-                                    "not proof of scientific completion.", root=agent.get("assignment_origin"))
+                                    "not proof of scientific completion." + synthesis, root=agent.get("assignment_origin"))
                     elif agent["parent_agent_id"] and delivered:
                         parent = self.store.get(agent["parent_agent_id"], "agent_session")
                         self.enqueue(parent, "pi_child_result_" + content_hash(rid)[:28], NOTICE +

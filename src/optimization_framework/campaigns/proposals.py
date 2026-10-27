@@ -62,14 +62,57 @@ def _record(workspace, identity, kind):
         return None
 
 
-def readiness(store, hypothesis):
-    if not hypothesis or not hypothesis.get("requires_concept_review"):
-        return {"state": "not_required", "eligible": True, "review_ids": []}
+def latest_reviews(store, hypothesis):
+    """The reviews of the exact current revision, the latest of each reviewer."""
     reviews = [row for row in store.list("agent_artifact", hypothesis["campaign_id"])
         if row.get("kind") == "proposal_review" and row["content"].get("hypothesis_id") == hypothesis["id"]
         and row["content"].get("hypothesis_hash") == hypothesis_revision(hypothesis)]
     # A reviewer's later review of this revision replaces its own earlier one; another reviewer's objection still stands.
-    reviews = list({row.get("agent_id"): row for row in sorted(reviews, key=lambda row: row.get("created_at", ""))}.values())
+    return list({row.get("agent_id"): row for row in sorted(reviews, key=lambda row: row.get("created_at", ""))}.values())
+
+
+def tally(store, hypothesis):
+    """What the reviewers say of the exact current revision, by the rule readiness() uses: the counts of each verdict and
+    the review ids, each with its verdict."""
+    verdicts = {row["id"]: row["content"]["verdict"] for row in latest_reviews(store, hypothesis)}
+    return {"hypothesis_id": hypothesis["id"], "hypothesis_hash": hypothesis_revision(hypothesis),
+            **{verdict: sum(value == verdict for value in verdicts.values()) for verdict in VERDICTS}, "verdicts": verdicts}
+
+
+VERDICTS = ("test", "revise", "reject")
+STANDINGS = ("stands", "revise", "rejected", "undecided")
+
+
+def overridden(counted, standing, *, stopped=False, revised=False):
+    """The reviews a moderator's standing goes against, or None when the tally supports it (T2). Stands needs no objection;
+    rejected a reject verdict or a stop; revise a revise or reject verdict, or a linked revision created in the round;
+    undecided always holds."""
+    verdicts = counted["verdicts"]
+    if standing == "stands":
+        against = [key for key, verdict in verdicts.items() if verdict != "test"]
+        return against or None
+    if standing == "rejected":
+        return None if counted["reject"] or stopped else [key for key, verdict in verdicts.items() if verdict != "reject"]
+    if standing == "revise":
+        return None if counted["revise"] or counted["reject"] or revised else [key for key in verdicts]
+    return None
+
+
+def status_overridden(counted, status):
+    """The reviews a status the moderator sets goes against: investigating (or finalist) over an objection, or archived
+    when every verdict says test. None when nothing is against it, or no reviewer has spoken."""
+    verdicts = counted["verdicts"]
+    if status in {"investigating", "finalist"} and (counted["revise"] or counted["reject"]):
+        return [key for key, verdict in verdicts.items() if verdict != "test"]
+    if status == "archived" and verdicts and counted["test"] == len(verdicts):
+        return list(verdicts)
+    return None
+
+
+def readiness(store, hypothesis):
+    if not hypothesis or not hypothesis.get("requires_concept_review"):
+        return {"state": "not_required", "eligible": True, "review_ids": []}
+    reviews = latest_reviews(store, hypothesis)
     objections = [row for row in reviews if row["content"]["verdict"] != "test"]
     if hypothesis.get("requested_by") or hypothesis.get("approved_by"):
         # The researcher's request or go-ahead stands in for the review: one that exists is shown, and an objection does not block.

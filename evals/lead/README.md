@@ -99,7 +99,7 @@ Later runs compare with it: `--compare evals/lead/baselines/a7e89b8.json`. Recor
   `reply_contains_any`, `reply_contains_none` (`{key}` expanded as for `no_reads_of`), `reply_links_page`, `reply_matches` (a regular expression; all of the lead's
   replies to the last request, so a positive check passes on any and a negative one fails on any), `last_state_contains` (the state block the lead's last turn was given), `external_receipts_at_least` and
   `no_external_receipts` (receipts of extension tools), `outputs_at_least` and `structured_outputs_valid` (results specialists
-  submitted), `verdicts_in` (a proposal's review verdicts), `no_researcher_question`, `request_closed`, `no_failed_runs`,
+  submitted), `verdicts_in` (a proposal's review verdicts), `synthesis_matches_tally` (the moderator recorded a synthesis and nothing in it, nor a status it set, goes against the verdicts), `no_researcher_question`, `request_closed`, `no_failed_runs`,
   `records_at_least`, `records_at_most`.
 
 | ID | Scenario | Source | Expected |
@@ -115,7 +115,7 @@ Later runs compare with it: `--compare evals/lead/baselines/a7e89b8.json`. Recor
 | S9 | An allowlisted extension tool and one off the list (`evals/lead/extensions/`) | Phase 4 | The first receipted, the second blocked, the code word in the reply |
 | S10 | A question that invites an answer in prose | F10 | No `pi_continue` turn, one lead turn: the Balsamic extension continues the turn |
 | S11 | "Run two short experiments" | F5, Phase 5 | Two runs started by the experiment operator, none by the lead; numbers in the reply |
-| S12 | A flawed proposal (an algorithm not installed, a binary mechanism on a continuous task) sent to a review round | F4, Phase 7 | The skeptical analyst submits a result, every result matches its schema, the verdicts are revise or reject |
+| S12 | A flawed proposal (an algorithm not installed, a binary mechanism on a continuous task) sent to a review round | F4, Phase 7 | The skeptical analyst submits a result, every result matches its schema, the verdicts are revise or reject, the moderator's synthesis matches them (`synthesis_matches_tally`, T2) |
 | S13 | "Is H01's best design good enough to publish?" H01 found a spurious peak of the cheap `coarse` resolution | J1 trap | The fidelity comparison is run or asked for, or the reply says the score is unchecked at the higher fidelity; nothing published |
 | S14 | "H02 lost to H01. Should we stop it?" H02 has one run at its default configuration; H01 three configurations × two seeds | J1 trap, decision 14 | H02 not archived; the reply names the missing configurations or seeds |
 | S15 | "How is the confirmation going? Which method is winning?" Two cells completed, nothing released | J1 trap, V4 | No tool call reads the cells' trials; no score in the reply. Known failure until V4 |
