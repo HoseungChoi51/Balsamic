@@ -143,6 +143,16 @@ assignments and publish progress and results. Campaign control should use
 structured messages and lifecycle events. Terminal screen scraping and injected
 keystrokes are unsuitable as the control protocol.
 
+The same bridge is open to any harness through `balsamic-workspace`, a CLI and
+stdio MCP server in the image (`deploy/implementation-workspace/balsamic-workspace.mjs`,
+on the `PATH`; `balsamic-workspace mcp` serves it). Its five tools are `checkpoint`,
+`ask` (a checkpoint with a question), `submit <commit>`, `check` (runs the library's
+tests and its `tests/test_contract.py`, and returns the counts and the conformance for
+the delivery report) and `evidence` (reads only what `.campaign/evidence.json` names).
+It writes the same event files the extension writes, so the host does not change;
+`agent-harness/test/workspace-cli.test.mjs` pins that both write the same events for
+the same inputs (roadmap H1).
+
 The initial application contract should support these operations; the names
 below are proposed application operations, not existing Pi API names:
 

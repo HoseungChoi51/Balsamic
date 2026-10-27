@@ -1,5 +1,7 @@
 /** One native Pi TUI owns this implementation session. The host only exchanges
- * immutable command and event files across the workspace boundary. */
+ * immutable command and event files across the workspace boundary. Other harnesses write the same events with
+ * balsamic-workspace (deploy/implementation-workspace/balsamic-workspace.mjs); keep the two in step
+ * (agent-harness/test/workspace-cli.test.mjs). */
 import {StringEnum, Type} from '@earendil-works/pi-ai';
 import {defineTool, type ExtensionAPI} from '@earendil-works/pi-coding-agent';
 import fs from 'node:fs';
