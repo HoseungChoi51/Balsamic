@@ -149,7 +149,7 @@ def test_the_register_holds_the_seeded_guarantees():
     # The guarantees the roadmap's part I1 seeded, by where they are enforced or which part closes them (T2 closed INV-13's, now in PiTools.synthesis()).
     text = "\n".join(files.values())
     for anchor in ("compute_consent.py", "_request", "INSTRUCTIONS", "page_work", "grant_mandate()", "guidance_pin", "_within_llm_budget()",
-                   "readiness()", "| T1 |", "PiTools.synthesis()", "| V1 |", "| V2 |", "promotion.py", "freeze()", "| V4 |", "| K2 |",
+                   "readiness()", "| T1 |", "PiTools.synthesis()", "stop_record()", "| V2 |", "promotion.py", "freeze()", "| V4 |", "analysis/claims.py",
                    "library/service.py", "findings.py", "library_install.py", "library_validation.py", "network.sh", "reach_deadline()", "test_layering.py",
                    "NAMES_A_DOMAIN", "test_harness_contract.py"):
         assert anchor in text, anchor

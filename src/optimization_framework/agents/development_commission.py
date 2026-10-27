@@ -124,6 +124,20 @@ def test_the_evaluator_agrees_with_each_independent_fixture(case):
 '''
 
 
+def with_problem(workspace, campaign_id, hypothesis, spec):
+    """A spec that names no problem is for its hypothesis's problem or, failing that, the one problem all the campaign's
+    current tasks are on; refused when that is not one problem (there is no default problem, roadmap N7)."""
+    if spec.get("problem_id"):
+        return spec
+    problem_id = hypothesis.get("problem_id")
+    if not problem_id:
+        ids = {(task.get("problem") or {}).get("definition_id") for task in workspace.current_tasks(campaign_id)}
+        problem_id = ids.pop() if len(ids) == 1 else None
+    if not problem_id:
+        raise ValueError("Name the spec's problem_id: the campaign's tasks are not all on one problem")
+    return {**spec, "problem_id": problem_id}
+
+
 def commission(workspace, command, actor):
     """Open the commission's headless box (the bus's implementation.commission and evaluator.commission, through
     ImplementationBridge.commission()), or refuse with refusal()'s reason. The outcome names the box and its ticket."""
@@ -148,7 +162,8 @@ def commission(workspace, command, actor):
         hypothesis = store.get(values.hypothesis_id, "hypothesis")
         if hypothesis["status"] in {"archived", "finalist"}:
             raise ValueError("Revive or fork this idea before commissioning implementation work")
-        spec = (BoundOptimizerSpec if values.spec.get("evaluator_version_id") else ImplementationSpec).model_validate(values.spec)
+        spec = (BoundOptimizerSpec if values.spec.get("evaluator_version_id") else ImplementationSpec).model_validate(
+            with_problem(workspace, command.campaign_id, hypothesis, values.spec))
         key = values.service_idempotency_key or command.id
     frozen = spec.model_dump(mode="json")
     workspace.implementations.check_self_contained(frozen)

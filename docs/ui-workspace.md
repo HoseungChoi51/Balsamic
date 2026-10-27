@@ -438,8 +438,11 @@ strategy; an asset's producers.
 
 **Lineage.** `HypothesisInput` gains `parent_links [{id, kind revision|variant|hybrid|inspired_by}]`, `round` and
 `library_entry_id`; `parent_ids` stays and the two are kept consistent (plain parents become revision links, or hybrid
-links when there are several). `hypothesis.status archived` records `stop_reason` and `stopped_at`, and holds the
-strategy's configuration in any active race (`study.race.decide hold`), so the race spends nothing more on it.
+links when there are several). `hypothesis.status archived` records `stop_reason`, `stopped_at` and `stop {outcome, evidence_ids,
+reason, by, at}`, and holds the strategy's configuration in any active race (`study.race.decide hold`), so the race spends
+nothing more on it. An agent's stop names one of the six stop outcomes (roadmap decision 13) and the visible records it
+rests on; the researcher's may name none (`researcher_decision`), and a stop from before outcomes reads `unspecified`. The
+ledger, the lineage, the away digest and the strategy card show the outcome in words ("stopped: under-evaluated").
 
 **Interventions.** `hypothesis.allocate {hypothesis_id, worker_seconds, rationale, replicate?}` (delegable within the
 delegated per-run allowance): a race decision (extend or replicate) when a configuration is bound, else a continuation

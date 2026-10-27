@@ -53,7 +53,7 @@ class ImplementationSpec(Contract):
     mechanism: str = Field(min_length=1, max_length=20000)
     acceptance_criteria: list[str] = Field(min_length=1, max_length=30)
     capabilities: list[str] = Field(default_factory=lambda: ["binary_forward"])
-    problem_id: str = "meent_grating"
+    problem_id: str = Field(min_length=1, max_length=200)   # required: the problem the implementation is validated for
     problem_configuration: dict[str, Any] = Field(default_factory=dict)
     supports_constraints: bool = False
     supports_failure_observations: bool = False

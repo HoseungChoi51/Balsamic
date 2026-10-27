@@ -884,6 +884,9 @@ class PiController:
                             **({"entry_id": entry_ids["last"]} if entry_ids.get("last") else {}),
                             **({"desk": agent["role"]} if agent["role"] in PAGE_AGENTS else {}),
                             **({"parts": parts} if len(parts) > 1 else {}), **({"to_agent_id": run["asked_by"]} if run.get("asked_by") else {}),
+                            # The reply's numbers that nothing its request read holds (K2): a badge on the message.
+                            **({"unverified_numbers": run["disposition"]["unverified_numbers"]}
+                               if report and (run.get("disposition") or {}).get("unverified_numbers") else {}),
                             **turn_marks(run)}, "message.created")
                     delivered = (run.get("result") or {}).get("delivery") != "steering_queued"
                     if agent["role"] in PAGE_AGENTS and delivered:

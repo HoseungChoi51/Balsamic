@@ -18,7 +18,8 @@ def app(tmp_path, monkeypatch):
     return create_app(tmp_path, start_workers=False)
 
 
-def scripted_model(monkeypatch, *, question=None, blocking=False, fail_stage=None, science_reads=False, forged=False):
+def scripted_model(monkeypatch, *, question=None, blocking=False, fail_stage=None, science_reads=False, forged=False,
+                   claim="The short campaign does not establish general superiority."):
     calls = []
     def respond(adapter, role, system, content, *, result_type):
         calls.append({"role": role, "content": deepcopy(content), "schema": result_type.__name__})
@@ -35,7 +36,7 @@ def scripted_model(monkeypatch, *, question=None, blocking=False, fail_stage=Non
             if not receipts:
                 return Investigation(requests=[EvidenceRead(tool="evidence.read", record_id="supplied-evidence")], coverage="Need to inspect the saved results.")
             return Investigation(coverage="Uneven exploratory evidence; no family-wide ranking.", claims=[{
-                "id": "c1", "statement": "The short campaign does not establish general superiority.", "kind": "inference",
+                "id": "c1", "statement": claim, "kind": "inference",
                 "support": ["invented" if forged else receipts[0]["id"]], "reliability": "Limited to recorded budgets",
                 "limitations": "Unequal tuning and unfinished learning", "interest": "Practical decision under current budget",
                 "novelty": "Not established by these runs"}], missing_evidence=["Matched budgets and completed learning curves"],
