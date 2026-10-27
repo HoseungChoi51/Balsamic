@@ -282,6 +282,9 @@ class ApprovalRequestInput(Contract):
     wall_seconds: float | None = Field(default=None, gt=0, le=604800, description="compute: how long until the researcher has the results")
     worker_seconds: float | None = Field(default=None, gt=0, le=2419200, description="compute: the worker time the plan may use in all")
     coding_workspaces: int = Field(default=0, ge=0, le=10, description="compute: coding workspaces the plan opens")
+    hypothesis_ids: list[str] = Field(default_factory=list, max_length=50, description="compute: the proposals the plan is for. "
+        "The go-ahead then covers only their workspaces, runs and commissions, with those its runs name; work for no proposal is "
+        "covered in this request only. A plan that names none covers any work in the campaign")
     meanwhile: str | None = Field(default=None, min_length=1, max_length=2000, description="compute: what the researcher can do while it runs")
     runs: list[PlannedRun] = Field(default_factory=list, max_length=50, description="compute for experiments: each planned experiment, "
         "so the researcher reads the plan (speed, evaluations, outputs and disk use, measured on earlier runs) before approving")
@@ -294,8 +297,8 @@ class ApprovalRequestInput(Contract):
             raise ValueError("Give exactly the fields of the chosen kind: limits, requirement_id with evidence_ids, workers, or a compute plan")
         if self.kind == "compute" and (self.wall_seconds is None or self.worker_seconds is None or self.meanwhile is None):
             raise ValueError("A compute plan states wall_seconds, worker_seconds and what the researcher can do meanwhile")
-        if self.runs and self.kind != "compute":
-            raise ValueError("Planned runs belong to a compute request")
+        if (self.runs or self.hypothesis_ids) and self.kind != "compute":
+            raise ValueError("Planned runs and the proposals a plan is for belong to a compute request")
         if set(self.limits) - set(LIMITS):
             raise ValueError("Unknown campaign limit: " + ", ".join(sorted(set(self.limits) - set(LIMITS))))
         if self.kind == "waiver" and not self.evidence_ids:

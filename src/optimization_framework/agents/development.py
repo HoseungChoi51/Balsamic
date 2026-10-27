@@ -301,7 +301,7 @@ class DevelopmentWorkspaces:
             from optimization_framework.campaigns import compute_consent
             consent = None
             if actor != "researcher":
-                consent = compute_consent.require(self.workspace, campaign_id, "Opening a coding workspace", coding=1)
+                consent = compute_consent.require(self.workspace, campaign_id, "Opening a coding workspace", coding=1, hypothesis_ids=served)
             for evidence_id in values.evidence_ids:
                 self.evidence(campaign_id, evidence_id)
             config = self.controller.configuration(campaign_id)
@@ -323,7 +323,7 @@ class DevelopmentWorkspaces:
                           "billing_mode": "subscription", "api_cost_usd": 0}, "event_files": [], "cursor": 0}
             self.store.put("development_workspace", record, "development.created")
             if actor != "researcher":
-                compute_consent.charge(self.workspace, campaign_id, coding=1, what="a coding workspace", subjects=[identity])
+                compute_consent.charge(self.workspace, campaign_id, coding=1, what="a coding workspace", subjects=[identity], hypothesis_ids=served)
             self.message(campaign_id, identity, {"message": values.objective +
                 "\nRead .campaign/assignment.md and .campaign/evidence.json first. Save checkpoints in .campaign/checkpoint.md. "
                 "Use the normal Pi coding tools to implement, debug, and test. Submit a committed package with campaign_submit. "
@@ -502,7 +502,8 @@ class DevelopmentWorkspaces:
         used = record["usage"]["container_cpu_seconds"]
         if budget is not None and used >= budget and record["desired_status"] == "running":
             with self.workspace.lock:
-                record.update(desired_status="paused", status="pausing", error="Development CPU allowance reached. Workspace and session are saved.")
+                record.update(desired_status="paused", status="pausing", control_requested_at=now(),
+                              error="Development CPU allowance reached. Workspace and session are saved.")
                 self.store.put("development_workspace", record, "development.budget_reached")
                 self.event(record, "budget_reached_" + str(budget), "budget_reached", {"used": used, "budget": budget})
                 self.notify(record, "budget_" + str(budget), record["error"])
@@ -660,15 +661,16 @@ class DevelopmentWorkspaces:
         if not capability["available"]:
             raise ValueError("Protected validation is unavailable: " + capability["reason"])
         from optimization_framework.campaigns import compute_consent
+        served = record.get("hypothesis_ids") or [record["hypothesis_id"]]   # a go-ahead covers the validation of what it opened
         if actor != "researcher":
-            compute_consent.require(self.workspace, campaign_id, "Validating a submission", values.compute_seconds)
+            compute_consent.require(self.workspace, campaign_id, "Validating a submission", values.compute_seconds, hypothesis_ids=served)
         grant = self.workspace.implementations.reserve_commission(record["hypothesis_id"], spec,
             compute_seconds=values.compute_seconds, max_calls=12, api_budget_usd=0,
             idempotency_key="development-" + content_hash([identity, values.request_key])[:24],
             package=submission["package"], accounting_mode="execution_v1")
         if actor != "researcher":
             compute_consent.charge(self.workspace, campaign_id, values.compute_seconds, what="a validation of a coding workspace's submission",
-                                   subjects=[identity])
+                                   subjects=[identity], hypothesis_ids=served)
         # A validation of the same submission again: its result is news to the coding agent, like the first one's.
         submission.update(grant_id=grant["id"], status="validating", feedback_sent=False)
         self.store.put("development_submission", submission, "development.validation_requested")

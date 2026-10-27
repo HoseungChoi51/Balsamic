@@ -1163,7 +1163,7 @@ class PiTools:
             return getattr(Files(self, agent), name.removeprefix("file_"))(args)
         if name == "analysis_run":
             from .files import analysis_run
-            return analysis_run(self, agent, args)
+            return analysis_run(self, agent, args, root=self.assignment_origin(agent, run))
         if name.startswith("workspace_"):
             return self._files(agent, name, args)
         raise ValueError("Unknown tool")
