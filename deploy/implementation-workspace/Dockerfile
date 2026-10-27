@@ -22,6 +22,8 @@ COPY network.sh /opt/workspace/network.sh
 # The bridge to Balsamic for any harness: a CLI and a stdio MCP server (balsamic-workspace mcp).
 COPY --chmod=755 balsamic-workspace.mjs /opt/workspace/balsamic-workspace.mjs
 RUN ln -s /opt/workspace/balsamic-workspace.mjs /usr/local/bin/balsamic-workspace
+# The harness adapter start.sh runs: Pi's terminal UI, or Pi headless (roadmap H2).
+COPY --chmod=755 harness.mjs /opt/workspace/harness.mjs
 ENV HOME=/home/developer PATH=/home/developer/.local/bin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin \
     PYTHONUNBUFFERED=1
 WORKDIR /work

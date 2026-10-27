@@ -17,6 +17,26 @@ IMAGE = "grating-implementation-workspace:pi-1.3.0"
 LEGACY_MODEL = {"provider": "openai-codex", "model": "gpt-6-sol", "effort": "xhigh"}
 # What the container's network refuses (deploy/implementation-workspace/network.sh), and its own loopback.
 UNREACHABLE = [ipaddress.ip_network(n) for n in ("127.0.0.0/8", "10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16", "100.64.0.0/10", "169.254.0.0/16")]
+# The coding harnesses a workspace runs, and how (roadmap H2): only pi has an adapter (decision 8), in its terminal UI for the
+# researcher to attach to, or headless for agent-driven work. The adapter is deploy/implementation-workspace/harness.mjs.
+HARNESSES = ("pi",)
+HARNESS_MODES = ("tui", "headless")
+
+
+def harness_refusal(name):
+    """Why a harness without an adapter is refused; start.sh and the box's adapter say the same."""
+    return (f'The coding harness "{name}" is not available: a coding workspace runs only pi. Another harness needs its own '
+            "adapter, opted into per workspace on the researcher's own credentials mounted read-only.")
+
+
+def harness(setting=None):
+    """A workspace's harness setting, checked: {name, mode}; pi in its terminal UI when the record names none."""
+    setting = {"name": "pi", "mode": "tui", **(setting or {})}
+    if setting["name"] not in HARNESSES:
+        raise ValueError(harness_refusal(setting["name"]))
+    if setting["mode"] not in HARNESS_MODES:
+        raise ValueError(f'The harness mode "{setting["mode"]}" is not one of {", ".join(HARNESS_MODES)}.')
+    return {"name": setting["name"], "mode": setting["mode"]}
 
 
 def models_file():
@@ -219,6 +239,7 @@ class DockerWorkspace:
                     extracted.write_text(text)
 
     def start(self, record):
+        setting = harness(record.get("harness"))   # a harness without an adapter never starts
         current = self.inspect(record)
         if current:
             if current["paused"]:
@@ -237,10 +258,12 @@ class DockerWorkspace:
                 (root / "incoming", "/bridge/in", True), (root / "outgoing", "/bridge/out", False),
                 (root / "references", "/references", True),
                 (ROOT / "agent-harness/extensions/implementation.ts", "/opt/workspace/extension.ts", True),
-                (ROOT / "deploy/implementation-workspace/balsamic-workspace.mjs", "/opt/workspace/balsamic-workspace.mjs", True)]:
+                (ROOT / "deploy/implementation-workspace/balsamic-workspace.mjs", "/opt/workspace/balsamic-workspace.mjs", True),
+                (ROOT / "deploy/implementation-workspace/harness.mjs", "/opt/workspace/harness.mjs", True)]:
             args += ["--mount", f"type=bind,src={source},dst={target}" + (",readonly" if readonly else "")]
         model = record.get("model") or LEGACY_MODEL
         args += ["-e", f"PI_PROVIDER={model['provider']}", "-e", f"PI_MODEL={model['model']}", "-e", f"PI_THINKING={model.get('effort') or ''}"]
+        args += ["-e", f"BALSAMIC_HARNESS={setting['name']}", "-e", f"BALSAMIC_HARNESS_MODE={setting['mode']}"]   # read by start.sh
         args += ["-e", f"WORKSPACE_UID={os.getuid()}", "-e", f"WORKSPACE_GID={os.getgid()}", self.image]
         run(args, timeout=60)
         return self.inspect(record)
