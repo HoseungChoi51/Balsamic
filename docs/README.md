@@ -23,6 +23,7 @@ describe Balsamic are in [history/](history/README.md).
 | [invariants.md](invariants.md) | The invariant register: which guarantees code holds, which rest on the prompt, which nothing holds |
 | [adr/](adr/README.md) | Short dated decision records |
 | [releases/](releases/README.md) | One release per roadmap phase, checked by acceptance tests |
+| [evals/partnership.md](evals/partnership.md) | The partnership protocol: the same problem solved alone and with Balsamic, once per phase |
 
 ## 3. Logs
 

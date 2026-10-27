@@ -477,6 +477,16 @@ of life (a UI event or a message) for 30 minutes, an `away_digest` is written: r
 commands. `GET /campaigns/{id}/away-digest` returns the open one (and `?since=<event>` computes one on demand);
 `POST …/away-digest/{id}/seen` closes it, which the page does when it opens.
 
+**Partnership** (`balsamic/monitor/partnership.py`, roadmap J3). One row per researcher request (a lead turn a researcher
+message started; autopilot turns and notices open none): the researcher's commands from the message to the lead's report
+(messages, decisions resolved, other commands), the time to the report (`yield_work(complete)`, on the request's turn or a
+notice turn that continues it) and to the first `comparison.report` its work made, the measured worker time of the runs its
+commands started (a race's runs included), the model dollars of its turns (each call given to the turn its agent was in),
+and the best objective of any run that had finished by then, in the objective's direction. `GET
+/campaigns/{id}/partnership`; the Monitor's Partnership tab. An agent turn records `finished_at` when it ends; older turns
+take the time of their terminal update from the event log. The protocol that compares these numbers with the researcher
+working alone is [evals/partnership.md](evals/partnership.md).
+
 **Autopilot** (`balsamic/autopilot/`). `autopilot.set {enabled, compute_cap_seconds, report_by, rationale}` is the
 researcher's; it records the baseline allocation, sets delegation while on and restores it after. The maintenance tick
 starts a round when autopilot is on, the team runs, no request is open (researcher messages come first), the lead is
