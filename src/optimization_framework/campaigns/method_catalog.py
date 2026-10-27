@@ -56,6 +56,16 @@ def installing(store, submission):
     return {"owner": "balsamic", "text": "Balsamic installs it at its next check"}
 
 
+def binding(install, hypothesis_ids, *, subject=None):
+    """Who binds installed, unbound proposals, as the next step: Balsamic while their install's post-install step has not run,
+    else the lead, for a proposal Balsamic left (with its reason) or one no recorded install covers."""
+    subject = subject or ", ".join(hypothesis_ids) + " to it"
+    if install and "bindings" not in install and not install.get("after_install_error"):
+        return {"owner": "balsamic", "text": f"Balsamic binds {subject} as its install finishes"}
+    reasons = [row["reason"] for row in (install or {}).get("skipped") or [] if row["hypothesis_id"] in hypothesis_ids]
+    return {"owner": "lead", "text": f"Bind {subject} (implementation.bind_builtin)" + (f"; Balsamic left it: {'; '.join(reasons)}" if reasons else "")}
+
+
 def development_readiness(store, hypothesis, installed):
     """A proposal whose method a coding workspace builds or delivered: building, submitted_not_installed, or
     installed_not_bound; None when no workspace serves it."""
@@ -68,8 +78,10 @@ def development_readiness(store, hypothesis, installed):
         methods = methods_for(submission, hypothesis_id)
         ready = [method for method in methods if method in installed]
         if ready:
+            install = next((row for row in sorted(store.list("library_install", hypothesis["campaign_id"]), key=lambda row: row["requested_at"],
+                                                  reverse=True) if row.get("submission_id") == submission["id"] and row.get("status") == "installed"), None)
             return {"state": "installed_not_bound", "runnable": False, "methods": ready, "submission_id": submission["id"],
-                    "reason": f"Installed: {', '.join(ready)}. Bind this proposal to its method (implementation.bind_builtin) to run it."}
+                    "reason": f"Installed: {', '.join(ready)}. {binding(install, [hypothesis_id], subject='this proposal to its method')['text']}."}
         verdict = ((submission.get("report") or {}).get("verdict") or "no delivery report").replace("_", " ")
         install = installing(store, submission)
         if submission["status"] == "needs_revision":
@@ -129,8 +141,7 @@ def catalog(workspace, campaign_id, *, other_limit=40):
             continue
         install = installs.get(submission["id"]) if submission else None
         unbound = [p["hypothesis_id"] for p in proposals if not p["bound"]]
-        next_action = ({"owner": "lead", "text": "Bind " + ", ".join(unbound) + " to it (implementation.bind_builtin)"} if unbound and any(r["runnable"] for r in per_task)
-                       else None)
+        next_action = binding(install, unbound) if unbound and any(r["runnable"] for r in per_task) else None
         rows.append({"id": method["id"], "name": method["name"], "source": "library" if library else "bundled",
                      "package": {"name": (origin or {}).get("distribution"), "version": (origin or {}).get("version"),
                                  "commit": (submission or {}).get("commit"), "install_id": (install or {}).get("id")} if library else None,
