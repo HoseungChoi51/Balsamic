@@ -47,7 +47,20 @@ def common(tools, agent, run):
     else:
         lines.append("Open questions to the researcher: none.")
     lines.append(compute_rule(tools, agent["campaign_id"]))
+    lines += mandate_line(tools, agent, run)
     return lines
+
+
+def mandate_line(tools, agent, run):
+    """The mandate in force for this turn's request, with the model dollars it has left; nothing when none is recorded."""
+    from optimization_framework.campaigns.mandates import current, model_left
+    mandate = current(tools.workspace, agent["campaign_id"], tools.controller.run_root(agent, run))
+    if mandate is None:
+        return []
+    left = model_left(mandate)
+    return [f"Mandate: {mandate.template.replace('_', ' ')} ({mandate.id}); model spend "
+            + (f"${left:.2f} left of ${mandate.model_usd:.2f}" + (" (spent: new turns under this request wait for the researcher)" if left <= 1e-9 else "")
+               if left is not None else "without an envelope of its own (the campaign's cap applies)") + "."]
 
 
 def compute_rule(tools, campaign_id):
