@@ -22,16 +22,22 @@ from optimization_framework.storage.sqlite import identifier, now
 
 NOTICE_SECONDS, GATE_SECONDS = 60.0, 300.0   # the defaults of a campaign's two thresholds
 UNKNOWN = float("inf")
-SAME = {"trial.create": 60, "trial.continue": 60, "fixed_mask.run": 60, "validation.run": 120, "validation.execute": 120,
+SAME = {"trial.create": 60, "trial.continue": 60, "validation.run": 120, "validation.execute": 120,
         "inference.run": 120, "evaluator.equivalence": 120}
 
 
 # What a notice calls the work an operation starts.
-WORDS = {"trial.create": "a run", "trial.continue": "a run's continuation", "fixed_mask.run": "a fixed-mask run", "draft.launch": "a run from a draft",
+WORDS = {"trial.create": "a run", "trial.continue": "a run's continuation", "draft.launch": "a run from a draft",
          "validation.run": "a validation", "validation.execute": "a validation", "inference.run": "an inference run",
          "evaluator.equivalence": "an evaluator equivalence check", "hypothesis.allocate": "an allocation", "intervention.batch": "a batch of work",
          "runtime.profile": "a runtime profile", "implementation.commission": "an implementation job", "evaluator.commission": "an evaluator job",
          "implementation.revalidate": "a revalidation", "study.race.create": "a race"}
+
+
+def declare(operation, seconds, words):
+    """An operation a problem pack registers that computes up to its payload's wall_seconds (default ``seconds``), and what
+    a notice calls its work."""
+    SAME[operation], WORDS[operation] = seconds, words
 
 
 def thresholds(workspace, campaign_id):

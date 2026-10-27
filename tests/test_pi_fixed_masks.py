@@ -1,7 +1,8 @@
 import time
 import pytest
 
-from optimization_framework.agents.diagnostics import reconcile, reserve
+from dqn_meent.pack.tools import reserve
+from optimization_framework.agents.diagnostics import reconcile
 from optimization_framework.contracts.requests import CampaignInput, TaskInput
 from optimization_framework.execution.service import Workspace
 
