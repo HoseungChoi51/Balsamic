@@ -21,7 +21,8 @@ def install(app, workspace):
             keys = ("id", "campaign_id", "title", "kind", "producer_id", "applicability", "cost_provenance", "exposure_status", "availability", "created_at")
             assets = [{**{key: asset.get(key) for key in keys}, "availability": workspace.assets.availability(asset)["status"]}
                       for asset in workspace.assets.visible(campaign_id)]
-            return {"assets": assets, "findings": [row for row in workspace.store.list("manager_note", campaign_id) if row.get("kind") in {"finding", "counterevidence"}],
+            from optimization_framework.campaigns.findings import view
+            return {"assets": assets, **view(workspace.store, campaign_id),
                     "reports": app.state.reports.list(campaign_id) if hasattr(app.state.reports, "list") else [],
                     "report_jobs": workspace.store.list("report_writer_job", campaign_id),
                     "sources": workspace.store.list("source", campaign_id), "artifacts": workspace.store.list("agent_artifact", campaign_id)}

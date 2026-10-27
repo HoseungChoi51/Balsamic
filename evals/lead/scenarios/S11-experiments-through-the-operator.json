@@ -2,6 +2,7 @@
   "id": "S11-experiments-through-the-operator",
   "source": "F5 and harness plan Phase 5: experiments are the operator's work; the lead hands them over and reports the result",
   "setup": {"preset": "quadratic", "llm_budget_usd": 0.3},
+  "presets": ["quadratic", "deflector_2d"],
   "steps": [
     {"say": "Run two short experiments with an installed method and tell me how they did. Nothing else."},
     {"wait": "request_closed", "timeout_s": 1200}

@@ -44,6 +44,13 @@ def install(app, workspace):
         acknowledge(workspace, campaign_id, body.keys)
         return {"unacknowledged": inbox_view(workspace, campaign_id)["unacknowledged"]}
 
+    @app.get("/api/v1/campaigns/{campaign_id}/partnership")
+    def partnership(campaign_id: str):
+        """Per researcher request: the researcher's actions, the time to the report and to a ranked result, the cost, the best by then."""
+        from balsamic.monitor.partnership import view
+        workspace.store.get(campaign_id, "campaign")
+        return view(workspace, campaign_id)
+
     @app.get("/api/v1/campaigns/{campaign_id}/away-digest")
     def away_digest(campaign_id: str, since: int | None = None):
         from balsamic.monitor.digest import compute, open_digest

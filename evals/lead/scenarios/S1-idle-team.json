@@ -2,6 +2,7 @@
   "id": "S1-idle-team",
   "source": "lead-agent-readiness.md Part G: starting the team started 8 turns and 86 model calls nobody asked for",
   "setup": {"preset": "quadratic", "llm_budget_usd": 0.3},
+  "presets": ["quadratic", "deflector_2d", "reactor"],
   "steps": [
     {"wait": "seconds", "seconds": 120}
   ],

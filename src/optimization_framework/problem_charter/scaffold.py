@@ -11,7 +11,9 @@ import keyword
 import math
 import pprint
 import re
+import zipfile
 from importlib import resources
+from io import BytesIO
 
 from optimization_framework.contracts.base import content_hash
 from optimization_framework.contracts.problem_charter import ProblemCharter
@@ -77,6 +79,20 @@ def scaffold(charter, revision: int, *, name: str | None = None, charter_id: str
         "tests/test_methods.py": _template("test_methods.py", pkg),
     }
     return {path: text.encode() for path, text in files.items()}
+
+
+def archive(charter, revision: int, *, name: str | None = None, charter_id: str | None = None) -> tuple[str, bytes]:
+    """The project as a zip under ``<project-name>/``, and the file name: the problem and the revision. Pure, like
+    ``scaffold()``: fixed timestamps and sorted paths, so the same revision always gives the same bytes."""
+    files = scaffold(charter, revision, name=name, charter_id=charter_id)
+    project = package_name(parse(charter), name).replace("_", "-")
+    buffer = BytesIO()
+    with zipfile.ZipFile(buffer, "w", zipfile.ZIP_DEFLATED) as bundle:
+        for path in sorted(files):
+            entry = zipfile.ZipInfo(f"{project}/{path}", date_time=(1980, 1, 1, 0, 0, 0))
+            entry.external_attr = 0o644 << 16
+            bundle.writestr(entry, files[path], compress_type=zipfile.ZIP_DEFLATED)
+    return f"{project}-r{revision}.zip", buffer.getvalue()
 
 
 # The data -----------------------------------------------------------------------------------------------

@@ -1,7 +1,7 @@
 ---
 name: results_analyst
 description: Analyses finished runs (curves, scores, spreads) and states what they show and what they do not.
-tools: campaign_inspect, resource_inspect, evidence_search, evidence_read, file_list, file_read, file_search, workspace_list, workspace_read, workspace_write, analysis_run, artifact_save, submit_output, yield_work
+tools: campaign_inspect, resource_inspect, evidence_search, evidence_read, compute, file_list, file_read, file_search, workspace_list, workspace_read, workspace_write, analysis_run, artifact_save, submit_output, yield_work
 model: fast
 ---
 

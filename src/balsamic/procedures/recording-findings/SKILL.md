@@ -18,6 +18,12 @@ limitations, not an instruction: a changed solver setting, budget or method limi
 When asked to record what this campaign learned, use `finding.record`:
 
 - cite the evidence (exact record ids: runs, comparisons, runtime profiles, equivalence checks, fixed-design reports);
+- say what it states (`statement`): `evidence` cites at least one measurement (a run, a comparison, a validation, a
+  runtime profile, a saved analysis); `promise` says why something may work and is shown as not measured; `decision`
+  cites the record of the choice (an approval, a finalist selection, a waiver);
+- link earlier findings with `links: [{id, relation}]`, the relation `supports`, `contradicts`, `qualifies` or
+  `supersedes` (it replaces that finding). A supporting finding that cites only the runs the other already cites adds
+  no support: it is shown as a restatement;
 - state the scope (problem, fidelity, budget, methods) and the limitations;
 - publish the findings a later campaign on this or a related problem should know: about the physical problem, and about how to
   run such an optimization.

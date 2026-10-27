@@ -13,12 +13,8 @@ LAYERS = {"mandate", "budget", "evidence", "prompt", "UI", "none"}
 BEFORE_TRIAGE = {"A1", "A3", "I1"}
 
 
-# INV-01 to INV-32, and rows keyed by their part (INV-E2-1).
-ROW = r"INV-(?:\d+|[A-Z]\d+-\d+)"
-
-
 def register_ids(text):
-    return set(re.findall(rf"^\| ({ROW}) \|", text, re.MULTILINE))
+    return set(re.findall(r"^\| (INV-(?:\d+|[A-Z]\d+-\d+)) \|", text, re.MULTILINE))
 
 
 def problems(text, known):
@@ -42,7 +38,7 @@ def problems(text, known):
     elif value == name.group(0).rstrip("."):
         found.append("the layer needs its reason")
     value = lines[invariant[0]].removeprefix("Invariant:").strip()
-    named = re.findall(ROW, value)
+    named = re.findall(r"INV-(?:\d+|[A-Z]\d+-\d+)", value)
     if not named and not re.match(r"none\W+\w", value.replace("`", "")):
         found.append(f"invariant {value!r} names no register row and does not say none and why")
     for identity in named:
@@ -71,17 +67,18 @@ def entry(body):
     return f"# X1 — Something\n\nState: implemented.\n\n## What was wrong\n\nIt broke.\n\n{body}\n\n## What changed\n"
 
 
-KNOWN = {"INV-01", "INV-07", "INV-B3-1"}
+KNOWN = {"INV-01", "INV-07", "INV-X1-1"}
 GOOD = {
     "a layer and a row": "Layer: mandate. It ran beyond the request.\nInvariant: INV-01 (updated).",
     "two rows": "Layer: `prompt`. Nothing above holds it.\nInvariant: INV-01, INV-07.",
-    "a row keyed by its part": "Layer: budget. It spent past the cap.\nInvariant: INV-B3-1 (new).",
+    "a row keyed by its part": "Layer: none. A new capability.\nInvariant: INV-X1-1 (added), INV-07.",
     "none, with why": "Layer: none. A parsing bug in code that already held it.\nInvariant: none, the row already pins it.",
 }
 BROKEN = {
     "an unknown layer": ("Layer: model. Whatever.\nInvariant: INV-01.", "is not one of"),
     "a layer without its reason": ("Layer: budget\nInvariant: INV-01.", "needs its reason"),
     "a row the register lacks": ("Layer: budget. Over the cap.\nInvariant: INV-99.", "INV-99 is not in the register"),
+    "a keyed row the register lacks": ("Layer: budget. Over the cap.\nInvariant: INV-X1-2.", "INV-X1-2 is not in the register"),
     "none without why": ("Layer: UI. The page.\nInvariant: none", "does not say none and why"),
     "a lone layer line": ("Layer: UI. The page.", "needs one Layer: line and one Invariant: line"),
     "lines in the wrong order": ("Invariant: INV-01.\nLayer: UI. The page.", "belong under What was wrong"),
