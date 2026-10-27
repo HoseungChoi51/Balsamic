@@ -108,7 +108,8 @@ def test_every_tool_is_checked(workspace):
     tools = set(TOOLS) | set(EXTRA_TOOLS)
     assert not READS & set(NO_RECORDS)
     assert tools - READS - set(NO_RECORDS) == set(), "an agent tool that is not checked against protected_ids()"
-    assert READS | set(NO_RECORDS) <= tools
+    # A problem pack's tool (mask_create is MEENT's) is registered only where the pack is installed.
+    assert READS <= tools
 
 
 def test_no_read_returns_a_locked_cell_before_release_and_every_read_does_after(locked):
