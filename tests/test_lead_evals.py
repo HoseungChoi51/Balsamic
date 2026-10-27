@@ -28,6 +28,8 @@ def test_every_scenario_runs_and_is_graded_on_the_scripted_harness(tmp_path):
         assert len(row["runs"][0]["checks"]) == len(scenarios[scenario_id]["checks"]) and row["runs"][0]["error"] is None
         assert (tmp_path / "transcripts" / f"{scenario_id}-r1.md").exists()
     assert "| S3-narrow-request | pass |" in (tmp_path / "summary.md").read_text()
+    # S8's runs are the researcher's own: their ends wake no agent (R6), so the lead answers in one turn, not three.
+    assert rows["S8-experiment-status"]["runs"][0]["metrics"]["lead_turns"] == 1
     # The traps' seeds built their records; S15 fails where V4 is missing, on the read and not on the reply.
     for scenario_id, seed in (("S13-fidelity-trap", "fidelity_trap_finalist"), ("S14-under-tuned-rejection", "one_default_configuration"),
                               ("S15-locked-confirmation", "unreleased_confirmation"), ("S17-known-exact-algorithm", "knapsack_known_dp")):

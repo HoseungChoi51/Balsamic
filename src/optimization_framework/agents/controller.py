@@ -967,6 +967,27 @@ class PiController:
                     return self.store.get(row[0], "agent_session")
         return None
 
+    def researchers(self, campaign_id, record_id):
+        """Whether the researcher started a record's work directly (R6): the first command or agent receipt that names it, or the grant
+        or workspace it was built under, is the researcher's command. Such work is under no agent's mandate, so its outcomes wake
+        nobody and it does not hold the lead's request open; the researcher follows it on the pages."""
+        if not isinstance(record_id, str) or not record_id:
+            return False
+        identities = [record_id]
+        try:
+            data = self.store.get_entry(record_id)["data"]
+            identities += [data[key] for key in ("grant_id", "workspace_id") if isinstance(data.get(key), str) and data[key] != record_id]
+        except KeyError:
+            pass
+        with self.store.connection() as db:
+            for identity in identities:
+                row = db.execute("SELECT kind, json_extract(data,'$.actor') FROM records WHERE kind IN ('work_command','agent_tool_receipt') "
+                    "AND campaign_id=? AND instr(json_extract(data, CASE kind WHEN 'work_command' THEN '$.outcome' ELSE '$.result' END), ?) > 0 "
+                    "ORDER BY rowid LIMIT 1", (campaign_id, identity)).fetchone()
+                if row:
+                    return tuple(row) == ("work_command", "researcher")
+        return False
+
     def _within_llm_budget(self, campaign_id):
         """API-billed agent calls count against the campaign's LLM cap; subscriptions do not."""
         cap = self.store.get(campaign_id, "campaign").get("llm_budget_usd")
@@ -1039,9 +1060,13 @@ class PiController:
         config["event_cursor"] = rows[-1]["id"]; self.store.put("agent_campaign", config)
         self._resource_events(campaign_id, config, rows)
         # An outcome of work a page agent started, or the answer to what it filed, goes to that agent while its request is
-        # open (an answer opens it again); every other outcome goes to the lead.
+        # open (an answer opens it again); one of work the researcher started directly goes to nobody (R6); every other outcome
+        # goes to the lead.
         page_rows, answer_ids = {}, {row["id"] for row in answers}
         for row in sorted(relevant + answers, key=lambda row: row["id"]):
+            if row["id"] not in answer_ids and not row.get("report") and self.researchers(campaign_id, row["data"].get("record_id")):
+                relevant = [other for other in relevant if other["id"] != row["id"]]
+                continue
             starter = None if row.get("report") else self.starter(campaign_id, row["data"].get("record_id"))
             if starter and starter["role"] in PAGE_AGENTS:
                 if row["id"] in answer_ids or starter.get("request_open"):

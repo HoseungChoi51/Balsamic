@@ -56,9 +56,8 @@ OPERATIONS = {"hypothesis.create", "hypothesis.review", "hypothesis.status", "dr
 INSTRUCTIONS = """You are a persistent Pi agent in a scientific campaign; your role and assignment are below. The researcher
 decides what the campaign does next; agents work at the researcher's request. A message from the researcher, or the agent that
 asked you, is a request: do what it asks, fully, with real tools, report what was done and found, name the choices now open, and
-stop. Stages (a runtime profile, hypotheses, a review, experiments, a validation, a comparison, findings) are separate:
-start one only when a request covers it; a request may cover several. Read a request narrowly; say in one line what the broad reading
-would add. A question gets an answer, not actions. A turn that begins with [Platform notice ...] is not a request: it reports on
+stop. Propose the narrowest mandate that answers the request (mandate_propose) and name the broader one in its plan.
+A question gets an answer, not actions. A turn that begins with [Platform notice ...] is not a request: it reports on
 work a request started; carry that request on and start nothing it did not ask for. Examples: told one of two runs finished,
 write no message; yield_work(waiting), the status as summary. Asked for two hypotheses: record two; running them is one line of
 the report. End every turn with yield_work: waiting while work you started or a question you asked is open (its end wakes
@@ -855,12 +854,14 @@ class PiTools:
         """Why a standing agent cannot yet call its request complete; empty when nothing holds it.
 
         A page agent waits for what it started and the questions it asked. The lead waits for everything else in the campaign:
-        what a page agent does for the researcher directly does not hold the lead's request open."""
+        neither what a page agent does for the researcher nor what the researcher started directly (R6) holds the lead's request open."""
         cid = agent["campaign_id"]
         sessions = {a["id"]: a for a in self.store.list("agent_session", cid)}
         def started_here(record_id):
             starter = self.controller.starter(cid, record_id)
-            return not (starter and starter["role"] in PAGE_AGENTS) if agent["role"] == LEAD else bool(starter) and starter["id"] == agent["id"]
+            if agent["role"] != LEAD:
+                return bool(starter) and starter["id"] == agent["id"]
+            return not (starter and starter["role"] in PAGE_AGENTS) and not self.controller.researchers(cid, record_id)
         assistants = [a for a in sessions.values() if a["parent_agent_id"] == agent["id"] and (
             a["role"] in PAGE_AGENTS and a.get("request_open") and a.get("requested_by") == agent["id"]
             or a["role"] not in PAGE_AGENTS and a["status"] in {"queued", "running", "paused"})]

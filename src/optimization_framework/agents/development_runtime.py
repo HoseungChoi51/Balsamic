@@ -20,13 +20,19 @@ UNREACHABLE = [ipaddress.ip_network(n) for n in ("127.0.0.0/8", "10.0.0.0/8", "1
 
 
 def models_file():
-    """The Pi models.json the harness takes custom providers from (agent-harness/src/runtime.ts, modelsFile); None in locked mode."""
+    """The Pi models.json the harness takes custom providers from (agent-harness/src/runtime.ts, modelsFile); None in locked mode.
+    For a profile with a catalogue (models.template.json), the file the harness resolved from it, which only the harness can
+    write: it alone is given the endpoints' variables (issue #70)."""
     if os.environ.get("GRATING_PI_MODELS_FILE"):
         return Path(os.environ["GRATING_PI_MODELS_FILE"])
     if not os.environ.get("GRATING_PI_PROFILE"):
         return None
-    own = Path(os.environ["GRATING_PI_PROFILE"]) / "models.json"
-    return own if own.exists() else Path.home() / ".pi/agent/models.json"
+    profile = Path(os.environ["GRATING_PI_PROFILE"])
+    own = profile / "models.json"
+    if own.exists():
+        return own
+    resolved = profile / "tmp" / "models.json"
+    return resolved if (profile / "models.template.json").exists() and resolved.exists() else Path.home() / ".pi/agent/models.json"
 
 
 def custom_provider(provider):
