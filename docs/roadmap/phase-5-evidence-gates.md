@@ -81,29 +81,41 @@ L55, `src/balsamic/monitor/digest.py` L44 and L51, `frontend/src/evolution/Linea
 **Read first:** `campaigns/experiment_rules.py` (`ExperimentRulesInput` L56, `current()` L121, `run_kind()` L186,
 `classify()` L194), `contracts/requests.py` `TrialInput` (`algorithm_config`, `seed`, `hypothesis_id`),
 `src/balsamic/evolution/ledger.py` `rows()`, `evaluation/policy.py` (`ValidationService.require()`, `waive()`),
-`contracts/commands.py` `ApprovalRequestInput` (kind `waiver`).
+`contracts/commands.py` `ApprovalRequestInput` (kind `waiver`), `optimizers/registry.py` (`BUILTINS` L13),
+`optimizers/conformance.py` `check()` L32 (it already runs seeds 0 and 7), `contracts/evaluators.py` `EvaluatorManifest`
+(`deterministic` L27).
 
-**Today** nothing counts how a proposal was tried before it is stopped as inferior.
+**Today** nothing counts how a proposal was tried before it is stopped as inferior, and no method says whether it is
+stochastic (evaluators do, with `deterministic`).
 
 **Change**
-1. The experiment rules gain `assessment`, per decision 14: `min_configurations` (3), `min_seeds` (2), and the informative
-   horizon `min_evaluations` (the deleted plan's `minimum_informative_evaluations`; unset by default). The researcher
-   changes them with `experiments.rules`.
-2. `campaigns/assessment.py` `adequacy(store, hypothesis)`: from the proposal's trials, the distinct configurations (the
+1. The experiment rules gain `assessment`, per decision 14: `min_configurations` (3), `min_seeds` (2, for stochastic
+   methods), and the informative horizon `min_evaluations` (the deleted plan's `minimum_informative_evaluations`; unset by
+   default). The researcher changes them with `experiments.rules`.
+2. Methods declare `stochastic`, true when undeclared: the `BUILTINS` entries (each set from its code: `random` and
+   `coordinate` draw from the seed; `replay` and `evaluate_asset` do not), plug-in method descriptors, and function
+   libraries (D2). `conformance.check()` confirms a `stochastic: false` declaration: seeds 0 and 7 must give the same
+   proposals.
+3. `campaigns/assessment.py` `adequacy(store, hypothesis)`: from the proposal's trials, the distinct configurations (the
    canonical hash of `algorithm_config`), their seeds, and which runs reached the horizon: completed with
    `scientific_complete`, or ran at least the campaign's `short_run_seconds`, and reached `min_evaluations` when it is set
-   (the deleted code's rule, L193 of the file above). It returns `{adequate, configurations, seeds_per_configuration,
-   missing}`.
-3. A stop with outcome `configuration_unpromising` or `adequately_assessed_deprioritized` by an agent needs `adequate`, or
+   (the deleted code's rule, L193 of the file above). Seeds count only when the method or the task's evaluator is
+   stochastic; otherwise one run per configuration is enough. It returns `{adequate, configurations,
+   seeds_per_configuration, missing}`.
+4. A stop with outcome `configuration_unpromising` or `adequately_assessed_deprioritized` by an agent needs `adequate`, or
    a researcher's waiver of a `tuning` requirement on that proposal (a `validation_requirement` the gate creates, waived
    with the existing records; an agent asks with `approval.request` kind `waiver`, decision 16). Otherwise the refusal
    says what is missing and names the honest outcome: `under_evaluated`, or `unaffordable_within_allocation` when the
    budget cannot cover the missing runs.
-4. The ledger row carries `assessment` ("2 of 3 configurations, 2 seeds each").
+5. The ledger row carries `assessment` ("2 of 3 configurations, 2 seeds each", or "3 of 3 configurations, deterministic").
 
 **Tests**
 - One default configuration that lost: `configuration_unpromising` is refused with "1 of 3 configurations"; `under_evaluated` is accepted.
 - Three configurations × two seeds past the horizon: accepted.
+- A deterministic method (declared, and confirmed by conformance) with three configurations of one run each past the
+  horizon: accepted. A stochastic method with the same runs: refused with "1 of 2 seeds".
+- A deterministic method on a task whose evaluator is not deterministic needs the seeds again.
+- A method declared deterministic whose seeds 0 and 7 give different proposals fails conformance.
 - A researcher's tuning waiver lets the stop through; a waiver by an agent is refused.
 
 **Done when** the tests pass, and S14 passes live (it may still fail on wording; the gate itself must hold).

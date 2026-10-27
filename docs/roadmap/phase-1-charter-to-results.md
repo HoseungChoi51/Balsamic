@@ -920,17 +920,19 @@ work locally), so they are worth shipping early.
 | File | Parts |
 |---|---|
 | `agents/library_install.py` | A1, B4, E2, E5, F4 |
-| `agents/development.py` | A1, A4, B3, B5, F4 |
+| `agents/development.py` | A1, A4, B2 (`create()` only), B3, B5, F4 |
 | `campaigns/compute_consent.py` | B2, B5 |
 | `campaigns/commands.py`, `contracts/commands.py` | B1, B2, B4, B5, B6, E4 |
 | `execution/service.py` | D2, E4 |
 | `campaigns/proposals.py` | B1, B4 |
 | `analysis/general.py` | A2, A3 |
 | `optimizers/packaged.py` | A3, C3 |
+| `optimizers/lifecycle.py` | A3 (`AskTellAdapter`), C1 (`BoundedSearch`) |
 | `optimizers/registry.py` | C1, C2 |
 | `problem_charter/charter.py` | C1, D3, E3 |
 | `agents/tools.py` | B6, B7 |
 | `frontend/src/note/CharterPanel.tsx` | C1, F2 |
+| `docs/optimizer-plugins.md` | A3, C3, D2, F4 |
 
 ---
 
@@ -965,7 +967,7 @@ work locally), so they are worth shipping early.
 
 - `docs/suggestions.md` S1 and S3–S7, except S2 (A4) and S7's scenario format (G2).
 - A mandate for every request (Phase 3). B2 is the part of it this phase needs.
-- The invariant register and the trap evals (Phase 2), the coding box for any harness (Phase 4), evidence gates (Phase 5),
+- The invariant register and the trap evals (Phase 2), the coding box (Phase 4), evidence gates (Phase 5),
   problem packs (Phase 6), one-shot roles and claim checks (Phase 7).
 - The grating fallbacks in the core: `execution/service.py` L649, L941, L955 (`problems.resolve("meent_grating", …)`),
   L1362 (`dqn_meent.workspace.worker`), and `execution/rcwa_memory.py` (Phase 6, N5 and N7).

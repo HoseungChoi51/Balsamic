@@ -1,10 +1,10 @@
-# Phase 4 — A coding box for any harness: open inside, strict at the walls
+# Phase 4 — The coding box: open inside, strict at the walls
 
 | Item | Detail |
 |---|---|
 | Part of | [The Balsamic roadmap](README.md). Read its §0 (instructions), §1 (principles) and §2 (decisions) first |
 | From | The design review §07 ("a coding-harness architecture") and §01 ("the coding agent is two hops away"). H1–H3 were the optional track H of the first version of this plan; their ids are kept |
-| Decisions it needs | 8, 18 |
+| Decisions it needs | 8 (Pi stays the harness), 18 |
 | Start after | F3 and F4 (Phase 1) for H4, H6 and H7; H1 and H5 can start at any time |
 | Status | Not started |
 
@@ -18,9 +18,9 @@ code. And what the box delivers is trusted on its own report: the install copies
 tests (`agents/library_install.py` `prepare()`), and "ready" means the coding agent says conformance passed
 (`agents/development.py` L88–89).
 
-The design: Balsamic is the client of any coding harness. The work ticket is the interface; a small MCP server and CLI in
-the box replace the Pi extension; a thin adapter runs each harness headless or as a TUI. Inside the box the harness is
-free. The walls are code: an egress allowlist, limits and a deadline charged to the go-ahead, no protected fixtures, and
+The design: the work ticket is the interface, and a small MCP server and CLI in the box replace the Pi extension, so
+nothing between Balsamic and the coder depends on Pi's internals. Pi stays the harness (decision 8): a thin adapter runs it
+headless or as a TUI, and another harness could use the same seam later. Inside the box the harness is free. The walls are code: an egress allowlist, limits and a deadline charged to the go-ahead, no protected fixtures, and
 validation of the exact commit outside the box.
 
 ```
@@ -28,7 +28,7 @@ Lead / implementation lead                 Coding box (one container per library
 ──────────────────────────                 ───────────────────────────────────────
 writes the ticket (H4):           ──────▶  worktree: TASK.md, AGENTS.md, CLAUDE.md,
 spec, acceptance tests,                    .balsamic/spec.json, libraries/<name>/ (F4)
-budget, deadline                           any harness (H2): Pi, Claude Code, Codex CLI…
+budget, deadline                           Pi, headless or TUI (H2)
                                            balsamic-workspace MCP server + CLI (H1)
 receives events, usage,           ◀──────  checkpoint · ask · evidence · check · submit
 questions, submissions
@@ -41,7 +41,7 @@ installs; runs start (Phase 1)             walls (H5): egress allowlist, limits,
 | ID | Part | What it fixes | Depends on | Size | Wave |
 |---|---|---|---|---|---|
 | H1 | The workspace bridge as an MCP server and a CLI | Only Pi can talk to Balsamic from the container | — (after F4 is best) | M | 1 |
-| H2 | A second harness in the workspace | The coding agent is limited to Pi | H1, decision 8 | M–L | 2 |
+| H2 | A harness adapter, with Pi as the harness | Nothing runs the coder headless; the box is wired to Pi's TUI and extension | H1 | M | 2 |
 | H3 | Bring your own session | The researcher cannot deliver from their own coding agent | H1, F2 | M | 2 |
 | H4 | The work ticket | The coder gets a JSON dump; the implementation lead relays chat instead of reviewing work | H1, F4 | M | 2 |
 | H5 | Walls in code | The public internet is open from the box; limits are fixed; there is no deadline | B2, decision 18 | M | 1 |
@@ -77,26 +77,27 @@ the Pi extension, which write files into `outgoing/events/` and read `incoming/r
 
 **Done when** the tests pass.
 
-### H2 — A second harness in the workspace
+### H2 — A harness adapter, with Pi as the harness
 
-**Depends on:** H1, decision 8. **Size:** M–L.
+**Depends on:** H1, decision 8. **Size:** M.
 
 **Change**
-1. A harness setting per workspace (default Pi), read by `start.sh`.
-2. A thin adapter per harness, in two modes: headless for agent-driven work (for Claude Code, `-p --output-format
-   stream-json`; for Pi, `--mode json`), and the tmux TUI for the researcher to attach to. H7 uses the headless mode.
-3. The adapter maps the harness's event stream to the existing event kinds (`agent_start`, `agent_settled`, `message` with
-   usage), and configures H1's MCP server for it.
-4. Credentials are mounted read-only per decision 8. The egress allowlist (H5) adds that harness's model endpoint only.
+1. A thin adapter between the workspace and its harness: start it, map its event stream to the existing event kinds
+   (`agent_start`, `agent_settled`, `message` with usage), stop it, and configure H1's MCP server for it.
+2. Pi's adapter, in two modes: headless (`--mode json`) for agent-driven work, which H7 uses, and the tmux TUI for the
+   researcher to attach to.
+3. A harness setting per workspace, read by `start.sh`. It accepts only `pi` for now.
+4. The seam is a placeholder for another harness (decision 8). Claude Code is not expected to replace Pi. If an adapter is
+   ever added, it is opt-in per workspace, on the researcher's own credentials mounted read-only, and the egress allowlist
+   (H5) adds only its model endpoint.
 
 **Tests**
 - A fake harness binary's stream maps to the workspace record, in both modes.
+- A recorded Pi `--mode json` stream maps to the workspace record: its events and its usage.
+- A harness setting other than `pi` is refused with the text.
 - Host and private networks stay blocked.
 
-**Live check** (with Hoseung's approval, since it bills another provider): J4 on Pi and on the second harness, the same
-ticket and the same tests; compare the time to `ready`, the cost and the outcome.
-
-**Done when** the tests pass and the live comparison is recorded.
+**Done when** the tests pass, and J4 runs on Pi's headless mode with its result recorded beside the Phase 2 baseline.
 
 ### H3 — Bring your own session
 
@@ -177,8 +178,8 @@ ticket and the same tests; compare the time to `ready`, the cost and the outcome
    container is paused, not removed, the coder's last state is recorded, and the lead and the researcher are told once.
    Going on is a new go-ahead. Wall time is charged to the consent (the mandate after R3).
 3. Limits come from the ticket, within ceilings the researcher sets (CPUs, memory); no GPU unless the ticket names one.
-4. The one-provider credential stays the only secret in the box, and is documented as such; H2's harnesses follow the
-   same rule. Protected fixtures are never mounted (H6 keeps them outside).
+4. The one-provider credential stays the only secret in the box, and is documented as such; a harness added later under
+   decision 8 follows the same rule. Protected fixtures are never mounted (H6 keeps them outside).
 
 **Tests**
 - The rule generator allows the listed hosts and rejects another public host (a unit test of the generated rules; a
@@ -300,9 +301,9 @@ Wave 4  H8 (H7)
 - **Validation outside costs compute;** it is charged to the go-ahead, and a validation larger than the plan asks again.
 - **Retiring a route** (H8) removes the restricted service the protected tests came from; H7 keeps their authoring
   outside the box before H8 removes anything.
-- **Other providers' credentials:** only one provider's credential enters a box, read-only (decision 8).
+- **Credentials:** only the harness's one provider credential enters a box, read-only (decision 8).
 
 ## Verification
 
 - `GRATING_LLM_DISABLED=true uv run pytest -q`, `(cd agent-harness && npm test)`.
-- Live: J4 before the phase (Phase 2), after H4, and after H7; H2's comparison with Hoseung's approval.
+- Live: J4 before the phase (Phase 2), after H2 (Pi headless), after H4, and after H7.

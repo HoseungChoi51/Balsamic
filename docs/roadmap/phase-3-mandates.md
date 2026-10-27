@@ -138,7 +138,7 @@ or that it is for a proposal the request named.
    lead gets one notice under the root. This generalizes B5's single wake.
 
 **Tests**
-- A Screen mandate for H1–H4 refuses a `trial.create` for H5, with the text; it allows H2's.
+- A Screen mandate for H01–H04 refuses a `trial.create` for H05, with the text; it allows H02's.
 - After the deadline, a new run is refused and the running ones continue.
 - A page agent asked by the lead is checked against the lead's mandate.
 - The researcher's commands pass with no mandate.

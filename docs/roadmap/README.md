@@ -6,7 +6,7 @@
 | Date | 2026-10-27 |
 | Sources | `docs/charter-to-results-plan.md` (`cc0e693`), which Phase 1 replaces; and the design-drift review of 2026-10-27, every suggestion and every lost idea it lists (§4 maps each one to its parts) |
 | Checked against | The code at `cc0e693`. Each part's "Today" says what the code does now |
-| Status | Plan, not started. A1 fixes a live bug. Decisions 1–3 are settled; 4–21 are open, each with a recommended default (§2) |
+| Status | Plan, not started. A1 fixes a live bug. Decisions 1–21 are settled (§2): 1–3 before this roadmap, the rest in Hoseung's review on 2026-10-27, 8 and 14 with changes |
 | How to work | One part = one branch = one PR into `workspace-rebuild`. Each phase file lists its parts, what each depends on and which can run in parallel |
 
 The diagnosis behind Phases 2 to 7, in one paragraph: Balsamic enforces in code what agents may *do* (commands, compute,
@@ -24,7 +24,7 @@ and domain knowledge moved out of the core into problem packs.
 | 1 | **Charter to results.** After the charter, Balsamic is no harder than a script and a local coding agent | 28: A1–A4, B1–B7, C1–C3, D1–D3, E1–E5, F1–F4, G1–G2 | — | [phase-1-charter-to-results.md](phase-1-charter-to-results.md) |
 | 2 | **Measure first.** An invariant register, trap evals of scientific judgement, docs that are small and dated | 7: I1–I3, J1–J4 | — (runs beside Phase 1) | [phase-2-measure-first.md](phase-2-measure-first.md) |
 | 3 | **A mandate for every request.** What a request allows is a record the command bus checks, not a line of the prompt | 7: R1–R7 | B2; the J1 baseline | [phase-3-mandates.md](phase-3-mandates.md) |
-| 4 | **A coding box for any harness.** Open inside, strict at the walls, validated outside | 8: H1–H8 | F3, F4 for most parts | [phase-4-coding-box.md](phase-4-coding-box.md) |
+| 4 | **The coding box.** Pi inside, behind an interface that does not depend on Pi; open inside, strict at the walls, validated outside | 8: H1–H8 | F3, F4 for most parts | [phase-4-coding-box.md](phase-4-coding-box.md) |
 | 5 | **Evidence gates.** A stop, a promotion or a read of a locked result needs its evidence or the researcher's waiver | 5: V1–V5 | the J1 baseline | [phase-5-evidence-gates.md](phase-5-evidence-gates.md) |
 | 6 | **Problem packs.** Domain knowledge out of the core; problem-agnostic constraints (M5) | 10: N1–N10 | — (N9, N10 after G1 and decision 20) | [phase-6-problem-packs.md](phase-6-problem-packs.md) |
 | 7 | **Fewer standing agents, claims that resolve.** Roles as calls with assembled context; numbers that point at receipts; findings that say what they state | 8: T1–T4, K1–K4 | the Phase 2 baseline; V4 for T1; V1, V2 for K4 | [phase-7-agents-and-claims.md](phase-7-agents-and-claims.md) |
@@ -49,7 +49,7 @@ part it closes.
 3. Line numbers refer to `cc0e693`. Code moves; find it by function name. A path such as `agents/development.py` is under
    `src/optimization_framework/`; paths that start with `src/`, `frontend/`, `tests/`, `docs/`, `evals/`, `scripts/`,
    `deploy/`, `libraries/` or `agent-harness/` are from the repository root.
-4. If a decision the part depends on is still open (§2), ask Hoseung before implementing.
+4. The decisions in §2 are settled. If a part needs a choice §2 does not cover, ask Hoseung before implementing it.
 5. Write or update the tests first, then implement. A part closes only when every "Done when" item holds.
 6. Live evals follow `docs/suggestions.md` §0.5: the dev profile's default provider (Centinels) needs no approval; any other
    provider needs Hoseung's.
@@ -65,7 +65,8 @@ part it closes.
 11. When closing a part:
     - add a Part to `docs/lead-agent-readiness.md` in its format (What was wrong / What changed / Checked / Not done), with
       the roadmap id in its title, e.g. "Part T — Install without a false confirmation (roadmap A1)". The last Part at
-      `cc0e693` is Part S;
+      `cc0e693` is Part S. Parts built in parallel take the next free letter when they merge: on a rebase, keep the other
+      Parts and renumber yours after them;
     - once I1 has landed, update the rows of `docs/invariants.md` the part changes, with the test that now pins each one;
     - once I3 has landed, update the part's line in `docs/status.md`.
 12. Commit messages follow the log: `feat(scope): …`, `fix(scope): …`, `docs(scope): …`, `test(scope): …`.
@@ -109,7 +110,7 @@ uv run python scripts/run_lead_evals.py --fake       # the eval plumbing, no mod
 
 ## 2. Decisions
 
-### 2.1 Settled (Hoseung, 2026-10-27)
+### 2.1 Settled before this roadmap, and changed in its review (Hoseung, 2026-10-27)
 
 1. **Where the evaluator comes from:** from the library. The coding agent writes the scoring function into the same library
    as the algorithms. Balsamic generates the boilerplate and the tests from the charter, and once the library is installed
@@ -120,21 +121,32 @@ uv run python scripts/run_lead_evals.py --fake       # the eval plumbing, no mod
    Implementation compute counts against it, with no separate allocation to raise. The go-ahead threshold still holds; work
    beyond what was approved asks again.
 
-### 2.2 Open (Hoseung to confirm)
+Changed in the review of this roadmap:
 
-| No. | Question | Recommended default | Needed by |
+- **8. Other coding harnesses:** Pi stays the coding harness; Claude Code is not expected to replace it. The box keeps a
+  seam for another harness (H2's adapter) as a placeholder. If one is ever added, it runs on the researcher's own
+  credentials mounted read-only, opted into per workspace.
+- **14. The assessment minimums** (the deleted `AssessmentPlan`'s): before an agent stops a method as inferior, 3
+  configurations, each run to the informative horizon (completed, or at least the campaign's short-run threshold, plus a
+  minimum number of evaluations when the researcher sets one). Seeds matter only for stochastic methods: a stochastic
+  method needs 2 seeds per configuration, and a deterministic one needs one run per configuration, since another seed
+  gives the same run. A method counts as deterministic when it declares so and conformance confirms it; an undeclared one
+  counts as stochastic. A stochastic evaluator makes every method's runs vary, so the seed minimum applies again. Fewer
+  needs the researcher's waiver. Set per campaign in the experiment rules.
+
+### 2.2 Settled at their recommended defaults (Hoseung, 2026-10-27)
+
+| No. | Question | Decision | Needed by |
 |---|---|---|---|
 | 4 | What a consent covers | Only work for the proposals and workspaces its plan names. A plan that names none stays campaign-wide (today's behaviour, and every consent recorded before this change) | B2 |
 | 5 | Where unknown fields are tolerated | Agent paths only: the coding agent's manifest and the top level of agent command payloads. The researcher's HTTP API and nested objects stay strict, and a near-miss is always refused | B6 |
 | 6 | The system actor | `balsamic`, allowed exactly two operations: `implementation.bind_builtin` after an install, and `trial.create` for a run an approved plan lists, under that consent. Every use has a receipt | B4, B5 |
 | 7 | What "asked for" means | A proposal created in a lead turn whose request root (`controller.request_root`) is a researcher message. Not autopilot turns, not notices without such a root | B1 |
-| 8 | Which other coding harnesses, on whose credentials | Claude Code second, on the researcher's own subscription mounted read-only, opt-in per workspace | H2 |
 | 9 | Which generated files the coding agent may change | `charter.json` and `data.py` are fixed (the install refuses edits). Everything else is the agent's; the install lists the generated files it changed | F4 |
 | 10 | The mandate templates | Four, after the design review: **Answer** (reads and answers; starts nothing), **Explore** (work up to the researcher's go-ahead threshold in total, no coding workspace; the default when nothing else is chosen), **Screen** (the proposals, workspaces and runs a plan names, with their minutes: today's compute go-ahead, B2), **Run the campaign** (every stage within a compute and model envelope and a deadline; what autopilot uses) | R1 |
 | 11 | What happens when a mandate's deadline passes or its envelope is spent | New work is refused, and the lead and the researcher are told. Work already running continues to its own limits; nothing is stopped automatically | R3 |
 | 12 | Whose mandate a page agent works under | The lead's, when the lead asked it. Its own, proposed with the same tool, when the researcher wrote on its page | R3 |
 | 13 | The stop outcomes | The six stop outcomes of the deleted `AssessmentDecision`: `implementation_invalid`, `assumptions_incompatible`, `configuration_unpromising`, `under_evaluated`, `unaffordable_within_allocation`, `adequately_assessed_deprioritized`. An agent gives one, with evidence ids; the researcher may stop without one (recorded as `researcher_decision`) | V1, K4 |
-| 14 | The assessment minimums | The deleted `AssessmentPlan`'s: 3 configurations × 2 seeds, each run to the informative horizon (completed, or at least the campaign's short-run threshold, plus a minimum number of evaluations when the researcher sets one). Fewer needs the researcher's waiver. Set per campaign in the experiment rules | V2, K4 |
 | 15 | What the fidelity gate guards | Choosing finalists (`hypothesis.nominate`, `hypothesis.status` finalist, `finalist.set`) and `library.publish`. Not screening or extended runs | V3 |
 | 16 | Who may waive a gate | Only the researcher. An agent asks with `approval.request` kind `waiver`, which exists | V2, V3, V5 |
 | 17 | Where a problem pack lives | In the problem plug-in's own package (`src/dqn_meent` for MEENT), declared by its adapter; no separate distribution | N2 |
@@ -227,12 +239,12 @@ flexibility and guardrails fought, 07 a coding-harness architecture, 08 architec
 | 06 | More agents, more prose boundaries; some hops add cost more than safety | T4 |
 | 07 | The work ticket is the interface; the implementation lead reviews diffs and checks instead of relaying chat | H4 |
 | 07 | An MCP server and a CLI replace the Pi extension's two tools | H1 |
-| 07 | A thin adapter per harness, headless and interactive | H2 |
+| 07 | A thin adapter per harness, headless and interactive | H2 (Pi's adapter; the seam is a placeholder for others, decision 8) |
 | 07 | Guardrails at the walls: egress allowlist, cgroup limits, a deadline charged to the consent, no protected fixtures | H5 |
 | 07 | Independent validation of the exact commit outside the box | H6 |
 | 07 | Bring your own session | H3 |
 | 07 | One implementation route: the service route becomes the box's headless mode | H7, H8 |
-| 07 | Pi first, Claude Code second, judged by an eval that builds a method from its specification | J4, H2 |
+| 07 | Pi first, Claude Code second, judged by an eval that builds a method from its specification | J4. Pi stays the harness (decision 8) |
 | 08 A | A mandate for every request: `mandate_propose`, small ones start at once, larger ones are one inbox card, the bus refuses what is outside, autopilot is a standing mandate, the thresholds are the default template | R1–R7 |
 | 08 B | Evidence-gated strategy transitions: typed stops with evidence, minimum configurations and seeds, fidelity before finalist or library, locked confirmation trials | V1–V5 |
 | 08 C | Problem packs: tools, procedures, validation recipes, a resource estimator, presentation defaults, references; a test that the core holds no domain names; M5 in the charter contract and the pack's evaluator | N1–N10 |
@@ -263,4 +275,4 @@ flexibility and guardrails fought, 07 a coding-harness architecture, 08 architec
 - **Per phase after Phase 2:** the eval summary before and after the phase (`--compare` with the Phase 2 baseline), in the
   phase's last readiness Part.
 - **Live checks** are Hoseung's and are named in the parts: A1 (the baking-order install), wave 5 of Phase 1 (charter to
-  ranked results with three researcher actions), J2 and H2 (other providers, with approval).
+  ranked results with three researcher actions), J2 (another provider, with approval).

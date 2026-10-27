@@ -285,6 +285,7 @@ Wave 2  I2 (I1) · J2 (J1) · J3 (after A2 in Phase 1)
 | `evals/lead/seeds.py` | J1, J2 |
 | `docs/lead-agent-readiness.md` (header) | I2, I3 |
 | `docs/pi-agent-harness.md` | I1, I3 (links) |
+| `docs/README.md` | I2, I3 |
 
 ## Risks
 
