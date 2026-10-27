@@ -6,8 +6,9 @@ run the tests, how to submit, what not to touch) and `.balsamic/spec.json` (the 
 A ticket holds the proposals the workspace serves (title, mechanism, the METHODS key), the charter revision, the acceptance
 tests as runnable pytest files (the generated library's own tests, F1 and F3, and any the implementation lead adds), the
 names of the protected acceptance tests, the compute and model budget and the deadline of the go-ahead and mandate it opens
-under, and the house rules. A protected test's source is kept on the host (`development_protected_test`, which validation
-outside the box runs, H6) and never written into the worktree or the ticket. An agent's ticket is checked as a commission's
+under, and the house rules. A protected test's source is kept on the host, as validation outside the box keeps it
+(`library_validation.protect()`, H6, which runs it on every delivery), and never written into the worktree or the ticket.
+An agent's ticket is checked as a commission's
 specification is (`ImplementationBridge.check_self_contained()`): it needs acceptance tests, and its text names only the
 records the coding agent can read.
 
@@ -26,8 +27,6 @@ from optimization_framework.contracts.base import Contract, content_hash
 from optimization_framework.storage.sqlite import now
 
 KIND = "development_ticket"
-# Kept on the host with the workspace and run outside the box (H6); the record is the one H6's validation reads.
-PROTECTED = "development_protected_test"
 # What the ticket writes at the worktree's root; the coding agent's tests may not take these places.
 FILES = ("TASK.md", "AGENTS.md", "CLAUDE.md", ".balsamic/spec.json")
 RESERVED = {".balsamic", ".campaign", ".git", ".vscode", *FILES}
@@ -243,13 +242,6 @@ def house_rules(ticket):
         lines.append("- Balsamic runs protected acceptance tests outside this workspace on every delivery; you see their names and "
                      "outcomes, never their source.")
     return "\n".join(lines) + "\n"
-
-
-def protect(store, record, test):
-    """Keep a protected acceptance test with its workspace on the host: never written into the worktree, run outside the box (H6)."""
-    return store.put(PROTECTED, {"id": "development_protected_" + content_hash([record["id"], test.name])[:24],
-        "campaign_id": record["campaign_id"], "workspace_id": record["id"], "name": test.name, "content": test.content,
-        "created_at": now()}, "development.protected_test_saved")
 
 
 # The review ------------------------------------------------------------------------------------------------------------------

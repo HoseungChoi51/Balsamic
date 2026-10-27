@@ -418,9 +418,9 @@ class DevelopmentWorkspaces:
             record["ticket_id"] = ticket["id"]
             self.store.put("development_workspace", record, "development.created")
             self.store.put_immutable("development_ticket", ticket, "development.ticket_written")
-            from .development_ticket import protect
+            from .library_validation import protect   # where validation outside the box (H6) reads them
             for test in values.ticket.protected_tests if values.ticket else ():
-                protect(self.store, record, test)
+                protect(self.store, record, test.name, test.content)
             if actor != "researcher":
                 compute_consent.charge(self.workspace, campaign_id, coding=1, what="a coding workspace", subjects=[identity], hypothesis_ids=served,
                                        root=request)

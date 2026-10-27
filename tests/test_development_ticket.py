@@ -9,12 +9,14 @@ import pytest
 
 from optimization_framework.agents.development import DEVELOPMENT_INSTRUCTIONS
 from optimization_framework.agents.development_runtime import DockerWorkspace
-from optimization_framework.agents.development_ticket import FILES, PROTECTED, diff_summary, files
+from optimization_framework.agents.development_ticket import FILES, diff_summary, files
+from optimization_framework.agents.library_install import Installer
+from optimization_framework.agents.library_validation import PROTECTED, protected_tests
 from optimization_framework.agents.tools import PiTools
 from optimization_framework.campaigns import compute_consent, mandates
 from optimization_framework.storage.sqlite import now
 from test_development_generated_library import LIBRARY, charter_lab, opened  # noqa: F401  (the fixture)
-from test_library_install import git
+from test_library_install import PYPROJECT, Plugins, Problems, git
 from test_pi_development_workspaces import TICKET, notices, outgoing, setup  # noqa: F401  (the fixture)
 from test_problem_charter_scaffold import METHODS, OBJECTIVE
 
@@ -42,9 +44,10 @@ def test_prepare_writes_the_four_files_for_a_ticket_and_a_second_prepare_keeps_t
     ticket = workspace.store.get(record["ticket_id"], "development_ticket")
     assert [row["source"] for row in ticket["acceptance_tests"]] == ["generated"] * 3 + ["implementation lead"]
     assert ticket["protected_tests"] == ["test_hidden.py"] and SECRET not in json.dumps(ticket)
-    # The protected test is kept on the host with the workspace, as validation outside the box (H6) reads it.
+    # The protected test is kept on the host with the workspace, where validation outside the box (H6) reads it.
     [kept] = workspace.store.list(PROTECTED, cid)
     assert (kept["workspace_id"], kept["name"]) == (record["id"], "test_hidden.py") and SECRET in kept["content"]
+    assert protected_tests(workspace.store, development.get(cid, record["id"])) == {"test_hidden.py": OWN_TICKET["protected_tests"][0]["content"]}
 
     # The Docker driver's prepare, its worktree already made (no Docker here), writes the ticket beside the library.
     for name in ("GRATING_PI_AUTH_FILE", "GRATING_FLRL_REFERENCE"):
@@ -172,16 +175,16 @@ def test_the_ticket_carries_the_budget_deadline_and_walls_of_the_requests_mandat
         assert line in task, line
 
 
-def test_implementation_workspace_inspect_returns_the_diff_summary(charter_lab):
+def deliver(charter_lab, monkeypatch):
+    """A workspace the implementation lead opened on OWN_TICKET, whose coder fills the two files it writes, changes the harness and
+    a line of the lead's test, adds a module, commits and delivers; the commit is read as the Docker driver's snapshot reads it."""
     workspace, cid, development, driver, _ = charter_lab
     go_ahead(workspace, cid)
-    lead_id = workspace.pi.configuration(cid)["lead_id"]
     opener = workspace.pi.page_agent(cid, "implementation_lead")
     record = development.create(cid, {"hypothesis_id": "hypothesis_dev", "objective": "Implement", "request_key": "review", "ticket": OWN_TICKET},
                                 actor="lead", opener={"agent_id": opener["id"], "role": opener["role"]})
     development.sync(cid)
     repo = driver.repo(record)
-    # The coder fills the two files it writes, changes the harness and a line of the lead's test, adds a module, and delivers.
     (repo / LIBRARY / "oven_trays/objective.py").write_text(OBJECTIVE)
     (repo / LIBRARY / "oven_trays/methods.py").write_text(METHODS)
     with (repo / LIBRARY / "oven_trays/harness.py").open("a") as harness:
@@ -193,11 +196,27 @@ def test_implementation_workspace_inspect_returns_the_diff_summary(charter_lab):
     git("-c", "user.name=coder", "-c", "user.email=coder@lab", "commit", "-q", "-m", "Delivery", cwd=repo)
     commit = git("rev-parse", "HEAD", cwd=repo)
     git("clone", "-q", "--bare", str(repo), str(driver.root(record) / "work" / "git"), cwd=repo.parent)
+
+    def snapshot(record, commit, manifest_path):
+        paths = sorted(str(path.relative_to(repo)) for path in (repo / LIBRARY).rglob("*") if path.is_file())
+        manifest = {"contract": "optimizer_v1", "entrypoint": "optimizer:create_optimizer", "files": paths, "dependencies": {}, "test_summary": ""}
+        return {**manifest, "files": [{"path": path, "content": (repo / path).read_text()} for path in paths]}, manifest, []
+    monkeypatch.setattr(driver, "snapshot", snapshot)
     outgoing(driver, record, "deliver", "submission", {"commit": commit, "manifest_path": "implementation-manifest.json"})
     development.sync(cid)
+    return workspace, cid, development, record, opener, commit
 
+
+def inspect(workspace, opener, record):
+    """implementation_workspace_inspect, called as the implementation lead's tool."""
     run = {"id": "run_review", "origin": {"thread_id": "thread_main"}}
-    inspected = PiTools(workspace.pi)._execute(opener, run, "implementation_workspace_inspect", {"workspace_id": record["id"]}, "call_review")
+    return PiTools(workspace.pi)._execute(opener, run, "implementation_workspace_inspect", {"workspace_id": record["id"]}, "call_review")
+
+
+def test_implementation_workspace_inspect_returns_the_diff_summary(charter_lab, monkeypatch):
+    workspace, cid, development, record, opener, commit = deliver(charter_lab, monkeypatch)
+    lead_id = workspace.pi.configuration(cid)["lead_id"]
+    inspected = inspect(workspace, opener, record)
     review, diff = inspected["review"], inspected["review"]["diff"]
     assert review["commit"] == commit and review["protected_tests"] == ["test_hidden.py"] and review["host_validation"] is None
     assert (diff["library"], diff["source"]) == ("oven_trays", "commit")
@@ -218,6 +237,41 @@ def test_implementation_workspace_inspect_returns_the_diff_summary(charter_lab):
     [notice] = [run for run in notices(workspace, cid, opener["id"]) if "submitted as" in run["input"]]
     assert "It changes 5 files of oven_trays" in notice["input"] and "oven_trays/harness.py" in notice["input"]
     assert not [run for run in notices(workspace, cid, lead_id) if "submitted as" in run["input"]]
+
+
+def test_the_tickets_protected_tests_run_outside_the_box_and_inspect_returns_the_hosts_results(charter_lab, monkeypatch, tmp_path):
+    workspace, cid, development, record, opener, commit = deliver(charter_lab, monkeypatch)
+    [submission] = workspace.store.list("development_submission", cid)
+    # The install validates the exact commit outside the box (H6): the validator gets the ticket's protected test, which never
+    # reached the box. Stubbed here (the real sandbox is tests/test_library_validation.py): it fails the protected test and one
+    # method's conformance.
+    seen = {}
+    def validator(files, name, instances=(), protected=None):
+        seen.update(name=name, protected=protected, files=set(files))
+        return {"tests": {"passed": 4, "failed": 0, "skipped": 0, "results": []},
+                "protected": {"passed": 0, "failed": 1, "skipped": 0,
+                              "results": [{"test": "test_hidden.py::test_hidden", "outcome": "failed", "message": SECRET}]},
+                "methods": [{"method_id": "random_search", "conformance": "passed", "check": "check_function", "problem_id": "oven_trays"},
+                            {"method_id": "all_cold", "conformance": "failed", "check": "check_function", "problem_id": "oven_trays",
+                             "failed_check": "valid candidates"}], "seconds": 0.5}
+    lab = tmp_path / "lab"
+    (lab / "libraries").mkdir(parents=True)
+    (lab / "pyproject.toml").write_text(PYPROJECT)
+    (lab / "uv.lock").write_text("lock v1\n")
+    plugins = Plugins()
+    installer = Installer(workspace, development, lab, runner=lambda args, cwd, timeout=600: (0, "ok"), uv="uv", plugins=plugins,
+                          problems=Problems(plugins, ("oven_trays",)), providers=lambda group: {}, validator=validator)
+    install = installer.request(cid, record["id"], submission["id"], request_key="host", background=False)
+    assert seen["name"] == "oven_trays" and seen["protected"] == {"test_hidden.py": OWN_TICKET["protected_tests"][0]["content"]}
+    assert f"{LIBRARY}/tests/test_acceptance.py" in seen["files"] and install["status"] == "failed"
+
+    review = inspect(workspace, opener, record)["review"]
+    assert review["install"]["id"] == install["id"] and review["install"]["status"] == "failed"
+    assert review["host_validation"]["protected"]["results"] == [{"test": "test_hidden.py::test_hidden", "outcome": "failed"}]
+    assert [row["method_id"] for row in review["refused_methods"]] == ["all_cold"]
+    assert review["diff"]["files_changed"] == 5   # beside the diff summary
+    # The coder sees the protected test's name and outcome, never its source: not in the review, not in the box.
+    assert SECRET not in json.dumps(review) and SECRET not in everything_under(development.driver.root(record))
 
 
 def test_the_diff_summary_compares_by_hash_where_the_generated_bytes_are_gone():

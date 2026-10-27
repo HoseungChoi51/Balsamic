@@ -340,10 +340,12 @@ deadline, limits and network of the box), `AGENTS.md` and `CLAUDE.md` (the same 
 build, how to run the tests, how to submit, what not to touch) and `.balsamic/spec.json` (the ticket as JSON). Like the
 library, each file is written only where it is absent. The implementation lead adds acceptance tests (a pytest file by its
 path, with its content when it is new; a campaign without a charter needs at least one) and protected tests, which stay on
-the host (`development_protected_test`) and are never written into the box. An agent's ticket is checked as a commission's
+the host (`development_protected_test`), are never written into the box, and run in the validation outside the box above
+on every delivery. An agent's ticket is checked as a commission's
 specification is (`check_self_contained()`): it needs acceptance tests and may name only records the coding agent can read.
 Each delivery is reviewed by its diff against the generated base (files and lines changed, the generated files and
-acceptance tests it touched), on the submission and in `implementation_workspace_inspect`.
+acceptance tests it touched), on the submission and in `implementation_workspace_inspect`, beside the host's validation of
+it (`host_validation`, `refused_methods`).
 
 ### Failure policy
 
