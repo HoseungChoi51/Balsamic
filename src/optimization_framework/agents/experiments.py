@@ -25,12 +25,16 @@ def _trend(workspace, trial, elapsed):
     return {"best_at_half_time": half[-1] if half else rows[0]["best_objective"], "best_now": rows[-1]["best_objective"]}
 
 
-def progress(workspace, campaign_id, finished=8):
-    """The runs at work, in queue order, and the latest finished ones, with how far each has come."""
+def progress(workspace, campaign_id, finished=8, withheld=frozenset()):
+    """The runs at work, in queue order, and the latest finished ones, with how far each has come.
+    withheld: a locked confirmation's trials, shown by status only (no id, score or measurement) until it is released."""
     rules = current_rules(workspace.store, campaign_id)
     trials = workspace.store.list_compact_trials(campaign_id)
     kinds = classify(trials, rules["short_run_seconds"], check_trial_ids(workspace.store, campaign_id))
     def row(trial, trend=False):
+        if trial["id"] in withheld:
+            return {"kind": kinds[trial["id"]], "status": trial["status"], "protected_evidence": True,
+                    "note": "A confirmation run: its results are withheld until the confirmation is released"}
         measured = {**(trial.get("result") or {}), **(trial.get("progress") or {})}
         elapsed, cap = measured.get("elapsed_seconds"), trial.get("wall_seconds")
         evaluations, allowed = measured.get("evaluations") or 0, trial.get("max_steps")

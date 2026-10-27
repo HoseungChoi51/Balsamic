@@ -22,13 +22,13 @@ def create_optimizer(context):
 '''
 
 
-def import_legacy(hypothesis):
+def import_legacy(hypothesis, problem_id):
     parameters = hypothesis.get("algorithm_config", {}).get("parameters", {})
     properties = {}
     for key, value in parameters.items():
         kind = "boolean" if type(value) is bool else "integer" if type(value) is int else "number" if type(value) is float else "string" if isinstance(value, str) else "array" if isinstance(value, list) else "object"
         properties[key] = {"type": kind, "enum": [value]}
-    spec = ImplementationSpec(name=hypothesis["title"], mechanism=hypothesis.get("mechanism") or hypothesis["title"],
+    spec = ImplementationSpec(name=hypothesis["title"], problem_id=problem_id, mechanism=hypothesis.get("mechanism") or hypothesis["title"],
         acceptance_criteria=["Implements the declared mechanism", "Reproduces seeded proposals and resumes exactly from a checkpoint"],
         parameters=parameters, parameter_schema={"type": "object", "properties": properties, "additionalProperties": False},
         provenance=[{"hypothesis_id": hypothesis["id"], "campaign_id": hypothesis["campaign_id"],

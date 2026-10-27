@@ -5,7 +5,7 @@ import sys
 
 import pytest
 
-from optimization_framework.execution.rcwa_memory import GIB, estimate_rcwa_memory
+from dqn_meent.pack.memory import GIB, estimate_rcwa_memory
 
 
 def fidelity(x, y):
@@ -125,11 +125,11 @@ def test_invalid_resource_inputs_are_rejected(kwargs):
 def test_cli_reads_existing_samples_without_loading_numerical_libraries(tmp_path):
     saved = tmp_path / "preflight.json"
     saved.write_text(json.dumps({"worker_memory_samples": [observed()]}))
-    result = subprocess.run([sys.executable, "-m", "optimization_framework.execution.rcwa_memory",
+    result = subprocess.run([sys.executable, "-m", "dqn_meent.pack.memory",
                              "--order-x", "22", "--order-y", "11", "--samples", str(saved),
                              "--available-gib", "17.64"], check=True, text=True, capture_output=True)
     assert json.loads(result.stdout)["predicted_peak_bytes"] == 28_841_862_122
     subprocess.run([sys.executable, "-c", "import sys; "
-                    "from optimization_framework.execution.rcwa_memory import estimate_rcwa_memory; "
+                    "from dqn_meent.pack.memory import estimate_rcwa_memory; "
                     "estimate_rcwa_memory({'rcwa_order_x':22,'rcwa_order_y':11}); "
                     "assert 'meent' not in sys.modules and 'torch' not in sys.modules"], check=True)

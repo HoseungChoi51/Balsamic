@@ -209,8 +209,9 @@ class RuntimeProfiles:
         version_id = (self.workspace.evaluators.binding(task) or {}).get("version_id")
         # The digest an experiment of this task would record now, so that "the source changed" means here
         # what it means for an experiment and for an equivalence record. A commissioned evaluator is its version.
+        from optimization_framework.execution.problem_migration import required
         frozen = ((), tuple((task.get("evaluator_manifest") or {}).get("recipe_ids", []))) if version_id else (
-            ((task.get("problem") or {}).get("definition_id", "meent_grating"),), ())
+            (required(task)["definition_id"],), ())
         if time.monotonic() - self.source.get(frozen, (-float("inf"),))[0] > 5:   # looking at the source on every poll would be its own overhead
             self.source[frozen] = (time.monotonic(), current_scientific_digest(*frozen))
         body = {"campaign_id": task["campaign_id"], "task_id": task["id"],

@@ -1,0 +1,1572 @@
+{
+ "forecast": {
+  "manifest_16_gib": {
+   "memory_checks": [
+    {
+     "analytical_lower_bound_bytes": 3709466672,
+     "available_memory_bytes": 17179869184,
+     "basis": "Observed validation worker peak RSS, extrapolated; requested-order peak is not measured",
+     "complex_element_bytes": 16,
+     "configuration": {
+      "dtype": "complex128",
+      "enhanced_dfs": true,
+      "execution": "CPU forward solve",
+      "fourier_type": 0,
+      "grid_x": 256,
+      "grid_y": 128,
+      "layers": 1
+     },
+     "dense_matrix_growth_ratio": 1.0,
+     "em_block_matrix_bytes": 31629376,
+     "estimate_kind": "heuristic",
+     "estimated_safe_concurrency": 1,
+     "expanded_complex_grid_bytes": 1474297856,
+     "expanded_grid_points": 92143616,
+     "expanded_grid_shape": {
+      "x": 18944,
+      "y": 4864
+     },
+     "expanded_real_grid_bytes": 737148928,
+     "fft_grid_growth_ratio": 1.0,
+     "fft_workspace_lower_bound_bytes": 3709466672,
+     "fidelity": {
+      "rcwa_order_x": 18,
+      "rcwa_order_y": 9
+     },
+     "fits_available_memory": true,
+     "fits_now": true,
+     "growth_model": "uncertainty factor * reference worker peak * (target harmonics / reference harmonics)^2",
+     "harmonic_count": 703,
+     "headroom_bytes": 4294967296.0,
+     "limitations": [
+      "Analytical array sizes are lower bounds, not safe peak-memory requirements.",
+      "FFT/eigensolver scratch, allocator retention, runtime overhead and autograd are not analytically bounded.",
+      "Quadratic harmonic RSS extrapolation can overestimate FFT-dominated growth; its uncertainty factor is a policy allowance.",
+      "A numerical convergence requirement cannot be determined from memory sizes."
+     ],
+     "measured_fidelity": {
+      "rcwa_order_x": 18,
+      "rcwa_order_y": 9
+     },
+     "measured_peak_bytes": 6442450944,
+     "measurement_count": 1,
+     "memory_headroom_bytes": 4294967296,
+     "predicted_bytes": 12884901888,
+     "predicted_peak_bytes": 12884901888,
+     "provenance": {
+      "analytical_sources": [
+       "MEENT 0.13.2 on_torch/emsolver/_base.py:solve_2d",
+       "MEENT 0.13.2 on_torch/emsolver/transfer_method.py:transfer_2d_1, transfer_2d_2, transfer_2d_3",
+       "MEENT 0.13.2 on_torch/emsolver/convolution_matrix.py:to_conv_mat_raster_discrete",
+       "MEENT 0.13.2 on_torch/emsolver/fourier_analysis.py:dfs2d"
+      ],
+      "forecast_method": "measured_rss_extrapolation",
+      "measurement_scope": "Whole worker VmHWM after completed evaluations, potentially across multiple solves",
+      "reference_fidelity": {
+       "rcwa_order_x": 18,
+       "rcwa_order_y": 9
+      },
+      "reference_peak_bytes": 6442450944,
+      "reference_pid": 100,
+      "reference_process_identity": "500",
+      "reference_sampled_at": 999,
+      "reference_trial_id": "u",
+      "source_trial_ids": [
+       "u"
+      ]
+     },
+     "raw_measurement_count": 1,
+     "retained_matrix_lower_bound_bytes": 276757040,
+     "single_matrix_bytes": 7907344,
+     "uncertainty_factor": 2.0,
+     "unmargined_peak_bytes": 6442450944
+    },
+    {
+     "analytical_lower_bound_bytes": 5477799600,
+     "available_memory_bytes": 17179869184,
+     "basis": "Observed validation worker peak RSS, extrapolated; requested-order peak is not measured",
+     "complex_element_bytes": 16,
+     "configuration": {
+      "dtype": "complex128",
+      "enhanced_dfs": true,
+      "execution": "CPU forward solve",
+      "fourier_type": 0,
+      "grid_x": 256,
+      "grid_y": 128,
+      "layers": 1
+     },
+     "dense_matrix_growth_ratio": 2.167554617580821,
+     "em_block_matrix_bytes": 68558400,
+     "estimate_kind": "heuristic",
+     "estimated_safe_concurrency": 0,
+     "expanded_complex_grid_bytes": 2170552320,
+     "expanded_grid_points": 135659520,
+     "expanded_grid_shape": {
+      "x": 23040,
+      "y": 5888
+     },
+     "expanded_real_grid_bytes": 1085276160,
+     "fft_grid_growth_ratio": 1.4722617354196301,
+     "fft_workspace_lower_bound_bytes": 5477799600,
+     "fidelity": {
+      "rcwa_order_x": 22,
+      "rcwa_order_y": 11
+     },
+     "fits_available_memory": false,
+     "fits_now": false,
+     "growth_model": "uncertainty factor * reference worker peak * (target harmonics / reference harmonics)^2",
+     "harmonic_count": 1035,
+     "headroom_bytes": 4294967296.0,
+     "limitations": [
+      "Analytical array sizes are lower bounds, not safe peak-memory requirements.",
+      "FFT/eigensolver scratch, allocator retention, runtime overhead and autograd are not analytically bounded.",
+      "Quadratic harmonic RSS extrapolation can overestimate FFT-dominated growth; its uncertainty factor is a policy allowance.",
+      "A numerical convergence requirement cannot be determined from memory sizes."
+     ],
+     "measured_fidelity": {
+      "rcwa_order_x": 18,
+      "rcwa_order_y": 9
+     },
+     "measured_peak_bytes": null,
+     "measurement_count": 1,
+     "memory_headroom_bytes": 4294967296,
+     "predicted_bytes": 27928728585,
+     "predicted_peak_bytes": 27928728585,
+     "provenance": {
+      "analytical_sources": [
+       "MEENT 0.13.2 on_torch/emsolver/_base.py:solve_2d",
+       "MEENT 0.13.2 on_torch/emsolver/transfer_method.py:transfer_2d_1, transfer_2d_2, transfer_2d_3",
+       "MEENT 0.13.2 on_torch/emsolver/convolution_matrix.py:to_conv_mat_raster_discrete",
+       "MEENT 0.13.2 on_torch/emsolver/fourier_analysis.py:dfs2d"
+      ],
+      "forecast_method": "measured_rss_extrapolation",
+      "measurement_scope": "Whole worker VmHWM after completed evaluations, potentially across multiple solves",
+      "reference_fidelity": {
+       "rcwa_order_x": 18,
+       "rcwa_order_y": 9
+      },
+      "reference_peak_bytes": 6442450944,
+      "reference_pid": 100,
+      "reference_process_identity": "500",
+      "reference_sampled_at": 999,
+      "reference_trial_id": "u",
+      "source_trial_ids": [
+       "u"
+      ]
+     },
+     "raw_measurement_count": 1,
+     "retained_matrix_lower_bound_bytes": 599886000,
+     "single_matrix_bytes": 17139600,
+     "uncertainty_factor": 2.0,
+     "unmargined_peak_bytes": 13964364293
+    },
+    {
+     "analytical_lower_bound_bytes": 7600853808,
+     "available_memory_bytes": 17179869184,
+     "basis": "Observed validation worker peak RSS, extrapolated; requested-order peak is not measured",
+     "complex_element_bytes": 16,
+     "configuration": {
+      "dtype": "complex128",
+      "enhanced_dfs": true,
+      "execution": "CPU forward solve",
+      "fourier_type": 0,
+      "grid_x": 256,
+      "grid_y": 128,
+      "layers": 1
+     },
+     "dense_matrix_growth_ratio": 4.1435121578117755,
+     "em_block_matrix_bytes": 131056704,
+     "estimate_kind": "heuristic",
+     "estimated_safe_concurrency": 0,
+     "expanded_complex_grid_bytes": 3001024512,
+     "expanded_grid_points": 187564032,
+     "expanded_grid_shape": {
+      "x": 27136,
+      "y": 6912
+     },
+     "expanded_real_grid_bytes": 1500512256,
+     "fft_grid_growth_ratio": 2.0355618776671407,
+     "fft_workspace_lower_bound_bytes": 7600853808,
+     "fidelity": {
+      "rcwa_order_x": 26,
+      "rcwa_order_y": 13
+     },
+     "fits_available_memory": false,
+     "fits_now": false,
+     "growth_model": "uncertainty factor * reference worker peak * (target harmonics / reference harmonics)^2",
+     "harmonic_count": 1431,
+     "headroom_bytes": 4294967296.0,
+     "limitations": [
+      "Analytical array sizes are lower bounds, not safe peak-memory requirements.",
+      "FFT/eigensolver scratch, allocator retention, runtime overhead and autograd are not analytically bounded.",
+      "Quadratic harmonic RSS extrapolation can overestimate FFT-dominated growth; its uncertainty factor is a policy allowance.",
+      "A numerical convergence requirement cannot be determined from memory sizes."
+     ],
+     "measured_fidelity": {
+      "rcwa_order_x": 18,
+      "rcwa_order_y": 9
+     },
+     "measured_peak_bytes": null,
+     "measurement_count": 1,
+     "memory_headroom_bytes": 4294967296,
+     "predicted_bytes": 53388747626,
+     "predicted_peak_bytes": 53388747626,
+     "provenance": {
+      "analytical_sources": [
+       "MEENT 0.13.2 on_torch/emsolver/_base.py:solve_2d",
+       "MEENT 0.13.2 on_torch/emsolver/transfer_method.py:transfer_2d_1, transfer_2d_2, transfer_2d_3",
+       "MEENT 0.13.2 on_torch/emsolver/convolution_matrix.py:to_conv_mat_raster_discrete",
+       "MEENT 0.13.2 on_torch/emsolver/fourier_analysis.py:dfs2d"
+      ],
+      "forecast_method": "measured_rss_extrapolation",
+      "measurement_scope": "Whole worker VmHWM after completed evaluations, potentially across multiple solves",
+      "reference_fidelity": {
+       "rcwa_order_x": 18,
+       "rcwa_order_y": 9
+      },
+      "reference_peak_bytes": 6442450944,
+      "reference_pid": 100,
+      "reference_process_identity": "500",
+      "reference_sampled_at": 999,
+      "reference_trial_id": "u",
+      "source_trial_ids": [
+       "u"
+      ]
+     },
+     "raw_measurement_count": 1,
+     "retained_matrix_lower_bound_bytes": 1146746160,
+     "single_matrix_bytes": 32764176,
+     "uncertainty_factor": 2.0,
+     "unmargined_peak_bytes": 26694373813
+    },
+    {
+     "analytical_lower_bound_bytes": 10085928368,
+     "available_memory_bytes": 17179869184,
+     "basis": "Observed validation worker peak RSS, extrapolated; requested-order peak is not measured",
+     "complex_element_bytes": 16,
+     "configuration": {
+      "dtype": "complex128",
+      "enhanced_dfs": true,
+      "execution": "CPU forward solve",
+      "fourier_type": 0,
+      "grid_x": 256,
+      "grid_y": 128,
+      "layers": 1
+     },
+     "dense_matrix_growth_ratio": 7.235564305789657,
+     "em_block_matrix_bytes": 228856384,
+     "estimate_kind": "heuristic",
+     "estimated_safe_concurrency": 0,
+     "expanded_complex_grid_bytes": 3965714432,
+     "expanded_grid_points": 247857152,
+     "expanded_grid_shape": {
+      "x": 31232,
+      "y": 7936
+     },
+     "expanded_real_grid_bytes": 1982857216,
+     "fft_grid_growth_ratio": 2.689900426742532,
+     "fft_workspace_lower_bound_bytes": 10085928368,
+     "fidelity": {
+      "rcwa_order_x": 30,
+      "rcwa_order_y": 15
+     },
+     "fits_available_memory": false,
+     "fits_now": false,
+     "growth_model": "uncertainty factor * reference worker peak * (target harmonics / reference harmonics)^2",
+     "harmonic_count": 1891,
+     "headroom_bytes": 4294967296.0,
+     "limitations": [
+      "Analytical array sizes are lower bounds, not safe peak-memory requirements.",
+      "FFT/eigensolver scratch, allocator retention, runtime overhead and autograd are not analytically bounded.",
+      "Quadratic harmonic RSS extrapolation can overestimate FFT-dominated growth; its uncertainty factor is a policy allowance.",
+      "A numerical convergence requirement cannot be determined from memory sizes."
+     ],
+     "measured_fidelity": {
+      "rcwa_order_x": 18,
+      "rcwa_order_y": 9
+     },
+     "measured_peak_bytes": null,
+     "measurement_count": 1,
+     "memory_headroom_bytes": 4294967296,
+     "predicted_bytes": 93229536185,
+     "predicted_peak_bytes": 93229536185,
+     "provenance": {
+      "analytical_sources": [
+       "MEENT 0.13.2 on_torch/emsolver/_base.py:solve_2d",
+       "MEENT 0.13.2 on_torch/emsolver/transfer_method.py:transfer_2d_1, transfer_2d_2, transfer_2d_3",
+       "MEENT 0.13.2 on_torch/emsolver/convolution_matrix.py:to_conv_mat_raster_discrete",
+       "MEENT 0.13.2 on_torch/emsolver/fourier_analysis.py:dfs2d"
+      ],
+      "forecast_method": "measured_rss_extrapolation",
+      "measurement_scope": "Whole worker VmHWM after completed evaluations, potentially across multiple solves",
+      "reference_fidelity": {
+       "rcwa_order_x": 18,
+       "rcwa_order_y": 9
+      },
+      "reference_peak_bytes": 6442450944,
+      "reference_pid": 100,
+      "reference_process_identity": "500",
+      "reference_sampled_at": 999,
+      "reference_trial_id": "u",
+      "source_trial_ids": [
+       "u"
+      ]
+     },
+     "raw_measurement_count": 1,
+     "retained_matrix_lower_bound_bytes": 2002493360,
+     "single_matrix_bytes": 57214096,
+     "uncertainty_factor": 2.0,
+     "unmargined_peak_bytes": 46614768093
+    },
+    {
+     "analytical_lower_bound_bytes": 12941502000,
+     "available_memory_bytes": 17179869184,
+     "basis": "Observed validation worker peak RSS, extrapolated; requested-order peak is not measured",
+     "complex_element_bytes": 16,
+     "configuration": {
+      "dtype": "complex128",
+      "enhanced_dfs": true,
+      "execution": "CPU forward solve",
+      "fourier_type": 0,
+      "grid_x": 256,
+      "grid_y": 128,
+      "layers": 1
+     },
+     "dense_matrix_growth_ratio": 11.801130695717804,
+     "em_block_matrix_bytes": 373262400,
+     "estimate_kind": "heuristic",
+     "estimated_safe_concurrency": 0,
+     "expanded_complex_grid_bytes": 5064622080,
+     "expanded_grid_points": 316538880,
+     "expanded_grid_shape": {
+      "x": 35328,
+      "y": 8960
+     },
+     "expanded_real_grid_bytes": 2532311040,
+     "fft_grid_growth_ratio": 3.4352773826458036,
+     "fft_workspace_lower_bound_bytes": 12941502000,
+     "fidelity": {
+      "rcwa_order_x": 34,
+      "rcwa_order_y": 17
+     },
+     "fits_available_memory": false,
+     "fits_now": false,
+     "growth_model": "uncertainty factor * reference worker peak * (target harmonics / reference harmonics)^2",
+     "harmonic_count": 2415,
+     "headroom_bytes": 4294967296.0,
+     "limitations": [
+      "Analytical array sizes are lower bounds, not safe peak-memory requirements.",
+      "FFT/eigensolver scratch, allocator retention, runtime overhead and autograd are not analytically bounded.",
+      "Quadratic harmonic RSS extrapolation can overestimate FFT-dominated growth; its uncertainty factor is a policy allowance.",
+      "A numerical convergence requirement cannot be determined from memory sizes."
+     ],
+     "measured_fidelity": {
+      "rcwa_order_x": 18,
+      "rcwa_order_y": 9
+     },
+     "measured_peak_bytes": null,
+     "measurement_count": 1,
+     "memory_headroom_bytes": 4294967296,
+     "predicted_bytes": 152056411182,
+     "predicted_peak_bytes": 152056411182,
+     "provenance": {
+      "analytical_sources": [
+       "MEENT 0.13.2 on_torch/emsolver/_base.py:solve_2d",
+       "MEENT 0.13.2 on_torch/emsolver/transfer_method.py:transfer_2d_1, transfer_2d_2, transfer_2d_3",
+       "MEENT 0.13.2 on_torch/emsolver/convolution_matrix.py:to_conv_mat_raster_discrete",
+       "MEENT 0.13.2 on_torch/emsolver/fourier_analysis.py:dfs2d"
+      ],
+      "forecast_method": "measured_rss_extrapolation",
+      "measurement_scope": "Whole worker VmHWM after completed evaluations, potentially across multiple solves",
+      "reference_fidelity": {
+       "rcwa_order_x": 18,
+       "rcwa_order_y": 9
+      },
+      "reference_peak_bytes": 6442450944,
+      "reference_pid": 100,
+      "reference_process_identity": "500",
+      "reference_sampled_at": 999,
+      "reference_trial_id": "u",
+      "source_trial_ids": [
+       "u"
+      ]
+     },
+     "raw_measurement_count": 1,
+     "retained_matrix_lower_bound_bytes": 3266046000,
+     "single_matrix_bytes": 93315600,
+     "uncertainty_factor": 2.0,
+     "unmargined_peak_bytes": 76028205591
+    }
+   ],
+   "memory_forecast": {
+    "available_bytes": 17179869184,
+    "basis": "Historical RSS extrapolation",
+    "fidelity": {
+     "rcwa_order_x": 22,
+     "rcwa_order_y": 11
+    },
+    "fit_scope": "Available memory only; active-worker future peak growth and other admission rules are not included",
+    "fits_now": false,
+    "growth_model": null,
+    "headroom_bytes": 4294967296.0,
+    "historical_available_bytes": 17179869184,
+    "historical_fits": false,
+    "historical_reason": "Higher fidelity did not fit the historical memory allowance",
+    "measured_at": 999,
+    "measured_fidelity": {
+     "rcwa_order_x": 18,
+     "rcwa_order_y": 9
+    },
+    "measured_peak_bytes": 6442450944,
+    "predicted_bytes": 21474836480,
+    "safety_factor": 2
+   }
+  },
+  "manifest_30_gib": {
+   "memory_checks": [
+    {
+     "analytical_lower_bound_bytes": 3709466672,
+     "available_memory_bytes": 32212254720,
+     "basis": "Observed validation worker peak RSS, extrapolated; requested-order peak is not measured",
+     "complex_element_bytes": 16,
+     "configuration": {
+      "dtype": "complex128",
+      "enhanced_dfs": true,
+      "execution": "CPU forward solve",
+      "fourier_type": 0,
+      "grid_x": 256,
+      "grid_y": 128,
+      "layers": 1
+     },
+     "dense_matrix_growth_ratio": 1.0,
+     "em_block_matrix_bytes": 31629376,
+     "estimate_kind": "heuristic",
+     "estimated_safe_concurrency": 2,
+     "expanded_complex_grid_bytes": 1474297856,
+     "expanded_grid_points": 92143616,
+     "expanded_grid_shape": {
+      "x": 18944,
+      "y": 4864
+     },
+     "expanded_real_grid_bytes": 737148928,
+     "fft_grid_growth_ratio": 1.0,
+     "fft_workspace_lower_bound_bytes": 3709466672,
+     "fidelity": {
+      "rcwa_order_x": 18,
+      "rcwa_order_y": 9
+     },
+     "fits_available_memory": true,
+     "fits_now": true,
+     "growth_model": "uncertainty factor * reference worker peak * (target harmonics / reference harmonics)^2",
+     "harmonic_count": 703,
+     "headroom_bytes": 4294967296.0,
+     "limitations": [
+      "Analytical array sizes are lower bounds, not safe peak-memory requirements.",
+      "FFT/eigensolver scratch, allocator retention, runtime overhead and autograd are not analytically bounded.",
+      "Quadratic harmonic RSS extrapolation can overestimate FFT-dominated growth; its uncertainty factor is a policy allowance.",
+      "A numerical convergence requirement cannot be determined from memory sizes."
+     ],
+     "measured_fidelity": {
+      "rcwa_order_x": 18,
+      "rcwa_order_y": 9
+     },
+     "measured_peak_bytes": 6442450944,
+     "measurement_count": 1,
+     "memory_headroom_bytes": 4294967296,
+     "predicted_bytes": 12884901888,
+     "predicted_peak_bytes": 12884901888,
+     "provenance": {
+      "analytical_sources": [
+       "MEENT 0.13.2 on_torch/emsolver/_base.py:solve_2d",
+       "MEENT 0.13.2 on_torch/emsolver/transfer_method.py:transfer_2d_1, transfer_2d_2, transfer_2d_3",
+       "MEENT 0.13.2 on_torch/emsolver/convolution_matrix.py:to_conv_mat_raster_discrete",
+       "MEENT 0.13.2 on_torch/emsolver/fourier_analysis.py:dfs2d"
+      ],
+      "forecast_method": "measured_rss_extrapolation",
+      "measurement_scope": "Whole worker VmHWM after completed evaluations, potentially across multiple solves",
+      "reference_fidelity": {
+       "rcwa_order_x": 18,
+       "rcwa_order_y": 9
+      },
+      "reference_peak_bytes": 6442450944,
+      "reference_pid": 100,
+      "reference_process_identity": "500",
+      "reference_sampled_at": 999,
+      "reference_trial_id": "u",
+      "source_trial_ids": [
+       "u"
+      ]
+     },
+     "raw_measurement_count": 1,
+     "retained_matrix_lower_bound_bytes": 276757040,
+     "single_matrix_bytes": 7907344,
+     "uncertainty_factor": 2.0,
+     "unmargined_peak_bytes": 6442450944
+    },
+    {
+     "analytical_lower_bound_bytes": 5477799600,
+     "available_memory_bytes": 32212254720,
+     "basis": "Observed validation worker peak RSS, extrapolated; requested-order peak is not measured",
+     "complex_element_bytes": 16,
+     "configuration": {
+      "dtype": "complex128",
+      "enhanced_dfs": true,
+      "execution": "CPU forward solve",
+      "fourier_type": 0,
+      "grid_x": 256,
+      "grid_y": 128,
+      "layers": 1
+     },
+     "dense_matrix_growth_ratio": 2.167554617580821,
+     "em_block_matrix_bytes": 68558400,
+     "estimate_kind": "heuristic",
+     "estimated_safe_concurrency": 0,
+     "expanded_complex_grid_bytes": 2170552320,
+     "expanded_grid_points": 135659520,
+     "expanded_grid_shape": {
+      "x": 23040,
+      "y": 5888
+     },
+     "expanded_real_grid_bytes": 1085276160,
+     "fft_grid_growth_ratio": 1.4722617354196301,
+     "fft_workspace_lower_bound_bytes": 5477799600,
+     "fidelity": {
+      "rcwa_order_x": 22,
+      "rcwa_order_y": 11
+     },
+     "fits_available_memory": false,
+     "fits_now": false,
+     "growth_model": "uncertainty factor * reference worker peak * (target harmonics / reference harmonics)^2",
+     "harmonic_count": 1035,
+     "headroom_bytes": 4294967296.0,
+     "limitations": [
+      "Analytical array sizes are lower bounds, not safe peak-memory requirements.",
+      "FFT/eigensolver scratch, allocator retention, runtime overhead and autograd are not analytically bounded.",
+      "Quadratic harmonic RSS extrapolation can overestimate FFT-dominated growth; its uncertainty factor is a policy allowance.",
+      "A numerical convergence requirement cannot be determined from memory sizes."
+     ],
+     "measured_fidelity": {
+      "rcwa_order_x": 18,
+      "rcwa_order_y": 9
+     },
+     "measured_peak_bytes": null,
+     "measurement_count": 1,
+     "memory_headroom_bytes": 4294967296,
+     "predicted_bytes": 27928728585,
+     "predicted_peak_bytes": 27928728585,
+     "provenance": {
+      "analytical_sources": [
+       "MEENT 0.13.2 on_torch/emsolver/_base.py:solve_2d",
+       "MEENT 0.13.2 on_torch/emsolver/transfer_method.py:transfer_2d_1, transfer_2d_2, transfer_2d_3",
+       "MEENT 0.13.2 on_torch/emsolver/convolution_matrix.py:to_conv_mat_raster_discrete",
+       "MEENT 0.13.2 on_torch/emsolver/fourier_analysis.py:dfs2d"
+      ],
+      "forecast_method": "measured_rss_extrapolation",
+      "measurement_scope": "Whole worker VmHWM after completed evaluations, potentially across multiple solves",
+      "reference_fidelity": {
+       "rcwa_order_x": 18,
+       "rcwa_order_y": 9
+      },
+      "reference_peak_bytes": 6442450944,
+      "reference_pid": 100,
+      "reference_process_identity": "500",
+      "reference_sampled_at": 999,
+      "reference_trial_id": "u",
+      "source_trial_ids": [
+       "u"
+      ]
+     },
+     "raw_measurement_count": 1,
+     "retained_matrix_lower_bound_bytes": 599886000,
+     "single_matrix_bytes": 17139600,
+     "uncertainty_factor": 2.0,
+     "unmargined_peak_bytes": 13964364293
+    },
+    {
+     "analytical_lower_bound_bytes": 7600853808,
+     "available_memory_bytes": 32212254720,
+     "basis": "Observed validation worker peak RSS, extrapolated; requested-order peak is not measured",
+     "complex_element_bytes": 16,
+     "configuration": {
+      "dtype": "complex128",
+      "enhanced_dfs": true,
+      "execution": "CPU forward solve",
+      "fourier_type": 0,
+      "grid_x": 256,
+      "grid_y": 128,
+      "layers": 1
+     },
+     "dense_matrix_growth_ratio": 4.1435121578117755,
+     "em_block_matrix_bytes": 131056704,
+     "estimate_kind": "heuristic",
+     "estimated_safe_concurrency": 0,
+     "expanded_complex_grid_bytes": 3001024512,
+     "expanded_grid_points": 187564032,
+     "expanded_grid_shape": {
+      "x": 27136,
+      "y": 6912
+     },
+     "expanded_real_grid_bytes": 1500512256,
+     "fft_grid_growth_ratio": 2.0355618776671407,
+     "fft_workspace_lower_bound_bytes": 7600853808,
+     "fidelity": {
+      "rcwa_order_x": 26,
+      "rcwa_order_y": 13
+     },
+     "fits_available_memory": false,
+     "fits_now": false,
+     "growth_model": "uncertainty factor * reference worker peak * (target harmonics / reference harmonics)^2",
+     "harmonic_count": 1431,
+     "headroom_bytes": 4294967296.0,
+     "limitations": [
+      "Analytical array sizes are lower bounds, not safe peak-memory requirements.",
+      "FFT/eigensolver scratch, allocator retention, runtime overhead and autograd are not analytically bounded.",
+      "Quadratic harmonic RSS extrapolation can overestimate FFT-dominated growth; its uncertainty factor is a policy allowance.",
+      "A numerical convergence requirement cannot be determined from memory sizes."
+     ],
+     "measured_fidelity": {
+      "rcwa_order_x": 18,
+      "rcwa_order_y": 9
+     },
+     "measured_peak_bytes": null,
+     "measurement_count": 1,
+     "memory_headroom_bytes": 4294967296,
+     "predicted_bytes": 53388747626,
+     "predicted_peak_bytes": 53388747626,
+     "provenance": {
+      "analytical_sources": [
+       "MEENT 0.13.2 on_torch/emsolver/_base.py:solve_2d",
+       "MEENT 0.13.2 on_torch/emsolver/transfer_method.py:transfer_2d_1, transfer_2d_2, transfer_2d_3",
+       "MEENT 0.13.2 on_torch/emsolver/convolution_matrix.py:to_conv_mat_raster_discrete",
+       "MEENT 0.13.2 on_torch/emsolver/fourier_analysis.py:dfs2d"
+      ],
+      "forecast_method": "measured_rss_extrapolation",
+      "measurement_scope": "Whole worker VmHWM after completed evaluations, potentially across multiple solves",
+      "reference_fidelity": {
+       "rcwa_order_x": 18,
+       "rcwa_order_y": 9
+      },
+      "reference_peak_bytes": 6442450944,
+      "reference_pid": 100,
+      "reference_process_identity": "500",
+      "reference_sampled_at": 999,
+      "reference_trial_id": "u",
+      "source_trial_ids": [
+       "u"
+      ]
+     },
+     "raw_measurement_count": 1,
+     "retained_matrix_lower_bound_bytes": 1146746160,
+     "single_matrix_bytes": 32764176,
+     "uncertainty_factor": 2.0,
+     "unmargined_peak_bytes": 26694373813
+    },
+    {
+     "analytical_lower_bound_bytes": 10085928368,
+     "available_memory_bytes": 32212254720,
+     "basis": "Observed validation worker peak RSS, extrapolated; requested-order peak is not measured",
+     "complex_element_bytes": 16,
+     "configuration": {
+      "dtype": "complex128",
+      "enhanced_dfs": true,
+      "execution": "CPU forward solve",
+      "fourier_type": 0,
+      "grid_x": 256,
+      "grid_y": 128,
+      "layers": 1
+     },
+     "dense_matrix_growth_ratio": 7.235564305789657,
+     "em_block_matrix_bytes": 228856384,
+     "estimate_kind": "heuristic",
+     "estimated_safe_concurrency": 0,
+     "expanded_complex_grid_bytes": 3965714432,
+     "expanded_grid_points": 247857152,
+     "expanded_grid_shape": {
+      "x": 31232,
+      "y": 7936
+     },
+     "expanded_real_grid_bytes": 1982857216,
+     "fft_grid_growth_ratio": 2.689900426742532,
+     "fft_workspace_lower_bound_bytes": 10085928368,
+     "fidelity": {
+      "rcwa_order_x": 30,
+      "rcwa_order_y": 15
+     },
+     "fits_available_memory": false,
+     "fits_now": false,
+     "growth_model": "uncertainty factor * reference worker peak * (target harmonics / reference harmonics)^2",
+     "harmonic_count": 1891,
+     "headroom_bytes": 4294967296.0,
+     "limitations": [
+      "Analytical array sizes are lower bounds, not safe peak-memory requirements.",
+      "FFT/eigensolver scratch, allocator retention, runtime overhead and autograd are not analytically bounded.",
+      "Quadratic harmonic RSS extrapolation can overestimate FFT-dominated growth; its uncertainty factor is a policy allowance.",
+      "A numerical convergence requirement cannot be determined from memory sizes."
+     ],
+     "measured_fidelity": {
+      "rcwa_order_x": 18,
+      "rcwa_order_y": 9
+     },
+     "measured_peak_bytes": null,
+     "measurement_count": 1,
+     "memory_headroom_bytes": 4294967296,
+     "predicted_bytes": 93229536185,
+     "predicted_peak_bytes": 93229536185,
+     "provenance": {
+      "analytical_sources": [
+       "MEENT 0.13.2 on_torch/emsolver/_base.py:solve_2d",
+       "MEENT 0.13.2 on_torch/emsolver/transfer_method.py:transfer_2d_1, transfer_2d_2, transfer_2d_3",
+       "MEENT 0.13.2 on_torch/emsolver/convolution_matrix.py:to_conv_mat_raster_discrete",
+       "MEENT 0.13.2 on_torch/emsolver/fourier_analysis.py:dfs2d"
+      ],
+      "forecast_method": "measured_rss_extrapolation",
+      "measurement_scope": "Whole worker VmHWM after completed evaluations, potentially across multiple solves",
+      "reference_fidelity": {
+       "rcwa_order_x": 18,
+       "rcwa_order_y": 9
+      },
+      "reference_peak_bytes": 6442450944,
+      "reference_pid": 100,
+      "reference_process_identity": "500",
+      "reference_sampled_at": 999,
+      "reference_trial_id": "u",
+      "source_trial_ids": [
+       "u"
+      ]
+     },
+     "raw_measurement_count": 1,
+     "retained_matrix_lower_bound_bytes": 2002493360,
+     "single_matrix_bytes": 57214096,
+     "uncertainty_factor": 2.0,
+     "unmargined_peak_bytes": 46614768093
+    },
+    {
+     "analytical_lower_bound_bytes": 12941502000,
+     "available_memory_bytes": 32212254720,
+     "basis": "Observed validation worker peak RSS, extrapolated; requested-order peak is not measured",
+     "complex_element_bytes": 16,
+     "configuration": {
+      "dtype": "complex128",
+      "enhanced_dfs": true,
+      "execution": "CPU forward solve",
+      "fourier_type": 0,
+      "grid_x": 256,
+      "grid_y": 128,
+      "layers": 1
+     },
+     "dense_matrix_growth_ratio": 11.801130695717804,
+     "em_block_matrix_bytes": 373262400,
+     "estimate_kind": "heuristic",
+     "estimated_safe_concurrency": 0,
+     "expanded_complex_grid_bytes": 5064622080,
+     "expanded_grid_points": 316538880,
+     "expanded_grid_shape": {
+      "x": 35328,
+      "y": 8960
+     },
+     "expanded_real_grid_bytes": 2532311040,
+     "fft_grid_growth_ratio": 3.4352773826458036,
+     "fft_workspace_lower_bound_bytes": 12941502000,
+     "fidelity": {
+      "rcwa_order_x": 34,
+      "rcwa_order_y": 17
+     },
+     "fits_available_memory": false,
+     "fits_now": false,
+     "growth_model": "uncertainty factor * reference worker peak * (target harmonics / reference harmonics)^2",
+     "harmonic_count": 2415,
+     "headroom_bytes": 4294967296.0,
+     "limitations": [
+      "Analytical array sizes are lower bounds, not safe peak-memory requirements.",
+      "FFT/eigensolver scratch, allocator retention, runtime overhead and autograd are not analytically bounded.",
+      "Quadratic harmonic RSS extrapolation can overestimate FFT-dominated growth; its uncertainty factor is a policy allowance.",
+      "A numerical convergence requirement cannot be determined from memory sizes."
+     ],
+     "measured_fidelity": {
+      "rcwa_order_x": 18,
+      "rcwa_order_y": 9
+     },
+     "measured_peak_bytes": null,
+     "measurement_count": 1,
+     "memory_headroom_bytes": 4294967296,
+     "predicted_bytes": 152056411182,
+     "predicted_peak_bytes": 152056411182,
+     "provenance": {
+      "analytical_sources": [
+       "MEENT 0.13.2 on_torch/emsolver/_base.py:solve_2d",
+       "MEENT 0.13.2 on_torch/emsolver/transfer_method.py:transfer_2d_1, transfer_2d_2, transfer_2d_3",
+       "MEENT 0.13.2 on_torch/emsolver/convolution_matrix.py:to_conv_mat_raster_discrete",
+       "MEENT 0.13.2 on_torch/emsolver/fourier_analysis.py:dfs2d"
+      ],
+      "forecast_method": "measured_rss_extrapolation",
+      "measurement_scope": "Whole worker VmHWM after completed evaluations, potentially across multiple solves",
+      "reference_fidelity": {
+       "rcwa_order_x": 18,
+       "rcwa_order_y": 9
+      },
+      "reference_peak_bytes": 6442450944,
+      "reference_pid": 100,
+      "reference_process_identity": "500",
+      "reference_sampled_at": 999,
+      "reference_trial_id": "u",
+      "source_trial_ids": [
+       "u"
+      ]
+     },
+     "raw_measurement_count": 1,
+     "retained_matrix_lower_bound_bytes": 3266046000,
+     "single_matrix_bytes": 93315600,
+     "uncertainty_factor": 2.0,
+     "unmargined_peak_bytes": 76028205591
+    }
+   ],
+   "memory_forecast": {
+    "available_bytes": 32212254720,
+    "basis": "Historical RSS extrapolation",
+    "fidelity": {
+     "rcwa_order_x": 22,
+     "rcwa_order_y": 11
+    },
+    "fit_scope": "Available memory only; active-worker future peak growth and other admission rules are not included",
+    "fits_now": true,
+    "growth_model": null,
+    "headroom_bytes": 4294967296.0,
+    "historical_available_bytes": 17179869184,
+    "historical_fits": false,
+    "historical_reason": "Higher fidelity did not fit the historical memory allowance",
+    "measured_at": 999,
+    "measured_fidelity": {
+     "rcwa_order_x": 18,
+     "rcwa_order_y": 9
+    },
+    "measured_peak_bytes": 6442450944,
+    "predicted_bytes": 21474836480,
+    "safety_factor": 2
+   }
+  },
+  "no_manifest_small_grid": {
+   "memory_checks": [
+    {
+     "analytical_lower_bound_bytes": 29882160,
+     "available_memory_bytes": 17179869184,
+     "basis": "Unmeasured conservative 5 GiB planning allowance at (14,7)",
+     "complex_element_bytes": 16,
+     "configuration": {
+      "dtype": "complex128",
+      "enhanced_dfs": true,
+      "execution": "CPU forward solve",
+      "fourier_type": 0,
+      "grid_x": 16,
+      "grid_y": 8,
+      "layers": 1
+     },
+     "dense_matrix_growth_ratio": 0.28199762187871574,
+     "em_block_matrix_bytes": 3415104,
+     "estimate_kind": "heuristic",
+     "estimated_safe_concurrency": 2,
+     "expanded_complex_grid_bytes": 1892352,
+     "expanded_grid_points": 118272,
+     "expanded_grid_shape": {
+      "x": 672,
+      "y": 176
+     },
+     "expanded_real_grid_bytes": 946176,
+     "fft_grid_growth_ratio": 0.5310344827586206,
+     "fft_workspace_lower_bound_bytes": 7292208,
+     "fidelity": {
+      "rcwa_order_x": 10,
+      "rcwa_order_y": 5
+     },
+     "fits_available_memory": true,
+     "fits_now": true,
+     "growth_model": "uncertainty factor * reference worker peak * (target harmonics / reference harmonics)^2",
+     "harmonic_count": 231,
+     "headroom_bytes": 4294967296,
+     "limitations": [
+      "Analytical array sizes are lower bounds, not safe peak-memory requirements.",
+      "FFT/eigensolver scratch, allocator retention, runtime overhead and autograd are not analytically bounded.",
+      "Quadratic harmonic RSS extrapolation can overestimate FFT-dominated growth; its uncertainty factor is a policy allowance.",
+      "A numerical convergence requirement cannot be determined from memory sizes."
+     ],
+     "measured_fidelity": null,
+     "measured_peak_bytes": null,
+     "measurement_count": 0,
+     "memory_headroom_bytes": 4294967296,
+     "predicted_bytes": 5368709120,
+     "predicted_peak_bytes": 5368709120,
+     "provenance": {
+      "analytical_sources": [
+       "MEENT 0.13.2 on_torch/emsolver/_base.py:solve_2d",
+       "MEENT 0.13.2 on_torch/emsolver/transfer_method.py:transfer_2d_1, transfer_2d_2, transfer_2d_3",
+       "MEENT 0.13.2 on_torch/emsolver/convolution_matrix.py:to_conv_mat_raster_discrete",
+       "MEENT 0.13.2 on_torch/emsolver/fourier_analysis.py:dfs2d"
+      ],
+      "forecast_method": "unmeasured_planning_allowance",
+      "measurement_scope": "Whole worker VmHWM after completed evaluations, potentially across multiple solves",
+      "reference_fidelity": {
+       "rcwa_order_x": 14,
+       "rcwa_order_y": 7
+      },
+      "reference_peak_bytes": 5368709120,
+      "reference_pid": null,
+      "reference_process_identity": null,
+      "reference_sampled_at": null,
+      "reference_trial_id": null,
+      "source_trial_ids": []
+     },
+     "raw_measurement_count": 0,
+     "retained_matrix_lower_bound_bytes": 29882160,
+     "single_matrix_bytes": 853776,
+     "uncertainty_factor": 1.0,
+     "unmargined_peak_bytes": 1513963205
+    },
+    {
+     "analytical_lower_bound_bytes": 599886000,
+     "available_memory_bytes": 17179869184,
+     "basis": "Unmeasured conservative 5 GiB planning allowance at (14,7)",
+     "complex_element_bytes": 16,
+     "configuration": {
+      "dtype": "complex128",
+      "enhanced_dfs": true,
+      "execution": "CPU forward solve",
+      "fourier_type": 0,
+      "grid_x": 16,
+      "grid_y": 8,
+      "layers": 1
+     },
+     "dense_matrix_growth_ratio": 5.661117717003568,
+     "em_block_matrix_bytes": 68558400,
+     "estimate_kind": "heuristic",
+     "estimated_safe_concurrency": 0,
+     "expanded_complex_grid_bytes": 8478720,
+     "expanded_grid_points": 529920,
+     "expanded_grid_shape": {
+      "x": 1440,
+      "y": 368
+     },
+     "expanded_real_grid_bytes": 4239360,
+     "fft_grid_growth_ratio": 2.3793103448275863,
+     "fft_workspace_lower_bound_bytes": 72615600,
+     "fidelity": {
+      "rcwa_order_x": 22,
+      "rcwa_order_y": 11
+     },
+     "fits_available_memory": false,
+     "fits_now": false,
+     "growth_model": "uncertainty factor * reference worker peak * (target harmonics / reference harmonics)^2",
+     "harmonic_count": 1035,
+     "headroom_bytes": 4294967296,
+     "limitations": [
+      "Analytical array sizes are lower bounds, not safe peak-memory requirements.",
+      "FFT/eigensolver scratch, allocator retention, runtime overhead and autograd are not analytically bounded.",
+      "Quadratic harmonic RSS extrapolation can overestimate FFT-dominated growth; its uncertainty factor is a policy allowance.",
+      "A numerical convergence requirement cannot be determined from memory sizes."
+     ],
+     "measured_fidelity": null,
+     "measured_peak_bytes": null,
+     "measurement_count": 0,
+     "memory_headroom_bytes": 4294967296,
+     "predicted_bytes": 30392894317,
+     "predicted_peak_bytes": 30392894317,
+     "provenance": {
+      "analytical_sources": [
+       "MEENT 0.13.2 on_torch/emsolver/_base.py:solve_2d",
+       "MEENT 0.13.2 on_torch/emsolver/transfer_method.py:transfer_2d_1, transfer_2d_2, transfer_2d_3",
+       "MEENT 0.13.2 on_torch/emsolver/convolution_matrix.py:to_conv_mat_raster_discrete",
+       "MEENT 0.13.2 on_torch/emsolver/fourier_analysis.py:dfs2d"
+      ],
+      "forecast_method": "unmeasured_planning_allowance",
+      "measurement_scope": "Whole worker VmHWM after completed evaluations, potentially across multiple solves",
+      "reference_fidelity": {
+       "rcwa_order_x": 14,
+       "rcwa_order_y": 7
+      },
+      "reference_peak_bytes": 5368709120,
+      "reference_pid": null,
+      "reference_process_identity": null,
+      "reference_sampled_at": null,
+      "reference_trial_id": null,
+      "source_trial_ids": []
+     },
+     "raw_measurement_count": 0,
+     "retained_matrix_lower_bound_bytes": 599886000,
+     "single_matrix_bytes": 17139600,
+     "uncertainty_factor": 1.0,
+     "unmargined_peak_bytes": 30392894317
+    },
+    {
+     "analytical_lower_bound_bytes": 1146746160,
+     "available_memory_bytes": 17179869184,
+     "basis": "Unmeasured conservative 5 GiB planning allowance at (14,7)",
+     "complex_element_bytes": 16,
+     "configuration": {
+      "dtype": "complex128",
+      "enhanced_dfs": true,
+      "execution": "CPU forward solve",
+      "fourier_type": 0,
+      "grid_x": 16,
+      "grid_y": 8,
+      "layers": 1
+     },
+     "dense_matrix_growth_ratio": 10.821831153388823,
+     "em_block_matrix_bytes": 131056704,
+     "estimate_kind": "heuristic",
+     "estimated_safe_concurrency": 0,
+     "expanded_complex_grid_bytes": 11722752,
+     "expanded_grid_points": 732672,
+     "expanded_grid_shape": {
+      "x": 1696,
+      "y": 432
+     },
+     "expanded_real_grid_bytes": 5861376,
+     "fft_grid_growth_ratio": 3.2896551724137932,
+     "fft_workspace_lower_bound_bytes": 127599408,
+     "fidelity": {
+      "rcwa_order_x": 26,
+      "rcwa_order_y": 13
+     },
+     "fits_available_memory": false,
+     "fits_now": false,
+     "growth_model": "uncertainty factor * reference worker peak * (target harmonics / reference harmonics)^2",
+     "harmonic_count": 1431,
+     "headroom_bytes": 4294967296,
+     "limitations": [
+      "Analytical array sizes are lower bounds, not safe peak-memory requirements.",
+      "FFT/eigensolver scratch, allocator retention, runtime overhead and autograd are not analytically bounded.",
+      "Quadratic harmonic RSS extrapolation can overestimate FFT-dominated growth; its uncertainty factor is a policy allowance.",
+      "A numerical convergence requirement cannot be determined from memory sizes."
+     ],
+     "measured_fidelity": null,
+     "measured_peak_bytes": null,
+     "measurement_count": 0,
+     "memory_headroom_bytes": 4294967296,
+     "predicted_bytes": 58099263609,
+     "predicted_peak_bytes": 58099263609,
+     "provenance": {
+      "analytical_sources": [
+       "MEENT 0.13.2 on_torch/emsolver/_base.py:solve_2d",
+       "MEENT 0.13.2 on_torch/emsolver/transfer_method.py:transfer_2d_1, transfer_2d_2, transfer_2d_3",
+       "MEENT 0.13.2 on_torch/emsolver/convolution_matrix.py:to_conv_mat_raster_discrete",
+       "MEENT 0.13.2 on_torch/emsolver/fourier_analysis.py:dfs2d"
+      ],
+      "forecast_method": "unmeasured_planning_allowance",
+      "measurement_scope": "Whole worker VmHWM after completed evaluations, potentially across multiple solves",
+      "reference_fidelity": {
+       "rcwa_order_x": 14,
+       "rcwa_order_y": 7
+      },
+      "reference_peak_bytes": 5368709120,
+      "reference_pid": null,
+      "reference_process_identity": null,
+      "reference_sampled_at": null,
+      "reference_trial_id": null,
+      "source_trial_ids": []
+     },
+     "raw_measurement_count": 0,
+     "retained_matrix_lower_bound_bytes": 1146746160,
+     "single_matrix_bytes": 32764176,
+     "uncertainty_factor": 1.0,
+     "unmargined_peak_bytes": 58099263609
+    },
+    {
+     "analytical_lower_bound_bytes": 2002493360,
+     "available_memory_bytes": 17179869184,
+     "basis": "Unmeasured conservative 5 GiB planning allowance at (14,7)",
+     "complex_element_bytes": 16,
+     "configuration": {
+      "dtype": "complex128",
+      "enhanced_dfs": true,
+      "execution": "CPU forward solve",
+      "fourier_type": 0,
+      "grid_x": 16,
+      "grid_y": 8,
+      "layers": 1
+     },
+     "dense_matrix_growth_ratio": 18.897508257365573,
+     "em_block_matrix_bytes": 228856384,
+     "estimate_kind": "heuristic",
+     "estimated_safe_concurrency": 0,
+     "expanded_complex_grid_bytes": 15491072,
+     "expanded_grid_points": 968192,
+     "expanded_grid_shape": {
+      "x": 1952,
+      "y": 496
+     },
+     "expanded_real_grid_bytes": 7745536,
+     "fft_grid_growth_ratio": 4.347126436781609,
+     "fft_workspace_lower_bound_bytes": 210369968,
+     "fidelity": {
+      "rcwa_order_x": 30,
+      "rcwa_order_y": 15
+     },
+     "fits_available_memory": false,
+     "fits_now": false,
+     "growth_model": "uncertainty factor * reference worker peak * (target harmonics / reference harmonics)^2",
+     "harmonic_count": 1891,
+     "headroom_bytes": 4294967296,
+     "limitations": [
+      "Analytical array sizes are lower bounds, not safe peak-memory requirements.",
+      "FFT/eigensolver scratch, allocator retention, runtime overhead and autograd are not analytically bounded.",
+      "Quadratic harmonic RSS extrapolation can overestimate FFT-dominated growth; its uncertainty factor is a policy allowance.",
+      "A numerical convergence requirement cannot be determined from memory sizes."
+     ],
+     "measured_fidelity": null,
+     "measured_peak_bytes": null,
+     "measurement_count": 0,
+     "memory_headroom_bytes": 4294967296,
+     "predicted_bytes": 101455224927,
+     "predicted_peak_bytes": 101455224927,
+     "provenance": {
+      "analytical_sources": [
+       "MEENT 0.13.2 on_torch/emsolver/_base.py:solve_2d",
+       "MEENT 0.13.2 on_torch/emsolver/transfer_method.py:transfer_2d_1, transfer_2d_2, transfer_2d_3",
+       "MEENT 0.13.2 on_torch/emsolver/convolution_matrix.py:to_conv_mat_raster_discrete",
+       "MEENT 0.13.2 on_torch/emsolver/fourier_analysis.py:dfs2d"
+      ],
+      "forecast_method": "unmeasured_planning_allowance",
+      "measurement_scope": "Whole worker VmHWM after completed evaluations, potentially across multiple solves",
+      "reference_fidelity": {
+       "rcwa_order_x": 14,
+       "rcwa_order_y": 7
+      },
+      "reference_peak_bytes": 5368709120,
+      "reference_pid": null,
+      "reference_process_identity": null,
+      "reference_sampled_at": null,
+      "reference_trial_id": null,
+      "source_trial_ids": []
+     },
+     "raw_measurement_count": 0,
+     "retained_matrix_lower_bound_bytes": 2002493360,
+     "single_matrix_bytes": 57214096,
+     "uncertainty_factor": 1.0,
+     "unmargined_peak_bytes": 101455224927
+    },
+    {
+     "analytical_lower_bound_bytes": 3266046000,
+     "available_memory_bytes": 17179869184,
+     "basis": "Unmeasured conservative 5 GiB planning allowance at (14,7)",
+     "complex_element_bytes": 16,
+     "configuration": {
+      "dtype": "complex128",
+      "enhanced_dfs": true,
+      "execution": "CPU forward solve",
+      "fourier_type": 0,
+      "grid_x": 16,
+      "grid_y": 8,
+      "layers": 1
+     },
+     "dense_matrix_growth_ratio": 30.82164090368609,
+     "em_block_matrix_bytes": 373262400,
+     "estimate_kind": "heuristic",
+     "estimated_safe_concurrency": 0,
+     "expanded_complex_grid_bytes": 19783680,
+     "expanded_grid_points": 1236480,
+     "expanded_grid_shape": {
+      "x": 2208,
+      "y": 560
+     },
+     "expanded_real_grid_bytes": 9891840,
+     "fft_grid_growth_ratio": 5.551724137931035,
+     "fft_workspace_lower_bound_bytes": 329406000,
+     "fidelity": {
+      "rcwa_order_x": 34,
+      "rcwa_order_y": 17
+     },
+     "fits_available_memory": false,
+     "fits_now": false,
+     "growth_model": "uncertainty factor * reference worker peak * (target harmonics / reference harmonics)^2",
+     "harmonic_count": 2415,
+     "headroom_bytes": 4294967296,
+     "limitations": [
+      "Analytical array sizes are lower bounds, not safe peak-memory requirements.",
+      "FFT/eigensolver scratch, allocator retention, runtime overhead and autograd are not analytically bounded.",
+      "Quadratic harmonic RSS extrapolation can overestimate FFT-dominated growth; its uncertainty factor is a policy allowance.",
+      "A numerical convergence requirement cannot be determined from memory sizes."
+     ],
+     "measured_fidelity": null,
+     "measured_peak_bytes": null,
+     "measurement_count": 0,
+     "memory_headroom_bytes": 4294967296,
+     "predicted_bytes": 165472424613,
+     "predicted_peak_bytes": 165472424613,
+     "provenance": {
+      "analytical_sources": [
+       "MEENT 0.13.2 on_torch/emsolver/_base.py:solve_2d",
+       "MEENT 0.13.2 on_torch/emsolver/transfer_method.py:transfer_2d_1, transfer_2d_2, transfer_2d_3",
+       "MEENT 0.13.2 on_torch/emsolver/convolution_matrix.py:to_conv_mat_raster_discrete",
+       "MEENT 0.13.2 on_torch/emsolver/fourier_analysis.py:dfs2d"
+      ],
+      "forecast_method": "unmeasured_planning_allowance",
+      "measurement_scope": "Whole worker VmHWM after completed evaluations, potentially across multiple solves",
+      "reference_fidelity": {
+       "rcwa_order_x": 14,
+       "rcwa_order_y": 7
+      },
+      "reference_peak_bytes": 5368709120,
+      "reference_pid": null,
+      "reference_process_identity": null,
+      "reference_sampled_at": null,
+      "reference_trial_id": null,
+      "source_trial_ids": []
+     },
+     "raw_measurement_count": 0,
+     "retained_matrix_lower_bound_bytes": 3266046000,
+     "single_matrix_bytes": 93315600,
+     "uncertainty_factor": 1.0,
+     "unmargined_peak_bytes": 165472424613
+    }
+   ],
+   "memory_forecast": null
+  }
+ },
+ "race": {
+  "amended_22_measured": {
+   "campaign_id": "campaign",
+   "content_hash": "ca9f58602ecf54c32d9bd93a66d3f827ef264682a7838af91fef678eacd7bce5",
+   "evidence_trial_ids": [
+    "check"
+   ],
+   "highest_accepted_preflight_fidelity": {
+    "rcwa_order_x": 22,
+    "rcwa_order_y": 11
+   },
+   "id": "race_validation_plan_race_1cfdc98a541b4bd9",
+   "maximum_fidelity": {
+    "rcwa_order_x": 34,
+    "rcwa_order_y": 17
+   },
+   "measured_samples": 1,
+   "memory_headroom_bytes": 4294967296,
+   "parameters": {
+    "absolute_tolerance": 0.005,
+    "energy_tolerance": 0.001,
+    "fidelities": [
+     {
+      "rcwa_order_x": 22,
+      "rcwa_order_y": 11
+     },
+     {
+      "rcwa_order_x": 26,
+      "rcwa_order_y": 13
+     }
+    ],
+    "repeat_tolerance": 1e-06,
+    "repeats": 2
+   },
+   "predicted_peak_bytes": 12315433068,
+   "prediction_basis": "Twice measured completed preflight worker VmHWM, scaled by squared harmonic-count ratio",
+   "race_id": "race_1cfdc98a541b4bd9",
+   "search_fidelity": {
+    "rcwa_order_x": 22,
+    "rcwa_order_y": 11
+   },
+   "status": "ready",
+   "task_id": "task"
+  },
+  "amended_22_unmeasured": {
+   "campaign_id": "campaign",
+   "content_hash": "7f08df0a6af93b7c6a1126f00507954fc5c0962b20f622a6ef9959b8462511f7",
+   "evidence_trial_ids": [
+    "check"
+   ],
+   "highest_accepted_preflight_fidelity": {
+    "rcwa_order_x": 22,
+    "rcwa_order_y": 11
+   },
+   "id": "race_validation_plan_race_31061c768ea84e01",
+   "maximum_fidelity": {
+    "rcwa_order_x": 34,
+    "rcwa_order_y": 17
+   },
+   "measured_samples": 0,
+   "memory_headroom_bytes": 4294967296,
+   "parameters": {
+    "absolute_tolerance": 0.005,
+    "energy_tolerance": 0.001,
+    "fidelities": [
+     {
+      "rcwa_order_x": 22,
+      "rcwa_order_y": 11
+     },
+     {
+      "rcwa_order_x": 26,
+      "rcwa_order_y": 13
+     }
+    ],
+    "repeat_tolerance": 1e-06,
+    "repeats": 2
+   },
+   "predicted_peak_bytes": 10262860890,
+   "prediction_basis": "Conservative prior preflight admission ceiling scaled by squared harmonic-count ratio; measured RSS unavailable",
+   "race_id": "race_31061c768ea84e01",
+   "search_fidelity": {
+    "rcwa_order_x": 22,
+    "rcwa_order_y": 11
+   },
+   "status": "ready",
+   "task_id": "task"
+  },
+  "amended_30_capped": {
+   "campaign_id": "campaign",
+   "content_hash": "66d98fa86b0c88b490391209004b2c2cf1d28b6720d43c1579ee6946aeb20630",
+   "evidence_trial_ids": [
+    "check"
+   ],
+   "highest_accepted_preflight_fidelity": {
+    "rcwa_order_x": 30,
+    "rcwa_order_y": 15
+   },
+   "id": "race_validation_plan_race_8832a3b78fa14b2a",
+   "maximum_fidelity": {
+    "rcwa_order_x": 34,
+    "rcwa_order_y": 17
+   },
+   "measured_samples": 1,
+   "memory_headroom_bytes": 4294967296,
+   "parameters": {
+    "absolute_tolerance": 0.005,
+    "energy_tolerance": 0.001,
+    "fidelities": [
+     {
+      "rcwa_order_x": 30,
+      "rcwa_order_y": 15
+     },
+     {
+      "rcwa_order_x": 34,
+      "rcwa_order_y": 17
+     }
+    ],
+    "repeat_tolerance": 1e-06,
+    "repeats": 2
+   },
+   "predicted_peak_bytes": 10507570990,
+   "prediction_basis": "Twice measured completed preflight worker VmHWM, scaled by squared harmonic-count ratio",
+   "race_id": "race_8832a3b78fa14b2a",
+   "search_fidelity": {
+    "rcwa_order_x": 30,
+    "rcwa_order_y": 15
+   },
+   "status": "ready",
+   "task_id": "task"
+  },
+  "at_limit_34": {
+   "campaign_id": "campaign",
+   "content_hash": "935c730a4b75306d5de82240730ce4bee2420d37b495e359a1afded843140781",
+   "evidence_trial_ids": [
+    "check"
+   ],
+   "highest_accepted_preflight_fidelity": {
+    "rcwa_order_x": 34,
+    "rcwa_order_y": 17
+   },
+   "id": "race_validation_plan_race_3c50a677392f44f0",
+   "maximum_fidelity": {
+    "rcwa_order_x": 34,
+    "rcwa_order_y": 17
+   },
+   "measured_samples": 1,
+   "memory_headroom_bytes": 4294967296,
+   "parameters": {
+    "absolute_tolerance": 0.005,
+    "energy_tolerance": 0.001,
+    "fidelities": [],
+    "repeat_tolerance": 1e-06,
+    "repeats": 2
+   },
+   "predicted_peak_bytes": null,
+   "prediction_basis": "Twice measured completed preflight worker VmHWM, scaled by squared harmonic-count ratio",
+   "race_id": "race_3c50a677392f44f0",
+   "search_fidelity": {
+    "rcwa_order_x": 34,
+    "rcwa_order_y": 17
+   },
+   "status": "higher_fidelity_unavailable",
+   "task_id": "task"
+  },
+  "search_10_default_ladder": {
+   "campaign_id": "campaign",
+   "content_hash": "c8768ff402d0effc942893ff9b4858f4f2cc0bf50966c4c9d79635da3b510428",
+   "evidence_trial_ids": [
+    "check"
+   ],
+   "highest_accepted_preflight_fidelity": {
+    "rcwa_order_x": 14,
+    "rcwa_order_y": 7
+   },
+   "id": "race_validation_plan_race_f71ca5f4691a48fb",
+   "maximum_fidelity": {
+    "rcwa_order_x": 34,
+    "rcwa_order_y": 17
+   },
+   "measured_samples": 0,
+   "memory_headroom_bytes": 4294967296,
+   "parameters": {
+    "absolute_tolerance": 0.005,
+    "energy_tolerance": 0.001,
+    "fidelities": [
+     {
+      "rcwa_order_x": 10,
+      "rcwa_order_y": 5
+     },
+     {
+      "rcwa_order_x": 12,
+      "rcwa_order_y": 6
+     },
+     {
+      "rcwa_order_x": 14,
+      "rcwa_order_y": 7
+     }
+    ],
+    "repeat_tolerance": 1e-06,
+    "repeats": 2
+   },
+   "predicted_peak_bytes": 5368709120,
+   "prediction_basis": "Conservative prior preflight admission ceiling scaled by squared harmonic-count ratio; measured RSS unavailable",
+   "race_id": "race_f71ca5f4691a48fb",
+   "search_fidelity": {
+    "rcwa_order_x": 10,
+    "rcwa_order_y": 5
+   },
+   "status": "ready",
+   "task_id": "task"
+  },
+  "search_10_measured_default_ladder": {
+   "campaign_id": "campaign",
+   "content_hash": "3dc61bcfd062cd277256a3f2d2239ad069d2451ab05dc953935cc8b9e52af8f9",
+   "evidence_trial_ids": [
+    "check"
+   ],
+   "highest_accepted_preflight_fidelity": {
+    "rcwa_order_x": 14,
+    "rcwa_order_y": 7
+   },
+   "id": "race_validation_plan_race_e42496c5df214390",
+   "maximum_fidelity": {
+    "rcwa_order_x": 34,
+    "rcwa_order_y": 17
+   },
+   "measured_samples": 1,
+   "memory_headroom_bytes": 4294967296,
+   "parameters": {
+    "absolute_tolerance": 0.005,
+    "energy_tolerance": 0.001,
+    "fidelities": [
+     {
+      "rcwa_order_x": 10,
+      "rcwa_order_y": 5
+     },
+     {
+      "rcwa_order_x": 12,
+      "rcwa_order_y": 6
+     },
+     {
+      "rcwa_order_x": 14,
+      "rcwa_order_y": 7
+     }
+    ],
+    "repeat_tolerance": 1e-06,
+    "repeats": 2
+   },
+   "predicted_peak_bytes": 22845763383,
+   "prediction_basis": "Twice measured completed preflight worker VmHWM, scaled by squared harmonic-count ratio",
+   "race_id": "race_e42496c5df214390",
+   "search_fidelity": {
+    "rcwa_order_x": 10,
+    "rcwa_order_y": 5
+   },
+   "status": "ready",
+   "task_id": "task"
+  },
+  "search_12_declared_beyond_limit": {
+   "campaign_id": "campaign",
+   "content_hash": "56a46fd6f57b3e8d323c8b7fde81a1282d8174b769c066f5a62435177851710a",
+   "evidence_trial_ids": [
+    "check"
+   ],
+   "highest_accepted_preflight_fidelity": {
+    "rcwa_order_x": 12,
+    "rcwa_order_y": 6
+   },
+   "id": "race_validation_plan_race_a583ad9a13764040",
+   "maximum_fidelity": {
+    "rcwa_order_x": 34,
+    "rcwa_order_y": 17
+   },
+   "measured_samples": 1,
+   "memory_headroom_bytes": 4294967296,
+   "parameters": {
+    "absolute_tolerance": 0.005,
+    "energy_tolerance": 0.001,
+    "fidelities": [
+     {
+      "rcwa_order_x": 12,
+      "rcwa_order_y": 6
+     },
+     {
+      "rcwa_order_x": 16,
+      "rcwa_order_y": 8
+     }
+    ],
+    "repeat_tolerance": 1e-06,
+    "repeats": 2
+   },
+   "predicted_peak_bytes": 19195972578,
+   "prediction_basis": "Twice measured completed preflight worker VmHWM, scaled by squared harmonic-count ratio",
+   "race_id": "race_a583ad9a13764040",
+   "search_fidelity": {
+    "rcwa_order_x": 12,
+    "rcwa_order_y": 6
+   },
+   "status": "ready",
+   "task_id": "task"
+  },
+  "search_12_declared_ladder": {
+   "campaign_id": "campaign",
+   "content_hash": "031bdd4836526f319e77e36915cceb234030d3b4da82a9c84bc6eea524beda39",
+   "evidence_trial_ids": [
+    "check"
+   ],
+   "highest_accepted_preflight_fidelity": {
+    "rcwa_order_x": 16,
+    "rcwa_order_y": 8
+   },
+   "id": "race_validation_plan_race_0c6472fe2019468d",
+   "maximum_fidelity": {
+    "rcwa_order_x": 34,
+    "rcwa_order_y": 17
+   },
+   "measured_samples": 0,
+   "memory_headroom_bytes": 4294967296,
+   "parameters": {
+    "absolute_tolerance": 0.005,
+    "energy_tolerance": 0.001,
+    "fidelities": [
+     {
+      "rcwa_order_x": 12,
+      "rcwa_order_y": 6
+     },
+     {
+      "rcwa_order_x": 16,
+      "rcwa_order_y": 8
+     },
+     {
+      "rcwa_order_x": 20,
+      "rcwa_order_y": 10
+     }
+    ],
+    "repeat_tolerance": 1e-06,
+    "repeats": 2
+   },
+   "predicted_peak_bytes": 17704289002,
+   "prediction_basis": "Conservative prior preflight admission ceiling scaled by squared harmonic-count ratio; measured RSS unavailable",
+   "race_id": "race_0c6472fe2019468d",
+   "search_fidelity": {
+    "rcwa_order_x": 12,
+    "rcwa_order_y": 6
+   },
+   "status": "ready",
+   "task_id": "task"
+  }
+ }
+}
