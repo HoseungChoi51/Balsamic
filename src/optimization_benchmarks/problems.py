@@ -12,7 +12,7 @@ from pydantic import Field, model_validator
 
 from optimization_framework.contracts.base import Contract, content_hash
 from optimization_framework.contracts.problems import (CandidateSchema, Constraint, Evaluation,
-    Objective, ProblemDefinition, ProblemInstance)
+    Objective, ProblemDefinition, ProblemInstance, PromotionCheck)
 
 
 class BenchmarkConfig(Contract):
@@ -189,7 +189,9 @@ class FidelityTrapProblem:
             evaluator_id="fidelity_trap", evaluator_version="1", configuration_schema=FidelityTrapConfig.model_json_schema(),
             capabilities=["continuous", "scalar_objective"],
             fidelity_schema={"type": "object", "properties": {"resolution": {"type": "string", "enum": list(RESOLUTIONS), "default": "coarse"}}},
-            validation_recipes=[self.RECIPE], recipe_schemas={self.RECIPE: schema}, renderer="continuous")
+            validation_recipes=[self.RECIPE], recipe_schemas={self.RECIPE: schema}, renderer="continuous",
+            # A score counts for a finalist or the library once it held at the fine resolution (roadmap V3).
+            promotion_validation=[PromotionCheck(recipe_id=self.RECIPE, parameters={"fidelities": [{"resolution": name} for name in RESOLUTIONS]})])
 
     def resolve(self, configuration, fidelity=None):
         FidelityTrapConfig(**configuration)

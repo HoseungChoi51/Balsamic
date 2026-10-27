@@ -35,7 +35,8 @@ def run(workspace, campaign_id, operation, payload, *, actor="researcher", ident
 
 def campaign_of(workspace, problem_id="meent_2d_dual_polarization_deflector"):
     task = (TaskInput(name="2D deflector", problem_id=problem_id, configuration=CONFIGURATION, fidelity=LADDER[0])
-            if problem_id.startswith("meent") else TaskInput(name="Quadratic", problem_id=problem_id))
+            if problem_id.startswith("meent") else TaskInput(name="Trap", problem_id=problem_id, fidelity={"resolution": "coarse"})
+            if problem_id == "fidelity_trap" else TaskInput(name="Quadratic", problem_id=problem_id))
     return workspace.create_campaign(CampaignInput(name="Promotion", autonomy="delegated", compute_budget_seconds=10000, validation_reserve_seconds=0, tasks=[task]))
 
 
@@ -196,3 +197,14 @@ def test_a_shortlist_records_each_runs_fidelity_and_warns_the_researcher(tmp_pat
     with pytest.raises(ValueError, match="A finalist needs the problem's fidelity check"):
         set_selection(workspace, campaign["id"], FinalistSetInput(study_id=campaign["active_study_id"], trial_ids=[trials[2]["id"]]),
                       command_id="agent_choice", actor="manager")
+
+
+def test_the_lead_eval_fidelity_trap_is_gated_at_the_fine_resolution(tmp_path):
+    """S13's problem: its coarse peak cannot become an agent's finalist before the comparison with the fine resolution."""
+    workspace = Workspace(tmp_path)
+    campaign = campaign_of(workspace, "fidelity_trap")
+    hypothesis, trial = strategy(workspace, campaign, score=0.9)
+    assert promotion.declared(workspace, campaign["id"], trial) == [
+        {"recipe_id": "fidelity_comparison:v1", "parameters": {"fidelities": [{"resolution": "coarse"}, {"resolution": "fine"}]}}]
+    with pytest.raises(ValueError, match="fidelity_comparison:v1 has not been checked"):
+        promote(workspace, campaign, hypothesis, "manager")
