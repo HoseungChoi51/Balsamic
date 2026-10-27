@@ -51,6 +51,13 @@ DEPENDENCY_ACTIONS = [
     {"id": "stop", "label": "Stop them", "description": "The waiting runs are stopped; nothing else changes."}]
 
 
+def read_only_history(trial, action="resumed or extended"):
+    """Trials of the execution contract before 1 ran on a worker that no longer exists: they are history to read."""
+    if trial.get("execution_contract") != 1:
+        raise ValueError(f"Experiment {trial['id']} ran under the old execution contract, whose worker no longer exists; "
+                         f"it is kept as read-only history and cannot be {action}. Start a new experiment instead.")
+
+
 class Workspace:
     def __init__(self, directory, max_workers=2, stop_grace_seconds=5, implementation_client=None, guidance=None, gpu_workers=0):
         self.store = Store(directory)
@@ -94,6 +101,9 @@ class Workspace:
         self.evaluators = EvaluatorService(self)
         from optimization_framework.evaluation.packs import CampaignPacks
         self.packs = CampaignPacks(self)
+        # Tasks and trials stored before problems were declared get theirs from their problem's pack (N7).
+        from optimization_framework.execution.problem_migration import migrate
+        migrate(self.store)
         from optimization_framework.assets.catalog import AssetCatalog
         self.assets = AssetCatalog(self.store)
         from optimization_framework.assets.bundles import BundleService
@@ -733,7 +743,8 @@ class Workspace:
                     raise ValueError("The hypothesis implementation changed while the artifact was being prepared")
             if request.algorithm == "custom":
                 raise ValueError("Custom source requires independent implementation validation; commission or import a package through the campaign manager")
-            problem = ProblemInstance(**task["problem"]) if task.get("problem") else problems.resolve("meent_grating", task["physics"])
+            from optimization_framework.execution.problem_migration import required
+            problem = ProblemInstance(**required(task))
             if validation is None:
                 self.study_executions.check_external_exposure(campaign["id"], problem.model_dump(mode="json"), request.seed,
                     cohort_id=execution.get("protected_cohort_id") or request.confirmation_protocol_id)
@@ -960,6 +971,7 @@ class Workspace:
     def continue_trial(self, request):
         """Queue a new experiment that goes on from where a finished one stopped, under the current source."""
         predecessor = self.store.get(request.trial_id, "trial")
+        read_only_history(predecessor, "continued")
         if predecessor.get("recipe") or predecessor["algorithm"] in {"validate", "recipe", "replay", "evaluate_asset"}:
             raise ValueError("Select an optimization experiment to continue")
         if predecessor["status"] in ACTIVE:
@@ -1025,8 +1037,8 @@ class Workspace:
                 raise ValueError("No completed design is available to validate")
             archive = [design]
         chosen = archive[:request.max_designs]
-        problem = trial.get("problem") or problems.resolve("meent_grating", trial["physics"]).model_dump(mode="json")
-        recipe = self.compile_recipe({**trial, "problem": problem}, "fourier_convergence:v1", {"orders": request.orders, "tolerance": request.tolerance},
+        from optimization_framework.execution.problem_migration import required
+        recipe = self.compile_recipe({**trial, "problem": required(trial)}, "fourier_convergence:v1", {"orders": request.orders, "tolerance": request.tolerance},
             [item.get("candidate", item.get("design")) if isinstance(item, dict) else item for item in chosen])
         return self._queue_recipe(trial, recipe, TrialInput(campaign_id=trial["campaign_id"], task_id=trial["task_id"],
             algorithm="validate", algorithm_config={"designs": chosen}, seed=trial["seed"],
@@ -1039,7 +1051,8 @@ class Workspace:
         if trial.get("recipe") or trial["algorithm"] in {"recipe", "validate"}:
             raise ValueError("Select an optimization experiment as the source")
         subjects = [item.get("candidate", item.get("design")) for item in self.trial_archive(trial)[:request.subject_limit]]
-        problem = trial.get("problem") or problems.resolve("meent_grating", trial["physics"]).model_dump(mode="json")
+        from optimization_framework.execution.problem_migration import required
+        required(trial)
         recipe = self.compile_recipe(trial, request.recipe_id, request.parameters, subjects)
         return self._queue_recipe(trial, recipe, TrialInput(campaign_id=trial["campaign_id"], task_id=trial["task_id"],
             algorithm="recipe", seed=trial["seed"], max_steps=len(recipe["cases"]), wall_seconds=request.wall_seconds,
@@ -1197,6 +1210,7 @@ class Workspace:
                     raise ValueError("Only queued or running trials can be paused")
                 trial.update(status="pausing" if alive(trial) else "paused", pause_requested_at=time.time())
             elif command.action in {"resume", "extend"}:
+                read_only_history(trial)
                 if status in {"stopping", "pausing"}:
                     raise ValueError("Wait for the pending control command to finish")
                 if command.action == "resume" and status not in {"paused", "interrupted", "stopped", "failed"}:
@@ -1394,6 +1408,7 @@ class Workspace:
         return policy(self, trial)
 
     def _start_trial(self, trial):
+        read_only_history(trial)
         directory = self.job_dir(trial["id"])
         selected_isolation = self.execution_policy(trial)
         if trial.get("absolute_deadline") and time.time() >= trial["absolute_deadline"]:
@@ -1411,7 +1426,7 @@ class Workspace:
             raise ValueError(f"Numerical dependencies changed after {label} was queued; no worker was started")
         if trial.get("confirmation_protocol_hash") and not trial.get("execution_manifest"):
             from optimization_framework.evaluation.legacy_confirmation import scientific_source_hash
-            if scientific_source_hash(directory / "code" / "dqn_meent") != trial.get("scientific_source_hash"):
+            if scientific_source_hash(directory / "code") != trial.get("scientific_source_hash"):
                 raise ValueError("The frozen confirmation source snapshot changed; no worker was started")
         if (directory / "result.json").exists():
             (directory / "result.json").rename(directory / f"result.attempt-{trial['attempt']}.json")
@@ -1447,8 +1462,7 @@ class Workspace:
             env.update(PYTHONPATH=str(code), PYTHONUNBUFFERED="1", PYTHONHASHSEED="0", OPENBLAS_NUM_THREADS=threads,
                        OMP_NUM_THREADS=threads, MKL_NUM_THREADS=threads, MPLBACKEND="Agg", **environment(trial.get("device") or "cpu"))
             with (directory / "worker.log").open("ab") as log:
-                module = "optimization_framework.execution.worker" if trial.get("execution_contract") == 1 else "dqn_meent.workspace.worker"
-                process = subprocess.Popen([sys.executable, "-m", module, "--directory", str(directory)],
+                process = subprocess.Popen([sys.executable, "-m", "optimization_framework.execution.worker", "--directory", str(directory)],
                     cwd=directory, env=env, stdout=log, stderr=subprocess.STDOUT, start_new_session=True)
         trial.update(pid=process.pid, process_identity=process_identity(process.pid))
         trial.pop("lease_deadline", None)

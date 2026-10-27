@@ -42,7 +42,7 @@ export function LineageTree({ data, selectedId, onSelect, onOpen }: { data: Evol
             <circle cx={12} cy={14} r={5} fill={COLOUR[n.stage]} />
             <text x={22} y={18} fontSize="11" fill="var(--ink)">{n.label ? <tspan fontWeight={600}>{n.label} </tspan> : null}{nodeText(n.short_title || n.title, n.label ? 17 : 22)}</text>
             {n.family || n.autonomous ? <text x={nodeW - 8} y={10} fontSize="8" textAnchor="end" data-testid="lineage-family">{n.family ? <tspan fill="var(--ink-3)">{FAMILY[n.family] || n.family}</tspan> : null}{n.autonomous ? <tspan fill="var(--agent)">{n.family ? ' · ' : ''}auto</tspan> : null}</text> : null}
-            <title>{`${n.title}${n.family ? ` (${FAMILY[n.family] || n.family})` : ''}\n${n.stage}${n.stop_reason ? ': ' + n.stop_reason : ''}${row?.best.score != null ? `\nbest ${row.best.score}` : ''}`}</title>
+            <title>{`${n.title}${n.family ? ` (${FAMILY[n.family] || n.family})` : ''}\n${n.stop_label || n.stage}${n.stop_reason ? ': ' + n.stop_reason : ''}${row?.best.score != null ? `\nbest ${row.best.score}` : ''}`}</title>
           </g>; })}
       </svg>
       <Legend />

@@ -184,6 +184,16 @@ class ProblemRegistry:
         """The packs of installed problems, by problem id; problems without one are left out."""
         return {name: pack for name in self.ids() if (pack := self.pack(name)) is not None}
 
+    def legacy(self, name: str) -> list[Callable]:
+        """The installed packs' ``legacy`` hooks of this name (e.g. ``problem``), each pack once, in problem-id order."""
+        packs, hooks = [], []
+        for pack in self.packs().values():
+            if pack not in packs:
+                packs.append(pack)
+                if name in pack.legacy:
+                    hooks.append(_factory(pack.legacy[name]))
+        return hooks
+
     def devices(self, name: str) -> tuple[str, ...]:
         """Where an installed adapter's evaluator can compute, from an optional ``devices`` hook: CPU unless it says more."""
         return tuple(getattr(self.get(name), "devices", ("cpu",)))

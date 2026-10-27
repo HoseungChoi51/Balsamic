@@ -61,6 +61,7 @@ class Files:
             return REPOSITORY, tracked(), "the repository"
         if not args.get("trial_id"):
             raise ValueError('The "experiment" root needs a trial_id')
+        self.tools.withheld(self.agent, args["trial_id"])
         trial = self.tools.record(self.agent, args["trial_id"])
         if self.tools.store.get_entry(trial["id"])["kind"] != "trial":
             raise ValueError("That record is not an experiment")
@@ -180,6 +181,8 @@ def analysis_run(tools, agent, args, root=None):
     script = relative(args["path"])
     if not (work / script).is_file() or (work / script).is_symlink() or not (work / script).resolve().is_relative_to(work.resolve()):
         raise ValueError("Write the script into your work directory with workspace_write first")
+    for identity in args.get("trial_ids", []):
+        tools.withheld(agent, identity)
     trials = [tools.record(agent, identity) for identity in dict.fromkeys(args.get("trial_ids", []))]
     if any(tools.store.get_entry(trial["id"])["kind"] != "trial" for trial in trials):
         raise ValueError("trial_ids names this campaign's experiments")
