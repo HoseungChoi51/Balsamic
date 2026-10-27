@@ -2,7 +2,8 @@
 workspace that submits a prepared library instead of running Pi in Docker. They check the runner's plumbing and its outside
 checks, not a model or a coding agent.
 
-The implementation lead asks for the go-ahead, opens the workspace once it has it, and reports the delivery; the lead
+The implementation lead asks for the go-ahead, opens the workspace once it has it, on a work ticket whose acceptance test is
+the one the request names, and reports the delivery; the lead
 acknowledges the workspace's notices. The workspace submits the original library (the method's own module included), so the
 contract test and conformance pass on it."""
 import json
@@ -15,14 +16,16 @@ def implementation_lead(turn):
     if not memory.get("hypothesis_id"):
         memory["hypothesis_id"] = re.search(r"hypothesis_\w+", turn.text).group(0)
         memory["method_id"] = re.search(r"method id `(\w+)`", turn.text).group(1)
-        turn.call("campaign_command", operation="approval.request", request_key="coding-go-ahead", payload={
-            "kind": "compute", "plan": f"One coding workspace to build {memory['method_id']} as a library",
-            "rationale": "The proposal names no installed method", "wall_seconds": 3600, "worker_seconds": 3600,
-            "coding_workspaces": 1, "meanwhile": "Nothing waits on it"})
+        # The test the request says the library has to pass is the work ticket's acceptance test (roadmap H4).
+        memory["tests"] = re.findall(r"libraries/[\w.\-]+/tests/test_\w+\.py", turn.text)
+        turn.call("mandate_propose", template="screen", plan=f"One coding workspace to build {memory['method_id']} as a library: "
+                  "the proposal names no installed method", hypothesis_ids=[memory["hypothesis_id"]], wall_seconds=3600,
+                  worker_seconds=3600, coding_workspaces=1, meanwhile="Nothing waits on it")
         return turn.finish("I asked for your go-ahead to open the coding workspace.", summary="Asked for the go-ahead", disposition="waiting")
     if not memory.get("workspace_id"):
         opened = turn.call("implementation_workspace_create", hypothesis_id=memory["hypothesis_id"], request_key="build",
-                           objective=f"Implement the proposal as a library with the method id {memory['method_id']}.")
+                           objective=f"Implement the proposal as a library with the method id {memory['method_id']}.",
+                           ticket={"acceptance_tests": [{"path": path} for path in memory["tests"]]})
         memory["workspace_id"] = opened.get("id")
         return turn.finish("The coding workspace is open.", summary="Opened the workspace", disposition="waiting")
     return turn.finish("The coding agent delivered its library.", summary="Delivered")
@@ -57,11 +60,13 @@ class PreparedWorkspace:
     def capability(self):
         return {"available": True, "image": self.image}
 
-    def prepare(self, record, brief, evidence):
+    def prepare(self, record, brief, evidence, ticket=None):
+        from optimization_framework.agents.development_runtime import write_ticket
         root = self.root(record)
         for name in ("incoming/commands", "incoming/results", "outgoing/events"):
             (root / name).mkdir(parents=True, exist_ok=True)
         (root / "brief.md").write_text(brief)
+        write_ticket(root / "work" / "repo", ticket)   # the work ticket, where the Docker driver writes it into the worktree
 
     def start(self, record):
         events = self.root(record) / "outgoing/events"

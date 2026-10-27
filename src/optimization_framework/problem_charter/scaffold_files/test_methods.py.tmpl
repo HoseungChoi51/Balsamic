@@ -3,9 +3,10 @@ from __future__ import annotations
 
 import pytest
 
-from __PKG__.harness import run
-from __PKG__.methods import METHODS
+from __PKG__.harness import methods, run
 from __PKG__.problem import problem
+
+METHODS = methods()
 
 PROBLEM = problem()
 # Time a run may take beyond max_seconds: the alarm stops a method between Python steps, not inside one.

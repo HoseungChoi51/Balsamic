@@ -70,3 +70,22 @@ test('a dense paragraph from an agent reads as short paragraphs; code and lists 
   await expect(turn.locator('li')).toHaveCount(2);
   await expect(turn.locator('li code')).toHaveText('a. B');
 });
+
+test('a mandate an agent proposes is one card with its envelope and three choices: approve, approve as Explore only, decline', async ({ page }) => {
+  const mandate = { id: 'approval_m', title: 'Approve a Screen mandate for this request? About 15 min until results', status: 'pending', resolution_revision: 0, requested_by: 'lead',
+    proposal: 'The lead agent proposes a Screen mandate for this request: Build H1 and screen it against coordinate search.\nEnvelope: up to 40 min of worker time and opens 1 coding workspace. Deadline: 120 min after you approve.',
+    rationale: 'Build H1 and screen it against coordinate search.', created_at: '2026-10-27T12:00:00Z', recommendation: '0',
+    approval_request: { kind: 'mandate', template: 'screen', worker_seconds: 2400, coding_workspaces: 1, model_usd: 2, deadline_minutes: 120 },
+    options: [{ id: '0', label: 'Approve', description: 'The requester starts the work at once, within this envelope and deadline.' },
+              { id: '1', label: 'Approve as Explore only', description: 'Only work up to your go-ahead threshold in total, with no coding workspace.' },
+              { id: '2', label: 'Decline', description: 'The requester is told and nothing starts.' }],
+    freshness: { state: 'ready', reason: '', blocked_choice_ids: [] }, presentation: {} };
+  const recorded = await mockWorkspace(page, { [`/api/v1/campaigns/${CAMPAIGN_ID}/inbox`]: { ...f.inbox, decisions: [mandate] } });
+  await page.goto(`/#t/${THREAD_ID}/inbox`);
+  const card = page.getByTestId('decision');
+  await expect(card).toContainText('Build H1 and screen it against coordinate search');
+  await expect(card.getByTestId('mandate-terms')).toContainText('Screen: the proposals, workspaces and runs the plan names; up to 40.0 min of worker time, 1 coding workspace, $2 of model spend, deadline 2.0 h after you approve.');
+  await expect(card.getByRole('button')).toHaveText(['Approve', 'Approve as Explore only', 'Decline']);
+  await card.getByRole('button', { name: 'Approve as Explore only' }).click();
+  await expect.poll(() => recorded.commands.find(c => c.operation === 'decision.resolve')?.payload).toMatchObject({ decision_id: 'approval_m', choice: '1' });
+});

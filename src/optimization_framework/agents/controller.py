@@ -39,7 +39,7 @@ SCHEDULING_KINDS = ("agent_run", "agent_session", "agent_campaign", "development
 # locked provider. No provider is chosen by default.
 LEGACY_MODELS = {"default": {"provider": "openai-codex", "model": "gpt-6-sol", "effort": "xhigh"},
     "roles": {role: {"provider": "openai-codex", "model": "gpt-6-astra", "effort": "xhigh"}
-              for role in (LEAD, "proposal_reviewer", "implementation_validator")}}
+              for role in (LEAD, "proposal_reviewer")}}
 
 
 def turn_marks(run):
@@ -188,12 +188,12 @@ class PiController:
             config["request_changed_at"] = now()
             self.store.put("agent_campaign", config, "agent.request_opened" if open else "agent.request_closed")
 
-    def create_agent(self, campaign_id, role, objective, identity, *, parent_id=None, evidence_ids=None, grant_id=None, output_schema=None):
+    def create_agent(self, campaign_id, role, objective, identity, *, parent_id=None, evidence_ids=None, output_schema=None):
         if role not in ROLES:
             raise ValueError("Unknown agent role")
         try:
             saved = self.store.get(identity, "agent_session")
-            if saved["role"] != role or saved["campaign_id"] != campaign_id or saved.get("parent_agent_id") != parent_id or saved.get("grant_id") != grant_id:
+            if saved["role"] != role or saved["campaign_id"] != campaign_id or saved.get("parent_agent_id") != parent_id or saved.get("grant_id"):
                 raise ValueError("Agent identity belongs to a different assignment")
             return saved
         except KeyError:
@@ -212,7 +212,7 @@ class PiController:
         # campaign may mix families across roles (e.g. a strong lead and a fast specialist).
         family = family_of(choice["provider"], choice["model"])
         record = {"id": identity, "campaign_id": campaign_id, "parent_agent_id": parent_id,
-            "role": role, "objective": objective, "evidence_ids": evidence_ids or [], "grant_id": grant_id,
+            "role": role, "objective": objective, "evidence_ids": evidence_ids or [],
             "provider": choice["provider"], "model": choice["model"], "family": family,
             "tier": tier, "model_source": "tier" if tier else "campaign",
             "reasoning_effort": choice.get("effort"), "status": "queued", "control_revision": 0,
@@ -241,6 +241,11 @@ class PiController:
         agent.update(request_open=True, requested_by=requested_by, request_changed_at=now())
         if requested_by == "researcher":
             agent.pop("assignment_origin", None)   # answered on the desk, not in a lead request's side conversation
+            # The researcher's request on the page is the agent's own: the root its mandate serves (decision 12).
+            agent["desk_root"] = {"thread_id": (origin or {}).get("thread_id") or "desk_" + agent["role"],
+                                  "message_id": (origin or {}).get("message_id") or "message_" + identity.removeprefix("pi_run_"), "run_id": identity}
+        else:
+            agent.pop("desk_root", None)
         self.store.put("agent_session", agent, "agent.request_opened")
         return self.enqueue(agent, identity, text, mode="steer", origin=origin)
 
@@ -402,6 +407,24 @@ class PiController:
             return origin["root"]
         return {"thread_id": origin["thread_id"], "message_id": origin.get("message_id"), "run_id": run["id"]} if origin.get("thread_id") else None
 
+    def run_root(self, agent, run):
+        """The researcher's request an agent's run serves: the lead's as request_root() gives it; an assistant's or a page agent's
+        the one its assignment came with, else the request it was asked in (a researcher's question on a page, from a thread)."""
+        if run is None:
+            return None
+        if agent["role"] == LEAD:
+            return self.request_root(run)
+        return agent.get("assignment_origin") or self.request_root(run)
+
+    def _event_run(self, agent, event):
+        """The run a harness event was made in: the one it names, else the agent's run at work (an older harness names none)."""
+        if event.get("run_id"):
+            try:
+                return self.store.get(event["run_id"], "agent_run")
+            except KeyError:
+                return None
+        return next((run for run in reversed(self.store.list_agent_runs(agent["id"])) if run["status"] in {"running", "submitted"}), None)
+
     def enqueue(self, agent, identity, text, *, mode="follow_up", origin=None, root=None, leaf_entry_id=None, branch_from_entry_id=None, thread_revision=None, autopilot=False):
         try:
             saved = self.store.get(identity, "agent_run")
@@ -474,6 +497,15 @@ class PiController:
             **({"parent_message_id": values.parent_message_id} if values.parent_message_id else {}),
             **({"edited_from_message_id": values.edit_of_message_id} if values.edit_of_message_id else {}),
             **({"desk": agent["role"]} if agent["role"] in PAGE_AGENTS else {})}, "message.created")
+        if values.mandate is not None:
+            # The researcher grants the request's mandate with the message (R7): rooted at the request it opens, as request_root()
+            # gives it for the lead's run, or as the page agent's desk_root for its own request (decision 12).
+            from optimization_framework.campaigns.mandates import with_message
+            if agent["role"] != LEAD and agent["role"] not in PAGE_AGENTS:
+                raise ValueError("A mandate is granted with a message to the lead or to a page's agent, whose request it opens")
+            thread_id = values.thread_id or ("desk_" + agent["role"] if agent["role"] in PAGE_AGENTS else None)
+            with_message(self.workspace, campaign_id, values.mandate, {"thread_id": thread_id, "message_id": "message_" + command_id,
+                         "run_id": "pi_run_" + command_id}, plan=values.message, message_id="message_" + command_id)
         if agent["role"] in PAGE_AGENTS:
             # Asked from a chat thread (/plan), it answers in that thread; asked on its page, on the page.
             origin = {"thread_id": values.thread_id, "message_id": "message_" + command_id, "actor": "researcher"} if values.thread_id else None
@@ -740,6 +772,8 @@ class PiController:
                         continue
                     if agent["id"] in occupied and run.get("mode") != "steer":
                         continue
+                    if not self._within_mandate_spend(agent, run):
+                        continue
                     if agent["role"] not in STANDING and agent["id"] not in occupied and children >= config["max_subagents"]:
                         continue
                     if agent["id"] not in occupied and agent["role"] not in STANDING:
@@ -789,7 +823,9 @@ class PiController:
                     for key in ("input", "output", "cacheRead", "cacheWrite", "reasoning"):
                         usage[key] = usage.get(key, 0) + event["usage"].get(key, 0)
                     usage["calls"] = usage.get("calls", 0) + 1
-                    charged = llm_usage.record(self.store, agent["campaign_id"], agent, f"pi:{agent_id}:{event['seq']}", event)
+                    run = self._event_run(agent, event)
+                    charged = llm_usage.record(self.store, agent["campaign_id"], agent, f"pi:{agent_id}:{event['seq']}", event,
+                                               run_id=run["id"] if run else None, root=self.run_root(agent, run))
                     usage["cost_usd"] = usage.get("cost_usd", 0) + (event["usage"].get("cost_usd") or 0)
                     usage["charged_usd"] = usage.get("charged_usd", 0) + charged
                     if event.get("billing"):
@@ -923,7 +959,7 @@ class PiController:
             return None
         with self.store.connection() as db:
             row = db.execute("SELECT json_extract(data,'$.agent_id') FROM records WHERE kind='agent_tool_receipt' AND campaign_id=? "
-                "AND json_extract(data,'$.tool') IN ('campaign_command','implementation_workspace_create','implementation_workspace_validate') "
+                "AND json_extract(data,'$.tool') IN ('campaign_command','mandate_propose','implementation_workspace_create','implementation_workspace_validate') "
                 "AND instr(json_extract(data,'$.result'), ?) > 0 ORDER BY rowid LIMIT 1", (campaign_id, record_id)).fetchone()
         if row and row[0]:
             return self.store.get(row[0], "agent_session")
@@ -940,6 +976,27 @@ class PiController:
                     return self.store.get(row[0], "agent_session")
         return None
 
+    def researchers(self, campaign_id, record_id):
+        """Whether the researcher started a record's work directly (R6): the first command or agent receipt that names it, or the grant
+        or workspace it was built under, is the researcher's command. Such work is under no agent's mandate, so its outcomes wake
+        nobody and it does not hold the lead's request open; the researcher follows it on the pages."""
+        if not isinstance(record_id, str) or not record_id:
+            return False
+        identities = [record_id]
+        try:
+            data = self.store.get_entry(record_id)["data"]
+            identities += [data[key] for key in ("grant_id", "workspace_id") if isinstance(data.get(key), str) and data[key] != record_id]
+        except KeyError:
+            pass
+        with self.store.connection() as db:
+            for identity in identities:
+                row = db.execute("SELECT kind, json_extract(data,'$.actor') FROM records WHERE kind IN ('work_command','agent_tool_receipt') "
+                    "AND campaign_id=? AND instr(json_extract(data, CASE kind WHEN 'work_command' THEN '$.outcome' ELSE '$.result' END), ?) > 0 "
+                    "ORDER BY rowid LIMIT 1", (campaign_id, identity)).fetchone()
+                if row:
+                    return tuple(row) == ("work_command", "researcher")
+        return False
+
     def _within_llm_budget(self, campaign_id):
         """API-billed agent calls count against the campaign's LLM cap; subscriptions do not."""
         cap = self.store.get(campaign_id, "campaign").get("llm_budget_usd")
@@ -952,6 +1009,13 @@ class PiController:
                 "Raise the cap to continue.", affected="llm_budget_" + campaign_id)
         return False
 
+    def _within_mandate_spend(self, agent, run):
+        """A turn under a request whose mandate's model envelope is spent holds, with one card to raise it (R5); the campaign's
+        cap (_within_llm_budget) holds every turn whatever the mandate."""
+        from optimization_framework.campaigns import mandates
+        root = self.run_root(agent, run)
+        return mandates.hold(self.workspace, agent["campaign_id"], root) is None
+
     def _resource_events(self, campaign_id, config, rows):
         """How the machine is used is the resource planner's to answer: its events wake it, whatever the researcher's open request."""
         from optimization_framework.execution.admission import SIGNALS
@@ -962,6 +1026,9 @@ class PiController:
         if planner["status"] in {"paused", "stopped"}:
             return
         if not planner.get("request_open"):
+            # The platform's request is no researcher's: its work and model calls belong to none (R3, R5).
+            planner.pop("assignment_origin", None)
+            planner.pop("desk_root", None)
             planner.update(request_open=True, requested_by="platform", request_changed_at=now())
             self.store.put("agent_session", planner, "agent.request_opened")
         self.enqueue(planner, "pi_events_" + content_hash([row["id"] for row in signals])[:28], NOTICE +
@@ -1002,9 +1069,13 @@ class PiController:
         config["event_cursor"] = rows[-1]["id"]; self.store.put("agent_campaign", config)
         self._resource_events(campaign_id, config, rows)
         # An outcome of work a page agent started, or the answer to what it filed, goes to that agent while its request is
-        # open (an answer opens it again); every other outcome goes to the lead.
+        # open (an answer opens it again); one of work the researcher started directly goes to nobody (R6); every other outcome
+        # goes to the lead.
         page_rows, answer_ids = {}, {row["id"] for row in answers}
         for row in sorted(relevant + answers, key=lambda row: row["id"]):
+            if row["id"] not in answer_ids and not row.get("report") and self.researchers(campaign_id, row["data"].get("record_id")):
+                relevant = [other for other in relevant if other["id"] != row["id"]]
+                continue
             starter = None if row.get("report") else self.starter(campaign_id, row["data"].get("record_id"))
             if starter and starter["role"] in PAGE_AGENTS:
                 if row["id"] in answer_ids or starter.get("request_open"):

@@ -433,6 +433,7 @@ class Workspace:
                                           "objective": objective[:20000] or request.objective})
 
     def _add_tasks(self, campaign, tasks):
+        records = []
         for task in tasks:
             record = task.model_dump(exclude={"id"})
             adapter = problems.get(task.problem_id) if task.evaluator_manifest is None else None
@@ -445,6 +446,8 @@ class Workspace:
                 self.store.put_immutable("problem_instance", {"id": record["problem_instance_id"],
                     **task.problem.model_dump(mode="json")})
             self.store.put("task", record)
+            records.append(record)
+        return records
 
     def update_campaign(self, campaign_id, request: CampaignUpdate):
         with self.lock, self.store.transaction():
@@ -503,8 +506,85 @@ class Workspace:
                 self.store.put("trial", trial)
             return campaign
 
+    def adopt_library_problem(self, campaign_id, install_id, *, authority="researcher"):
+        """The campaign's tasks adopt the problem an installed library provides for its charter's declared problem (roadmap E4).
+
+        The tasks are compiled again from the campaign's confirmed charter, which now gives installed setups (E3), and each
+        declared task is replaced by a new task: one campaign version and one new study for the whole adoption. An old task is
+        never rebound: it is archived with superseded_by_task_id, the new one names what provides it (provided_by), and an
+        immutable evaluator_requirement_satisfaction links the old evaluator requirement to the install. Adopting again
+        changes nothing. Balsamic's own adoption (authority balsamic, E5) is refused for a task with a bound evaluator or
+        live runs: unused() says why."""
+        from optimization_framework.contracts.requests import CharterReference
+        with self.lock, self.store.transaction():
+            campaign = self.store.get(campaign_id, "campaign")
+            install = self.store.get(install_id, "library_install")
+            if install.get("status") != "installed":
+                raise ValueError(f"The install {install_id} is {install.get('status')}, not installed")
+            if not campaign.get("charter"):
+                raise ValueError("The campaign has no confirmed charter to adopt a library's problem into")
+            charter = self.charters.revision(campaign["charter"]["id"], campaign["charter"]["revision"])["charter"]
+            binding = charter.get("evaluator") or {}
+            problem_id = binding.get("problem_id")
+            provided = (set(install.get("problems_added") or []) | set(install.get("problem_entry_points") or {})) - set(install.get("missing_problems") or [])
+            if binding.get("kind") != "declared" or problem_id not in provided:
+                raise ValueError(f"{install.get('package') or install_id} does not provide the problem the campaign's charter declares"
+                                 + (f" ({problem_id})" if binding.get("kind") == "declared" else " (its evaluator is not a declared problem)"))
+            old = [task for task in self.store.list("task", campaign_id) if not task.get("archived")
+                   and (task.get("evaluator_manifest") or {}).get("id") == problem_id]
+            if authority == "balsamic" and (reason := self.unused(old)):
+                raise ValueError(f"Balsamic adopts a library's problem only for tasks nothing ran yet: {reason}")
+            if not old:
+                return {"adopted": [], "problem_id": problem_id, "install_id": install_id, "campaign_version": campaign["version"],
+                        "study_id": campaign.get("active_study_id")}
+            request = self._from_charter(CampaignUpdate(charter=CharterReference.model_validate(campaign["charter"])), campaign)
+            compiled = {task.name: task for task in request.tasks}
+            if any(task.evaluator_manifest is not None for task in request.tasks):
+                raise ValueError(f"The charter still compiles {problem_id} as a declared problem: the installed library is not seen by "
+                                 "the lab's problem registry")
+            missing = [task["name"] for task in old if task["name"] not in compiled]
+            if missing:
+                raise ValueError("The charter no longer compiles the tasks " + ", ".join(missing))
+            provided_by = {"package": install["package"], "version": install["version"], "commit": install["commit"],
+                           "submission_id": install["submission_id"], "install_id": install_id}
+            campaign.update(version=campaign["version"] + 1, updated_at=now())
+            new = self._add_tasks(campaign, [compiled[task["name"]].model_copy(update={"id": None}) for task in old])
+            adopted = []
+            for previous, task in zip(old, new):
+                task["provided_by"] = provided_by
+                self.store.put("task", task)
+                self.store.put("task", {**previous, "archived": True, "superseded_by_task_id": task["id"]}, "task.superseded")
+                satisfaction = {"id": "evaluator_requirement_satisfaction_" + content_hash([previous["evaluator_requirement_id"], install_id])[:24],
+                    "campaign_id": campaign_id, "requirement_id": previous["evaluator_requirement_id"], "task_id": previous["id"],
+                    "new_task_id": task["id"], "install_id": install_id, "problem_id": problem_id, "provided_by": provided_by,
+                    "authority": authority, "created_at": now()}
+                self.store.put_immutable("evaluator_requirement_satisfaction", satisfaction, "evaluator.requirement_satisfied")
+                adopted.append({"old_task_id": previous["id"], "new_task_id": task["id"], "satisfaction_id": satisfaction["id"]})
+            study = study_for_tasks(self.current_tasks(campaign_id), id=identifier("study"), campaign_id=campaign_id,
+                parent_study_id=campaign.get("active_study_id"), goal=campaign["objective"], created_at=now(), authority=authority)
+            self.store.put_immutable("study", study.model_dump(mode="json"), "study.created")
+            campaign["active_study_id"] = study.id
+            self.store.put("campaign", campaign, "campaign.problem_adopted")
+            self.store.put("charter", {**campaign, "id": identifier("charter"), "campaign_id": campaign_id,
+                                        "tasks": self.current_tasks(campaign_id)})
+            return {"adopted": adopted, "problem_id": problem_id, "install_id": install_id, "campaign_version": campaign["version"],
+                    "study_id": study.id}
+
+    def unused(self, tasks):
+        """Why a task cannot be adopted by Balsamic alone: it has a bound evaluator, or runs not yet finished. None when neither."""
+        for task in tasks:
+            if self.evaluators.binding(task):
+                return f"the task {task['name']} has a bound evaluator"
+            live = [trial["id"] for trial in self.store.list("trial", task["campaign_id"])
+                    if trial.get("task_id") == task["id"] and trial.get("status") in ACTIVE | {"paused"}]
+            if live:
+                return f"the task {task['name']} has {len(live)} live run{'s' if len(live) > 1 else ''}"
+        return None
+
     def current_tasks(self, campaign_id):
-        return [self.evaluators.task_view(t) for t in self.store.list("task", campaign_id) if not t.get("archived")]
+        """The campaign's tasks now: neither archived nor superseded by a task that adopted a library's problem (E4)."""
+        return [self.evaluators.task_view(t) for t in self.store.list("task", campaign_id)
+                if not t.get("archived") and not t.get("superseded_by_task_id")]
 
     def allocated_seconds(self, campaign_id, exclude=None):
         return self.resources.assessment(campaign_id, exclude=exclude)["allocated_seconds"]
@@ -543,7 +623,12 @@ class Workspace:
         selected_task = self.store.get(request.task_id, "task")
         if selected_task["campaign_id"] != request.campaign_id:
             raise ValueError("Select a task belonging to this campaign")
-        protocol = self.store.get(request.confirmation_protocol_id, "confirmation_protocol") if request.confirmation_protocol_id else None
+        if captured_source is None and frozen_prototype_id is None:
+            # A method that failed validation outside the box was not installed (roadmap H6): it does not run on the lab's code.
+            from optimization_framework.agents.library_validation import refused_reason
+            if (refused := refused_reason(self.store, request.algorithm)) is not None:
+                raise ValueError(refused)
+        protocol =self.store.get(request.confirmation_protocol_id, "confirmation_protocol") if request.confirmation_protocol_id else None
         evaluator_study_id = ((validation or {}).get("study_id") or (protocol or {}).get("study_id")
             or (execution or {}).get("study_id") or self.store.get(request.campaign_id, "campaign").get("active_study_id"))
         evaluator_bundle = self.evaluators.prepare(selected_task, study_id=evaluator_study_id)

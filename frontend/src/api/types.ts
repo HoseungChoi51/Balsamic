@@ -2,11 +2,11 @@
 export interface WorkspaceInfo { workspace_id: string; max_workers: number; dev_mode: boolean; provider: { configured: boolean; providers: Record<string, unknown> }; level: string | null; service: string }
 export type Stage = 'formulate' | 'generate' | 'optimize' | 'report';
 export interface NextStep { kind: 'note' | 'sections' | 'adopt' | 'confirm' | 'tasks' | 'evaluator'; title: string; text: string; page: string; blocking: boolean; proposals: number; missing?: string[]; skipped?: string[]; proposed_skips?: string[]; error?: string; problem_id?: string }
-export interface CampaignRow { id: string; name: string; version: number; objective?: string; autonomy?: string; stage: Stage; stage_pinned: boolean; stage_basis: string;
+export interface CampaignRow { id: string; name: string; version: number; objective?: string; autonomy?: string; default_template?: MandateTemplate; stage: Stage; stage_pinned: boolean; stage_basis: string;
   autopilot: { enabled: boolean; compute_cap_seconds?: number | null; report_by?: string | null; enabled_at?: string | null; rounds_completed?: number; requested?: { compute_cap_seconds?: number | null; report_by?: string | null; by?: string } | null }; problem_note_id: string | null; active_thread_id: string; created_at?: string; next_step?: NextStep | null }
 export interface Campaign { id: string; name: string; version: number; objective: string; autonomy: string; compute_budget_seconds: number; llm_budget_usd: number;
   delegated_trial_seconds: number; validation_reserve_seconds: number; implementation_compute_budget_seconds: number; active_study_id: string | null; formulating?: boolean;
-  compute_notice_seconds?: number; compute_gate_seconds?: number; [key: string]: unknown }
+  compute_notice_seconds?: number; compute_gate_seconds?: number; default_template?: MandateTemplate | null; [key: string]: unknown }
 export interface Summary { campaign: Campaign; row: CampaignRow; tasks: Record<string, unknown>[]; charter: Record<string, unknown> | null; budget: Record<string, unknown> | null;
   stage: { stage: Stage; pinned: boolean; basis: string }; counts: Record<string, number>; studies: Record<string, unknown>[]; trials: Trial[] }
 export interface Scoped { event_cursor: number; unchanged?: boolean; campaign_id?: string }
@@ -55,3 +55,13 @@ export interface PanelComponent { type: 'markdown' | 'kv' | 'table' | 'number' |
 export interface Panel { id: string; campaign_id: string; title: string; page: string; placement: 'top' | 'bottom'; note?: string; components: PanelComponent[]; author: string; agent_id?: string | null;
   run_id?: string | null; thread_id?: string | null; revision: number; status: string; created_at: string; updated_at: string; data: Record<string, Record<string, unknown>>; resolved_at?: string }
 export interface Panels { campaign_id: string; panels: Panel[] }
+
+/** A request's mandate (roadmap Phase 3): what the researcher's request allows. The dial in the chat grants one with a message (R7). */
+export type MandateTemplate = 'answer' | 'explore' | 'screen' | 'run_campaign';
+export interface MessageMandate { template: MandateTemplate; worker_seconds?: number; coding_workspaces?: number; model_usd?: number; deadline_minutes?: number }
+export interface MandateView { id: string; template: MandateTemplate; label: string; status: 'proposed' | 'active' | 'exhausted' | 'expired' | 'closed'; standing: boolean;
+  plan: string | null; hypothesis_ids: string[]; deadline_at: string | null; granted: 'message' | 'card' | 'automatic' | 'autopilot';
+  envelope: { worker_seconds: number; coding_workspaces: number; model_usd: number | null }; left: { worker_seconds: number; coding_workspaces: number; model_usd: number | null };
+  summary: string; closable: boolean; close_hint?: string; closed_by?: string | null; created_at: string }
+export interface ThreadMandate { thread_id: string; campaign_id: string; request: { thread_id: string; message_id: string | null; run_id: string | null } | null;
+  current: MandateView | null; others: MandateView[]; default_template: MandateTemplate }

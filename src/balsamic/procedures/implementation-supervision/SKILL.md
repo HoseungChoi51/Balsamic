@@ -1,6 +1,6 @@
 ---
 name: implementation-supervision
-description: Implementing a method as a library: coding workspace, tests, install, binding.
+description: A method as a library: workspace ticket, review, install, binding.
 metadata:
   roles: lead, implementation_lead
 ---
@@ -12,13 +12,25 @@ proposal's specification and is then used like any third-party method, as `mask-
 Whether the method performs well is a question for experiments and the researcher. The implementation does not have to prove
 it, and no experiment waits for such proof.
 
-1. Open a coding workspace with `implementation_workspace_create`: the objective, the hypothesis and the evidence ids. It builds
-   the library under `libraries/<name>/` (its brief says how): a module per method, its own tests against the specification,
-   and the plug-in that names the methods. Proposals built together can share one library: name the others in
-   `hypothesis_ids`, so the researcher sees which proposals it serves.
-2. Supervise with `implementation_workspace_inspect`, and steer or answer with `implementation_workspace_message`. Settle what
-   the specification means from the hypothesis or with the researcher; do not turn open points into acceptance gates.
-3. The library is done when its tests pass, Balsamic's contract checks included (`tests/test_contract.py`: valid candidates,
+Asked to implement methods and compare them, propose one Screen mandate (`mandate_propose`, template screen): the coding workspace
+(`coding_workspaces`), any evaluator to commission (in `plan`), the proposals (`hypothesis_ids`) and the runs (`runs`, each:
+task_id, hypothesis_id, seeds, wall_seconds, max_evaluations, device). That one go-ahead covers all of it: building,
+installing, binding and running. Do not ask again at each step, and never ask the researcher to run commands.
+
+1. Open a coding workspace with `implementation_workspace_create` on its work ticket: the objective, the hypothesis and the
+   evidence ids. Proposals built together share one library: name the others in `hypothesis_ids`. Balsamic writes the
+   ticket into the workspace (`TASK.md`, and the house rules in `AGENTS.md`): the proposals with their METHODS keys, the
+   library generated from the charter and its tests, the go-ahead's budget and walls. Your part is `ticket`: the acceptance
+   tests the work must pass beyond the generated ones (`acceptance_tests`: a pytest file's path, with its content when it is
+   new; a campaign without a charter needs at least one, such as the library's `tests/test_contract.py`), and
+   `protected_tests` that run outside the box and that the coding agent never sees. State in them what the specification
+   requires; a ticket that names records the coding agent cannot read is refused (give them as evidence instead).
+2. The coding agent's questions come to you as notices: answer with `implementation_workspace_message` and the question_id.
+   Settle what the specification means from the hypothesis or with the researcher; do not turn open points into acceptance
+   gates. Its progress shows on the Implementations page: do not relay it.
+3. Review each delivery with `implementation_workspace_inspect` (`review`): the diff against the generated library (files and
+   lines changed, generated files and acceptance tests it touched) and the host's validation. The library is done when its
+   tests pass, Balsamic's contract checks included (`tests/test_contract.py`: valid candidates,
    seeded replay, checkpoint continuation), and the workspace has submitted the commit with its delivery report: the coding
    agent's verdict (ready, ready with limits, not ready), each method's state, conformance and tests, the limitations, and the
    next steps with who does each. The researcher reads that report on the Implementations page and in the inbox; relay its
@@ -26,8 +38,11 @@ it, and no experiment waits for such proof.
    agent reports not ready), and asks the researcher only when installing would change packages the lab already has. Never ask
    the researcher to run commands to install anything. You hear when it is installed and which methods it added, or why it
    could not be (often: the library's version has to rise), which the coding agent then fixes.
-4. Once it is installed, its methods appear in `campaign_inspect.methods` within a second; the lab needs no restart. Bind
-   each proposal to its method with `implementation.bind_builtin` and hand the runs to the experiment operator.
+4. Once it is installed, its methods appear in `campaign_inspect.methods` within a second; the lab needs no restart. Balsamic
+   binds each proposal the library serves to its method and starts the runs the researcher approved for it; the install
+   notice names what it bound, what it left and why, and what it started. Bind a proposal it left with
+   `implementation.bind_builtin` only when you can settle the reason (several candidate methods: the one the proposal
+   describes). You are told once every approved run has ended: then write the comparison (`comparison.report`).
    `campaign_inspect.methods_unavailable` lists what matters here but cannot run, with the reason and the next step: delivered
    and not installed, incompatible with a task, being built, and tasks blocked by their evaluator. Say which methods can run
    from these, as the researcher's Implementations page does.
@@ -40,7 +55,12 @@ run.
 In `optimizer_v1` a method only proposes and observes. The lab's worker evaluates, caches, enforces deadlines and timeouts, and
 charges failures and costs; none of that is the library's job.
 
-When coding workspaces are off (`implementation_workspace_create` refuses), tell the researcher once what turns them on, as the
-refusal says. The implementation service is the other route (`implementation.commission`): builders, a test designer and a
-reviewer build and check a package under a compute go-ahead. Its specification is all they see, so it
-states the mechanism in full; a package holds at most 256 KiB per file and 1 MiB in all.
+A commission (`implementation.commission` for a proposal, `evaluator.commission` for a task's evaluator) is the same work without
+the conversation: Balsamic opens a coding workspace that runs headless on a ticket made from the frozen specification, under the
+go-ahead, with the commission's compute time as its deadline, and its questions, delivery and install reach you as a workspace's do.
+The specification is all the coding agent sees, so it states the mechanism in full. Writing the protected tests is yours, outside
+the box: give at least one in `ticket.protected_tests` (an evaluator's `correctness_cases` become one by themselves).
+
+A coding workspace is the only place code is built. When coding workspaces are off (`implementation_workspace_create` and a
+commission refuse), tell the researcher once what turns them on, as the refusal says. A commission imports no package: code the
+researcher already has is delivered from their own coding agent, or given to a workspace as reference code.

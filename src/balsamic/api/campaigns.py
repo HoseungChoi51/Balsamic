@@ -18,9 +18,11 @@ class RemovalInput(Model):
 
 
 def campaign_row(workspace, campaign):
+    from optimization_framework.campaigns.mandates import default_template
     stage = campaign_stage(workspace, campaign)
     return {"id": campaign["id"], "name": campaign["name"], "version": campaign["version"], "objective": campaign.get("objective"),
-            "autonomy": campaign.get("autonomy"), "stage": stage["stage"], "stage_pinned": stage["pinned"], "stage_basis": stage["basis"],
+            # Where the chat's mandate dial starts (R7): the researcher's setting, else what the autonomy maps onto.
+            "autonomy": campaign.get("autonomy"), "default_template": default_template(campaign), "stage": stage["stage"], "stage_pinned": stage["pinned"], "stage_basis": stage["basis"],
             "autopilot": campaign.get("autopilot") or {"enabled": False}, "problem_note_id": campaign.get("problem_note_id"),
             "active_thread_id": main_thread_id(campaign["id"]), "created_at": campaign.get("created_at"), "updated_at": campaign.get("updated_at"),
             "next_step": next_step(workspace, campaign)}

@@ -14,7 +14,7 @@ from pydantic import Field, model_validator
 from optimization_framework.contracts.base import Contract
 from optimization_framework.storage.sqlite import now
 
-from .models import LEAD, ROLES, ModelChoice
+from .models import LEAD, RETIRED_ROLES, ROLES, ModelChoice
 
 RECORD_ID = "model_tiers"
 FORMULATOR = "formulator"
@@ -23,7 +23,7 @@ LEGACY_ROLES = {"problem_importer": FORMULATOR}
 # Not an agent: one-shot naming, labelling and summary calls (balsamic.housekeeping) on the lightest tier.
 HOUSEKEEPER = "housekeeper"
 ASSIGNABLE = (*ROLES, IMPORTER, HOUSEKEEPER)
-STRONG_ROLES = {LEAD, "proposal_reviewer", "implementation_validator", "discussion_moderator", "implementation_lead", IMPORTER}
+STRONG_ROLES = {LEAD, "proposal_reviewer", "discussion_moderator", "implementation_lead", IMPORTER}
 
 
 class Tier(Contract):
@@ -41,7 +41,7 @@ class TierSettings(Contract):
     @classmethod
     def modern_role_names(cls, data):
         if isinstance(data, dict) and isinstance(data.get("roles"), dict):   # a tier saved under an old role name still applies
-            data = {**data, "roles": {LEGACY_ROLES.get(role, role): tier for role, tier in data["roles"].items()}}
+            data = {**data, "roles": {LEGACY_ROLES.get(role, role): tier for role, tier in data["roles"].items() if role not in RETIRED_ROLES}}
         return data
 
     @model_validator(mode="after")
@@ -75,7 +75,8 @@ def load(store, profile_model=None) -> dict:
         return defaults(profile_model)
     # A role added after the tiers were saved follows its default tier until the researcher assigns it.
     fallback = defaults(profile_model)["roles"]
-    roles = {LEGACY_ROLES.get(role, role): tier for role, tier in saved.get("roles", {}).items()}   # tiers saved under an old role name
+    # Tiers saved under an old role name; the roles retired in roadmap H8 drop out.
+    roles = {LEGACY_ROLES.get(role, role): tier for role, tier in saved.get("roles", {}).items() if role not in RETIRED_ROLES}
     saved = {**saved, "roles": roles}
     ids = {tier["id"] for tier in saved.get("tiers", [])}
     missing = {role: tier for role, tier in fallback.items() if role not in saved.get("roles", {}) and tier in ids}
