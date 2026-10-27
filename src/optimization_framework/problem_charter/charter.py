@@ -1090,6 +1090,7 @@ def manifest(charter, values):
         extra_metrics=[Objective(name=m.name, direction=m.direction or "maximize", units=m.units) for m in charter.metrics],
         configuration_schema=schema(binding.configuration), configuration={f: values[n] for f, n in binding.configuration.items()},
         fidelity_schema=schema(binding.fidelity), fidelity={f: values[n] for f, n in binding.fidelity.items()},
+        public_configuration_keys=sorted(binding.configuration),   # the instance's data is the method's input; fidelity stays private
         deterministic=binding.deterministic)
 
 

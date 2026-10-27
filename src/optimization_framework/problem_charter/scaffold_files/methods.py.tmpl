@@ -1,0 +1,28 @@
+"""The methods to compare: one plain function each, listed in METHODS.
+
+A method is `method(problem, evaluate, rng)`:
+- `problem` is a `Problem` (problem.py): the instance's values, the decision variables, their bounds and constraints;
+- `evaluate(candidate)` returns the objective of a candidate (a sequence of `problem.dimensions` numbers) and raises
+  `StopSearch` when the run's time or evaluations are spent: let it propagate. It refuses a candidate the charter
+  does not allow;
+- `rng` is a `numpy.random.Generator` seeded for the run: draw every random number from it, so a seed repeats its run.
+A method may return the best candidate it found; the harness keeps the best evaluated one either way. It may also call
+`objective.objective(problem, candidate)` directly (the comparison caps time for this reason), but only candidates
+passed to `evaluate`, or returned, count. Mark a method whose runs do not depend on the seed with `@deterministic`:
+the comparison runs it once.
+"""
+from __future__ import annotations
+
+# An example:
+#
+# from .harness import deterministic
+#
+# def random_search(problem, evaluate, rng):
+#     while True:
+#         candidate = problem.random_candidate(rng)
+#         if problem.is_valid(candidate):
+#             evaluate(candidate)
+#
+# METHODS = {"random_search": random_search}
+
+METHODS = {}

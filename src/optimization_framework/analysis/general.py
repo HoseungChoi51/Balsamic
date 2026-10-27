@@ -46,6 +46,17 @@ def thin(curve):
             or point["objective"] != curve[index - 1]["objective"] or point["objective"] != curve[index + 1]["objective"]]
 
 
+def rank(summaries, objective):
+    """Number method summaries by mean under the objective's direction: 1 is best, ties share a rank, no mean no rank."""
+    ordered = sorted((s for s in summaries if s["mean"] is not None), key=lambda s: objective.utility(s["mean"]), reverse=True)
+    for index, summary in enumerate(ordered):
+        tied = index and summary["mean"] == ordered[index - 1]["mean"]
+        summary["rank"] = ordered[index - 1]["rank"] if tied else index + 1
+    for summary in summaries:
+        summary.setdefault("rank", None)
+    return summaries
+
+
 def report(workspace, campaign_id, *, study_id=None, cost_axis=None, cost_view="full_attributed_cost", trial_ids=None, withheld=frozenset()):
     """Compare a study's experiments, or only those named in trial_ids, at the costs they were observed.
 
@@ -54,6 +65,7 @@ def report(workspace, campaign_id, *, study_id=None, cost_axis=None, cost_view="
     compared run reached, so a comparison of long runs names them: one short run in the same study
     would otherwise set that cost. A run whose method finished on its own does not set that cost: it holds
     its final value after its last point (held_after_finish), unless every compared run finished.
+    Each group names its objective's direction, and each method summary its rank by mean under it.
     withheld: a locked confirmation's trials, left out (and only counted) when an agent asks; naming one is refused.
     """
     if cost_view not in {"full_attributed_cost", "actual_expenditure"}:
@@ -211,6 +223,9 @@ def report(workspace, campaign_id, *, study_id=None, cost_axis=None, cost_view="
                 "observed_count": len(values), "mean": statistics.mean(values) if values else None,
                 "median": statistics.median(values) if values else None, "matched_cost": horizon,
                 "independent_seed_ids": len(set(seeds)) == len(seeds), "uncertainty": "Not estimated by this descriptive report"})
+        objective = ProblemInstance(**group["problem"]).primary_objective
+        group["direction"] = objective.direction
+        rank(summaries, objective)
         group["method_summaries"] = summaries
         group["common_observed_cost"] = horizon
     return {"schema_version": 1, "campaign_id": campaign_id, "study_id": study_id, "cost_view": cost_view,
