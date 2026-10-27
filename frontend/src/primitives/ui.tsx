@@ -7,6 +7,11 @@ export function Pill({ tone = '', children, title, live }: { tone?: string; chil
   const pulsing = live ?? (tone === 'agent' && AT_WORK.test(text));
   return <span className={'pill ' + tone + (pulsing ? ' live' : '')} title={title} data-live={pulsing ? '1' : undefined}>{children}</span>;
 }
+/** Numbers a finding, a reply or a report claim states that none of its evidence holds (roadmap K2): shown, never refused. */
+export function UnverifiedNumbers({ numbers }: { numbers: string[] }) {
+  return <span data-testid="unverified-numbers"><Pill tone="warn" title={`No evidence it cites or read holds ${numbers.join(', ')}: check where these numbers come from.`}>
+    {numbers.length === 1 ? '1 unverified number' : `${numbers.length} unverified numbers`}: {numbers.join(', ')}</Pill></span>;
+}
 /** A control that cannot be used says why, next to itself, instead of vanishing. */
 export function Disabled({ why, children }: { why: string; children: ReactNode }) {
   return <span className="row" title={why}><span style={{ opacity: .55, pointerEvents: 'none' }}>{children}</span><span className="why">{why}</span></span>;

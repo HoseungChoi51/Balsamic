@@ -92,7 +92,7 @@ class Pipeline:
         if self.job.get("cancel_requested") or self.workspace.shutdown_event.is_set():
             raise Stopped()
 
-    def stage(self, key, purpose, content, schema):
+    def stage(self, key, purpose, content, schema, check=None):
         self.check_stop()
         identity = self.job["id"] + "_" + key
         try:
@@ -125,7 +125,7 @@ class Pipeline:
         try:
             result = self.adapter.call_with_prompt(role, instructions, content, result_type=schema)
             self.store.put_immutable("report_writer_stage", {**record, "status": "completed", "output": result.model_dump(),
-                "finished_at": now(), "usage_after": deepcopy(self.adapter.usage)})
+                **(check(result) if check else {}), "finished_at": now(), "usage_after": deepcopy(self.adapter.usage)})
             self.update(usage=deepcopy(self.adapter.usage), stage_log=self.log_stage(key, purpose, "completed"))
             return result
         except Exception:
@@ -180,6 +180,17 @@ class Pipeline:
                     or self.tools.snapshot["kinds"].get(row["request"].get("record_id")) == "source"
                     or row["request"]["tool"] == "source.read" and not row["result"].get("passages")):
                     raise ValueError("Claims must cite successful evidence reads or analyses, not search metadata, inventory entries, or invented receipts")
+
+    def unverified_numbers(self, investigation):
+        """Each claim's numbers that none of the receipts in its support holds (K2), by claim id; claims without any are left out."""
+        from optimization_framework.analysis.claims import unverified
+        receipts = {row["id"]: row for row in self.tools.receipts if row["status"] == "completed"}
+        found = {}
+        for claim in investigation.claims:
+            missing = unverified(claim.statement, [receipts[identity].get("result") for identity in claim.support if identity in receipts])
+            if missing:
+                found[claim.id] = missing
+        return found
 
     def validate_selection(self, selection, investigation):
         ids = [row.claim_id for row in selection.claims]
@@ -238,7 +249,8 @@ class Pipeline:
             investigation = self.stage(f"investigate_{turn + 1}", "investigate", {**self.context(), "brief": brief.model_dump(),
                 "read_receipts": self.evidence(), "previous_assessment": investigation.model_dump() if investigation else None,
                 "remaining_tools": max(0, LIMITS["tool_calls"] - 3 - len(self.tools.receipts)),
-                "finish_now": final, "instruction": "Return requests=[] and consolidate claims now." if final else "Inspect evidence before concluding."}, Investigation)
+                "finish_now": final, "instruction": "Return requests=[] and consolidate claims now." if final else "Inspect evidence before concluding."}, Investigation,
+                check=lambda result: {"unverified_numbers": self.unverified_numbers(result)})
             if final or not investigation.requests:
                 break
             self.read_requests(investigation.requests, reserve=3)
@@ -286,9 +298,11 @@ class Pipeline:
             reviews = [science, reader, verification]
         self.check_stop()
         unresolved = [issue.model_dump() for issue in verification.issues if issue.severity == "blocking"]
+        unsourced = self.unverified_numbers(investigation)
         editorial = {"workflow": self.job["workflow"], "focus": selection.focus, "brief": brief.model_dump(),
             "focus_answer": self.job.get("focus_answer"), "selection": selection.model_dump(),
-            "claims": [claim.model_dump() for claim in investigation.claims], "coverage": investigation.coverage,
+            "claims": [{**claim.model_dump(), **({"unverified_numbers": unsourced[claim.id]} if claim.id in unsourced else {})}
+                       for claim in investigation.claims], "coverage": investigation.coverage,
             "snapshot_gaps": self.tools.snapshot["gaps"], "missing_evidence": investigation.missing_evidence,
             "proposed_experiments": investigation.proposed_experiments, "verification": verification.model_dump(),
             "unresolved": unresolved, "snapshot_id": self.job["snapshot_id"]}
