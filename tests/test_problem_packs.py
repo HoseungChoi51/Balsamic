@@ -116,10 +116,11 @@ def test_meents_pack_is_assembled_from_one_module_per_part_as_it_was_written_bef
     """The pack's parts write a module each (pack/<part>_<topic>.py), so parallel parts never edit one file; assembled, it is the
     pack as N4 wrote it in pack/__init__.py, field by field."""
     from dqn_meent import pack as meent
-    assert [name for name, _ in meent.contributions()] == ["n4_tools"]
+    assert [name for name, _ in meent.contributions()] == ["n4_tools", "n7_legacy"]
     expected = ProblemPack(package="dqn_meent.pack", problem_ids=["meent_grating", "meent_2d_dual_polarization_deflector"],
                            tools=PackTools(agent_tools=["dqn_meent.pack.tools:register_agent_tools"],
-                                           operations=["dqn_meent.pack.tools:register_operations"]))
+                                           operations=["dqn_meent.pack.tools:register_operations"]),
+                           legacy={"problem": "dqn_meent.pack.legacy:problem", "runtime": "dqn_meent.pack.legacy:runtime"})
     assembled = meent.pack()
     for field in ProblemPack.model_fields:
         assert getattr(assembled, field) == getattr(expected, field), field
