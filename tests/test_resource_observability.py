@@ -40,7 +40,8 @@ def write_trial(workspace, identity="t", campaign_id="c", **changes):
 
 def write_race(workspace, *, status="budget_exhausted", deadline=1900):
     workspace.store.put("task", {"id": "task", "campaign_id": "c", "problem": {"definition_id": "meent_2d_dual_polarization_deflector",
-                                                                                      "configuration": {"grid_x": 256, "grid_y": 128}}})
+                                                                                      "configuration": {"grid_x": 256, "grid_y": 128},
+                                                                                      "fidelity": {"rcwa_order_x": 10, "rcwa_order_y": 5}}})
     protocol = {"total_seconds": 1000, "worker_seconds": 4000, "confirmation_seeds": list(range(10)),
                 "rungs_seconds": [100, 200, 400], "validation_wall_seconds": 60,
                 "preflight_subject_trial_ids": ["t", "u"]}
