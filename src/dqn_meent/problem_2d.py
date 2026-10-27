@@ -202,6 +202,10 @@ def flrl_charter():
 class Meent2DProblem:
     devices = ("cpu", "cuda")   # the scheduler places each run on one; see optimization_framework/execution/devices.py
 
+    def pack(self):
+        from .pack import pack
+        return pack()
+
     def examples(self):
         """The Octavian FLRL paper's reported condition, as a New campaign starting point."""
         return [{

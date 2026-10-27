@@ -3,15 +3,47 @@ from __future__ import annotations
 
 from importlib.metadata import entry_points
 from importlib import import_module
+from importlib.util import find_spec
+from pathlib import Path
 from typing import Callable
 
+from optimization_framework.contracts.packs import ProblemPack
 from optimization_framework.contracts.problems import ProblemAdapter, ProblemInstance
+
+
+def _installed(module: str) -> bool:
+    try:
+        return find_spec(module) is not None
+    except (ImportError, ValueError):   # a missing parent package
+        return False
+
+
+def checked_pack(name: str, pack) -> ProblemPack:
+    """A problem's pack as its adapter declared it, refused with the problem id when it names what is not there."""
+    try:
+        pack = ProblemPack.model_validate(pack.model_dump() if isinstance(pack, ProblemPack) else pack)
+    except ValueError as exc:
+        raise ValueError(f"Problem {name!r} declares an invalid pack: {exc}") from exc
+    if name not in pack.problem_ids:
+        raise ValueError(f"Problem {name!r} declares a pack for {', '.join(pack.problem_ids)}, not for itself")
+    spec = find_spec(pack.package) if _installed(pack.package) else None
+    if spec is None or not spec.submodule_search_locations:
+        raise ValueError(f"Problem {name!r} declares a pack in {pack.package!r}, which is not an installed package")
+    root = Path(next(iter(spec.submodule_search_locations)))
+    missing = [hook for hook in pack.hooks() if not _installed(hook.split(":", 1)[0])]
+    if missing:
+        raise ValueError(f"Problem {name!r} declares a pack whose modules are not installed: {', '.join(missing)}")
+    missing = [folder for folder in pack.folders() if not (root / folder).is_dir()]
+    if missing:
+        raise ValueError(f"Problem {name!r} declares a pack whose folders are missing from {pack.package}: {', '.join(missing)}")
+    return pack
 
 
 class ProblemRegistry:
     def __init__(self):
         self._loaders: dict[str, Callable] = {}
         self._adapters: dict[str, ProblemAdapter] = {}
+        self._packs: dict[str, ProblemPack | None] = {}
 
     def discover(self):
         for item in entry_points(group="optimization_framework.problems"):
@@ -51,9 +83,11 @@ class ProblemRegistry:
         registry = ProblemRegistry()
         registry._loaders = self._loaders.copy()
         registry._adapters = self._adapters.copy()
+        registry._packs = self._packs.copy()
         name = adapter.describe().id
         registry._loaders[name] = lambda: lambda: adapter
         registry._adapters[name] = adapter
+        registry._packs.pop(name, None)
         return registry
 
     def get(self, name: str) -> ProblemAdapter:
@@ -75,6 +109,17 @@ class ProblemRegistry:
             if hook is not None:
                 result.extend(hook())
         return result
+
+    def pack(self, name: str) -> ProblemPack | None:
+        """What an installed problem brings besides its evaluator, from an optional ``pack()`` hook (decision 17)."""
+        if name not in self._packs:
+            hook = getattr(self.get(name), "pack", None)
+            self._packs[name] = checked_pack(name, hook()) if hook is not None else None
+        return self._packs[name]
+
+    def packs(self) -> dict[str, ProblemPack]:
+        """The packs of installed problems, by problem id; problems without one are left out."""
+        return {name: pack for name in self.ids() if (pack := self.pack(name)) is not None}
 
     def devices(self, name: str) -> tuple[str, ...]:
         """Where an installed adapter's evaluator can compute, from an optional ``devices`` hook: CPU unless it says more."""
