@@ -599,7 +599,8 @@ def test_compare_provided_reads_units_metrics_and_fields_and_a_library_that_refu
         del schema["properties"]["pressure_bar"]
         schema["required"].remove("pressure_bar")
         configuration = {k: v for k, v in data["configuration"].items() if k != "pressure_bar"}
-        return {"configuration_schema": schema, "configuration": configuration}
+        public = [key for key in data.get("public_configuration_keys", []) if key != "pressure_bar"]
+        return {"configuration_schema": schema, "configuration": configuration, "public_configuration_keys": public}
     row = next(row for row in C.findings(reactor(), installed(reactor(), narrower)) if row["code"] == "evaluator.provided_mismatch")
     assert {d["what"] for d in row["differences"]} == {"configuration fields", "values"}
 
