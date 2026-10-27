@@ -14,12 +14,15 @@ it, and no experiment waits for such proof.
 
 1. Open a coding workspace with `implementation_workspace_create`: the objective, the hypothesis and the evidence ids. It builds
    the library under `libraries/<name>/` (its brief says how): a module per method, its own tests against the specification,
-   and the plug-in that names the methods. Proposals built together can share one library.
+   and the plug-in that names the methods. Proposals built together can share one library: name the others in
+   `hypothesis_ids`, so the researcher sees which proposals it serves.
 2. Supervise with `implementation_workspace_inspect`, and steer or answer with `implementation_workspace_message`. Settle what
    the specification means from the hypothesis or with the researcher; do not turn open points into acceptance gates.
 3. The library is done when its tests pass, Balsamic's contract checks included (`tests/test_contract.py`: valid candidates,
-   seeded replay, checkpoint continuation), and the workspace has submitted the commit. Tell the researcher it is ready to
-   install, with the library's path and commit. Installing runs its code in the lab, so only the researcher does it.
+   seeded replay, checkpoint continuation), and the workspace has submitted the commit with its delivery report: the coding
+   agent's verdict (ready, ready with limits, not ready), each method's state, conformance and tests, the limitations, and the
+   next steps with who does each. The researcher reads that report on the Implementations page and in the inbox; relay its
+   verdict and next steps as it states them, never better. Installing runs its code in the lab, so only the researcher does it.
 4. Once it is installed, its methods appear in `campaign_inspect.methods` within a second; the lab needs no restart. Bind
    each proposal to its method with `implementation.bind_builtin` and hand the runs to the experiment operator.
 

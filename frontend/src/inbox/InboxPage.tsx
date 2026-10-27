@@ -26,6 +26,7 @@ export default function InboxPage({ campaignId, route }: PageProps) {
   const { decisions, issues, questions, resolved } = inbox.data;
   const closed = inbox.data.closed_by_lead || [];
   const notices = inbox.data.notices || [];
+  const implementations = inbox.data.implementations || [];
   const unseen = inbox.data.unacknowledged || [];
   const fresh = new Set(unseen.map(item => item.id));
   return (
@@ -44,6 +45,12 @@ export default function InboxPage({ campaignId, route }: PageProps) {
       {closed.length ? <Section title={`Closed by the lead (${closed.length})`}>
         <p className="why">Issues the lead found no longer hold, with its reason. Reopen one if you disagree.</p>
         {closed.slice().reverse().map(i => <ClosedIssue key={i.id} issue={i} version={version} campaignId={campaignId} onDone={after} isNew={fresh.has(i.id)} thread={route.thread} />)}</Section> : null}
+      {implementations.length ? <Section title={`Implementations (${implementations.length})`}>
+        <p className="why">The latest result of each coding workspace: what it delivered in the coding agent's own judgement, and what independent validation found.</p>
+        {implementations.slice().reverse().map(o => <div key={o.workspace_id} className="row small" data-testid="implementation-outcome">
+          {fresh.has(o.workspace_id) ? NEW : null}
+          <a className="grow" href={formatHash({ page: 'hypotheses', sub: 'implementations', id: o.workspace_id }, route.thread)}>{o.title}</a>
+          <span className="faint">{when(o.at)}</span></div>)}</Section> : null}
       {notices.length ? <Section title={`Started with a notice (${notices.length})`}>
         <Thresholds thresholds={inbox.data.thresholds} thread={route.thread} />
         {notices.slice().reverse().map(n => <NoticeRow key={n.id} notice={n} isNew={fresh.has(n.id)} thread={route.thread} />)}</Section> : null}

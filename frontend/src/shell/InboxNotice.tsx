@@ -7,7 +7,7 @@ import { useInbox } from '../api/queries';
 import type { InboxItem } from '../api/types';
 import { formatHash, type Route } from '../router/routes';
 
-const KIND: Record<string, string> = { decision: 'Decision', issue: 'Issue', question: 'Question from the lead', closed: 'Closed by the lead', notice: 'Started with a notice' };
+const KIND: Record<string, string> = { decision: 'Decision', issue: 'Issue', question: 'Question from the lead', closed: 'Closed by the lead', notice: 'Started with a notice', implementation: 'Implementation' };
 const TITLE = document.title;
 
 export async function acknowledge(campaignId: string, items: InboxItem[], refresh: () => unknown) {

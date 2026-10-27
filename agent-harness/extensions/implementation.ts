@@ -1,6 +1,6 @@
 /** One native Pi TUI owns this implementation session. The host only exchanges
  * immutable command and event files across the workspace boundary. */
-import {Type} from '@earendil-works/pi-ai';
+import {StringEnum, Type} from '@earendil-works/pi-ai';
 import {defineTool, type ExtensionAPI} from '@earendil-works/pi-coding-agent';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -56,14 +56,27 @@ function scan(pi: ExtensionAPI): void {
   }
 }
 
+// Test counts as the researcher reads them: what passed, failed and was skipped in the latest run of the suite.
+const Tests = () => Type.Object({passed: Type.Integer({minimum: 0}), failed: Type.Integer({minimum: 0}),
+  skipped: Type.Optional(Type.Integer({minimum: 0}))});
+const Items = (description: string) => Type.Optional(Type.Array(Type.String({maxLength: 300}), {maxItems: 20, description}));
+
 const checkpoint = defineTool({
   name: 'campaign_checkpoint', label: 'Campaign checkpoint',
-  description: 'Persist implementation progress, remaining work, a blocker or a question for the campaign lead agent and developer.',
+  description: 'Persist implementation progress, remaining work, a blocker or a question for the campaign lead agent and developer. '
+    + 'The researcher follows your work by these: give your phase, what is done and what remains, the latest test counts, and '
+    + 'your own estimate of the minutes left until you submit (shown to them as your estimate).',
   parameters: Type.Object({
     summary: Type.String({minLength: 1, maxLength: 10000}),
     next_steps: Type.Optional(Type.String({maxLength: 10000})),
     blocker: Type.Optional(Type.String({maxLength: 10000})),
     question: Type.Optional(Type.String({maxLength: 10000})),
+    phase: Type.Optional(StringEnum(['orienting', 'implementing', 'testing', 'fixing', 'packaging', 'blocked', 'waiting'],
+      {description: 'What you are doing now'})),
+    done: Items('What is finished, briefly, one item each'),
+    remaining: Items('What remains before you submit, one item each'),
+    eta_minutes: Type.Optional(Type.Number({minimum: 0, maximum: 1440, description: 'Your estimate of the minutes left until you submit'})),
+    tests: Type.Optional(Tests()),
   }),
   async execute(_id, params) {
     const id = emit('checkpoint', params as Record<string, unknown>);
@@ -71,17 +84,38 @@ const checkpoint = defineTool({
   },
 });
 
+// What you deliver, in your own judgement: the researcher reads this as the outcome of the work.
+const Report = Type.Object({
+  verdict: StringEnum(['ready', 'ready_with_limits', 'not_ready'], {description: 'ready: every method implemented, conformance passed, '
+    + 'no failed test and no limitation; ready_with_limits: usable, with the limitations listed; not_ready: say what must happen next'}),
+  summary: Type.String({minLength: 1, maxLength: 2000, description: 'Two or three sentences for the researcher'}),
+  methods: Type.Array(Type.Object({
+    method_id: Type.String({pattern: '^[a-z][a-z0-9_]{1,63}$', description: 'The method id the library registers'}),
+    hypothesis_id: Type.Optional(Type.String({description: 'The proposal this method implements'})),
+    state: StringEnum(['implemented', 'partial', 'not_implemented']),
+    tests: Type.Optional(Tests()),
+    conformance: StringEnum(['passed', 'failed', 'not_run'], {description: "Balsamic's contract check (tests/test_contract.py)"}),
+    note: Type.Optional(Type.String({maxLength: 1000})),
+  }), {minItems: 1, maxItems: 30}),
+  tests: Type.Object({...Tests().properties, command: Type.Optional(Type.String({maxLength: 1000, description: 'The command that ran them'}))}),
+  limitations: Type.Array(Type.String({maxLength: 1000}), {maxItems: 30}),
+  next_actions: Type.Array(Type.Object({owner: StringEnum(['researcher', 'lead', 'validator']), action: Type.String({minLength: 1, maxLength: 1000})}),
+    {maxItems: 20, description: 'What must happen for the methods to run, and who does it (installing the library is the researcher\'s)'}),
+});
+
 const submit = defineTool({
   name: 'campaign_submit', label: 'Submit implementation',
-  description: 'Submit a committed source revision and implementation-manifest.json for independent campaign validation. The host reads only files from this exact commit.',
+  description: 'Submit a committed source revision and implementation-manifest.json for independent campaign validation, with your '
+    + 'delivery report. The host reads only files from this exact commit, and refuses a report that contradicts itself, naming the field.',
   parameters: Type.Object({
     commit: Type.String({pattern: '^[a-f0-9]{40}$'}),
     manifest_path: Type.Optional(Type.String({default: 'implementation-manifest.json'})),
     notes: Type.Optional(Type.String({maxLength: 10000})),
+    report: Report,
   }),
   async execute(_id, params, signal) {
     const id = emit('submission', {commit: params.commit,
-      manifest_path: params.manifest_path || 'implementation-manifest.json', notes: params.notes || ''});
+      manifest_path: params.manifest_path || 'implementation-manifest.json', notes: params.notes || '', report: params.report});
     const reply = path.join(results, `${id}.json`);
     for (let attempt = 0; attempt < 120; attempt++) {
       if (signal.aborted) throw new Error('Submission wait interrupted; the campaign receipt may already exist. Inspect status before retrying.');

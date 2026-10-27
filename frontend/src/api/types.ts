@@ -35,11 +35,13 @@ export interface Decision { plan?: ExperimentPlan; id: string; title: string; pr
   resolution_revision?: number; requested_by?: string; created_at: string; freshness: { state: string; reason: string; blocked_choice_ids: string[] }; presentation: Record<string, unknown>; [key: string]: unknown }
 export interface Issue { id: string; code: string; message: string; status: string; revision: number; options: string[]; created_at: string; affected?: string;
   actions?: { id: string; label: string; description: string }[]; comment?: string; resolved_at?: string; resolved_by?: string }
-export interface InboxItem { key: string; kind: 'decision' | 'issue' | 'question' | 'closed' | 'notice'; id: string; title: string; at?: string | null }
+export interface InboxItem { key: string; kind: 'decision' | 'issue' | 'question' | 'closed' | 'notice' | 'implementation'; id: string; title: string; at?: string | null }
 /** Work an agent started between the researcher's two compute thresholds, without waiting for their go-ahead. */
 export interface ComputeNotice { id: string; title: string; what: string; seconds: number; role?: string | null; agent_id?: string | null; thread_id?: string | null; subjects: string[]; created_at: string }
 export interface ComputeThresholds { notice_seconds: number; gate_seconds: number }
-export interface Inbox extends Scoped { decisions: Decision[]; issues: Issue[]; questions: Question[]; resolved: Decision[]; closed_by_lead?: Issue[]; notices?: ComputeNotice[];
+/** A coding workspace's latest result: a delivery with the coding agent's verdict, a validation's result, or a failure. */
+export interface ImplementationOutcome { workspace_id: string; workspace_title: string; state: string; verdict?: string; submission_id?: string; commit?: string; at: string; title: string }
+export interface Inbox extends Scoped { decisions: Decision[]; issues: Issue[]; questions: Question[]; resolved: Decision[]; closed_by_lead?: Issue[]; notices?: ComputeNotice[]; implementations?: ImplementationOutcome[];
   thresholds?: ComputeThresholds; unacknowledged?: InboxItem[] }
 export interface Monitor extends Scoped { rows: { problem: Record<string, unknown>; budget: { worker: Record<string, unknown>; llm: Record<string, unknown> }; compute: Record<string, unknown>;
   agents: Record<string, unknown>; autopilot?: Record<string, unknown>; needs_you: { decisions: number; issues: number; questions: number } }; pill: { state: 'clear' | 'attention' | 'digest'; text: string; row: string | null }; attention?: { row: string; text: string }[]; digest_id: string | null }

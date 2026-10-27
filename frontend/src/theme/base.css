@@ -289,3 +289,5 @@ a.draft-row { color: inherit; text-decoration: none; gap: 8px; } a.draft-row:hov
 .timeline > li.you { border-left-color: var(--you); } .timeline > li.agent { border-left-color: var(--agent); }
 .timeline ul { margin: 4px 0 0; padding-left: 18px; }
 .workspace-card .kv { margin-bottom: 6px; }
+.outcome { border: 1px solid var(--line); border-radius: var(--radius-s); padding: 8px 10px; margin: 8px 0; background: var(--panel-2); }
+.outcome ul { margin: 2px 0 6px; padding-left: 18px; }

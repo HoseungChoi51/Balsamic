@@ -331,3 +331,114 @@ def test_the_history_of_a_workspace_reads_newest_first_from_what_it_recorded(set
     assert any(e['kind'] == 'instruction' and e['title'] == 'The lead wrote to the coding agent' for e in entries)
     page = timeline(workspace.store, development.get(cid, record['id']), limit=2)
     assert len(page['entries']) == 2 and timeline(workspace.store, development.get(cid, record['id']), before=page['next_before'])['entries'][0]['at'] <= page['next_before']
+
+
+REPORT = {'verdict': 'ready_with_limits', 'summary': 'Both methods work.',
+          'methods': [{'method_id': 'bakery_adjacent', 'hypothesis_id': 'hypothesis_dev', 'state': 'implemented',
+                       'tests': {'passed': 12, 'failed': 0}, 'conformance': 'passed'}],
+          'tests': {'passed': 32, 'failed': 0, 'skipped': 0, 'command': 'pytest libraries/bakery'},
+          'limitations': ['The evaluator is not commissioned'], 'next_actions': [{'owner': 'researcher', 'action': 'Install the library'}]}
+
+
+def refusal(driver, record, key):
+    return json.loads((driver.root(record) / 'incoming/results' / (key + '.json')).read_text()).get('error', '')
+
+
+def test_progress_and_the_delivery_report_are_the_coding_agents_own_and_say_how_it_went(setup):
+    from balsamic.monitor.rows import inbox_view, acknowledge
+    workspace, campaign, development, driver = setup
+    cid = campaign['id']
+    record = development.create(cid, {'hypothesis_id': 'hypothesis_dev', 'objective': 'Implement', 'request_key': 'report'})
+    development.sync(cid)
+    # A checkpoint's progress: the phase, the tests and its own estimate; a value it got wrong is left out, not the checkpoint.
+    outgoing(driver, record, 'c1', 'checkpoint', {'summary': 'Testing', 'phase': 'testing', 'eta_minutes': 8,
+                                                  'tests': {'passed': 30, 'failed': 2}, 'done': ['core'], 'remaining': ['seed replay']})
+    outgoing(driver, record, 'c2', 'checkpoint', {'summary': 'Still testing', 'phase': 'coding', 'tests': {'passed': 'many'}})
+    development.sync(cid)
+    saved = development.public(development.get(cid, record['id']))
+    assert saved['phase'] == 'testing' and saved['tests'] == {'passed': 30, 'failed': 2, 'skipped': 0}
+    assert saved['estimate']['remaining_minutes'] == 8 and saved['estimate']['source'] == 'coding agent'
+    assert saved['checkpoints'][0]['remaining'] == ['seed replay'] and saved['outcome'] is None
+    # A report that contradicts itself is refused, naming what to fix; nothing is recorded.
+    commit = 'b' * 40
+    for key, report, says in [('r1', {**REPORT, 'verdict': 'ready'}, 'verdict ready allows no limitations'),
+                              ('r2', {**REPORT, 'limitations': []}, 'needs the limitations listed'),
+                              ('r3', {**REPORT, 'verdict': 'not_ready', 'next_actions': []}, 'not_ready needs next_actions'),
+                              ('r4', {**REPORT, 'methods': [{**REPORT['methods'][0], 'hypothesis_id': 'hypothesis_elsewhere'}]}, 'methods[0].hypothesis_id')]:
+        outgoing(driver, record, key, 'submission', {'commit': commit, 'manifest_path': 'implementation-manifest.json', 'report': report})
+        development.sync(cid)
+        assert says in refusal(driver, record, key)
+    assert workspace.store.list('development_submission', cid) == []
+    outgoing(driver, record, 'r5', 'submission', {'commit': commit, 'manifest_path': 'implementation-manifest.json', 'report': REPORT})
+    development.sync(cid)
+    submission = workspace.store.list('development_submission', cid)[0]
+    assert submission['report']['verdict'] == 'ready_with_limits' and 'schema_version' not in json.dumps(submission['report'])
+    outcome = development.public(development.get(cid, record['id']))['outcome']
+    assert (outcome['state'], outcome['verdict'], outcome['submission_id']) == ('delivered', 'ready_with_limits', submission['id'])
+    lead_notice = next(r for r in workspace.store.list('agent_run', cid) if submission['id'] in r['input'])
+    assert "verdict: ready with limits; next: researcher: Install the library" in lead_notice['input']
+    # The delivery is news in the inbox until acknowledged; the next result brings it back.
+    [item] = [i for i in inbox_view(workspace, cid)['unacknowledged'] if i['kind'] == 'implementation']
+    assert item['title'] == 'Implementation delivered: Test method: ready, with limits, 32 passed, 0 failed'
+    acknowledge(workspace, cid, [item['key']])
+    assert not [i for i in inbox_view(workspace, cid)['unacknowledged'] if i['kind'] == 'implementation']
+    workspace.store.put('development_submission', {**submission, 'status': 'validated', 'validated_at': '2026-10-27T04:00:00+00:00'})
+    [item] = [i for i in inbox_view(workspace, cid)['unacknowledged'] if i['kind'] == 'implementation']
+    assert item['title'] == 'Implementation validated: Test method'
+
+
+def test_a_submission_without_a_report_is_delivered_unreported_and_a_long_blocked_host_is_a_failure(setup, monkeypatch):
+    from optimization_framework.agents import development as module
+    workspace, campaign, development, driver = setup
+    cid = campaign['id']
+    record = development.create(cid, {'hypothesis_id': 'hypothesis_dev', 'objective': 'Implement', 'request_key': 'old'})
+    development.sync(cid)
+    monkeypatch.setattr(driver, 'start', lambda record: (_ for _ in ()).throw(ValueError('Docker is not running')))
+    development.sync(cid)
+    assert development.public(development.get(cid, record['id']))['outcome'] is None   # blocked, not yet failed
+    saved = development.get(cid, record['id'])
+    workspace.store.put('development_workspace', {**saved, 'blocked_since': '2026-10-27T00:00:00+00:00'})
+    failed = development.public(development.get(cid, record['id']))['outcome']
+    assert failed['state'] == 'failed' and 'Docker is not running' in failed['reason']
+    monkeypatch.setattr(driver, 'start', lambda record: driver.inspect(record))
+    development.sync(cid)
+    assert 'blocked_since' not in development.get(cid, record['id'])
+    outgoing(driver, record, 'old-submit', 'submission', {'commit': 'c' * 40, 'manifest_path': 'implementation-manifest.json', 'notes': 'Done'})
+    development.sync(cid)
+    assert development.public(development.get(cid, record['id']))['outcome']['verdict'] == 'unreported'
+
+
+def test_each_validation_of_a_submission_has_its_result_recorded(setup, monkeypatch):
+    workspace, campaign, development, driver = setup
+    cid = campaign['id']
+    record = development.create(cid, {'hypothesis_id': 'hypothesis_dev', 'objective': 'Implement', 'request_key': 'twice'})
+    development.sync(cid)
+    outgoing(driver, record, 's', 'submission', {'commit': 'd' * 40, 'manifest_path': 'implementation-manifest.json', 'report': REPORT})
+    development.sync(cid)
+    submission = workspace.store.list('development_submission', cid)[0]
+    grants = iter(['grant_one', 'grant_two'])
+    def reserve(hypothesis_id, spec, **options):
+        return workspace.store.put('implementation_grant', {'id': next(grants), 'campaign_id': cid, 'status': 'dispatching', 'compute_seconds': 0})
+    monkeypatch.setattr(workspace.implementations, 'reserve_commission', reserve)
+    monkeypatch.setattr('optimization_framework.agents.capabilities.implementation_execution', lambda: {'available': True})
+    request = {'submission_id': submission['id'], 'spec': {'name': 'Test method', 'mechanism': 'Seeded search', 'acceptance_criteria': ['Seeded replay'], 'dependencies': {}},
+               'compute_seconds': 20}
+    def finish(grant_id, status):
+        workspace.store.put('implementation_grant', {**workspace.store.get(grant_id, 'implementation_grant'), 'status': status,
+                                                    'finished_at': '2026-10-27T05:00:00+00:00', 'attempts': []})
+        development.validation_feedback(development.get(cid, record['id']))
+    development.validate(cid, record['id'], {**request, 'request_key': 'first'})
+    finish('grant_one', 'failed')
+    assert workspace.store.get(submission['id'], 'development_submission')['status'] == 'needs_revision'
+    development.validate(cid, record['id'], {**request, 'request_key': 'second'})
+    assert workspace.store.get(submission['id'], 'development_submission')['status'] == 'validating'
+    finish('grant_two', 'completed')
+    saved = workspace.store.get(submission['id'], 'development_submission')
+    assert saved['status'] == 'validated' and saved['validation_outcome']['id'] == 'grant_two' and saved['validated_at'] == '2026-10-27T05:00:00+00:00'
+    told = [c for c in workspace.store.list('development_command', cid) if c['request_key'].startswith('validation-feedback-')]
+    assert len(told) == 2   # the coding agent hears each result once
+    # A result left unrecorded before this fix (feedback_sent from the first run) is corrected without waking the agent.
+    workspace.store.put('development_submission', {**saved, 'status': 'validating', 'grant_id': 'grant_one', 'feedback_sent': True})
+    development.validation_feedback(development.get(cid, record['id']))
+    assert workspace.store.get(submission['id'], 'development_submission')['status'] == 'needs_revision'
+    assert len([c for c in workspace.store.list('development_command', cid) if c['request_key'].startswith('validation-feedback-')]) == 2

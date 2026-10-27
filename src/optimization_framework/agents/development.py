@@ -44,6 +44,113 @@ class SubmissionManifest(Contract):
     test_summary: str = Field(default="", max_length=10000)
 
 
+class TestCounts(Contract):
+    passed: int = Field(ge=0)
+    failed: int = Field(ge=0)
+    skipped: int = Field(default=0, ge=0)
+
+
+class ReportTests(TestCounts):
+    command: str = Field(default="", max_length=1000)
+
+
+class MethodReport(Contract):
+    method_id: str = Field(pattern=r"^[a-z][a-z0-9_]{1,63}$")
+    hypothesis_id: str | None = None
+    state: Literal["implemented", "partial", "not_implemented"]
+    tests: TestCounts | None = None
+    conformance: Literal["passed", "failed", "not_run"]
+    note: str = Field(default="", max_length=1000)
+
+
+class NextAction(Contract):
+    owner: Literal["researcher", "lead", "validator"]
+    action: str = Field(min_length=1, max_length=1000)
+
+
+class DeliveryReport(Contract):
+    """What the coding agent delivers, in its own judgement; its verdict has to agree with what it reports."""
+    verdict: Literal["ready", "ready_with_limits", "not_ready"]
+    summary: str = Field(min_length=1, max_length=2000)
+    methods: list[MethodReport] = Field(min_length=1, max_length=30)
+    tests: ReportTests
+    limitations: list[str] = Field(default_factory=list, max_length=30)
+    next_actions: list[NextAction] = Field(default_factory=list, max_length=20)
+
+    @model_validator(mode="after")
+    def consistent(self):
+        ids = [method.method_id for method in self.methods]
+        if len(set(ids)) != len(ids):
+            raise ValueError("methods: name each method_id once")
+        if self.verdict == "ready":
+            if any(method.state != "implemented" for method in self.methods):
+                raise ValueError("verdict ready needs every method's state implemented; report ready_with_limits or not_ready")
+            if any(method.conformance != "passed" for method in self.methods):
+                raise ValueError("verdict ready needs every method's conformance passed; run tests/test_contract.py, or report ready_with_limits")
+            if self.tests.failed:
+                raise ValueError("verdict ready needs tests.failed 0; fix the failures, or report ready_with_limits or not_ready")
+            if self.limitations:
+                raise ValueError("verdict ready allows no limitations; report ready_with_limits with them")
+        if self.verdict == "ready_with_limits" and not self.limitations:
+            raise ValueError("verdict ready_with_limits needs the limitations listed")
+        if self.verdict == "not_ready" and not self.next_actions:
+            raise ValueError("verdict not_ready needs next_actions: what must happen, and who does it")
+        return self
+
+
+PHASES = ("orienting", "implementing", "testing", "fixing", "packaging", "blocked", "waiting")
+
+
+def progress(payload):
+    """The structured part of a checkpoint, field by field: a value the coding agent got wrong is left out, never the checkpoint."""
+    found = {}
+    if payload.get("phase") in PHASES:
+        found["phase"] = payload["phase"]
+    for key in ("done", "remaining"):
+        if isinstance(payload.get(key), list):
+            found[key] = [str(item)[:300] for item in payload[key][:20]]
+    eta = payload.get("eta_minutes")
+    if isinstance(eta, (int, float)) and not isinstance(eta, bool) and 0 <= eta <= 1440:
+        found["eta_minutes"] = float(eta)
+    try:
+        found["tests"] = plain(TestCounts.model_validate(payload["tests"]).model_dump())
+    except (KeyError, TypeError, ValueError):
+        pass
+    return found
+
+
+def plain(value):
+    """A contract's dump as the records keep it: without the schema version of every nested part."""
+    if isinstance(value, dict):
+        return {key: plain(item) for key, item in value.items() if key != "schema_version"}
+    if isinstance(value, list):
+        return [plain(item) for item in value]
+    return value
+
+
+BLOCKED_FAILS_SECONDS = 1800
+LIVE = {"queued", "starting", "running", "resuming", "pausing", "stopping"}
+SUBMISSION_STATES = {"submitted": "delivered", "validating": "validating", "validated": "validated", "needs_revision": "needs_revision"}
+
+
+def outcome(record, submissions):
+    """The workspace's latest result, from its records: its latest submission (delivered with the coding agent's verdict, then
+    validating, validated or needs_revision), else stopped, else failed once the host has been unable to run it for 30 min;
+    None while nothing has come of it yet."""
+    mine = sorted((row for row in submissions if row["workspace_id"] == record["id"]), key=lambda row: row["created_at"])
+    if mine:
+        latest = mine[-1]
+        state = SUBMISSION_STATES.get(latest["status"], latest["status"])
+        return {"state": state, "verdict": (latest.get("report") or {}).get("verdict") or "unreported", "submission_id": latest["id"],
+                "commit": latest["commit"], "at": latest.get("validated_at") or latest["created_at"]}
+    if record.get("status") == "stopped":
+        return {"state": "stopped", "at": record.get("control_requested_at") or record.get("updated_at") or record["created_at"]}
+    since = record.get("blocked_since")
+    if record.get("status") == "blocked" and since and (datetime.now(timezone.utc) - datetime.fromisoformat(since)).total_seconds() >= BLOCKED_FAILS_SECONDS:
+        return {"state": "failed", "reason": record.get("error", ""), "at": since}
+    return None
+
+
 class WorkspaceValidate(Contract):
     submission_id: str
     spec: dict | None = None
@@ -109,13 +216,19 @@ class DevelopmentWorkspaces:
             # Every checkpoint, not only the latest: what the coding agent said it had done, and when.
             "checkpoints": [{"at": e["occurred_at"], **e["payload"]} for e in events if e["type"] == "checkpoint"][-20:],
             "last_error_at": errors[-1] if errors else None,
+            **self._result(record),
             "ide_url": base + f"/implementation-workspaces/{record['id']}/ide/?folder=/work/repo",
             "runtime": {"running": runtime.get("running", False), "paused": runtime.get("paused", False)},
             "terminal_command": f"docker exec --user 1000:1000 -it {self.driver.name(record)} tmux attach-session -t implementation",
             "validation_envelopes": [{k: v for k, v in e.items() if k != "spec"}
                 for e in self.store.list("development_envelope", record["campaign_id"]) if e["workspace_id"] == record["id"]],
-            "submissions": [{k: v for k, v in s.items() if k != "package"} for s in self.store.list("development_submission", record["campaign_id"]) if s["workspace_id"] == record["id"]],
+            "submissions": sorted(({k: v for k, v in s.items() if k != "package"} for s in self.store.list("development_submission", record["campaign_id"])
+                                   if s["workspace_id"] == record["id"]), key=lambda s: s["created_at"]),
             "questions": [q for q in self.store.list("development_question", record["campaign_id"]) if q["workspace_id"] == record["id"] and q["status"] == "pending"]}
+
+    def _result(self, record):
+        result = outcome(record, self.store.list("development_submission", record["campaign_id"]))
+        return {"outcome": result, "finished_at": result["at"] if result and record.get("status") not in LIVE else None}
 
     def disabled(self):
         """Why workspaces are refused, and the two ways on: the commission the agents can make now, the switch the researcher can turn."""
@@ -302,6 +415,7 @@ class DevelopmentWorkspaces:
                     record = self.get(campaign_id, saved["id"])
                     error = str(exc)[:2000]
                     changed = record.get("error") != error
+                    record.setdefault("blocked_since", now())
                     record.update(error=error, status="blocked")
                     self.store.put("development_workspace", record, "development.blocked" if changed else None)
                     if changed:
@@ -328,6 +442,7 @@ class DevelopmentWorkspaces:
                 recovered = bool(record.get("error"))
                 record.update(runtime=runtime)
                 record.pop("error", None)
+                record.pop("blocked_since", None)
                 if record["status"] in {"queued", "blocked", "resuming", "stopped"}:
                     record["status"] = "starting"
                 self.store.put("development_workspace", record)
@@ -436,6 +551,10 @@ class DevelopmentWorkspaces:
         elif kind == "checkpoint":
             record["checkpoint"] = payload
             record["activity"] = payload.get("summary", "")[:2000]
+            found = progress(payload)
+            record.update({key: found[key] for key in ("phase", "tests") if key in found})
+            if "eta_minutes" in found:
+                record["estimate"] = {"remaining_minutes": found["eta_minutes"], "given_at": now(), "source": "coding agent"}
             if payload.get("question"):
                 self.store.put("development_question", {"id": "development_question_" + content_hash([record["id"], key])[:24],
                     "workspace_id": record["id"], "campaign_id": cid, "question": payload["question"], "status": "pending", "created_at": now()}, "development.question_created")
@@ -453,18 +572,40 @@ class DevelopmentWorkspaces:
         record["last_activity_at"] = record["updated_at"] = at
         self.store.put("development_workspace", record, PUT_EVENTS.get(kind))
 
+    def delivery_report(self, record, raw):
+        """The submission's delivery report, checked; None from an extension that sends none."""
+        if raw is None:
+            return None
+        report = plain(DeliveryReport.model_validate(raw).model_dump(mode="json"))
+        for index, method in enumerate(report["methods"]):
+            if method.get("hypothesis_id"):
+                try:
+                    row = self.store.get(method["hypothesis_id"], "hypothesis")
+                except KeyError:
+                    row = {}
+                if row.get("campaign_id") != record["campaign_id"]:
+                    raise ValueError(f"report.methods[{index}].hypothesis_id: {method['hypothesis_id']} is not a proposal of this campaign")
+        return report
+
     def capture_submission(self, record, key, payload):
+        report = self.delivery_report(record, payload.get("report"))
         package, manifest = self.driver.snapshot(record, payload["commit"], payload.get("manifest_path", "implementation-manifest.json"))
         with self.workspace.lock, self.store.transaction():
             identity = "development_submission_" + content_hash([record["id"], payload["commit"], package, manifest])[:24]
             submission = {"id": identity, "campaign_id": record["campaign_id"], "workspace_id": record["id"],
-                "hypothesis_id": record["hypothesis_id"], "commit": payload["commit"], "package": package,
-                "manifest": manifest, "notes": payload.get("notes", ""), "status": "submitted", "created_at": now()}
+                "hypothesis_id": record["hypothesis_id"], "hypothesis_ids": record.get("hypothesis_ids") or [record["hypothesis_id"]],
+                "commit": payload["commit"], "package": package, "manifest": manifest, "notes": payload.get("notes", ""),
+                "report": report, "status": "submitted", "created_at": now()}
             try:
                 saved = self.store.get(identity, "development_submission")
+                if report and saved.get("report") != report:   # the same commit again: its latest report stands
+                    saved["report"] = report
+                    self.store.put("development_submission", saved, "development.submitted")
             except KeyError:
                 saved = self.store.put("development_submission", submission, "development.submitted")
-                self.notify(record, identity, f"Commit {submission['commit']} submitted as {identity}. Review its manifest and commission independent validation using implementation_workspace_validate within the remaining implementation allocation.")
+                verdict = f" The coding agent's verdict: {report['verdict'].replace('_', ' ')}; next: " + ("; ".join(
+                    f"{a['owner']}: {a['action']}" for a in report["next_actions"]) or "nothing named") + "." if report else " It sent no delivery report."
+                self.notify(record, identity, f"Commit {submission['commit']} submitted as {identity}.{verdict} Review its manifest and commission independent validation using implementation_workspace_validate within the remaining implementation allocation.")
             self.event(record, key, "submission", {"submission_id": identity, "commit": payload["commit"]})
         atomic_json(self.driver.root(record) / "incoming/results" / (key + ".json"), {"submission_id": saved["id"], "status": saved["status"]})
 
@@ -498,7 +639,8 @@ class DevelopmentWorkspaces:
         if actor != "researcher":
             compute_consent.charge(self.workspace, campaign_id, values.compute_seconds, what="a validation of a coding workspace's submission",
                                    subjects=[identity])
-        submission.update(grant_id=grant["id"], status="validating")
+        # A validation of the same submission again: its result is news to the coding agent, like the first one's.
+        submission.update(grant_id=grant["id"], status="validating", feedback_sent=False)
         self.store.put("development_submission", submission, "development.validation_requested")
         return {"submission_id": submission["id"], "grant_id": grant["id"]}
 
@@ -529,8 +671,10 @@ class DevelopmentWorkspaces:
 
     def validation_feedback(self, record):
         for submission in self.store.list("development_submission", record["campaign_id"]):
-            if submission["workspace_id"] != record["id"] or not submission.get("grant_id") or submission.get("feedback_sent"):
+            if submission["workspace_id"] != record["id"] or not submission.get("grant_id"):
                 continue
+            if (submission.get("validation_outcome") or {}).get("id") == submission["grant_id"]:
+                continue   # this grant's result is recorded
             grant = self.store.get(submission["grant_id"], "implementation_grant")
             if grant["status"] not in {"completed", "failed", "blocked", "interrupted", "cancelled", "needs_reconciliation"}:
                 continue
@@ -544,11 +688,14 @@ class DevelopmentWorkspaces:
                     for check in report.get("checks", []) if check.get("passed") is False)
                 review = attempt.get("review") or {}
                 feedback["findings"].extend({"review": str(item)[:1000]} for item in review.get("findings", []))
-            self.message(record["campaign_id"], record["id"], {"message": "Independent validation outcome for " + submission["commit"] + ":\n" + json.dumps(feedback)
-                + "\nInspect the recorded outcome. Preserve this revision. Repair failures in a new commit when authorized; a new validation run needs remaining allocation.",
-                "request_key": "validation-feedback-" + submission["id"], "mode": "follow_up"}, actor="system")
+            # A result recorded before a repeated validation reset feedback_sent is corrected here without waking the agent again.
+            if not submission.get("feedback_sent"):
+                self.message(record["campaign_id"], record["id"], {"message": "Independent validation outcome for " + submission["commit"] + ":\n" + json.dumps(feedback)
+                    + "\nInspect the recorded outcome. Preserve this revision. Repair failures in a new commit when authorized; a new validation run needs remaining allocation.",
+                    "request_key": "validation-feedback-" + submission["id"] + "-" + grant["id"], "mode": "follow_up"}, actor="system")
             submission.update(status="validated" if grant["status"] == "completed" else "needs_revision", feedback_sent=True,
-                              version_id=grant.get("version_id"), validation_outcome=feedback)
+                              version_id=grant.get("version_id"), validation_outcome=feedback,
+                              validated_at=grant.get("finished_at") or grant.get("updated_at") or now())
             self.store.put("development_submission", submission)
 
 
@@ -582,10 +729,19 @@ from the example and name your methods in it: it runs Balsamic's contract checks
 (valid candidates, seeded replay, checkpoint continuation, export kinds) and needs Balsamic itself
 (`python -m pip install --user -e .`), else it runs on the host.
 
-Commit the library and an `implementation-manifest.json` containing `contract`
+Commit the library and an `implementation-manifest.json` holding exactly `contract`
 (optimizer_v1), `entrypoint` (module:factory), `files` (the library's
-repository-relative paths), exact `dependencies`, and a `test_summary`. Submit the full
-commit hash with `campaign_submit`. The researcher installs the library once its tests
+repository-relative paths), exact `dependencies`, and a `test_summary`, and nothing else.
+Submit the full commit hash with `campaign_submit` and your delivery report: your verdict
+(ready only when every method is implemented, its conformance check passed, no test fails
+and nothing is limited; ready_with_limits with the limitations; not_ready with what must
+happen next), each method's id, proposal, state, tests and conformance, the totals of your
+test run with its command, and the next actions with who does each (installing the library
+is the researcher's). The researcher reads this report as the outcome of your work.
+
+At each `campaign_checkpoint`, give your phase, what is done and what remains, the latest
+test counts and your estimate of the minutes left until you submit: the researcher follows
+your work by these. The researcher installs the library once its tests
 pass (`uv run pytest libraries/<name>`); a proposal then runs by naming its method.
 Use a new commit for each repair. Whether the method performs well is for the
 campaign's experiments and the researcher, not something the implementation proves.

@@ -12,6 +12,8 @@ import re
 
 ACTORS = {"researcher": "You", "lead": "The lead", "pi": "The lead", "system": "Balsamic"}
 OPENERS = {"lead": "the lead", "implementation_lead": "the implementation lead"}
+VERDICTS = {"ready": "ready", "ready_with_limits": "ready, with limits", "not_ready": "not ready"}
+VERDICT_TONES = {"ready": "ok", "ready_with_limits": "warn", "not_ready": "bad"}
 ERRORISH = re.compile(r"error|fail|traceback|denied|not found|no such|invalid|must ", re.I)
 
 
@@ -38,6 +40,28 @@ def _failure(output):
     lines = [line for line in lines if not line.startswith("Command exited with code")]
     pick = next((line for line in reversed(lines) if ERRORISH.search(line)), lines[-1] if lines else "")
     return _first_line(pick, 200) + (f" (exit {code.rsplit(' ', 1)[-1]})" if code else "")
+
+
+def tests_text(tests):
+    if not tests:
+        return ""
+    return f"{tests.get('passed', 0)} passed, {tests.get('failed', 0)} failed" + (f", {tests['skipped']} skipped" if tests.get("skipped") else "")
+
+
+def delivery(submission):
+    """A delivery as the researcher reads it: the coding agent's verdict, what it says, each method's state, and what comes next."""
+    report = submission.get("report")
+    if not report:
+        return f"Delivered commit {submission['commit'][:7]}, without a delivery report", submission.get("notes", ""), "", []
+    parts = [report["summary"], "Tests: " + tests_text(report["tests"]) + (f" (`{report['tests']['command']}`)" if report["tests"].get("command") else "")]
+    if report.get("limitations"):
+        parts.append("Limitations:\n" + "\n".join(f"- {item}" for item in report["limitations"]))
+    if report.get("next_actions"):
+        parts.append("Next:\n" + "\n".join(f"- {action['owner']}: {action['action']}" for action in report["next_actions"]))
+    methods = [f"{m['method_id']}: {m['state'].replace('_', ' ')}, conformance {m['conformance'].replace('_', ' ')}"
+               + (f", {tests_text(m['tests'])}" if m.get("tests") else "") for m in report["methods"]]
+    return (f"Delivered commit {submission['commit'][:7]}: {VERDICTS[report['verdict']]}", "\n\n".join(parts),
+            VERDICT_TONES[report["verdict"]], methods)
 
 
 def entry(at, kind, title, detail="", tone="", ref=None, items=None):
@@ -114,8 +138,8 @@ def entries(store, record):
     for submission in store.list("development_submission", cid):
         if submission["workspace_id"] != wid:
             continue
-        found.append(entry(submission["created_at"], "delivery", f"Delivered commit {submission['commit'][:7]}", submission.get("notes", ""),
-                           "ok", submission["id"]))
+        title, detail, tone, methods = delivery(submission)
+        found.append(entry(submission["created_at"], "delivery", title, detail, tone, submission["id"], methods))
         if submission.get("grant_id"):
             try:
                 grant = store.get(submission["grant_id"], "implementation_grant")

@@ -13,13 +13,14 @@ def inbox_view(workspace, campaign_id):
     closed = sorted((row for row in store.list("manager_issue", campaign_id) if row.get("status") == "resolved" and row.get("resolved_by") == "lead"),
                     key=lambda row: row.get("resolved_at") or "")[-30:]
     notices = compute_notices(workspace, campaign_id)
-    items = inbox_items(decisions, issues, questions, closed, notices)
+    implementations = implementation_outcomes(workspace, campaign_id)
+    items = inbox_items(decisions, issues, questions, closed, notices, implementations)
     seen = set(acknowledged(workspace, campaign_id))
     from optimization_framework.campaigns.compute_consent import thresholds
     notice_seconds, gate_seconds = thresholds(workspace, campaign_id)
     return {"decisions": decisions, "issues": issues, "questions": questions,
             "resolved": [row for row in store.list("decision", campaign_id) if row.get("status") == "resolved"][-20:],
-            "closed_by_lead": closed, "notices": notices, "thresholds": {"notice_seconds": notice_seconds, "gate_seconds": gate_seconds},
+            "closed_by_lead": closed, "notices": notices, "implementations": implementations, "thresholds": {"notice_seconds": notice_seconds, "gate_seconds": gate_seconds},
             "unacknowledged": [item for item in items if item["key"] not in seen]}
 
 
@@ -33,6 +34,41 @@ def compute_notices(workspace, campaign_id, limit=30):
     return [{**row, "title": notice_title(row)} for row in rows]
 
 
+# A coding workspace's results the researcher hears about; validating and stopped are steps someone took, not news.
+INBOX_OUTCOMES = {"delivered", "validated", "needs_revision", "failed"}
+
+
+def implementation_outcomes(workspace, campaign_id):
+    """Each coding workspace's latest result worth the researcher's attention (a delivery with the coding agent's verdict, a
+    validation's result, a failure), back in the inbox whenever it changes."""
+    from optimization_framework.agents.development import outcome
+    store = workspace.store
+    submissions = store.list("development_submission", campaign_id)
+    by_id = {row["id"]: row for row in submissions}
+    rows = []
+    for record in store.list("development_workspace", campaign_id):
+        result = outcome(record, submissions)
+        if result and result["state"] in INBOX_OUTCOMES:
+            rows.append({**result, "workspace_id": record["id"], "workspace_title": record.get("title", ""),
+                         "title": outcome_title(record, result, by_id.get(result.get("submission_id")))})
+    return sorted(rows, key=lambda row: row["at"] or "")
+
+
+def outcome_title(record, result, submission):
+    from optimization_framework.agents.development_timeline import VERDICTS, tests_text
+    name = _first_line(record.get("title"), 80)
+    if result["state"] == "failed":
+        return f"Implementation failed: {name}: its workspace could not run for 30 min"
+    if result["state"] == "validated":
+        return f"Implementation validated: {name}"
+    if result["state"] == "needs_revision":
+        return f"Implementation needs revision: {name}: independent validation found problems"
+    report = (submission or {}).get("report")
+    if not report:
+        return f"Implementation delivered: {name}, without a delivery report"
+    return f"Implementation delivered: {name}: {VERDICTS[report['verdict']]}, {tests_text(report['tests'])}"
+
+
 def notice_title(row):
     from optimization_framework.campaigns.compute_consent import _minutes
     who = "The " + row["role"].replace("_", " ") if row.get("role") else "An agent"
@@ -44,7 +80,7 @@ def _first_line(text, limit=160):
     return line if len(line) <= limit else line[:limit].rsplit(" ", 1)[0] + "…"
 
 
-def inbox_items(decisions, issues, questions, closed, notices=()):
+def inbox_items(decisions, issues, questions, closed, notices=(), implementations=()):
     """Everything in the inbox, newest first, each under a key that changes when the item changes: what the researcher
     acknowledged once comes back when it is raised again or revised."""
     items = [{"key": f"{row['id']}:{row.get('resolution_revision', 0)}", "kind": "decision", "id": row["id"], "title": _first_line(row.get("title")),
@@ -56,6 +92,8 @@ def inbox_items(decisions, issues, questions, closed, notices=()):
     items += [{"key": f"{row['id']}:{row.get('revision', 1)}", "kind": "closed", "id": row["id"], "title": _first_line(row.get("comment")),
                "at": row.get("resolved_at")} for row in closed]
     items += [{"key": row["id"], "kind": "notice", "id": row["id"], "title": notice_title(row), "at": row.get("created_at")} for row in notices]
+    items += [{"key": f"implementation:{row['workspace_id']}:{row['state']}:{row.get('submission_id') or row['at']}", "kind": "implementation",
+               "id": row["workspace_id"], "title": row["title"], "at": row["at"]} for row in implementations]
     return sorted(items, key=lambda item: item["at"] or "", reverse=True)
 
 
@@ -70,7 +108,8 @@ def acknowledge(workspace, campaign_id, keys):
     """Record that the researcher saw these inbox items; only keys of items still in the inbox are kept."""
     from optimization_framework.storage.sqlite import now
     view = inbox_view(workspace, campaign_id)
-    live = {item["key"] for item in inbox_items(view["decisions"], view["issues"], view["questions"], view["closed_by_lead"], view["notices"])}
+    live = {item["key"] for item in inbox_items(view["decisions"], view["issues"], view["questions"], view["closed_by_lead"], view["notices"],
+                                                view["implementations"])}
     keys = sorted(live & (set(acknowledged(workspace, campaign_id)) | set(keys)))
     return workspace.store.put("inbox_seen", {"id": f"inbox_seen_{campaign_id}", "campaign_id": campaign_id, "keys": keys[-500:],
                                               "updated_at": now()}, "inbox.acknowledged")

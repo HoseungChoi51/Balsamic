@@ -94,7 +94,7 @@ def quiet_workspaces(workspace, campaign_id):
     delivered = {row["workspace_id"] for row in store.list("development_submission", campaign_id)}
     asking = {row["workspace_id"] for row in store.list("development_question", campaign_id) if row["status"] == "pending"}
     for record in store.list("development_workspace", campaign_id):
-        if record.get("desired_status") != "running" or (record.get("outcome") or {}).get("final"):
+        if record.get("desired_status") != "running":
             continue
         since = record.get("last_activity_at") or record.get("created_at")
         seconds = _age(since) or 0.0
