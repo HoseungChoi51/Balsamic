@@ -896,7 +896,10 @@ class CommandService:
             return {"revocation_id": self.workspace.validations.revoke(revocation)["id"]}
         if command.operation == "comparison.report":
             from optimization_framework.analysis.general import report
-            return report(self.workspace, command.campaign_id, **ComparisonReportInput.model_validate(payload).model_dump(exclude={"schema_version"}))
+            # An agent's comparison leaves out a locked confirmation's runs until it is released (V4); the researcher's has them.
+            withheld = self.workspace.memory.protected_ids(command.campaign_id) if actor != "researcher" else frozenset()
+            return report(self.workspace, command.campaign_id, withheld=withheld,
+                          **ComparisonReportInput.model_validate(payload).model_dump(exclude={"schema_version"}))
         if command.operation == "finding.record":
             from .findings import record
             return record(self.workspace, command, actor)
