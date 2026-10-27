@@ -80,11 +80,15 @@ export default function EvolutionPage({ campaignId, route }: PageProps) {
 
 function FrontierTable({ rows, picked, setPicked, selectedId, onOpen, onTrace }: { rows: LedgerRow[]; picked: string[]; setPicked: (ids: string[]) => void; selectedId: string | null; thread: string | null; onOpen: (id: string) => void; onTrace: (id: string) => void }) {
   const toggle = (id: string) => setPicked(picked.includes(id) ? picked.filter(p => p !== id) : [...picked, id]);
-  const sorted = rows.slice().sort((a, b) => (b.best.score ?? -Infinity) - (a.best.score ?? -Infinity));
+  // Best first under the objective's direction. Strategies that disagree on direction are not ranked against each other.
+  const directions = new Set(rows.filter(r => r.best.score != null).map(r => r.best.direction ?? 'maximize'));
+  const direction = directions.size === 1 ? [...directions][0] : null;
+  const sign = direction === 'minimize' ? -1 : 1;
+  const sorted = direction ? rows.slice().sort((a, b) => sign * ((b.best.score ?? -sign * Infinity) - (a.best.score ?? -sign * Infinity))) : rows;
   if (!rows.length) return <Empty>No strategy yet. Ask the lead for some in the conversation (/generate 3), and they appear here with their stage.</Empty>;
   return (
     <table data-testid="frontier">
-      <thead><tr><th><input type="checkbox" aria-label="select all" checked={picked.length === rows.length} onChange={e => setPicked(e.target.checked ? rows.map(r => r.id) : [])} /></th><th>Strategy</th><th>Stage</th><th>Round</th><th>Best (measured)</th><th>Worker time</th><th>Rung</th><th>Review</th><th>Who</th><th></th></tr></thead>
+      <thead><tr><th><input type="checkbox" aria-label="select all" checked={picked.length === rows.length} onChange={e => setPicked(e.target.checked ? rows.map(r => r.id) : [])} /></th><th>Strategy</th><th>Stage</th><th>Round</th><th>Best (measured){direction === 'minimize' ? <span className="faint small" data-testid="lower-is-better"> lower is better</span> : null}</th><th>Worker time</th><th>Rung</th><th>Review</th><th>Who</th><th></th></tr></thead>
       <tbody>{sorted.map(row => (
         <tr key={row.id} data-record-id={row.id} data-stage={row.stage} className={selectedId === row.id ? 'selected' : ''}>
           <td><input type="checkbox" aria-label={`select ${row.title}`} checked={picked.includes(row.id)} onChange={() => toggle(row.id)} /></td>
