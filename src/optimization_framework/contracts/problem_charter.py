@@ -12,9 +12,10 @@ from __future__ import annotations
 import re
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, model_serializer, model_validator
 
 from .base import Contract
+from .problems import Access, CostAxis, without_unset
 
 
 class Part(BaseModel):
@@ -139,6 +140,16 @@ class EvaluatorBinding(Part):
     fidelity: dict[str, str] = Field(default_factory=dict, description="fidelity field -> quantity name")
     deterministic: bool = True
     notes: str = Field(default="", max_length=20000, description="Declared problems: what the evaluator must compute and from which code")
+    access: Access | None = Field(default=None, description=(
+        "white_box: a method may compute the objective from the problem's code; oracle: only through evaluate (an "
+        "expensive evaluator, or a black-box comparison the researcher wants). Unset: the installed problem's own "
+        "declaration, white_box for a declared problem"))
+    cost_axis: CostAxis | None = Field(default=None, description=(
+        "What methods are compared on. Unset: worker_seconds, or core_seconds when a method uses several threads"))
+
+    @model_serializer(mode="wrap")
+    def compatible_serialization(self, handler):
+        return without_unset(handler(self), "access", "cost_axis")
 
 
 class Instance(Part):

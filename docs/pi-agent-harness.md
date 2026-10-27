@@ -336,6 +336,12 @@ read in the run (`report_write`, `problem_note_draft`, `hypothesis.create` and `
 | `implementation-supervision` | A method as a library: coding workspace, tests and contract checks, install, binding; commissions |
 | `panels` | `panel_render` |
 | `analysis-scripts` | Repository and experiment files; `analysis_run` |
+
+A problem's own procedures are in its pack (roadmap N3), not here: they are listed in the state block of the campaigns on
+that problem, and `procedure_read` serves them to those campaigns only. MEENT's, in `src/dqn_meent/pack/procedures/`:
+
+| Procedure | For |
+|---|---|
 | `rcwa-convergence-check` | A score at the searched RCWA orders checked at higher orders (draft from Part F) |
 | `meent-problem-setup` | The installed MEENT grating problems (draft from `paper-mapping.md` and `problem-setup.md`) |
 

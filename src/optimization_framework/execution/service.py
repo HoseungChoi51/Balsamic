@@ -469,8 +469,11 @@ class Workspace:
             if request.tasks is not None:
                 existing_tasks = {task["id"]: task for task in self.store.list("task", campaign_id) if not task.get("archived")}
                 if len(existing_tasks) == len(request.tasks) and {task.id for task in request.tasks} == set(existing_tasks):
-                    tasks_changed = any(any(existing_tasks[task.id].get(key) != value
-                        for key, value in task.model_dump(mode="json", exclude={"id"}).items()) for task in request.tasks)
+                    from optimization_framework.evaluation.access import LEGACY
+                    # A task created before N11 has no access or cost axis; the same task sent again keeps it as it was.
+                    tasks_changed = any(any(existing_tasks[task.id].get(key) != value for key, value
+                        in task.model_dump(mode="json", exclude={"id"}).items() if key in existing_tasks[task.id] or key not in LEGACY)
+                        for task in request.tasks)
             proposed = {**campaign, **changes}
             from optimization_framework.campaigns.compute_consent import GATE_SECONDS, NOTICE_SECONDS
             if proposed.get("compute_notice_seconds", NOTICE_SECONDS) > proposed.get("compute_gate_seconds", GATE_SECONDS):
@@ -791,6 +794,10 @@ class Workspace:
             if diagnostic_allocation:
                 self._check_allocation(campaign, request.wall_seconds + diagnostic_allocation, validation=True, **allocation)
             record = request.model_dump()
+            from optimization_framework.evaluation.access import of_task
+            if of_task(task)["access"] == "white_box":
+                # The method may compute the objective itself (N11). An oracle run records nothing, like every run before.
+                record["access"] = "white_box"
             if prepared.get("inference_adapter"):
                 record["inference_adapter"] = prepared["inference_adapter"]
             record["diagnostics"] = [schedule.model_dump(mode="json") for schedule in schedules]
@@ -928,7 +935,8 @@ class Workspace:
                 frozen = ExperimentSpec(id=record["id"] + "_spec", campaign_id=campaign["id"], study_id=record["study_id"],
                     problem=problem, implementation=method, parameters={key: record[key] for key in
                         ("algorithm", "algorithm_config", "training", "recipe") if key in record}, seed=record["seed"],
-                    schedule={"steps": record["schedule_steps"], "numerical_threads": record["numerical_threads"], **({"evaluator": {key: record[key] for key in
+                    schedule={"steps": record["schedule_steps"], "numerical_threads": record["numerical_threads"],
+                        **({"access": record["access"]} if record.get("access") else {}), **({"evaluator": {key: record[key] for key in
                         ("evaluator_version_id", "evaluator_artifact_digest", "evaluator_runtime_digest")}} if evaluator_bundle else {}),
                         **({"isolation_policy": record["isolation_policy"]} if selected_isolation else {}),
                         **({"reproduction": reproduction} if reproduction is not None else {}),

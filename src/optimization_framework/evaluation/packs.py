@@ -2,9 +2,16 @@
 from __future__ import annotations
 
 from importlib import import_module
+from importlib.util import find_spec
+from pathlib import Path
 import threading
 
 from optimization_framework.contracts.packs import PackRacing, ProblemPack
+
+
+def folder(pack: ProblemPack, name: str) -> Path:
+    """One of a pack's folders, inside its installed package (the registry checked it is there when it loaded the pack)."""
+    return Path(next(iter(find_spec(pack.package).submodule_search_locations))) / name
 
 
 def resolve_hook(hook: str):
@@ -44,6 +51,10 @@ class CampaignPacks:
         for pack in result:
             self.activate(pack)
         return result
+
+    def procedure_folders(self, campaign_id) -> list[Path]:
+        """The procedure folders of the campaign's packs, in the same order."""
+        return [folder(pack, pack.procedures) for pack in self.for_campaign(campaign_id) if pack.procedures]
 
     def packages(self, campaign_id) -> set[str]:
         """The packages of the campaign's packs: what a tool or operation a pack registered is keyed by (roadmap N4)."""
