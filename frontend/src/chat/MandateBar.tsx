@@ -47,7 +47,7 @@ export function MandateBar({ campaignId, threadId, version }: { campaignId: stri
           <div key={view.id} className="mandate-row" data-testid={current ? 'mandate-current' : 'mandate-other'} data-status={view.status} title={view.plan || view.summary}>
             <Pill tone={ended ? 'attention' : view.template === 'screen' || view.template === 'run_campaign' ? 'you' : ''}>{view.label}</Pill>
             <span className="grow">{current ? (view.standing ? 'Standing mandate' : 'This request') : 'An earlier request'}
-              {ended ? ` · ${view.status === 'closed' ? `closed${view.closed_by === 'researcher' ? ' by you' : ''}` : view.status === 'exhausted' ? 'envelope spent' : 'deadline passed'}: new work is refused`
+              {ended ? ` · ${view.status === 'closed' ? `closed${view.closed_by === 'researcher' ? ' by you' : ''}` : view.status === 'exhausted' ? 'envelope spent' : 'time is up'}: new work is refused`
                 : ` · left: ${left(view)} · ${deadline(view.deadline_at)}`}
               {view.hypothesis_ids.length ? ` · for ${view.hypothesis_ids.join(', ')}` : ''} · <span className="faint">{GRANTED[view.granted]}</span></span>
             {view.closable ? <button className="btn quiet small" disabled={closing === view.id || version === undefined} onClick={() => void close(view)} data-testid="mandate-close"
