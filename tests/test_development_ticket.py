@@ -210,6 +210,9 @@ def test_implementation_workspace_inspect_returns_the_diff_summary(charter_lab):
     # Generated files touched: not the two the coder fills; the charter's fixed files untouched; the lead's test touched.
     assert diff["generated_files_touched"] == [f"{LIBRARY}/oven_trays/harness.py"] and diff["fixed_files_touched"] == []
     assert diff["acceptance_tests_touched"] == [LEAD_TEST]
+    # The submission listed with the workspace keeps only the diff's headline: the files are in the review alone.
+    [listed] = inspected["workspace"]["submissions"]
+    assert listed["diff"]["files_changed"] == 5 and "files" not in listed["diff"] and "package" not in listed
     # The ticket the review is against, without the texts it holds; and the delivery's notice already says what it changed.
     assert inspected["ticket"]["protected_tests"] == ["test_hidden.py"] and inspected["ticket"]["library"] == f"{LIBRARY}/"
     [notice] = [run for run in notices(workspace, cid, opener["id"]) if "submitted as" in run["input"]]

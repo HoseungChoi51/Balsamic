@@ -315,7 +315,10 @@ class DevelopmentWorkspaces:
             "terminal_command": f"docker exec --user 1000:1000 -it {self.driver.name(record)} tmux attach-session -t implementation",
             "validation_envelopes": [{k: v for k, v in e.items() if k != "spec"}
                 for e in self.store.list("development_envelope", record["campaign_id"]) if e["workspace_id"] == record["id"]],
-            "submissions": sorted(({k: v for k, v in s.items() if k != "package"} for s in self.store.list("development_submission", record["campaign_id"])
+            # Each with its diff's headline; the files changed are in the review of the latest (events()).
+            "submissions": sorted(({**{k: v for k, v in s.items() if k not in {"package", "diff"}},
+                                    **({"diff": {k: v for k, v in s["diff"].items() if k != "files"}} if s.get("diff") else {})}
+                                   for s in self.store.list("development_submission", record["campaign_id"])
                                    if s["workspace_id"] == record["id"]), key=lambda s: s["created_at"]),
             "questions": [q for q in self.store.list("development_question", record["campaign_id"]) if q["workspace_id"] == record["id"] and q["status"] == "pending"],
             # The installs of what it delivered (Balsamic's own and the researcher's), newest last.
@@ -613,7 +616,7 @@ class DevelopmentWorkspaces:
         None until an install has)."""
         if not submissions:
             return None
-        latest = submissions[-1]
+        latest = self.store.get(submissions[-1]["id"], "development_submission")
         installs = sorted((row for row in self.store.list("library_install", record["campaign_id"]) if row.get("submission_id") == latest["id"]),
                           key=lambda row: row["requested_at"])
         install = installs[-1] if installs else {}
