@@ -38,7 +38,7 @@ def test_pi_review_report_compacts_full_masks_without_losing_check_results():
 
 
 def specification(**changes):
-    return ImplementationSpec.model_validate({"name": "Reference seeded one-bit search",
+    return ImplementationSpec.model_validate({"name": "Reference seeded one-bit search", "problem_id": "meent_grating",
         "mechanism": "Start from a seeded random binary design. Propose exactly one bit flip from the best observed design; accept only strictly improving observations.",
         "acceptance_criteria": ["Propose one bit from the best observed incumbent", "Preserve RNG and incumbent on checkpoint restoration"],
         "dependencies": {"numpy": "2.5.3"}, "n_cells_max": 16,

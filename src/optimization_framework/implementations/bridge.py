@@ -153,7 +153,9 @@ class ImplementationBridge:
         if version.get("kind") == "evaluator":
             raise ValueError("An evaluator version cannot be used as an optimizer")
         spec = version["spec"]
-        if task and task.get("problem") and spec.get("problem_id", "meent_grating") != task["problem"]["definition_id"]:
+        if not spec.get("problem_id"):
+            raise ValueError(f"Implementation version {version.get('id')} names no problem; it cannot be matched to a task")
+        if task and task.get("problem") and spec.get("problem_id") != task["problem"]["definition_id"]:
             raise ValueError("This implementation was validated for a different problem adapter; request compatible correctness evidence")
         if task and spec.get("evaluator_version_id") and spec["evaluator_version_id"] != task.get("problem", {}).get("evaluator_version"):
             raise ValueError("The optimizer's correctness evidence requires the exact commissioned evaluator version")
@@ -162,7 +164,7 @@ class ImplementationBridge:
         from optimization_framework.evaluation.registry import problems
         capabilities = (set(task["problem"]["capabilities"]) if task and task.get("problem") else
                         set(version["validation_report"]["scope"]["evaluator_capabilities"]) if spec.get("evaluator_version_id") else
-                        set(problems.get(spec.get("problem_id", "meent_grating")).describe().capabilities))
+                        set(problems.get(spec["problem_id"]).describe().capabilities))
         missing = set(spec["capabilities"]) - capabilities
         if missing:
             raise ValueError("Unsupported evaluator capabilities: " + ", ".join(sorted(missing)))

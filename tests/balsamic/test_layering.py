@@ -57,10 +57,10 @@ NAMES_A_DOMAIN = {
     "agents/development.py", "agents/development_runtime.py", "agents/roles/results_analyst.md", "analysis/comparison.py",
     "assets/service_costs.py", "campaigns/experiment_rules.py", "contracts/racing.py", "contracts/requests.py",
     "evaluation/legacy_confirmation.py", "execution/observability.py", "execution/racing.py", "execution/rcwa_memory.py",
-    "execution/runtime_profile.py", "execution/service.py", "execution/source.py", "execution/worker.py",
-    "implementations/api.py", "implementations/bridge.py", "implementations/client.py", "implementations/models.py",
-    "implementations/protected_diagnostics.py", "implementations/runtime.py", "installed.py", "optimizers/binary.py",
-    "optimizers/fourier_specs.py", "optimizers/registry.py", "problem_import/guideline.md", "reports/evidence.py",
+    "execution/worker.py", "implementations/api.py", "implementations/bridge.py", "implementations/client.py",
+    "implementations/models.py", "implementations/protected_diagnostics.py", "implementations/runtime.py", "installed.py",
+    "optimizers/binary.py", "optimizers/fourier_specs.py", "optimizers/registry.py", "problem_import/guideline.md",
+    "reports/evidence.py",
 }
 
 

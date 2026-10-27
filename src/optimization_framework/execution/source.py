@@ -112,13 +112,15 @@ def installed_source(name):
 
 
 def runtime_identity():
+    """The numerical runtime the legacy confirmation path records: Python, the core's numerical libraries, and what each
+    installed problem pack's ``legacy.runtime`` hook adds (its evaluator's own libraries)."""
     result = {"python": ".".join(map(str, sys.version_info[:3]))}
-    for name in ("meent", "numpy", "scipy", "torch"):
+    for name in ("numpy", "scipy", "torch"):
         try:
             result[name] = version(name)
         except PackageNotFoundError:
             result[name] = None
-    # The lab's MEENT is a fork that reports the release's version: the commit says which build it is.
-    if installed_source("meent"):
-        result["meent_source"] = installed_source("meent")
+    from optimization_framework.evaluation.registry import problems
+    for hook in problems.legacy("runtime"):
+        result.update(hook())
     return result

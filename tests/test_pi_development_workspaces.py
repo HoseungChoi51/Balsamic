@@ -257,7 +257,7 @@ def test_a_specification_must_state_what_it_cites(setup):
     artifact = 'artifact_pi_tool_86f8269f855f5ffdb0b6c927c295bc7c'
     workspace.store.put('agent_artifact', {'id': artifact, 'campaign_id': cid, 'content': 'R4-A: the normative mechanism'})
     record = development.create(cid, {'hypothesis_id': 'hypothesis_dev', 'objective': 'Implement', 'request_key': 'cite'})
-    spec = {'name': 'Test method', 'mechanism': f'Freeze {artifact} verbatim', 'acceptance_criteria': ['Seeded replay'],
+    spec = {'name': 'Test method', 'problem_id': 'meent_grating', 'mechanism': f'Freeze {artifact} verbatim', 'acceptance_criteria': ['Seeded replay'],
             'dependencies': {}, 'provenance': [{'id': artifact}]}
     # The test designer sees the specification alone: an id it cannot read is refused before any model call.
     with pytest.raises(ValueError, match=f'campaign records \\({artifact}\\).*cannot read'):

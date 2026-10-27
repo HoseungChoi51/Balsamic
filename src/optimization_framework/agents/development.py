@@ -697,6 +697,19 @@ class DevelopmentWorkspaces:
         atomic_json(self.driver.root(record) / "incoming/results" / (key + ".json"), {"submission_id": saved["id"], "status": saved["status"],
             **({"ignored_fields": ignored} if ignored else {})})
 
+    def _with_problem(self, campaign_id, record, spec):
+        """A spec that names no problem is for the problem its hypothesis or, failing that, every current task of the
+        campaign is on; refused when that is not one problem (there is no default problem)."""
+        if spec.get("problem_id"):
+            return spec
+        problem_id = self.store.get(record["hypothesis_id"], "hypothesis").get("problem_id")
+        if not problem_id:
+            ids = {(task.get("problem") or {}).get("definition_id") for task in self.workspace.current_tasks(campaign_id)}
+            problem_id = ids.pop() if len(ids) == 1 else None
+        if not problem_id:
+            raise ValueError("Name the spec's problem_id: the campaign's tasks are not all on one problem")
+        return {**spec, "problem_id": problem_id}
+
     def validate(self, campaign_id, identity, payload, *, actor="researcher"):
         from optimization_framework.implementations.models import BoundOptimizerSpec, ImplementationSpec
         from .capabilities import implementation_execution
@@ -711,7 +724,8 @@ class DevelopmentWorkspaces:
             if envelope["workspace_id"] != identity or envelope["campaign_id"] != campaign_id:
                 raise ValueError("Validation envelope belongs to another workspace")
             source = envelope["spec"]
-        spec = (BoundOptimizerSpec if source.get("evaluator_version_id") else ImplementationSpec).model_validate(source)
+        spec = (BoundOptimizerSpec if source.get("evaluator_version_id") else ImplementationSpec).model_validate(
+            self._with_problem(campaign_id, record, source))
         if spec.dependencies != submission["manifest"]["dependencies"]:
             raise ValueError("Validation dependencies must match the committed submission manifest")
         capability = implementation_execution()
@@ -737,7 +751,8 @@ class DevelopmentWorkspaces:
         from optimization_framework.implementations.models import BoundOptimizerSpec, ImplementationSpec, digest
         values = WorkspaceEnvelope.model_validate(payload)
         record = self.get(campaign_id, identity)
-        spec = (BoundOptimizerSpec if values.spec.get("evaluator_version_id") else ImplementationSpec).model_validate(values.spec)
+        spec = (BoundOptimizerSpec if values.spec.get("evaluator_version_id") else ImplementationSpec).model_validate(
+            self._with_problem(campaign_id, record, values.spec))
         self.workspace.implementations.check_self_contained(spec.model_dump(mode="json"))
         if spec.problem_id != self.store.get(record["hypothesis_id"], "hypothesis").get("problem_id", spec.problem_id):
             raise ValueError("Validation envelope uses a different problem")

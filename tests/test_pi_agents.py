@@ -267,7 +267,7 @@ def test_private_gateway_requires_token(prepared,monkeypatch,tmp_path):
 def test_large_dimensions_and_frozen_mechanism_checks():
     from optimization_framework.implementations.models import ImplementationSpec, MechanismCheck
     from optimization_framework.implementations.validation import check_invariant
-    spec=ImplementationSpec(name='H12',mechanism='Tangent covariance',acceptance_criteria=['Unit norm'],n_cells_min=32768,n_cells_max=32768)
+    spec=ImplementationSpec(name='H12',problem_id='meent_grating',mechanism='Tangent covariance',acceptance_criteria=['Unit norm'],n_cells_min=32768,n_cells_max=32768)
     assert spec.n_cells_max==32768
     unit=MechanismCheck(name='Unit direction',pointer='/direction',assertion='unit_norm')
     check_invariant({'direction':[1,0]},unit)
