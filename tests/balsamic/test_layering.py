@@ -9,7 +9,9 @@ REMOVED = ("optimization_framework.api.app", "optimization_framework.api.compati
            "optimization_framework.research.engine", "optimization_framework.research.coordinator", "optimization_framework.research.context",
            "optimization_framework.research.codex_provider", "optimization_framework.research.decision_review", "optimization_framework.research.lifecycle",
            "optimization_framework.research.progress", "optimization_framework.research.action_policy", "optimization_framework.research.discovery",
-           "optimization_framework.research.providers", "optimization_framework.research.model_policy", "dqn_meent.workspace", "dqn_meent.research_seeds")
+           "optimization_framework.research.providers", "optimization_framework.research.model_policy", "dqn_meent.workspace", "dqn_meent.research_seeds",
+           # Roadmap H8: the implementation service's agent loop (its builder, test designer and validator grants).
+           "optimization_framework.agents.implementation")
 
 
 def imports(path):
@@ -54,7 +56,7 @@ CORE = SRC / "optimization_framework"
 DOMAIN = re.compile(r"(?:(?<![A-Za-z])|(?<=[a-z])(?=[A-Z]))(?i:meent|rcwa|grating|flrl|deflector)")
 ENVIRONMENT = re.compile(r"\bGRATING_\w*")
 NAMES_A_DOMAIN = {
-    "agents/development.py", "agents/development_runtime.py", "agents/roles/results_analyst.md", "analysis/comparison.py",
+    "agents/development_runtime.py", "agents/roles/results_analyst.md", "analysis/comparison.py",
     "assets/service_costs.py", "campaigns/experiment_rules.py", "contracts/racing.py", "contracts/requests.py",
     "evaluation/legacy_confirmation.py", "execution/observability.py", "execution/racing.py", "execution/rcwa_memory.py",
     "execution/worker.py", "implementations/api.py", "implementations/bridge.py", "implementations/client.py",

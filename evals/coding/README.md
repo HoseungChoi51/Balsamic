@@ -20,7 +20,7 @@ Each scenario is one method of `libraries/grating-mask-search`, whose own module
    libraries is off (`GRATING_AUTO_INSTALL=false`), since the checks run on the delivery itself.
 3. **The request, through the normal path.** A scratch campaign on the deflector example, the proposal recorded as the
    researcher's (`hypothesis.create`), the team activated, and the researcher's message to the implementation lead
-   (`say`). The runner plays the researcher while it waits: it approves each go-ahead asked for (`approval.request`, which
+   (`say`). The runner plays the researcher while it waits: it approves each go-ahead asked for (a mandate, `mandate_propose`, which
    opening a coding workspace needs) and answers each question, the lead's or the coding agent's, with the scenario's
    `answer`.
 4. **The checks, outside the box.** Once the workspace submits, the delivered files are written under
@@ -46,6 +46,7 @@ uv run python scripts/run_coding_evals.py --fake                       # scripte
 uv run python scripts/run_coding_evals.py --scenarios C1               # Pi in Docker on the dev profile's model
 uv run python scripts/run_coding_evals.py --scenarios C1 --record-baseline
 uv run python scripts/run_coding_evals.py --scenarios C1 --compare evals/coding/baselines/<commit>.json
+uv run python scripts/run_coding_evals.py --scenarios C1 --harness-mode headless --record-baseline   # Pi headless (H2)
 ```
 
 A real run needs what a coding workspace needs (Docker, the image `docker build -t grating-implementation-workspace:pi-1.3.0
@@ -63,6 +64,7 @@ default provider (Centinels) it needs no approval (`docs/suggestions.md` §0.5).
 | `--source DIR` | Another checkout's lab, harness and `HEAD` (for a baseline of an older commit) |
 | `--record-baseline [PATH]` | Also write the summary to `evals/coding/baselines/<commit>.json` |
 | `--compare PATH` | Mark regressions against a baseline in `summary.md` |
+| `--harness-mode tui\|headless` | How the workspace runs Pi (roadmap H2): its terminal UI (the default) or headless, `pi --mode json` per instruction. A headless baseline is written as `<commit>-headless.json`, beside the terminal UI's |
 
 Output goes to `runs/coding-evals/<timestamp>/` (ignored by git): `results.json` (with the check outputs and the coding
 agent's delivery report), `summary.md`, `delivered/<scenario>/` (the library as delivered: read one diff against the
@@ -84,4 +86,4 @@ A scenario file holds `method_id`, `library`, `example` (the problem example its
 
 A baseline is the summary of a real run, committed as `evals/coding/baselines/<commit>.json`. The roadmap asks for one
 method's baseline on the current route (Pi in the workspace, steered by the implementation lead) before Phase 4, and again
-after H2, H4 and H7 (`docs/roadmap/phase-4-coding-box.md`).
+after H2, H4 and H7 (`docs/roadmap/phase-4-coding-box.md`). After H2 it is a headless run (`--harness-mode headless`).

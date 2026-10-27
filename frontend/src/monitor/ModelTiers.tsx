@@ -22,9 +22,6 @@ const ROLE_INFO: Record<string, { label: string; does: string; direct?: boolean 
   skeptical_domain_analyst: { label: 'Skeptical analyst', does: 'what could go wrong, for the lead and the moderator' },
   empirical_assessor: { label: 'Empirical assessor', does: 'what the evidence supports, for the lead and the moderator' },
   proposal_reviewer: { label: 'Proposal reviewer', does: 'verdicts on proposals in a review round' },
-  implementation_builder: { label: 'Implementation builder', does: 'writes code for the implementation lead' },
-  implementation_test_designer: { label: 'Test designer', does: 'tests for the implementation lead' },
-  implementation_validator: { label: 'Implementation validator', does: 'checks the code before it is attached' },
   results_analyst: { label: 'Results analyst', does: 'reads run results for the lead' },
 };
 const info = (role: string) => ROLE_INFO[role] || { label: role.replaceAll('_', ' '), does: '' };

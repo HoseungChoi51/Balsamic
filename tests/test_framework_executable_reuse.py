@@ -1,5 +1,5 @@
 """Executable reuse is a scoped decision, independently of building or running."""
-from framework_fixtures import researcher_idea
+from framework_fixtures import library_job, researcher_idea
 import copy
 
 import pytest
@@ -10,13 +10,13 @@ from optimization_framework.execution.service import Workspace
 from optimization_framework.implementations.models import Package
 from optimization_framework.implementations.reuse import assess
 from optimization_framework.implementations.service import ImplementationService
-from test_framework_evaluators import MockReviewer, package, request, specification
+from test_framework_evaluators import package, request, specification
 from test_framework_packages import SOURCE, spec
 from test_framework_revalidation import Client, no_model
 
 
 def setup(tmp_path, *, evaluator=False):
-    service = ImplementationService(tmp_path / "library", adapter_factory=MockReviewer)
+    service = ImplementationService(tmp_path / "library")
     specification_value = specification() if evaluator else spec()
     source = package() if evaluator else Package(files=[{"path": "optimizer.py", "content": SOURCE}])
     built = service.run_job(service.submit(request(spec=specification_value, package=source))["id"])
@@ -40,7 +40,6 @@ def command(campaign, target, version, decision, *, key=None):
 
 def test_decline_then_reuse_keep_exact_scope_and_do_not_launch_or_rebuild(tmp_path):
     workspace, service, campaign, hypothesis, version = setup(tmp_path)
-    service.adapter_factory = no_model
     jobs = service.store.list("implementation_job")
     decline = workspace.commands.execute(command(campaign, hypothesis, version, "decline"))
     declined = workspace.store.get(decline["outcome"]["reuse_decision_id"], "reuse_decision")
@@ -106,15 +105,15 @@ def test_declining_reuse_allows_a_new_specialized_implementation(tmp_path):
     workspace, service, campaign, hypothesis, version = setup(tmp_path)
     declined = workspace.commands.execute(command(campaign, hypothesis, version, "decline"))
     specialized = spec().model_copy(update={"name": "Specialized quadratic search", "mechanism": "A separately commissioned coordinate search for this study's quadratic instance"})
-    receipt = workspace.commands.execute(Command(id="new-specialized", campaign_id=campaign["id"], expected_revision=campaign["version"],
-        operation="implementation.commission", payload={"hypothesis_id": hypothesis["id"], "spec": specialized.model_dump(mode="json"),
-            "package": Package(files=[{"path": "optimizer.py", "content": SOURCE}]).model_dump(mode="json"),
-            "compute_seconds": 30, "max_calls": 1}))
-    grant = workspace.store.get(receipt["outcome"]["grant_id"], "implementation_grant")
-    result = service.run_job(grant["job_id"])
-    assert result["status"] == "completed", result
-    workspace.implementations.reconcile()
+    # A separately developed specialization, checked and published by the library (since roadmap H8 a commission builds one in
+    # a coding box instead), attaches to the proposal the declined version would have served.
+    result = library_job(service, specialized, Package(files=[{"path": "optimizer.py", "content": SOURCE}]), key="new-specialized",
+                         campaign_id=campaign["id"], workspace_id=workspace.implementations.workspace_id, hypothesis_id=hypothesis["id"],
+                         compute_seconds=30)
     assert result["version_id"] != version["id"]
+    workspace.commands.execute(Command(id="new-specialized", campaign_id=campaign["id"], operation="implementation.attach",
+        expected_revision=workspace.store.get(campaign["id"], "campaign")["version"],
+        payload={"hypothesis_id": hypothesis["id"], "version_id": result["version_id"]}))
     assert workspace.store.get(hypothesis["id"], "hypothesis")["implementation_version_id"] == result["version_id"]
     assert workspace.store.get(declined["outcome"]["reuse_decision_id"], "reuse_decision")["decision"] == "decline"
     assert len(service.store.list("implementation_job")) == 2 and not workspace.store.list("trial")
