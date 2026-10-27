@@ -5,19 +5,21 @@ plan (the coding workspace and 4 proposals x 2 seeds), which the researcher appr
 
 Step 4: the lead, woken by the go-ahead, opens the coding workspace, which starts from the library Balsamic generates from the
 charter (F3, F4); a fake coding agent fills the objective and one method per proposal under the keys its brief gives, the
-library's own tests pass, it commits and submits a `ready` report. Step 5: Balsamic installs it with a fake uv, which makes
-the library's entry points visible to the lab as an install would, and the campaign's task adopts its problem (E4).
-
-The assertions on the 8 automatic starts, the methods' outcomes, the ranking and the single comparison wake are added as E5
-merges, never against a stand-in for it."""
+library's own tests pass, it commits and submits a `ready` report. Step 5: Balsamic installs it with a fake uv, an editable
+install into a site directory of this test, and by itself adopts the problem (E4, E5), binds the 4 proposals (B4) and starts
+the 8 approved runs (B5). The runs execute on the lab's experiment workers; when all have ended Balsamic wakes the lead
+once, and the lead's comparison ranks exact enumeration best."""
 import importlib
-import subprocess
 import itertools
+import os
+import re
 import socket
+import subprocess
 import sys
 import time
 import tomllib
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 from fastapi.testclient import TestClient
@@ -25,9 +27,10 @@ from fastapi.testclient import TestClient
 sys.path.insert(0, str(Path(__file__).resolve().parent / "balsamic"))
 from balsamic.app import create_app  # noqa: E402
 from fake_harness import FakeHarness, serve  # noqa: E402
-from optimization_framework.agents.development import DevelopmentWorkspaces, method_keys  # noqa: E402
+from optimization_framework import installed as installed_packages  # noqa: E402
+from optimization_framework.agents.development import DevelopmentWorkspaces  # noqa: E402
 from optimization_framework.agents.library_install import Installer  # noqa: E402
-from optimization_framework.evaluation import registry as problem_registry  # noqa: E402
+from optimization_framework.evaluation import preflight, registry as problem_registry  # noqa: E402
 from optimization_framework.optimizers import plugins as optimizer_plugins  # noqa: E402
 from optimization_framework.problem_charter import charter as C  # noqa: E402
 from test_development_generated_library import LibraryDriver  # noqa: E402
@@ -76,7 +79,7 @@ METHODS = {"EDD": {"name": "Earliest due date", "description": "Sorted by due ti
                     "hypothesis_id": "H_SWAP"},
            "RESTARTS": {"name": "Random restarts", "description": "Adjacent swap descent from random orders until the cap.",
                         "hypothesis_id": "H_RESTARTS"},
-           "EXACT": {"name": "Exact enumeration", "description": "Every order once: the optimum.", "hypothesis_id": "H_EXACT"}}
+           "EXACT": {"name": "Exact enumeration", "description": "Scores every order with the objective, evaluates the best: the optimum.", "hypothesis_id": "H_EXACT"}}
 
 
 def _edd(problem):
@@ -113,10 +116,11 @@ def RESTARTS(problem, evaluate, rng):
 
 @deterministic
 def EXACT(problem, evaluate, rng):
-    for order in itertools.permutations(range(problem.dimensions)):
-        evaluate(list(order))
+    from .objective import objective   # white-box: all 8! orders scored here, the best one evaluated
+    evaluate(list(min(itertools.permutations(range(problem.dimensions)), key=lambda order: objective(problem, list(order)))))
 '''
 RUN_SECONDS = 60
+EVALUATIONS = [10, 2_000, 2_000, 10]   # each proposal's cap: one order, a descent, restarts, the best of all 8! orders
 
 
 def bakery():
@@ -160,7 +164,9 @@ def free_port():
 @pytest.fixture
 def app(tmp_path, monkeypatch):
     monkeypatch.setenv("GRATING_LLM_DISABLED", "true")
-    return create_app(tmp_path / "workspace", start_workers=False)
+    app = create_app(tmp_path / "workspace", start_workers=False)
+    yield app
+    app.state.workspace.close()   # the replay starts the experiment workers itself
 
 
 @pytest.fixture
@@ -211,11 +217,20 @@ def settle(workspace, run_id, timeout=15):
     raise AssertionError("the turn did not settle: " + workspace.store.get(run_id, "agent_run")["status"])
 
 
-def lead_turn(workspace, campaign_id):
-    """The lead's answer to the researcher's request: 4 proposals and one compute plan naming them, through campaign_command."""
+def lead_turn(workspace, campaign_id, comparisons):
+    """The lead's turns: its answer to the researcher's request (4 proposals and one compute plan naming them, through
+    campaign_command), then to the go-ahead (it opens the coding workspace), then to Balsamic's notice that every approved run
+    ended (it writes the comparison, kept in comparisons)."""
     def script(agent, run, tools):
         tools("campaign_inspect", {})
         proposals = sorted(workspace.store.list("hypothesis", campaign_id), key=lambda h: h["created_at"])
+        if "Write the comparison (comparison.report)" in run["text"]:
+            trials = [t["id"] for t in workspace.store.list("trial", campaign_id)]
+            comparisons.append(tools("campaign_command", {"operation": "comparison.report", "request_key": "comparison",
+                                                          "payload": {"trial_ids": trials}}))
+            reply = "All 8 runs ended; the comparison ranks the four orders."
+            tools("yield_work", {"disposition": "complete", "report": reply, "summary": "compared", "evidence_ids": []})
+            return reply
         if proposals:   # the researcher approved the plan: open its coding workspace for the four proposals
             opened = tools("implementation_workspace_create", {"hypothesis_id": proposals[0]["id"], "hypothesis_ids": [h["id"] for h in proposals[1:]],
                   "objective": "Implement the four methods in the generated library", "request_key": "bakery"})
@@ -230,7 +245,8 @@ def lead_turn(workspace, campaign_id):
                 "title": title, "mechanism": mechanism, "rationale": "The researcher asked for it", "algorithm": "custom",
                 "algorithm_config": {"design_note": mechanism}}})
             proposals.append(receipt["outcome"]["hypothesis_id"])
-        runs = [{"task_id": task["id"], "hypothesis_id": h, "seeds": SEEDS, "wall_seconds": RUN_SECONDS} for h in proposals]
+        runs = [{"task_id": task["id"], "hypothesis_id": h, "seeds": SEEDS, "wall_seconds": RUN_SECONDS, "max_evaluations": cap}
+                for h, cap in zip(proposals, EVALUATIONS)]
         tools("campaign_command", {"operation": "approval.request", "request_key": "plan", "payload": {
             "kind": "compute", "plan": "Implement the four methods in one coding workspace, then run each on 2 seeds",
             "rationale": "Compare the four orders at matched cost", "wall_seconds": 1800,
@@ -251,32 +267,48 @@ def git(*args, cwd):
     return subprocess.run(["git", *args], cwd=cwd, check=True, capture_output=True, text=True).stdout.strip()
 
 
-def fake_uv(monkeypatch, root):
-    """uv as the installer runs it: the dry run changes no other package, and the sync makes the library's two entry points
-    (its methods and its problem) visible to the lab, as installing it into the environment would."""
+def fake_uv(monkeypatch, root, site_dir):
+    """uv as the installer runs it: the dry run changes no other package, and the sync installs the library as uv makes an
+    editable install, its metadata (both entry points) in a site directory and a .pth naming its source directory."""
     def runner(args, cwd, timeout=600):
         if args[1:] == ["sync", "--inexact", "--extra", "libraries"]:
-            entries = tomllib.loads((root / LIBRARY / "pyproject.toml").read_text())["project"]["entry-points"]
-            monkeypatch.syspath_prepend(str(root / LIBRARY))
-            installed = optimizer_plugins.installed
-            monkeypatch.setattr(installed, "_entries", {**installed.entries(), **entries["optimization_framework.optimizers"]})
-            monkeypatch.setattr(installed, "_owners", None)
-            for name, value in entries["optimization_framework.problems"].items():
-                monkeypatch.setitem(problem_registry.problems._loaders, name, lambda value=value: problem_registry._factory(value))
-                monkeypatch.delitem(problem_registry.problems._adapters, name, raising=False)
+            project = tomllib.loads((root / LIBRARY / "pyproject.toml").read_text())["project"]
+            info = site_dir / f"{PACKAGE}-{project['version']}.dist-info"
+            info.mkdir()
+            (info / "METADATA").write_text(f"Metadata-Version: 2.1\nName: {project['name']}\nVersion: {project['version']}\n")
+            (info / "entry_points.txt").write_text("".join(f"[{group}]\n" + "".join(f"{name} = {value}\n" for name, value in entries.items())
+                                                          for group, entries in project["entry-points"].items()))
+            (site_dir / f"_{PACKAGE}.pth").write_text(str(root / LIBRARY) + "\n")
+            monkeypatch.setattr(optimizer_plugins.installed, "_checked", 0.0)   # the sync took longer than the plug-ins' recheck
         return 0, " Would make no changes\n" if "--dry-run" in args else "ok"
     return runner
 
 
 @pytest.fixture
-def forget_library():
-    yield
+def site_dir(tmp_path, monkeypatch):
+    """The environment's site directory, empty of the library until the fake uv installs it; afterwards the lab forgets it."""
+    site_dir = tmp_path / "site-packages"
+    site_dir.mkdir()
+    monkeypatch.setattr(sys, "path", [str(site_dir), *sys.path])
+    monkeypatch.setattr(installed_packages.site, "getsitepackages", lambda: [str(site_dir)])
+    monkeypatch.setattr(installed_packages.site, "getusersitepackages", lambda: str(tmp_path / "no-user-site"))
+    # The evaluator's preflight builds it in a child of this interpreter, which reads the real site directory: it is given
+    # this one too, with the directories its .pth files name, as the environment's own site directory would give them.
+    def run(args, **options):
+        named = [line for pth in site_dir.glob("*.pth") for line in pth.read_text().split()]
+        env = {**options["env"], "PYTHONPATH": os.pathsep.join([options["env"]["PYTHONPATH"], str(site_dir), *named])}
+        return subprocess.run(args, **{**options, "env": env})
+    monkeypatch.setattr(preflight, "subprocess", SimpleNamespace(run=run, TimeoutExpired=subprocess.TimeoutExpired))
+    yield site_dir
+    monkeypatch.undo()
     for name in [name for name in sys.modules if name == PACKAGE or name.startswith(PACKAGE + ".")]:
         sys.modules.pop(name)
+    importlib.invalidate_caches()
+    problem_registry.problems._sync(installed_packages.snapshot(problem_registry.GROUP))
+    optimizer_plugins.installed._owners = None
 
 
-def test_the_baking_order_goes_from_a_charter_to_an_installed_library_the_campaign_adopts(client, workspace, stack, tmp_path, monkeypatch,
-                                                                                            forget_library):
+def test_the_baking_order_goes_from_a_charter_to_ranked_results(client, workspace, stack, tmp_path, monkeypatch, site_dir):
     # 1. The permutation charter, confirmed by the researcher, and a campaign made from it.
     rows = C.findings(bakery())
     assert not [row for row in rows if row["severity"] == "blocking"], rows
@@ -303,7 +335,8 @@ def test_the_baking_order_goes_from_a_charter_to_an_installed_library_the_campai
     driver = LibraryDriver(tmp_path / "development")
     development = DevelopmentWorkspaces(workspace.pi, driver=driver)
     workspace.pi.development = development
-    stack.script = lead_turn(workspace, cid)
+    comparisons = []
+    stack.script = lead_turn(workspace, cid, comparisons)
     ask = command(client, "agent.message", cid, {"message": "Compare four ways to order the bakes: earliest due date, an adjacent swap "
         "search, random restarts and exact enumeration. Two seeds each.", "thread_id": MAIN}, version(), origin={"thread_id": MAIN})
     run = settle(workspace, "pi_run_" + ask["id"])
@@ -324,9 +357,6 @@ def test_the_baking_order_goes_from_a_charter_to_an_installed_library_the_campai
     assert consent["request_root"]["message_id"] == "message_" + ask["id"]
     assert workspace.store.list("trial", cid) == [], "nothing runs before the methods exist"
 
-    # The researcher acted three times: the charter's confirmation, one message and one decision.
-    researcher = [r["request"]["operation"] for r in workspace.store.list("work_command", cid) if r.get("actor") == "researcher"]
-    assert [op for op in researcher if op not in {"campaign.create", "agent.activate"}] == ["agent.message", "decision.resolve"]
     assert len(workspace.charters.get(record["id"])["confirmed"]) == 1
 
 
@@ -347,9 +377,10 @@ def test_the_baking_order_goes_from_a_charter_to_an_installed_library_the_campai
     assert record["library"]["revision"] == confirmed["charter"]["revision"] and record["library"]["package"] == PACKAGE
     repo = driver.repo(record)
     brief = (driver.root(record) / "brief.md").read_text()
-    keys = method_keys(proposals)
-    for proposal in proposals:
-        assert f'its METHODS key: `{keys[proposal["id"]]}` with `"hypothesis_id": "{proposal["id"]}"`' in brief
+    # The brief gives each proposal its METHODS key (made from its short title, which the titling may still be writing).
+    keys = {h["id"]: re.search(rf'\(`{h["id"]}`\); its METHODS key: `(\w+)` with `"hypothesis_id": "{h["id"]}"`', brief).group(1)
+            for h in proposals}
+    assert len(set(keys.values())) == 4
     # The fake coding agent fills the two files it writes, runs the library's tests, commits and submits a ready report.
     (repo / LIBRARY / PACKAGE / "objective.py").write_text(OBJECTIVE)
     (repo / LIBRARY / PACKAGE / "methods.py").write_text(methods_code(keys))
@@ -376,21 +407,57 @@ def test_the_baking_order_goes_from_a_charter_to_an_installed_library_the_campai
     (lab / "libraries").mkdir(parents=True)
     (lab / "pyproject.toml").write_text(PYPROJECT)
     (lab / "uv.lock").write_text("lock v1\n")
-    installer = Installer(workspace, development, lab, runner=fake_uv(monkeypatch, lab), uv="uv", providers=lambda group: {})
+    installer = Installer(workspace, development, lab, runner=fake_uv(monkeypatch, lab, site_dir), uv="uv", providers=lambda group: {})
     install = installer.automatic(cid, record["id"], submission, background=False)
     assert install["status"] == "installed", install
     assert install["actor"] == "balsamic" and install["problems_added"] == ["baking_order"]
     assert sorted(install["methods_added"]) == sorted(keys.values()) and install.get("changed_generated_files", []) == []
-    adopted = workspace.adopt_library_problem(cid, install["id"], authority="balsamic")   # E5 makes this step Balsamic's own
+    # The problem is picked up: the declared task adopts the library's problem, by Balsamic, first after the install (E5).
     [task] = workspace.current_tasks(cid)
+    assert [row["new_task_id"] for row in install["adopted"]] == [task["id"]]
     assert task["provided_by"]["install_id"] == install["id"] and task["provided_by"]["commit"] == submission["commit"]
-    assert task["problem_id"] == "baking_order" and not task.get("evaluator_requirement_id") and adopted["adopted"]
-    instance = problem_registry.problems.resolve("baking_order", task["configuration"])
-    assert instance.candidate_schema.representation == "permutation"
-    assert problem_registry.problems.evaluator(instance).evaluate(sorted(range(8), key=lambda b: DUE[b])).objectives == {"total_tardiness": 415.0}
-    # The library's own comparison ranks exact enumeration best: the optimum, 290 min, against earliest due date's 415.
-    compare = importlib.import_module(f"{PACKAGE}.compare")
-    rows = compare.compare(seeds=len(SEEDS), evaluations=50_000)
-    best = {row["method"]: row["best"] for row in rows}
+    assert task["problem_id"] == "baking_order" and not task.get("evaluator_requirement_id")
+    # Then the 4 proposals are bound by Balsamic, and exactly the 8 planned runs start under the one consent, on the new task.
+    assert sorted(row["hypothesis_id"] for row in install["bindings"]) == sorted(h["id"] for h in proposals)
+    assert all(row["task_id"] == task["id"] for row in install["bindings"]) and install["skipped"] == []
+    for row in install["bindings"]:
+        assert workspace.store.get(row["command_id"], "work_command")["actor"] == "balsamic"
+    launched = install["launched"]
+    assert sorted((row["hypothesis_id"], row["seed"]) for row in launched) == sorted(planned), install.get("launch_error")
+    for row in launched:
+        receipt = workspace.store.get(row["command_id"], "work_command")
+        assert receipt["actor"] == "balsamic" and receipt["origin"]["consent_id"] == consent["id"]
+        assert workspace.store.get(row["trial_id"], "trial")["task_id"] == task["id"]
+    assert len(workspace.store.list("trial", cid)) == 8
+
+    # The runs execute (the lab's experiment workers start now); earliest due date and exact enumeration end by themselves.
+    workspace.start()
+    deadline = time.time() + 240
+    while time.time() < deadline and any(t["status"] not in {"completed", "failed", "stopped", "interrupted"} for t in workspace.store.list("trial", cid)):
+        time.sleep(0.5)
+    trials = {(t["hypothesis_id"], t["seed"]): t for t in workspace.store.list("trial", cid)}
+    by_method = {h["id"]: [trials[(h["id"], seed)] for seed in SEEDS] for h in proposals}
+    assert all(t["status"] == "completed" for t in trials.values()), {k: (t["status"], t.get("reason")) for k, t in trials.items()}
+    for proposal in (proposals[0], proposals[3]):   # earliest due date and exact enumeration
+        assert [t["reason"] for t in by_method[proposal["id"]]] == ["method_finished"] * len(SEEDS)
+
+    # Balsamic wakes the lead once, for the comparison, when every approved run has ended; the lead writes it.
+    deadline = time.time() + 60
+    while not comparisons and time.time() < deadline:
+        time.sleep(0.5)
+    lead_id = workspace.pi.configuration(cid)["lead_id"]
+    wakes = [r for r in stack.agents[lead_id]["runs"].values() if "Write the comparison (comparison.report)" in r["text"]]
+    assert len(wakes) == 1 and len(comparisons) == 1, comparisons
+    # The report ranks exact enumeration best (lowest tardiness, the optimum) and earliest due date last.
+    [group] = comparisons[0]["comparison"]
+    rows = {row["algorithm"]: row for row in group["method_summaries"]}
     edd, exact = keys[proposals[0]["id"]], keys[proposals[3]["id"]]
-    assert best[edd] == 415 and best[exact] == 290 == min(best.values())
+    assert group["direction"] == "minimize" and rows[exact]["rank"] == 1 and rows[exact]["mean"] == 290 == min(r["mean"] for r in rows.values())
+    assert rows[edd]["mean"] == 415 and rows[edd]["rank"] == max(r["rank"] for r in rows.values())
+    # So does the ledger: the proposals' best results on the Evolution page.
+    ledger = {node["id"]: node["best"]["score"] for node in client.get(f"/api/v1/campaigns/{cid}/evolution").json()["nodes"]}
+    assert ledger[proposals[3]["id"]] == 290 == min(ledger.values()) and ledger[proposals[0]["id"]] == 415
+
+    # The researcher acted three times in all: the charter's confirmation, one message and one decision.
+    researcher = [r["request"]["operation"] for r in workspace.store.list("work_command", cid) if r.get("actor") == "researcher"]
+    assert [op for op in researcher if op not in {"campaign.create", "agent.activate"}] == ["agent.message", "decision.resolve"]
