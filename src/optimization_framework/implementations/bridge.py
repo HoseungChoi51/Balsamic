@@ -115,6 +115,8 @@ class ImplementationBridge:
             return {"state": "ready", "runnable": True, "reason": "Implementation validation passed. Experimental performance is assessed separately.",
                     "version_id": version_id, "validation_report_id": report["id"]}
         installed = {a["id"] for a in algorithms()}
+        if hypothesis.get("algorithm") == "unchosen":
+            return {"state": "unchosen", "runnable": False, "reason": "No method is chosen for it yet: choose one from campaign_inspect.methods (hypothesis.edit)."}
         if hypothesis.get("algorithm") in installed:
             from optimization_framework.optimizers import plugins
             from optimization_framework.optimizers.registry import capability_reason

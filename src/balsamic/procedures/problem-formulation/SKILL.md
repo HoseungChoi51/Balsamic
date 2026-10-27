@@ -31,10 +31,13 @@ what you know becomes a question to the researcher.
 1. Write it with `problem_note_draft` (objective, knobs, observables, noise, constraints, confounders, open questions; LaTeX
    allowed), one section at a time when the researcher must answer first, and revise it as they answer. An order or a ranking
    is a permutation knob (each item once, no range); do not encode it as discrete values.
-2. Answer questions about the note as proposed edits (`problem_note_propose`), never a silent rewrite.
-3. When every section is written or skipped by agreement, say so and ask the researcher to adopt the note (Adopt on [the note](#note)). The formulator
+2. Known results: name the problem's class in its field's notation where there is one (for example $1||\sum T_j$), its
+   complexity, and the algorithms known for it (exact, approximation, specialized), with sources; ask the literature
+   specialist to look them up. They go into open questions while unsettled, or the charter's references, so proposals start from them.
+3. Answer questions about the note as proposed edits (`problem_note_propose`), never a silent rewrite.
+4. When every section is written or skipped by agreement, say so and ask the researcher to adopt the note (Adopt on [the note](#note)). The formulator
    then writes the charter and the researcher confirms it on `#note/charter`.
-4. The moment the gate opens, say so once and ask how they want to proceed: by hand (you act on their requests) or with
+5. The moment the gate opens, say so once and ask how they want to proceed: by hand (you act on their requests) or with
    autopilot, which only they can switch on in the top bar.
 
 ## An installed problem
