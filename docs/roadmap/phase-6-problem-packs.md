@@ -118,6 +118,10 @@ the root `pyproject.toml` L44–50.
    problems (and picks up new ones with E1's reload); `workspace.packs.for_campaign(campaign_id)` gives the packs of the
    campaign's current tasks.
 3. `src/dqn_meent/pack/` holds MEENT's pack; it starts empty and N3–N8 fill it. `optimization_benchmarks` declares none.
+   Each part that fills it writes a module of its own, `src/dqn_meent/pack/<part>_<topic>.py` (`n3_procedures.py`),
+   defining `CONTRIBUTION`, a mapping of `ProblemPack` fields; `pack/__init__.py` assembles them in name order, joining
+   lists, merging mappings and refusing a key two modules both set, so parts built in parallel never edit the same file
+   (changed on 27 October 2026, after N4).
 
 **Tests**
 - A fake problem with a pack is listed; a campaign on it gets that pack and a campaign on another problem gets none.
