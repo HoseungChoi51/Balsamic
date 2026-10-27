@@ -2,7 +2,7 @@
 from optimization_framework.storage.sqlite import now
 
 
-def create(workspace, campaign_id, values, *, identity, bundle=None):
+def create(workspace, campaign_id, values, *, identity, bundle=None, actor=None):
     from optimization_framework.contracts.requests import UNCHOSEN
     from optimization_framework.execution.service import algorithms
     campaign = workspace.store.get(campaign_id, "campaign")
@@ -30,23 +30,30 @@ def create(workspace, campaign_id, values, *, identity, bundle=None):
         record.update(algorithm="package", executable=True, implementation_status="validated")
         workspace.implementations._exposure(campaign_id, bundle["version"])
     if values.status == "finalist":
-        record = nominate(workspace, record)
+        record = nominate(workspace, {**record, "status": "proposed"}, actor=actor)
     return workspace.store.put("hypothesis", record, "hypothesis.created")
 
 
-def nominate(workspace, hypothesis):
+def nominate(workspace, hypothesis, *, actor):
+    """A finalist needs a runnable implementation and, for an agent, a best score that passed the problem's fidelity check
+    (V3); the researcher's own choice passes with the warning recorded. A finalist already chosen is not checked again."""
     from optimization_framework.evaluation.legacy_confirmation import nominate_finalist
+    from . import promotion
     readiness = workspace.implementations.readiness(hypothesis)
     if not readiness["runnable"]:
         raise ValueError(readiness["reason"])
-    return nominate_finalist(hypothesis)
+    if hypothesis.get("status") == "finalist":
+        return nominate_finalist(hypothesis)
+    state = promotion.fidelity_state(workspace, hypothesis)
+    warning = promotion.gate(state, actor, action="A finalist")
+    return {**nominate_finalist(hypothesis), "promotion": promotion.summary(state, actor=actor, warning=warning)}
 
 
-def set_status(workspace, hypothesis, status, expected_revision, *, stop_reason=None):
+def set_status(workspace, hypothesis, status, expected_revision, *, stop_reason=None, actor=None):
     revision = hypothesis.get("status_revision", 0)
     if expected_revision is not None and revision != expected_revision:
         raise ValueError("Idea status changed; refresh before changing it again")
-    changed = nominate(workspace, hypothesis) if status == "finalist" else {**hypothesis, "status": status}
+    changed = nominate(workspace, hypothesis, actor=actor) if status == "finalist" else {**hypothesis, "status": status}
     if status == "archived":
         changed["stop_reason"] = stop_reason or hypothesis.get("stop_reason") or "stopped without a stated reason"
         changed["stopped_at"] = now()

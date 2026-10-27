@@ -11,6 +11,8 @@ test('the library ranks entries by fit with the reasons, searches by words, and 
   await expect(entries.first()).toContainText('fit 6');
   await expect(entries.first()).toContainText('same problem; same objective and direction; same representation');
   await expect(entries.first()).toContainText('0.1200 best (measured), 30.0 min of worker time, 4 seeds won, confirmed');
+  await expect(entries.first()).toContainText('passed: meent_2d_order_convergence:v1 (validation_1)');
+  await expect(entries.nth(1)).toContainText('not recorded (published before fidelity checks)');
   await expect(entries.nth(1)).toContainText('nothing in common with this problem');
   await page.getByTestId('library-search').fill('grating');
   await expect(page.getByTestId('library-entry')).toHaveCount(1);
