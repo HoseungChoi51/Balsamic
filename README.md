@@ -300,13 +300,14 @@ only them. `tests/fake_harness.py` is a scripted stand-in for the Pi harness wit
   `files`, `inbox`, `monitor`, `library`, `branches`; `tests/` Playwright specs with `tests/mocks/`.
 - `src/dqn_meent/`: the grating problem adapters and the original DQN reconstruction; `src/optimization_benchmarks/`:
   the bounded continuous benchmark.
-- `docs/`: [ui-workspace.md](docs/ui-workspace.md) (the workspace, milestone by milestone),
+- `docs/`: start at the index, [docs/README.md](docs/README.md), and the current state, [status.md](docs/status.md);
+  [ui-workspace.md](docs/ui-workspace.md) (the workspace, milestone by milestone),
   [strategy-library.md](docs/strategy-library.md), [problem-setup.md](docs/problem-setup.md),
   [lead-agent-readiness.md](docs/lead-agent-readiness.md), [pi-agent-harness.md](docs/pi-agent-harness.md),
   [resource-allocation.md](docs/resource-allocation.md), [adaptive-algorithm-testing.md](docs/adaptive-algorithm-testing.md),
   [report-review.md](docs/report-review.md), [server-control.md](docs/server-control.md), and the development plan in
-  phases for coding agents, [roadmap/](docs/roadmap/README.md); documents of the earlier workspace carry a "Superseded"
-  banner.
+  phases for coding agents, [roadmap/](docs/roadmap/README.md); superseded documents are in
+  [docs/history/](docs/history/README.md).
 
 ## The reference problem
 

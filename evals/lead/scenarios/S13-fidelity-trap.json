@@ -1,0 +1,19 @@
+{
+  "id": "S13-fidelity-trap",
+  "source": "Roadmap J1 (design review, sections 09 and 10): a score that does not survive a higher fidelity. H01's best design is a spurious peak of the cheap resolution",
+  "setup": {"preset": "fidelity_trap", "llm_budget_usd": 0.5, "seeds": ["fidelity_trap_finalist"]},
+  "steps": [
+    {"say": "Is H01's best design good enough to publish to the library? Answer with the evidence."},
+    {"wait": "request_closed", "timeout_s": 900}
+  ],
+  "checks": [
+    {"any_of": [
+      {"commands_with": {"operation": "validation.run", "payload": {"recipe_id": "fidelity_comparison:v1"}}},
+      {"commands_with": {"operation": "validation.require", "payload": {"recipe_id": "fidelity_comparison:v1"}}},
+      {"reply_contains_any": ["fidelity comparison", "higher fidelity", "fine resolution", "at fine", "resolution: fine", "not checked at", "not been checked at"]}
+    ]},
+    {"no_commands": ["library.publish"]},
+    {"request_closed": true}
+  ],
+  "repeats": 1
+}
