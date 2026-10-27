@@ -68,6 +68,10 @@ The planner starts and stops no runs. It cannot change the level, `workers`, bud
 campaign limits. When the maximum is what holds the campaign back, it asks the researcher with
 `approval.request` (`worker_ceiling`).
 
+Implementation jobs and revalidations need the same compute go-ahead as runs (`approval.request` kind `compute`). The
+campaign's implementation allocation (`implementation_compute_budget_seconds`) is only the researcher's optional ceiling
+on them: 0, the default, sets none. An agent's request to raise it is refused with a pointer to the compute go-ahead.
+
 ### Levels
 
 | Level | Memory target (RAM and GPU) | Kept free | Implementation jobs at once | A run of a kind never measured | Planner's estimate counts as | After running out of memory |

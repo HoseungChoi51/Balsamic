@@ -264,8 +264,8 @@ class ImplementationBridge:
                     return grant
             else:
                 self.check_self_contained(request["spec"])
-                if self.compute_committed(campaign_id) + compute_seconds > campaign.get("implementation_compute_budget_seconds", 0):
-                    raise ValueError("Assign a separate implementation compute allocation in the campaign charter before commissioning this job")
+                if self.over_ceiling(campaign, compute_seconds):
+                    raise ValueError(f"This job would exceed the implementation ceiling the researcher set ({campaign['implementation_compute_budget_seconds']:g}s)")
                 research_spent = sum(api_spend(r.get("usage"))
                     + (r.get("decision_review") or {}).get("budget_hold_usd", 0)
                     for r in self.store.list("research_run", campaign_id))
@@ -319,8 +319,8 @@ class ImplementationBridge:
                 raise ValueError("Revoked artifacts require a corrected version")
             from optimization_framework.implementations.revalidation import plan
             plan(version, RevalidationRequest.model_validate(request).checks)
-            if self.compute_committed(campaign_id) + compute_seconds > campaign.get("implementation_compute_budget_seconds", 0):
-                raise ValueError("Revalidation exceeds the campaign's separate implementation compute allocation")
+            if self.over_ceiling(campaign, compute_seconds):
+                raise ValueError(f"Revalidation would exceed the implementation ceiling the researcher set ({campaign['implementation_compute_budget_seconds']:g}s)")
             grant = {"id": identity, "campaign_id": campaign_id, "hypothesis_id": None,
                 "charter_version": campaign["version"], "request": request, "status": "dispatching",
                 "created_at": now(), "job_id": None, "version_id": version_id,
@@ -332,6 +332,12 @@ class ImplementationBridge:
                 "role": "assistant", "origin": "manager_system", "grant_id": identity, "created_at": now(),
                 "content": f"Reserved {compute_seconds:g}s to revalidate {version['name']} against independent checks. The existing executable stays pinned; this job makes no model calls."}, "message.created")
             return grant
+
+    def over_ceiling(self, campaign, compute_seconds):
+        """The implementation allocation is the researcher's optional ceiling: 0 sets none, and the compute go-ahead (the bus
+        guard, campaigns/compute_consent.py) is what an agent's commission needs."""
+        ceiling = campaign.get("implementation_compute_budget_seconds") or 0
+        return ceiling > 0 and self.compute_committed(campaign["id"]) + compute_seconds > ceiling
 
     def check_self_contained(self, spec):
         """Refuse a specification whose text names campaign records instead of stating them: the test designer, builders and

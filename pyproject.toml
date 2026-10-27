@@ -45,6 +45,8 @@ optimization-report = "optimization_framework.reports.cli:main"
 meent_grating = "dqn_meent.problem:MeentProblem"
 meent_2d_dual_polarization_deflector = "dqn_meent.problem_2d:Meent2DProblem"
 bounded_continuous = "optimization_benchmarks.problems:ContinuousProblem"
+fidelity_trap = "optimization_benchmarks.problems:FidelityTrapProblem"
+knapsack_dp = "optimization_benchmarks.problems:KnapsackProblem"
 
 [project.entry-points."optimization_framework.optimizers"]
 mask_optimizers = "dqn_meent.mask_library_adapter:MaskLibraryPlugin"

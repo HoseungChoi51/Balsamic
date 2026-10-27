@@ -19,7 +19,8 @@ class PackagedOptimizer:
 
     def __init__(self, module, instance, parameters, seed):
         descriptor = instance.descriptor()
-        context = {"n_cells": instance.candidate_schema.dimensions, "seed": seed, "parameters": dict(parameters),
+        dimensions = instance.candidate_schema.dimensions
+        context = {"dimensions": dimensions, "n_cells": dimensions, "seed": seed, "parameters": dict(parameters),
                    "problem": descriptor, "capabilities": instance.capabilities, "declared_assets": []}
         self.optimizer = module.create_optimizer(context)
         self.optimizer.initialize(descriptor, dict(parameters), seed, [])
@@ -71,14 +72,23 @@ class PackagedOptimizer:
 
 
 class PackagedPlugin:
-    """A library's plug-in: METHODS maps each method id to its module and descriptor (name, description, problem_ids...)."""
+    """A library's plug-in: METHODS maps each method id to its module and descriptor (name, description, problem_ids...).
+
+    A method accepts its own ``representations``, else the library's REPRESENTATIONS, else binary candidates; a method left
+    on that default says so (``representations_defaulted``), so an incompatibility can name the missing declaration."""
 
     METHODS: dict = {}
+    REPRESENTATIONS: list | None = None
 
     def methods(self):
-        return [{"representations": ["binary"], "constraints": False, "parameters": {}, "parameter_properties": {},
-                 **{key: value for key, value in method.items() if key != "module"}, "id": name}
-                for name, method in self.METHODS.items()]
+        listed = []
+        for name, method in self.METHODS.items():
+            declared = method.get("representations") or self.REPRESENTATIONS
+            listed.append({"constraints": False, "parameters": {}, "parameter_properties": {},
+                           **{key: value for key, value in method.items() if key != "module"},
+                           "representations": list(declared or ["binary"]), **({} if declared else {"representations_defaulted": True}),
+                           "id": name})
+        return listed
 
     def unavailable_reason(self):
         return None

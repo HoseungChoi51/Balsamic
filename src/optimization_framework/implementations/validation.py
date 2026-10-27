@@ -28,7 +28,7 @@ def context(spec, n_cells, seed, parameters=None, *, registry=None):
     instance = (registry or problems).get(spec.problem_id).implementation_fixture(spec.problem_configuration, n_cells)
     descriptor = instance.descriptor()
     descriptor["extra_metrics"] = [metric.model_dump(mode="json") for metric in instance.extra_metrics]
-    return {"n_cells": n_cells, "seed": seed, "parameters": values, "schedule_steps": 64,
+    return {"dimensions": n_cells, "n_cells": n_cells, "seed": seed, "parameters": values, "schedule_steps": 64,
             "capabilities": instance.capabilities, "problem": descriptor}
 
 
