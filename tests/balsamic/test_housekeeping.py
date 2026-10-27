@@ -135,16 +135,16 @@ def test_the_lead_corrects_proposal_fields_and_the_page_says_when_the_lane_was_n
             return {"error": str(error)}
     version = lambda: workspace.store.get(campaign["id"], "campaign")["version"]
     created = command(client, "hypothesis.create", campaign["id"], {"title": "Proportional rule", "mechanism": "m", "rationale": "r"}, version(), origin={"thread_id": MAIN})["outcome"]["hypothesis"]
-    assert created["algorithm"] == "hillclimb" and created["algorithm_chosen"] is False
+    assert created["algorithm"] == "unchosen" and created["algorithm_chosen"] is False, "no default method is recorded as a choice (N15)"
     chosen = command(client, "hypothesis.create", campaign["id"], {"title": "Annealed caps", "mechanism": "m", "rationale": "r", "algorithm": "annealing"}, version(), origin={"thread_id": MAIN})["outcome"]["hypothesis"]
     assert chosen["algorithm_chosen"] is True
     # The lead edits through its tool: the lane, the label and the title.
     run = submitted(workspace, say(client, campaign, "Fix the proposals."))
-    receipt = attempt("fix-1", {"hypothesis_id": created["id"], "algorithm": "annealing", "short_title": "Proportional caps", "title": "Proportional rule with annealed caps", "reason": "the default lane was not a choice"})
+    receipt = attempt("fix-1", {"hypothesis_id": created["id"], "algorithm": "annealing", "short_title": "Proportional caps", "title": "Proportional rule with annealed caps", "reason": "no lane was chosen"})
     assert receipt["outcome"]["fields"] == ["algorithm", "short_title", "title"], receipt
     edited = workspace.store.get(created["id"], "hypothesis")
     assert edited["algorithm"] == "annealing" and edited["algorithm_chosen"] is True and edited["short_title"] == "Proportional caps"
-    assert edited["edits"][-1]["fields"] == ["algorithm", "short_title", "title"] and edited["edits"][-1]["before"]["algorithm"] == "hillclimb"
+    assert edited["edits"][-1]["fields"] == ["algorithm", "short_title", "title"] and edited["edits"][-1]["before"]["algorithm"] == "unchosen"
     assert edited["housekeeping"]["label"]["status"] == "done", "a label the lead wrote is not overwritten by the housekeeper"
     page = client.get(f"/api/v1/campaigns/{campaign['id']}/hypotheses").json()
     row = next(h for h in page["hypotheses"] if h["id"] == created["id"])
