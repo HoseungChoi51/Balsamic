@@ -83,10 +83,11 @@ export const evolution = { campaign_id: CAMPAIGN_ID, event_cursor: 10, unchanged
       implementation_readiness: { runnable: true }, trial_ids: ['trial_2'], live_trials: 0, finalist: false, confirmation: null, stop_reason: null, created_at: '2026-10-19T08:02:30Z', stage: 'extended', curve: [{ x: 100, y: .3 }, { x: 2100, y: .52 }] },
     { id: 'hypothesis_c', label: 'H03', title: 'Annealing', status: 'archived', origin: 'pi', actor: 'autopilot', autonomous: true, round: 1, parent_links: [{ id: 'hypothesis_a', kind: 'revision' }], algorithm: 'anneal', worker_seconds: 30, allotted_seconds: 30, evaluations: 10,
       best: { score: 0.1, basis: 'measured', source: 'result', trial_id: 'trial_3', interval: null }, highest_rung_seconds: 30, race: null, review: { verdict: null, count: 0, readiness: { state: 'not_required', eligible: true } },
-      implementation_readiness: { runnable: true }, trial_ids: ['trial_3'], live_trials: 0, finalist: false, confirmation: null, stop_reason: 'worse than the baseline at every rung', created_at: '2026-10-19T08:03:00Z', stage: 'stopped' },
+      implementation_readiness: { runnable: true }, trial_ids: ['trial_3'], live_trials: 0, finalist: false, confirmation: null, stop_reason: 'worse than the baseline at every rung', created_at: '2026-10-19T08:03:00Z', stage: 'stopped',
+      stop: { outcome: 'adequately_assessed_deprioritized', words: 'adequately assessed, deprioritized', label: 'stopped: adequately assessed, deprioritized', evidence_ids: ['trial_3'], reason: 'worse than the baseline at every rung', by: 'autopilot', at: '2026-10-19T09:00:00Z' } },
   ],
   layout: [{ id: 'hypothesis_a', round: 0, lane: 0, stage: 'screening', label: 'H01', title: 'Random restarts', autonomous: false, stop_reason: null }, { id: 'hypothesis_b', round: 1, lane: 1, stage: 'extended', label: 'H02', title: 'CMA-ES with warm start', short_title: 'Warm-start CMA-ES', autonomous: false, stop_reason: null },
-    { id: 'hypothesis_c', round: 1, lane: 2, stage: 'stopped', label: 'H03', title: 'Annealing', autonomous: true, stop_reason: 'worse than the baseline at every rung' }],
+    { id: 'hypothesis_c', round: 1, lane: 2, stage: 'stopped', label: 'H03', title: 'Annealing', autonomous: true, stop_reason: 'worse than the baseline at every rung', stop_label: 'stopped: adequately assessed, deprioritized' }],
   edges: [{ from: 'hypothesis_a', to: 'hypothesis_b', kind: 'variant', external: false }, { from: 'hypothesis_a', to: 'hypothesis_c', kind: 'revision', external: false }] };
 export const hypothesisCard = { hypothesis: { id: 'hypothesis_b', title: 'CMA-ES with warm start', status: 'investigating', mechanism: 'Covariance adaptation from the previous best.', rationale: 'Smooth landscape.', algorithm: 'cma_es', origin: 'pi', status_revision: 1 },
   ledger_row: evolution.nodes[1], parents: [{ id: 'hypothesis_a', title: 'Random restarts', status: 'proposed' }], children: [], reviews: [{ id: 'review_1', author: 'proposal_reviewer', verdict: 'test', text: 'Plausible; test it.', created_at: '2026-10-19T08:03:00Z' }],
@@ -99,7 +100,7 @@ export const hypothesisCard = { hypothesis: { id: 'hypothesis_b', title: 'CMA-ES
     { hop: 'thread', record: { id: THREAD_ID, kind: 'thread', title: 'Demo campaign' }, via: 'the conversation thread', page: '#branches' }] };
 
 export const digest = { digest: { id: 'digest_1', from_event: 3, to_event: 10, rounds_completed: 2, away_minutes: 95, written_at: '2026-10-19T10:00:00Z', seen_at: null,
-  stopped: [{ hypothesis_id: 'hypothesis_c', reason: 'worse than the baseline at every rung', by: 'autopilot' }], promoted: [{ hypothesis_id: 'hypothesis_b', by: 'autopilot' }], started: [{ operation: 'hypothesis.allocate', trial_id: 'trial_4', by: 'autopilot' }],
+  stopped: [{ hypothesis_id: 'hypothesis_c', reason: 'worse than the baseline at every rung', outcome: 'adequately_assessed_deprioritized', outcome_words: 'adequately assessed, deprioritized', by: 'autopilot' }], promoted: [{ hypothesis_id: 'hypothesis_b', by: 'autopilot' }], started: [{ operation: 'hypothesis.allocate', trial_id: 'trial_4', by: 'autopilot' }],
   finished_trial_ids: ['trial_2'], decisions_waiting: [{ id: 'extension_1', title: 'Extend trial trial_1 by 120 s?' }], questions_waiting: [], commands: [{ id: 'c1', operation: 'intervention.batch', by: 'autopilot' }] }, history: [] };
 
 export const library = { signature: { problem_id: 'bounded_continuous', basis: "the first development task's problem instance" }, entries: [

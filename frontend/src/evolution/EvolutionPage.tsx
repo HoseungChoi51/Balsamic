@@ -93,7 +93,7 @@ function FrontierTable({ rows, picked, setPicked, selectedId, onOpen, onTrace }:
         <tr key={row.id} data-record-id={row.id} data-stage={row.stage} className={selectedId === row.id ? 'selected' : ''}>
           <td><input type="checkbox" aria-label={`select ${row.title}`} checked={picked.includes(row.id)} onChange={() => toggle(row.id)} /></td>
           <td><a href="#" onClick={e => { e.preventDefault(); onOpen(row.id); }}>{row.label ? <Pill>{row.label}</Pill> : null} {row.title}</a>{row.live_trials ? <Pill tone="agent"> {row.live_trials} live</Pill> : null}</td>
-          <td><Pill tone={STAGE_TONE[row.stage]} title={row.stage === 'stopped' ? `Stopped: ${row.stop_reason || 'no reason recorded'}` : STAGE_WORD[row.stage] || row.stage}>{row.stage}</Pill></td>
+          <td><Pill tone={STAGE_TONE[row.stage]} title={row.stage === 'stopped' ? `${row.stop?.label || 'stopped'}: ${row.stop_reason || 'no reason recorded'}` : STAGE_WORD[row.stage] || row.stage}>{row.stage}</Pill>{row.stop ? <div className="small faint" data-testid="stop-outcome">{row.stop.words}</div> : null}</td>
           <td>{row.round ?? <span className="faint">–</span>}</td>
           <td>{num(row.best.score, 4)}{row.best.score != null ? <span className="faint small"> {row.best.source}</span> : null}</td>
           <td>{duration(row.worker_seconds)}<span className="faint small"> of {duration(row.allotted_seconds)}</span></td>

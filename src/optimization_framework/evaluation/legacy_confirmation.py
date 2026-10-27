@@ -174,7 +174,7 @@ def commit_confirmation(store, plan):
 
 def snapshot_confirmation_code(directory, expected_scientific_hash):
     """Pin source when the protocol is accepted, closing the queued-code-change gap."""
-    destination = Path(directory) / "code" / "dqn_meent"
+    destination = Path(directory) / "code"
     source_digest = snapshot(directory)
     if scientific_source_hash(destination) != expected_scientific_hash:
         raise ValueError("Scientific source changed while snapshotting the confirmation run; no work was queued")
