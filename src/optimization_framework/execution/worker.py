@@ -29,6 +29,7 @@ from optimization_framework.contracts.problems import Observation, ProblemInstan
 from optimization_framework.evaluation.registry import problems
 from optimization_framework.execution.metrics import bounded_diagnostics, pack_candidate, unpacked
 from optimization_framework.optimizers.registry import create
+from optimization_framework.optimizers.finish import MethodFinished
 from optimization_framework.storage.artifacts import LocalArtifactStore, atomic_json
 from optimization_framework.storage.sqlite import now, read_json
 
@@ -200,6 +201,8 @@ class ExperimentWorker:
         self.checkpoint_id = None
         self.observation_cursor = 0
         self.recovered_suffix = 0
+        # A method that ended on its own (MethodFinished); a resumed or continued run of it finishes at once.
+        self.method_finished, self.finish_reason = False, None
         self._restore()
         measured_history = sum(item["quantities"].get("worker_seconds") or 0 for item in iter_journal(self.directory / "costs.jsonl"))
         prior_attempts = {}
@@ -302,6 +305,7 @@ class ExperimentWorker:
         self.control_revision, self.last_command = state["control_revision"], state["last_command"]
         self.max_steps, self.wall_seconds = state["max_steps"], state["wall_seconds"]
         self.observation_cursor = manifest["metadata"]["observation_cursor"]
+        self.method_finished, self.finish_reason = state.get("method_finished", False), state.get("finish_reason")
         self.checkpoint_id = checkpoint_id
         self.last_checkpoint_step = self.step
 
@@ -318,12 +322,14 @@ class ExperimentWorker:
         if source["same_source"]:
             self.evaluator.restore(state["evaluator"])   # a changed evaluator starts with its own state
         self.archive, self.last_value = state["archive"], state["last_value"]
+        self.method_finished, self.finish_reason = state.get("method_finished", False), state.get("finish_reason")
 
     def save_checkpoint(self):
         state = {"optimizer": self.optimizer.checkpoint(), "evaluator": self.evaluator.checkpoint(),
                  "step": self.step, "archive": self.archive, "last_value": self.last_value,
                  "elapsed_seconds": self.elapsed(), "control_revision": self.control_revision, "last_command": self.last_command,
-                 "max_steps": self.max_steps, "wall_seconds": self.wall_seconds}
+                 "max_steps": self.max_steps, "wall_seconds": self.wall_seconds,
+                 "method_finished": self.method_finished, "finish_reason": self.finish_reason}
         with tempfile.SpooledTemporaryFile(max_size=self.policy.chunk_bytes) as stream:
             pickle.dump(state, stream, protocol=pickle.HIGHEST_PROTOCOL)
             stream.seek(0)
@@ -453,7 +459,10 @@ class ExperimentWorker:
                 "interrupted_requests": self.interrupted_requests, "unknown_solver_cost": self.unknown_solver_cost,
                 "unknown_worker_cost": self.unknown_worker_cost,
                 "recovered_suffix_observations": self.recovered_suffix, "elapsed_seconds": self.elapsed(),
-                "scientific_complete": primary_count >= completion["count"],
+                # A method that finished on its own has no more to give: its run is complete, not censored.
+                "scientific_complete": self.method_finished or primary_count >= completion["count"],
+                "method_finished": self.method_finished,
+                **({"finish_reason": self.finish_reason} if self.finish_reason else {}),
                 "allocation_stop": reason if reason in {"step_budget_exhausted", "wall_budget_exhausted", "study_deadline_reached"} else None,
                 **({"absolute_deadline": self.deadline, "deadline_overshoot_seconds": max(0, time.time() - self.deadline)} if self.deadline else {}),
                 "process_exit": None if status == "running" else int(status == "failed"),
@@ -564,6 +573,9 @@ class ExperimentWorker:
                         and self.optimizer.inspect().get("decisions", 0) >= completion["count"]):
                     status, reason = "completed", "primary_completion_reached"
                     break
+                if self.method_finished:
+                    status, reason = "completed", "method_finished"
+                    break
                 if self.spec.get("recipe") and self.optimizer.cursor >= len(self.spec["recipe"]["cases"]):
                     status, reason = "completed", "recipe_complete"
                     break
@@ -579,6 +591,9 @@ class ExperimentWorker:
                 progress = self.progress("running")
                 append_json(self.directory / "metrics.jsonl", self.journal_row(progress))
                 self.publish_progress(progress)
+        except MethodFinished as exc:
+            status, reason = "completed", "method_finished"
+            self.method_finished, self.finish_reason = True, exc.reason
         except Exception as exc:
             status, reason = "failed", f"{type(exc).__name__}: {exc}"
             (self.directory / "error.txt").write_text(traceback.format_exc())

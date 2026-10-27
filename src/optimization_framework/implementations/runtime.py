@@ -597,6 +597,9 @@ class PackageOptimizer(PackageProcess):
         if self.pending:
             raise CandidateError("Observe the outstanding batch before proposing again")
         proposals = self._request("propose", max_candidates=max_candidates)
+        if proposals == []:
+            from optimization_framework.optimizers.finish import MethodFinished
+            raise MethodFinished()
         if not isinstance(proposals, list) or not 1 <= len(proposals) <= max_candidates:
             raise CandidateError("Package violated the declared batch size")
         self.pending = [Proposal(**p) for p in proposals]

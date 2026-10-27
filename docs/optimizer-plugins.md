@@ -102,8 +102,9 @@ method performs well is for experiments and the researcher to judge; the library
 specification. A coding workspace builds it under `libraries/<name>/` (`libraries/grating-mask-search` is the first):
 
 - a module per method on the `optimizer_v1` package contract (`create_optimizer(context)`, then `initialize`,
-  `propose`, `observe`, `checkpoint` as bytes, `restore`, `inspect`), with no Balsamic imports, so the same module
-  also runs as a package in the implementation service;
+  `propose`, `observe`, `checkpoint` as bytes, `restore`, `inspect`; `propose` returns `[]` when the method has
+  finished, see "Finishing"), with no Balsamic imports, so the same module also runs as a package in the implementation
+  service;
 - the implementer's tests of each method against its specification;
 - `plugin.py`, a `PackagedPlugin` subclass (`optimization_framework/optimizers/packaged.py`) that lists the methods and
   runs each module in-process, registered under the entry point in the library's `pyproject.toml`;
@@ -188,6 +189,21 @@ decides **how they execute**.
 The optimizer that `create` returns follows the framework's ask/tell lifecycle: `propose`, `observe`,
 `checkpoint`, `restore`, `inspect`, `export_artifacts` and `close`. `MaskLibraryAdapter` wraps the library's own
 optimizer and converts candidates between x-major and y-major order on the way in and out.
+
+### Finishing
+
+A method may end on its own: a one-shot heuristic after its design, an enumeration after its last candidate, a search
+that converged. **Return `[]` from `propose` to finish** (or raise `StopIteration`, optionally with a reason:
+`raise StopIteration("all 40,320 orders tried")`); an ask/tell optimizer raises `StopIteration` from `ask`. The wrapper
+raises `MethodFinished` (`optimizers/finish.py`) and the worker records the run as `completed` with reason
+`method_finished`: its best, final checkpoint and outputs are kept as on any completion, and its result says
+`method_finished: true` and `scientific_complete: true` (the method's reason, if any, is `finish_reason`). Resuming or
+continuing such a run finishes at once. Any other exception still fails the run.
+
+In a comparison a finished run holds its final value after its last point (`held_after_finish` on its row), and the
+matched cost is set by the runs that did not finish, so one early finisher does not shrink every method's horizon. When
+every compared run finished, they are compared at the shortest. The contract checks (`conformance.check`) accept a method
+that finishes, as long as the same seed finishes at the same step and a restored checkpoint finishes too.
 
 The whole plug-in for the mask library is about 20 lines:
 
