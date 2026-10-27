@@ -4,7 +4,7 @@ from __future__ import annotations
 import math
 from typing import Any, Literal, Protocol, runtime_checkable
 
-from pydantic import Field, model_validator
+from pydantic import Field, model_serializer, model_validator
 
 from .base import Contract, content_hash
 
@@ -89,6 +89,12 @@ class CandidateSchema(Contract):
         return result
 
 
+class PromotionCheck(Contract):
+    """A validation recipe, with the parameters it must have run with, that a score passes before it counts for promotion."""
+    recipe_id: str
+    parameters: dict[str, Any] = Field(default_factory=dict)
+
+
 class ProblemDefinition(Contract):
     id: str
     version: str
@@ -102,6 +108,21 @@ class ProblemDefinition(Contract):
     validation_recipes: list[str] = Field(default_factory=list)
     recipe_schemas: dict[str, dict[str, Any]] = Field(default_factory=dict)
     renderer: str | None = None
+    # Choosing a finalist and publishing to the library need these checks on the score (roadmap V3); none leaves the gate open.
+    promotion_validation: list[PromotionCheck] = Field(default_factory=list)
+
+    @model_validator(mode="after")
+    def declared_promotion_recipes(self):
+        if set(check.recipe_id for check in self.promotion_validation) - set(self.validation_recipes):
+            raise ValueError("A promotion check must name one of the problem's validation recipes")
+        return self
+
+    @model_serializer(mode="wrap")
+    def compatible_serialization(self, handler):
+        result = handler(self)
+        if not self.promotion_validation:
+            result.pop("promotion_validation", None)
+        return result
 
 
 class ProblemInstance(Contract):
