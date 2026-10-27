@@ -2,6 +2,7 @@
   "id": "S3-narrow-request",
   "source": "lead-agent-readiness.md Part G: a narrow request is carried out and nothing else",
   "setup": {"preset": "quadratic", "llm_budget_usd": 0.3},
+  "presets": ["quadratic", "deflector_2d"],
   "steps": [
     {"say": "Create two hypotheses for this problem, each runnable with an installed method. Nothing else for now."},
     {"wait": "request_closed", "timeout_s": 600}
