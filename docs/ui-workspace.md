@@ -496,9 +496,11 @@ researcher's; it records the baseline allocation, sets delegation while on and r
 starts a round when autopilot is on, the team runs, no request is open (researcher messages come first), the lead is
 idle, and the previous round's runs have finished: a request turn in the system thread `autopilot` with
 `agent_run.autopilot = true`. Its `campaign_command` runs as actor `autopilot`: every command needs a rationale, the
-receipt's origin says so, ledger rows carry `autonomous` and the pages a badge. The cap guard refuses a command whose
-reservation would take `allocated − baseline` past the cap. When the cap is reached or the report date is within a day,
-the last round asks for the report (`report_write`) and no further round starts. Rounds completed are counted when the
+receipt's origin says so, ledger rows carry `autonomous` and the pages a badge. The switch grants a standing
+Run-the-campaign mandate for autopilot's request, which every round carries (roadmap R4): the bus's mandate guard refuses
+a command whose reservation would take `allocated − baseline` past the cap, and new work once the cap is spent, the report
+date has passed or autopilot is off. When the cap is reached or the report date is within a day, the last round asks for
+the report (`report_write`) and no further round starts. Rounds completed are counted when the
 run ends; the digest is written then. This is the one exception to "the lead acts on requests" (lead-agent-readiness.md).
 
 **Iteration progress.** During Optimize the top of the stage shows the best so far (measured), the live runs and the

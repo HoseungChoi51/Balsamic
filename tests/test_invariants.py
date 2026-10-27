@@ -106,7 +106,7 @@ def test_the_register_holds_the_seeded_guarantees():
     assert len(register) >= 25 and states == STATES
     # The guarantees the roadmap's part I1 seeded, by where they are enforced or which part closes them.
     text = REGISTER.read_text(encoding="utf-8")
-    for anchor in ("compute_consent.py", "_request", "INSTRUCTIONS", "page_work", "cap_guard()", "guidance_pin", "_within_llm_budget()",
+    for anchor in ("compute_consent.py", "_request", "INSTRUCTIONS", "page_work", "grant_mandate()", "guidance_pin", "_within_llm_budget()",
                    "readiness()", "| T1 |", "| T2 |", "| V1 |", "| V2 |", "promotion.py", "freeze()", "| V4 |", "| K2 |",
                    "library/service.py", "findings.py", "library_install.py", "| H6 |", "network.sh", "| H5 |", "test_layering.py",
                    "NAMES_A_DOMAIN", "test_harness_contract.py"):

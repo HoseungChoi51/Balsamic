@@ -16,12 +16,12 @@ def lab(tmp_path):
     return workspace, campaign, workspace.current_tasks(campaign["id"])[0]
 
 
-def send(workspace, campaign_id, identity, operation, payload, actor="manager"):
+def send(workspace, campaign_id, identity, operation, payload, actor="manager", origin=None):
     campaign = workspace.store.get(campaign_id, "campaign")
     pins = {"expected_guidance_revision": workspace.memory.state(campaign_id)["guidance_revision"],
             "expected_authority_hash": workspace.commands.authority_hash(campaign)} if actor != "researcher" else {}
     return workspace.commands.execute(Command(id=identity, campaign_id=campaign_id, expected_revision=campaign["version"],
-        operation=operation, payload=payload, **pins), actor=actor)
+        operation=operation, payload=payload, origin=origin, **pins), actor=actor)
 
 
 def run(task, seconds):
@@ -109,9 +109,24 @@ def test_the_researcher_sets_the_two_thresholds_for_the_campaign(lab):
 
 
 def test_autopilot_runs_within_the_cap_the_researcher_set(lab):
+    """Autopilot's go-ahead is the standing Run-the-campaign mandate its switch granted (R4): its cap, not a consent. The cap counts
+    every allocation in the campaign since the switch, and the bus's mandate guard refuses what would pass it."""
+    from optimization_framework.campaigns import mandates
+    from optimization_framework.contracts.commands import CommandOrigin
     workspace, campaign, task = lab
-    send(workspace, campaign["id"], "autopilot_run", "trial.create", run(task, 590), actor="autopilot")
-    assert workspace.store.list("compute_consent", campaign["id"]) == []
+    cid = campaign["id"]
+    workspace.store.put("decision", {"id": "decision_switch", "campaign_id": cid, "title": "Autopilot on", "status": "resolved", "requested_by": "researcher"})
+    root = {"thread_id": "thread_autopilot", "message_id": "decision_switch", "run_id": None}
+    mandates.grant(workspace, cid, "run_campaign", root=root, granted_by="decision_switch", compute={"worker_seconds": 600},
+                   campaign_baseline=workspace.allocated_seconds(cid))
+    workspace.store.put("agent_session", {"id": "agent_lead", "campaign_id": cid, "role": "lead"})
+    workspace.store.put("agent_run", {"id": "round_1", "campaign_id": cid, "agent_id": "agent_lead", "status": "running", "autopilot": True,
+        "origin": {"thread_id": "thread_autopilot", "message_id": "message_round_1", "actor": "autopilot", "root": {**root, "run_id": "round_1"}}})
+    origin = CommandOrigin(thread_id="thread_autopilot", actor="autopilot", agent_id="agent_lead", run_id="round_1", rationale="The frontier is thin")
+    send(workspace, cid, "autopilot_run", "trial.create", run(task, 590), actor="autopilot", origin=origin)
+    assert workspace.store.list("compute_consent", cid) == []
+    with pytest.raises(ValueError, match=r"would reserve 30 s of worker time, .* has 10 s left of its compute cap of 600 s"):
+        send(workspace, cid, "autopilot_more", "trial.create", run(task, 30), actor="autopilot", origin=origin)
 
 
 def test_a_compute_plan_states_its_times_and_what_to_do_meanwhile(lab):
