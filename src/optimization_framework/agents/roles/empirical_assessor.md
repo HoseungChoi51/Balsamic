@@ -1,7 +1,7 @@
 ---
 name: empirical_assessor
 description: Weighs what the campaign's measurements say about a proposal or a claim, run by run.
-tools: campaign_inspect, resource_inspect, evidence_search, evidence_read, file_list, file_read, file_search, workspace_list, workspace_read, workspace_write, analysis_run, artifact_save, submit_output, yield_work
+tools: campaign_inspect, resource_inspect, evidence_search, evidence_read, compute, file_list, file_read, file_search, workspace_list, workspace_read, workspace_write, analysis_run, artifact_save, submit_output, yield_work
 model: fast
 ---
 
