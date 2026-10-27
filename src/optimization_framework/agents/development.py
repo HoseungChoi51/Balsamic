@@ -10,7 +10,7 @@ from typing import Literal
 from pydantic import Field, model_validator
 from optimization_framework.contracts.base import Contract, content_hash, field_names, lenient
 from optimization_framework.storage.sqlite import atomic_json, now
-from .development_runtime import IMAGE, LEGACY_MODEL, DockerWorkspace
+from .development_runtime import IMAGE, LEGACY_MODEL, DockerWorkspace, paper_reference
 from .models import LEAD, NOTICE
 
 
@@ -514,8 +514,10 @@ class DevelopmentWorkspaces:
                     raise ValueError(capability["reason"])
                 evidence = [self.evidence(cid, ref) for ref in record["evidence_ids"]]
                 hypothesis = self.store.get(record["hypothesis_id"], "hypothesis")
-                brief = f"# {record['title']}\n\n{record['objective']}\n\n## Hypothesis\n\n" + json.dumps(hypothesis, indent=2) + "\n\n" + DEVELOPMENT_INSTRUCTIONS
-                self.driver.prepare(record, brief, evidence)
+                references = self.workspace.packs.references(cid)
+                brief = (f"# {record['title']}\n\n{record['objective']}\n\n## Hypothesis\n\n" + json.dumps(hypothesis, indent=2) + "\n\n"
+                         + DEVELOPMENT_INSTRUCTIONS + references_brief(references, paper_reference() is not None))
+                self.driver.prepare(record, brief, evidence, references=references)
                 atomic_json(root / "prepared.json", {"workspace_id": identity})
             runtime = self.driver.start(record)
             with self.workspace.lock:
@@ -788,13 +790,21 @@ class DevelopmentWorkspaces:
             self.store.put("development_submission", submission)
 
 
+def references_brief(references, paper=False):
+    """The brief's References section: the material mounted into this workspace, and nothing when there is none."""
+    lines = [f"- `/references/{item['name']}`: {item.get('description') or 'reference material from the ' + item['package'] + ' problem pack'}"
+             for item in references]
+    if paper:
+        lines.append("- `/references/paper.txt` and `/references/paper.pdf`: the supplied paper")
+    return "\n## References\n\nRead-only material for this campaign:\n\n" + "\n".join(lines) + "\n" if lines else ""
+
+
 DEVELOPMENT_INSTRUCTIONS = """## Development workflow
 
 This is a complete Pi coding workspace. Use read, edit, write, bash, Git, tests,
 dependency installation, skills, and project instructions. You can install Python
 packages with `python -m pip install --user ...`. Code runs in this workspace's
-container. `/references/flrl` contains the author's reference code when available;
-`/references/paper.txt` and `/references/paper.pdf` contain the supplied paper.
+container.
 The host campaign database, private files, protected validation fixtures, and
 Docker socket are outside this environment. Public network access is available;
 new connections to host, TailNet, and private network services are blocked.

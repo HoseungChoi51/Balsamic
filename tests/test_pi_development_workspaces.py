@@ -18,6 +18,7 @@ class Driver:
         self.started = 0
         self.paused = 0
         self.ignored = []
+        self.references = None
 
     def root(self, record):
         return self.directory / record['id']
@@ -28,8 +29,9 @@ class Driver:
     def capability(self):
         return {'available': True}
 
-    def prepare(self, record, brief, evidence):
+    def prepare(self, record, brief, evidence, references=()):
         self.prepared += 1
+        self.references = list(references)
         root = self.root(record)
         for name in ('incoming/commands', 'incoming/results', 'outgoing/events'):
             (root / name).mkdir(parents=True, exist_ok=True)

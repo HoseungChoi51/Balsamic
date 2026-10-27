@@ -51,6 +51,31 @@ def reachable(provider, endpoint):
                          "public addresses only. Give the campaign a model on a public endpoint, or commission the implementation instead")
 
 
+def paper_reference():
+    """The researcher's paper (GRATING_PAPER_REFERENCE or the launcher's `paper_reference`) when it is a PDF of usable size."""
+    paper = Path(os.environ.get("GRATING_PAPER_REFERENCE", "")).expanduser()
+    return paper if paper.name and paper.is_file() and paper.stat().st_size < 50 * 1024 * 1024 else None
+
+
+def copy_reference(source, references, name):
+    """Copy one reference into the workspace's read-only `/references/<name>` once: a Git checkout's committed tree with its
+    commit beside it, else the folder as it is (links are kept as links, so none reaches outside it)."""
+    target = references / name
+    if target.exists():
+        return
+    if (source / ".git").exists():
+        target.mkdir()
+        archive = references / (name + ".tar")
+        run(["git", "-C", str(source), "archive", "--output", str(archive), "HEAD"])
+        import tarfile
+        with tarfile.open(archive) as tar:
+            tar.extractall(target, filter="data")
+        archive.unlink()
+        (references / (name + ".commit")).write_text(run(["git", "-C", str(source), "rev-parse", "HEAD"]))
+    else:
+        shutil.copytree(source, target, symlinks=True, ignore=shutil.ignore_patterns("__pycache__"))
+
+
 def run(args, *, timeout=45, cwd=None):
     result = subprocess.run(args, cwd=cwd, capture_output=True, text=True, timeout=timeout)
     if result.returncode:
@@ -116,7 +141,7 @@ class DockerWorkspace:
                 target.write_text(json.dumps({provider: auth[provider]}))
                 target.chmod(0o600)
 
-    def prepare(self, record, brief, evidence):
+    def prepare(self, record, brief, evidence, references=()):
         root = self.root(record)
         for name in ("work", "home", "incoming/commands", "incoming/results", "outgoing/events", "references"):
             (root / name).mkdir(parents=True, exist_ok=True, mode=0o700)
@@ -154,21 +179,12 @@ class DockerWorkspace:
         }
         if not (vscode / "settings.json").exists():
             (vscode / "settings.json").write_text(json.dumps(settings, indent=2))
-        # Reference code only: no host working files, credentials, or campaign databases.
-        flrl = Path(os.environ.get("GRATING_FLRL_REFERENCE", str(ROOT.parent / "flrl")))
-        if (flrl / ".git").exists() and not (root / "references/flrl").exists():
-            target = root / "references/flrl"
-            target.mkdir()
-            archive = root / "references/flrl.tar"
-            run(["git", "-C", str(flrl), "archive", "--output", str(archive), "HEAD"])
-            import tarfile
-            with tarfile.open(archive) as tar:
-                tar.extractall(target, filter="data")
-            archive.unlink()
-            (root / "references/flrl.commit").write_text(run(["git", "-C", str(flrl), "rev-parse", "HEAD"]))
+        # The campaign's pack references only: no host working files, credentials, or campaign databases.
+        for reference in references:
+            copy_reference(Path(reference["source"]), root / "references", reference["name"])
         # Optional paper PDF; set GRATING_PAPER_REFERENCE or the launcher's `paper_reference`.
-        paper = Path(os.environ.get("GRATING_PAPER_REFERENCE", "")).expanduser()
-        if paper.name and paper.is_file() and paper.stat().st_size < 50 * 1024 * 1024:
+        paper = paper_reference()
+        if paper:
             target = root / "references/paper.pdf"
             if not target.exists():
                 shutil.copy2(paper, target)

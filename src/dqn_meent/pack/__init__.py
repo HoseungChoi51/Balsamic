@@ -1,12 +1,18 @@
 """MEENT's problem pack (decision 17): what the grating problems bring besides their evaluators.
 
-It starts empty; the roadmap's N3 to N8 move MEENT's procedures, tools, estimators, racing ladder, references and legacy
-hooks out of the core and into it.
+The roadmap's N3 to N8 move MEENT's procedures, tools, estimators, racing ladder, references and legacy hooks out of the
+core and into it. It holds the FLRL reference so far (N6).
 """
-from optimization_framework.contracts.packs import ProblemPack
+from pathlib import Path
+
+from optimization_framework.contracts.packs import PackReference, ProblemPack
 
 PROBLEM_IDS = ["meent_grating", "meent_2d_dual_polarization_deflector"]
+# The FLRL authors' code (jLabKAIST/flrl): GRATING_FLRL_REFERENCE, else a checkout beside this repository.
+FLRL = PackReference(name="flrl", environment="GRATING_FLRL_REFERENCE",
+                     default=str(Path(__file__).resolve().parents[3].parent / "flrl"),
+                     description="the FLRL authors' reference code for the grating problems")
 
 
 def pack() -> ProblemPack:
-    return ProblemPack(package=__name__, problem_ids=PROBLEM_IDS)
+    return ProblemPack(package=__name__, problem_ids=PROBLEM_IDS, references=[FLRL])
