@@ -128,8 +128,12 @@ The library is done when `uv run pytest libraries/<name>` passes. Installing it 
 pins it in the root `pyproject.toml` as an
 editable path dependency in the `libraries` extra, and runs `uv lock` and `uv sync --inexact --extra libraries`. A dry run
 comes first: a change to a package the lab already has waits for the researcher's confirmation, and a failure puts
-`pyproject.toml`, `uv.lock` and `libraries/` back as they were. Each install is a `library_install` record with the methods it
-added (`agents/library_install.py`); the researcher commits the edited `pyproject.toml` and `uv.lock`. A new delivery of the
+`pyproject.toml`, `uv.lock` and `libraries/` back as they were. A library provides methods (`optimization_framework.optimizers`
+entry points), problems (`optimization_framework.problems`, one entry point per problem id), or both. A problem id, plug-in
+name or method id that another installed package provides, the lab's own included, is refused before uv runs ("problem <id>
+is provided by <distribution>"); the library's own earlier version is no clash. Each install is a `library_install` record
+with the methods and problems it added and those that did not load (`methods_added`, `missing_methods`, `problems_added`,
+`missing_problems`; `agents/library_install.py`); the researcher commits the edited `pyproject.toml` and `uv.lock`. A new delivery of the
 same library needs a new version: the running lab loads a library's new code only when its version changes. The running lab lists its methods for the
 problems they name at the next listing, without a restart (see "Installed while the lab runs" below). A proposal runs a method once it is bound to it (`implementation.bind_builtin`). After an install Balsamic binds each proposal the delivery serves by itself, when exactly one of the methods
 the delivery reports for it is installed and runs on a current task: through the command bus as its system actor `balsamic`, citing the install, which lists
@@ -434,12 +438,11 @@ my-toolbox = { git = "https://github.com/kc-ml2/my-toolbox", tag = "v1.0.0" }
 
 - `registry.methods()` caches each plug-in registry's methods until the plug-ins reload: installing, upgrading or
   removing a plug-in is noticed at the next listing (within `RECHECK_SECONDS`), so the services need no restart.
-- The six FLRL methods are still bundled. They are defined in `optimizers/fourier_specs.py` and created through a
-  hard-coded `from dqn_meent.flrl_optimizers import FourierOptimizer`, the same smell this document removes.
-  **Exercise:** move their descriptors and parameter properties next to `FourierOptimizer`, add a
-  `FourierPlugin` with the four contract methods, register it in `pyproject.toml`, and delete the special cases
-  from `registry.py`. `tests/test_flrl_optimizers.py` and an unchanged `registry.methods()` listing tell you when you are
-  done. The same comparison verified this change: the method list was byte-identical before and after.
+- The six FLRL methods were bundled until roadmap N8, defined in `optimizers/fourier_specs.py` and created through a
+  hard-coded `from dqn_meent.flrl_optimizers import FourierOptimizer`. They are now the lab's own `flrl` plug-in,
+  `dqn_meent/flrl_methods.py` `FourierPlugin`, beside `MaskLibraryPlugin`. The descriptors `registry.methods()` lists
+  are unchanged (`tests/fixtures/optimizer-methods-before-n8.json` pins them), and the method catalog still shows them as
+  bundled because the plug-in is in the lab's own package.
 
 ## Glossary
 

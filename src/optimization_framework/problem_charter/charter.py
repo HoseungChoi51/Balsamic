@@ -737,9 +737,7 @@ def evaluator_findings(charter, values, errors, sizes, registry, settled=True):
     if out:
         return out
     if binding.kind == "declared":
-        if binding.problem_id in registry.ids():
-            out.append(finding("evaluator.declared_id", "blocking", binding.problem_id, f"{binding.problem_id} is an installed problem; "
-                "a declared problem needs a new identifier, or use the installed one.", []))
+        installed = binding.problem_id in registry.ids()
         kinds = {variable.representation for variable in charter.variables}
         if len(kinds) > 1:
             out.append(finding("evaluator.mixed_variables", "blocking", "variables", "A declared problem's decision variables must share "
@@ -762,11 +760,14 @@ def evaluator_findings(charter, values, errors, sizes, registry, settled=True):
                  and not any(name in errors or values.get(name) is None for name in {**binding.configuration, **binding.fidelity}.values()))
         if ready:
             try:
-                manifest(charter, values)
+                declared = manifest(charter, values)
             except Exception as exc:   # noqa: BLE001 - whatever fails here is a finding for the formulator or a developer, never a dead page
+                declared = None
                 out.append({**finding("evaluator.declared_invalid", "blocking", binding.problem_id, "The declared problem cannot be assembled "
                     "for an evaluator from the charter as it stands: a technical check of its variables, bounds and constraints failed. "
                     "This is for the formulator or a developer to fix, not a scientific decision.", []), "detail": str(exc)})
+            if installed and declared is not None:
+                out.append(provided_finding(declared, registry))
         return out
     if binding.problem_id not in registry.ids():
         return [finding("evaluator.unknown_problem", "blocking", binding.problem_id, f"{binding.problem_id} is not an installed problem.", [])]
@@ -806,6 +807,100 @@ def evaluator_findings(charter, values, errors, sizes, registry, settled=True):
     return out
 
 
+def provided_finding(declared, registry) -> dict:
+    """An installed library provides the declared problem: the same problem as the charter's, or a blocking list of differences."""
+    by = provider(declared.id, registry)
+    try:
+        instance = registry.resolve(declared.id, declared.configuration, declared.fidelity)
+    except Exception as exc:   # noqa: BLE001 - a library that refuses the charter's values is a difference, never a dead page
+        schema = registry.get(declared.id).describe().configuration_schema if declared.id in registry.ids() else {}
+        fields = set((schema or {}).get("properties", {}))
+        differences = field_differences(set(declared.configuration), fields) if fields else []
+        differences.append({"what": "values", "charter": "the charter's values", "library": f"refuses them: {exc}"})
+    else:
+        differences = compare_provided(declared, instance)
+    if not differences:
+        return {**finding("evaluator.provided", "info", declared.id, f"{declared.id} is provided by {by['text']}: its schema, objective, "
+            "metrics and fields match the charter, so the tasks use the installed problem.", []), "provided_by": by}
+    listed = "; ".join(f"{d['what']}: the charter says {d['charter']}, the library computes {d['library']}" for d in differences)
+    return {**finding("evaluator.provided_mismatch", "blocking", declared.id, f"{declared.id} is installed from {by['text']}, but it is not "
+        f"the problem the charter describes. {listed}. Change the charter or the library until they agree, or give the declared "
+        "problem a new identifier.", []), "differences": differences, "provided_by": by}
+
+
+def provider(problem_id, registry) -> dict:
+    """The distribution and version an installed problem comes from, as far as the registry knows it."""
+    source = getattr(registry, "source", lambda name: None)(problem_id)
+    if source:
+        return {**source, "text": f"{source['distribution']} {source['version']}"}
+    definition = registry.get(problem_id).describe()
+    return {"distribution": None, "version": definition.version, "text": f"the installed problem {problem_id} {definition.version}"}
+
+
+def compare_provided(manifest, instance) -> list[dict]:
+    """How an installed library's resolved problem differs from the problem a charter declares, item by item.
+
+    Compared: the candidate schema (representation, dimensions, bounds, values, constraint names), the primary objective
+    (name, direction, units), the metric names the charter asks for, and the configuration field names. Each difference
+    says what the charter says and what the library computes. F3's generated contract test calls this too.
+    """
+    out = []
+    def differ(what, charter, library):
+        out.append({"what": what, "charter": charter, "library": library})
+    want, have = manifest.candidate_schema, instance.candidate_schema
+    if want.representation != have.representation:
+        differ("representation", want.representation, have.representation)
+    if want.dimensions != have.dimensions:
+        differ("dimensions", f"{want.dimensions} values", f"{have.dimensions} values")
+    if not close(want.bounds, have.bounds):
+        differ("bounds", spans(want.bounds), spans(have.bounds))
+    if not close(want.values, have.values):
+        differ("values", grid(want.values) if want.values else "no permitted values",
+               grid(have.values) if have.values else "no permitted values")
+    wanted, computed = {c.name for c in want.constraints}, {c.name for c in have.constraints}
+    if wanted != computed:
+        differ("constraints", ", ".join(sorted(wanted)) or "no constraints", ", ".join(sorted(computed)) or "no constraints")
+    mine, theirs = manifest.primary_objective, instance.primary_objective
+    for part in ("name", "direction"):
+        if getattr(mine, part) != getattr(theirs, part):
+            differ(f"objective {part}", getattr(mine, part), getattr(theirs, part))
+    if unit_name(mine.units) != unit_name(theirs.units):
+        differ("objective units", mine.units, theirs.units)
+    reported = {metric.name for metric in [theirs, *instance.extra_metrics]}
+    missing = [metric.name for metric in manifest.extra_metrics if metric.name not in reported]
+    if missing:
+        differ("metrics", ", ".join(missing), "does not report " + ", ".join(missing))
+    out.extend(field_differences(set(manifest.configuration), set(instance.configuration)))
+    return out
+
+
+def field_differences(charter_fields: set, library_fields: set) -> list[dict]:
+    if charter_fields == library_fields:
+        return []
+    return [{"what": "configuration fields", "charter": ", ".join(sorted(charter_fields)) or "none",
+             "library": ", ".join(sorted(library_fields)) or "none"}]
+
+
+def close(left, right) -> bool:
+    flat = lambda items: [float(x) for item in items for x in (item if isinstance(item, (list, tuple)) else [item])]
+    a, b = flat(left), flat(right)
+    return len(a) == len(b) and all(abs(x - y) <= 1e-9 * max(1.0, abs(x), abs(y)) for x, y in zip(a, b))
+
+
+def spans(bounds) -> str:
+    """Bounds in words: "0 to 1 for each of 3 values", or each pair while they differ."""
+    if not bounds:
+        return "no bounds"
+    pairs = [f"{low:g} to {high:g}" for low, high in bounds]
+    if len(set(pairs)) == 1:
+        return f"{pairs[0]} for each of {len(pairs)} values"
+    return "; ".join(pairs[:6]) + (f" and {len(pairs) - 6} more" if len(pairs) > 6 else "")
+
+
+def unit_name(units: str) -> str:
+    return "" if units.strip() in DIMENSIONLESS else units.strip()
+
+
 def blocking(rows) -> list[dict]:
     return [row for row in rows if row["severity"] == "blocking" and not row.get("waived")]
 
@@ -817,7 +912,7 @@ def describe(charter, registry=None) -> dict:
     resolved = resolve(charter)
     values = resolved["values"]
     rows = findings(charter, registry)
-    return {"values": values, "errors": resolved["errors"],
+    return {"values": values, "errors": resolved["errors"], "evaluator": evaluator_source(charter, rows),
             "rendered": {location: render(text, values, charter) for location, text in texts(charter).items()},
             "references": [{"applies": applies(reference, values)} for reference in charter.references],
             "findings": rows, "blocking": len(blocking(rows)),
@@ -843,6 +938,16 @@ def access(charter, registry=None) -> dict | None:
             pass
     return {"access": binding.access or own["access"], "cost_axis": binding.cost_axis or own["cost_axis"],
             "problem": own, "charter": {"access": binding.access, "cost_axis": binding.cost_axis}}
+
+
+def evaluator_source(charter, rows) -> dict | None:
+    """Whether the evaluator is an installed one, declared to be built, or declared and provided by an installed library."""
+    binding = charter.evaluator
+    if binding is None:
+        return None
+    provided = next((row for row in rows if row["code"] == "evaluator.provided"), None)
+    kind = "provided" if provided else binding.kind
+    return {"kind": kind, "problem_id": binding.problem_id, **({"provided_by": provided["provided_by"]} if provided else {})}
 
 
 def applies(reference, values) -> bool:
@@ -1032,19 +1137,28 @@ def solve(document, name: str, target: str, wanted: float, samples: int = 801) -
 
 
 # Compilation -------------------------------------------------------------------------------------------
+def _problems():
+    from optimization_framework.evaluation.registry import problems
+    return problems
+
+
 def compile_setups(charter, registry=None) -> list[dict]:
     """Today's campaign task input, one per instance. Refused while a blocking finding is open."""
     charter = parse(charter)
-    open_rows = blocking(findings(charter, registry))
+    rows = findings(charter, registry)
+    open_rows = blocking(rows)
     if open_rows:
         raise ValueError("The charter has blocking findings: " + "; ".join(row["message"] for row in open_rows[:5]))
     from optimization_framework.contracts.problem_imports import ProblemSetup
     binding, setups = charter.evaluator, []
+    provided = evaluator_source(charter, rows)["kind"] == "provided"
+    if binding.kind == "declared" and not provided and binding.problem_id in (registry or _problems()).ids():
+        raise ValueError(f"{binding.problem_id} is installed, but it could not be compared with the charter")
     for instance in charter.instances:
         values = resolve(charter, instance.values)["values"]
         configuration = {field: values[name] for field, name in binding.configuration.items()}
         fidelity = {field: values[name] for field, name in binding.fidelity.items()}
-        if binding.kind == "installed":
+        if binding.kind == "installed" or provided:
             setup = ProblemSetup(name=instance.name, split=instance.split, problem_id=binding.problem_id,
                                  configuration=configuration, fidelity=fidelity, rationale=instance.note,
                                  access=binding.access, cost_axis=binding.cost_axis)
