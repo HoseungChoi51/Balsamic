@@ -126,3 +126,15 @@ def test_the_shared_registry_follows_installs_in_place(site_dir, monkeypatch):
     finally:
         site_dir.uninstall()
         shared.ids()   # forget the test package again, for the rest of the session
+
+
+def test_refresh_lists_an_install_at_once_for_the_installer(site_dir, monkeypatch):
+    """The installer reads what a sync added right after it (roadmap E2), not up to a second later."""
+    clock = Clock()
+    monkeypatch.setattr(registry.time, "monotonic", clock)
+    running = ProblemRegistry().discover()
+    assert "late_problem" not in running.ids()
+    site_dir("1.0", "Late problem")
+    assert "late_problem" not in running.ids() and "late_problem" in running.refresh()
+    frozen = ProblemRegistry.from_entries({"bounded_continuous": "optimization_benchmarks.problems:ContinuousProblem"})
+    assert frozen.refresh() == ["bounded_continuous"]
