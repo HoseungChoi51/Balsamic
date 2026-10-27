@@ -6,8 +6,9 @@ from pydantic import Field, model_validator, field_validator
 from .base import Contract
 from .requests import CampaignUpdate, ControlInput, ValidationInput, ReviewInput, DecisionInput
 from optimization_framework.implementations.models import EvaluatorSpec, EvaluatorPackage, EvaluatorCheckSpec, OptimizerCheckSpec
+from optimization_framework.agents.development_ticket import TicketInput
 
-Operation = Literal["agent.activate", "agent.message", "agent.control", "agent.rollback", "agent.configure", "agent.question_dismiss", "agent.ui_respond", "fixed_mask.run", "campaign.create", "campaign.update", "context.edit", "issue.resolve", "issue.reopen", "trial.create", "trial.control", "trial.extension_request", "trial.validate", "draft.save", "draft.launch", "reproduction.draft", "reproduction.compare", "study.create", "study.nominate", "finalist.set", "study.freeze_template", "study.activate", "study.race.create", "study.race.control", "study.race.decide", "validation.run", "validation.require", "validation.execute", "validation.waive",
+Operation = Literal["agent.activate", "agent.message", "agent.control", "agent.rollback", "agent.configure", "agent.question_dismiss", "agent.ui_respond", "fixed_mask.run", "campaign.create", "campaign.update", "campaign.adopt_problem", "context.edit", "issue.resolve", "issue.reopen", "trial.create", "trial.control", "trial.extension_request", "trial.validate", "draft.save", "draft.launch", "reproduction.draft", "reproduction.compare", "study.create", "study.nominate", "finalist.set", "study.freeze_template", "study.activate", "study.race.create", "study.race.control", "study.race.decide", "validation.run", "validation.require", "validation.execute", "validation.waive",
     "asset.snapshot",
     "validation.revoke_waiver", "inference.run", "asset.reuse", "asset.import_reference_set", "cost.reconcile", "comparison.report", "finding.record", "implementation.commission",
     "implementation.reference", "implementation.bind_builtin", "implementation.attach", "evaluator.commission", "evaluator.attach", "implementation.control", "implementation.revalidate", "implementation.reuse", "implementation.resolve_runtime", "bundle.export", "bundle.inspect", "bundle.publish", "decision.resolve", "source.record", "source.ingest", "hypothesis.create", "hypothesis.review", "hypothesis.status", "hypothesis.nominate", "literature.search", "confirmation.schedule", "confirmation.validate", "confirmation.release",
@@ -15,18 +16,23 @@ Operation = Literal["agent.activate", "agent.message", "agent.control", "agent.r
     # The chat-centred workspace (docs/ui-workspace.md): threads, the problem note, graph interventions, autopilot, the library.
     "thread.fork", "thread.rename", "thread.park", "thread.unpark", "thread.pin", "thread.merge_draft", "thread.merge",
     "hypothesis.allocate", "hypothesis.edit", "intervention.batch", "research.generate", "problem_note.revise", "problem_note.adopt", "problem_note.skip", "problem_note.unskip", "note.ask", "note.resolve",
-    "autopilot.set", "library.publish", "library.apply", "campaign.stage_pin"]
+    "autopilot.set", "library.publish", "library.apply", "campaign.stage_pin",
+    # The researcher closes a request's mandate from the chat (roadmap R7).
+    "mandate.close"]
 
 
 class CommandOrigin(Contract):
     """Where a command came from: the thread and message of the conversation, and who acted. Shown on every page.
-    balsamic is Balsamic's own system actor (decision 6), acting after an install."""
+    balsamic is Balsamic's own system actor (decision 6), acting after an install or, for a planned run, under the compute
+    consent it names (consent_id) and the mandate that consent is the compute part of (mandate_id, R3)."""
     thread_id: str | None = None
     message_id: str | None = None
     actor: Literal["researcher", "lead", "page_agent", "autopilot", "balsamic"] = "researcher"
     agent_id: str | None = None
     run_id: str | None = None
     rationale: str | None = Field(default=None, max_length=5000)
+    consent_id: str | None = None
+    mandate_id: str | None = None
 
 
 class Command(Contract):
@@ -58,6 +64,12 @@ class Command(Contract):
 
 class CampaignUpdateInput(CampaignUpdate):
     rationale: str = Field(default="Researcher revised the campaign charter", min_length=1, max_length=5000)
+
+
+class ProblemAdoptionInput(Contract):
+    """The campaign's tasks adopt the problem an installed library provides for its charter's declared problem (roadmap E4)."""
+    install_id: str = Field(min_length=1, max_length=200, description="The library install that provides the charter's declared problem")
+    rationale: str = Field(default="The installed library provides the charter's declared problem", min_length=1, max_length=5000)
 
 
 class FinalistSetInput(Contract):
@@ -269,10 +281,21 @@ class PlannedRun(Contract):
     device: Literal["cuda", "cpu"] | None = None
 
 
+# A host a coding workspace may reach (agents/development.py), as a lowercase DNS name.
+HOSTNAME = r"^(?=.{1,253}$)[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?(\.[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?)+$"
+
+
+class StopCondition(Contract):
+    """When a request's work is done: in words, and optionally a condition the code can check (a mandate's, contracts/mandates.py)."""
+    text: str = Field(min_length=1, max_length=2000)
+    machine: Literal["all_runs_terminal"] | None = None
+
+
 class ApprovalRequestInput(Contract):
-    """Ask the researcher for something only they grant. On approval it is applied as the researcher's own command; a compute
-    approval is the go-ahead for a plan of work longer than the researcher's go-ahead threshold (campaigns/compute_consent.py)."""
-    kind: Literal["campaign_limits", "waiver", "worker_ceiling", "compute"]
+    """Ask the researcher for something only they grant. On approval it is applied as the researcher's own command; a mandate
+    (an agent's, with mandate_propose) is the go-ahead for a request's work beyond Explore (campaigns/mandates.py). Kind compute,
+    the go-ahead for a plan of work alone (campaigns/compute_consent.py), stays for requests filed before mandates."""
+    kind: Literal["campaign_limits", "waiver", "worker_ceiling", "compute", "mandate"]
     rationale: str = Field(min_length=1, max_length=5000, description="What the change makes possible and the measurement behind it")
     limits: dict[str, float] = Field(default_factory=dict, description="campaign_limits: the new value of each limit to change, among " + ", ".join(LIMITS))
     requirement_id: str | None = Field(default=None, description="waiver: the validation requirement to waive")
@@ -286,20 +309,37 @@ class ApprovalRequestInput(Contract):
     hypothesis_ids: list[str] = Field(default_factory=list, max_length=50, description="compute: the proposals the plan is for. "
         "The go-ahead then covers only their workspaces, runs and commissions, with those its runs name; work for no proposal is "
         "covered in this request only. A plan that names none covers any work in the campaign")
+    egress_hosts: list[str] = Field(default_factory=list, max_length=20, description="mandate, compute: hosts its coding workspaces may reach "
+        "beyond their model and the package index (lowercase DNS names); the researcher approves them with the plan")
     meanwhile: str | None = Field(default=None, min_length=1, max_length=2000, description="compute: what the researcher can do while it runs")
     runs: list[PlannedRun] = Field(default_factory=list, max_length=50, description="compute for experiments: each planned experiment, "
         "so the researcher reads the plan (speed, evaluations, outputs and disk use, measured on earlier runs) before approving")
+    template: Literal["screen", "run_campaign"] | None = Field(default=None, description="mandate: the template asked for")
+    model_usd: float | None = Field(default=None, ge=0, le=10000, description="mandate: the model-spend envelope")
+    deadline_minutes: float | None = Field(default=None, gt=0, le=40320, description="mandate: minutes from the approval to its deadline")
+    stop_when: StopCondition | None = Field(default=None, description="mandate: when the request's work is done")
 
     @model_validator(mode="after")
     def one_request(self):
         given = {"campaign_limits": bool(self.limits), "waiver": self.requirement_id is not None, "worker_ceiling": self.workers is not None,
-                 "compute": self.plan is not None}
+                 "compute": self.plan is not None and self.template is None, "mandate": self.template is not None}
         if not given[self.kind] or sum(given.values()) != 1:
-            raise ValueError("Give exactly the fields of the chosen kind: limits, requirement_id with evidence_ids, workers, or a compute plan")
+            raise ValueError("Give exactly the fields of the chosen kind: limits, requirement_id with evidence_ids, workers, a compute plan, "
+                             "or a mandate's template and plan")
         if self.kind == "compute" and (self.wall_seconds is None or self.worker_seconds is None or self.meanwhile is None):
             raise ValueError("A compute plan states wall_seconds, worker_seconds and what the researcher can do meanwhile")
-        if (self.runs or self.hypothesis_ids) and self.kind != "compute":
-            raise ValueError("Planned runs and the proposals a plan is for belong to a compute request")
+        if self.kind == "mandate" and (self.plan is None or self.worker_seconds is None):
+            raise ValueError("A mandate states its plan and the worker_seconds of its envelope")
+        if (self.runs or self.hypothesis_ids or self.egress_hosts) and self.kind not in {"compute", "mandate"}:
+            raise ValueError("Planned runs, the proposals a plan is for and the hosts its workspaces reach belong to a mandate or a compute request")
+        if self.egress_hosts and not self.coding_workspaces:
+            raise ValueError("egress_hosts are for the coding workspaces a plan opens: set coding_workspaces")
+        import re
+        bad = [host for host in self.egress_hosts if not re.fullmatch(HOSTNAME, host)]
+        if bad:
+            raise ValueError("egress_hosts: name each host by its lowercase DNS name, without scheme, port or path: " + ", ".join(bad))
+        if (self.model_usd is not None or self.deadline_minutes is not None or self.stop_when is not None) and self.kind != "mandate":
+            raise ValueError("A model-spend envelope, a deadline and a stop condition belong to a mandate")
         if set(self.limits) - set(LIMITS):
             raise ValueError("Unknown campaign limit: " + ", ".join(sorted(set(self.limits) - set(LIMITS))))
         if self.kind == "waiver" and not self.evidence_ids:
@@ -378,6 +418,9 @@ class CommissionInput(Contract):
     api_budget_usd: float = Field(default=0, ge=0, le=10000)
     package: dict[str, Any] | None = None
     service_idempotency_key: str | None = Field(default=None, min_length=1, max_length=200)
+    # A commission that opens a headless coding box (roadmap H7): acceptance tests the coding agent sees, and the protected ones
+    # its commissioner writes outside the box, which it never does (agents/development_commission.py).
+    ticket: TicketInput | None = None
 
 
 class AttachInput(Contract):
@@ -392,6 +435,7 @@ class EvaluatorCommissionInput(Contract):
     max_calls: int = Field(default=12, ge=1, le=20)
     api_budget_usd: float = Field(default=0, ge=0, le=10000)
     package: EvaluatorPackage | None = None
+    ticket: TicketInput | None = None
 
 
 class EvaluatorAttachInput(Contract):

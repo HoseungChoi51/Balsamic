@@ -1,28 +1,11 @@
-"""Run one isolated qualification service with an explicitly mocked model reviewer.
+"""Run one isolated qualification service: the implementation library, or a workspace pointed at it.
 
-Only supplied packages can be commissioned. HTTP, authentication, persistence,
-independent correctness checks, package isolation and workers are the real product.
-This fixture never contacts an LLM and is not live-model acceptance evidence.
+Only supplied packages are checked and published: since roadmap H8 the library calls no model (no builder, no reviewer). HTTP,
+authentication, persistence, independent correctness checks, package isolation and workers are the real product.
 """
 import argparse
 import os
 from pathlib import Path
-
-from optimization_framework.implementations.models import ReviewResult
-
-
-class FixtureReviewer:
-    def __init__(self, **kwargs):
-        self.usage = {"calls": 0, "api_cost_usd": 0}
-        self.callback = kwargs["reservation_callback"]
-
-    def call(self, role, payload, *, result_type, instructions):
-        if role != "implementation_validator":
-            raise ValueError("Qualification fixture requires a supplied source package; no model builder is configured")
-        self.usage["calls"] += 1
-        self.callback({"type": "provider_call_reserved", "usage": self.usage})
-        return ReviewResult(passed=True, criteria=payload["spec"]["acceptance_criteria"],
-                            findings=["Mocked semantic reviewer for supplied-code qualification"])
 
 
 def main():
@@ -36,7 +19,7 @@ def main():
     os.environ["GRATING_LLM_DISABLED"] = "true"
     if args.role == "library":
         from optimization_framework.implementations.api import create_app
-        app = create_app(args.directory / "library", adapter_factory=FixtureReviewer)
+        app = create_app(args.directory / "library")
     else:
         from balsamic.app import create_app
         from optimization_framework.implementations.client import ImplementationClient

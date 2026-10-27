@@ -3,6 +3,10 @@
 Pi prices every call from its model catalog (`cost_usd`). Only calls billed through
 an API key are charges (`charged_usd`); subscription calls keep their list-price
 estimate for comparison but are not counted against the campaign's API cap.
+
+Each call names the agent run it was made in (run_id) and the researcher's request that run serves (root_thread_id,
+root_message_id, root_run_id: the request root of campaigns/mandates.py), so a mandate's model spend is the sum of its own
+request's calls (spent()). Calls recorded before this, and report stages started outside a request, name none.
 """
 import json
 
@@ -15,9 +19,13 @@ SCHEMA = (
         family TEXT, thinking_level TEXT, billing TEXT NOT NULL,
         input INTEGER NOT NULL, output INTEGER NOT NULL, cache_read INTEGER NOT NULL, cache_write INTEGER NOT NULL,
         reasoning INTEGER NOT NULL, total_tokens INTEGER NOT NULL, cost_usd REAL, charged_usd REAL NOT NULL,
-        occurred_at TEXT NOT NULL)""",
+        occurred_at TEXT NOT NULL, run_id TEXT, root_thread_id TEXT, root_message_id TEXT, root_run_id TEXT)""",
     "CREATE INDEX IF NOT EXISTS llm_usage_campaign_time ON llm_usage(campaign_id, occurred_at)",
 )
+ROOT_COLUMNS = ("run_id", "root_thread_id", "root_message_id", "root_run_id")
+COLUMNS = ("event_key, campaign_id, agent_id, role, provider, model, family, thinking_level, billing, input, output, cache_read, "
+           "cache_write, reasoning, total_tokens, cost_usd, charged_usd, occurred_at, " + ", ".join(ROOT_COLUMNS))
+INSERT = f"INSERT OR IGNORE INTO llm_usage({COLUMNS}) VALUES ({','.join('?' * (18 + len(ROOT_COLUMNS)))})"
 LEGACY_PROVIDER = "openai-codex"
 SUBSCRIPTION_PROVIDERS = {"openai-codex"}
 
@@ -26,12 +34,17 @@ def ensure(store):
     with store.connection() as db:
         for statement in SCHEMA:
             db.execute(statement)
+        present = {row[1] for row in db.execute("PRAGMA table_info(llm_usage)").fetchall()}
+        for column in ROOT_COLUMNS:
+            if column not in present:   # a table made before calls named their run: old rows keep none
+                db.execute(f"ALTER TABLE llm_usage ADD COLUMN {column} TEXT")
+        db.execute("CREATE INDEX IF NOT EXISTS llm_usage_campaign_root ON llm_usage(campaign_id, root_thread_id)")
         empty = db.execute("SELECT 1 FROM llm_usage LIMIT 1").fetchone() is None
     if empty:
         backfill(store)
 
 
-def _row(campaign_id, agent, event_key, event, occurred_at):
+def _row(campaign_id, agent, event_key, event, occurred_at, run_id=None, root=None):
     usage = event.get("usage") or {}
     provider = event.get("provider") or agent.get("provider") or LEGACY_PROVIDER
     model = event.get("model") or agent.get("model")
@@ -41,17 +54,18 @@ def _row(campaign_id, agent, event_key, event, occurred_at):
             event.get("thinking_level") or agent.get("reasoning_effort"), billing,
             int(usage.get("input", 0)), int(usage.get("output", 0)), int(usage.get("cacheRead", 0)),
             int(usage.get("cacheWrite", 0)), int(usage.get("reasoning", 0)), int(usage.get("totalTokens", 0)),
-            cost, (cost or 0.0) if billing == "api" else 0.0, occurred_at)
+            cost, (cost or 0.0) if billing == "api" else 0.0, occurred_at,
+            run_id, *((root or {}).get(key) for key in ("thread_id", "message_id", "run_id")))
 
 
-def record(store, campaign_id, agent, event_key, event):
-    """Idempotent per harness event; returns the amount charged to the API cap."""
-    row = _row(campaign_id, agent, event_key, event, event.get("occurred_at"))
+def record(store, campaign_id, agent, event_key, event, *, run_id=None, root=None):
+    """Idempotent per harness event; returns the amount charged to the API cap. run_id is the agent run the call was made in
+    (the event's own when it names one), root the researcher's request that run serves."""
+    root = root if isinstance(root, dict) and root.get("thread_id") else None
+    row = _row(campaign_id, agent, event_key, event, event.get("occurred_at"), event.get("run_id") or run_id, root)
     with store.connection() as db:
-        inserted = db.execute("INSERT OR IGNORE INTO llm_usage(event_key, campaign_id, agent_id, role, provider, model, family, "
-            "thinking_level, billing, input, output, cache_read, cache_write, reasoning, total_tokens, cost_usd, charged_usd, "
-            "occurred_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)", row).rowcount
-    return row[-2] if inserted else 0.0
+        inserted = db.execute(INSERT, row).rowcount
+    return row[16] if inserted else 0.0
 
 
 def backfill(store):
@@ -69,15 +83,32 @@ def backfill(store):
             agent = agents.get(event.get("agent_id"))
             if not agent or not (payload or {}).get("usage"):
                 continue
-            db.execute("INSERT OR IGNORE INTO llm_usage(event_key, campaign_id, agent_id, role, provider, model, family, "
-                "thinking_level, billing, input, output, cache_read, cache_write, reasoning, total_tokens, cost_usd, charged_usd, "
-                "occurred_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
-                _row(campaign_id, agent, event_key, payload, payload.get("occurred_at") or event["occurred_at"]))
+            db.execute(INSERT, _row(campaign_id, agent, event_key, payload, payload.get("occurred_at") or event["occurred_at"]))
 
 
 def charged(store, campaign_id):
     with store.connection() as db:
         return db.execute("SELECT COALESCE(SUM(charged_usd),0) FROM llm_usage WHERE campaign_id=?", (campaign_id,)).fetchone()[0]
+
+
+def spent(store, campaign_id, root=None, since=None):
+    """API dollars charged under one request (root: thread, message, run, matched as mandates.same_root matches them), or, for
+    no root, in the whole campaign since a time: what a mandate's model envelope counts."""
+    where, args = "campaign_id=?", [campaign_id]
+    if root is not None:
+        where += " AND root_thread_id=?"
+        args.append(root.get("thread_id"))
+        if root.get("message_id"):
+            where += " AND root_message_id=?"
+            args.append(root["message_id"])
+        else:
+            where += " AND root_message_id IS NULL AND root_run_id=?"
+            args.append(root.get("run_id"))
+    if since is not None:
+        where += " AND occurred_at>=?"
+        args.append(since)
+    with store.connection() as db:
+        return db.execute(f"SELECT COALESCE(SUM(charged_usd),0) FROM llm_usage WHERE {where}", args).fetchone()[0]
 
 
 def last_thinking_levels(store, campaign_id):

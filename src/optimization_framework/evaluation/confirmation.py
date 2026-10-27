@@ -68,7 +68,9 @@ class ConfirmationService:
                 raise ValueError("This confirmation protocol is closed; a new study is required for further work")
             if not protocol.get("prototypes"):
                 raise ValueError("This historical protocol has no pinned source prototypes; define a linked study")
-            if authority == "manager" and (campaign["autonomy"] != "delegated" or any(
+            # The campaign's default template (R7) is what its autonomy was: an agent schedules a roster only under a go-ahead one.
+            from optimization_framework.campaigns.mandates import delegates
+            if authority == "manager" and (not delegates(campaign) or any(
                     method["wall_seconds"] > campaign["delegated_trial_seconds"] for method in protocol["methods"].values())):
                 raise ValueError("The frozen roster exceeds the manager's delegated per-experiment allowance")
             study = self.store.get(protocol["study_id"], "study")
@@ -114,7 +116,8 @@ class ConfirmationService:
             campaign = self.store.get(protocol["campaign_id"], "campaign")
             policy = study.get("validation_policy", {})
             wall = policy.get("validation_wall_seconds", 120)
-            if authority == "manager" and (campaign["autonomy"] != "delegated" or wall > campaign["delegated_trial_seconds"]):
+            from optimization_framework.campaigns.mandates import delegates
+            if authority == "manager" and (not delegates(campaign) or wall > campaign["delegated_trial_seconds"]):
                 raise ValueError("Required validation exceeds the manager's delegated per-experiment allowance")
             assessment = self.assess(protocol_id)
             if assessment["release"]:

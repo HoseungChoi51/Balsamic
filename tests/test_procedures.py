@@ -13,8 +13,7 @@ from support import QUADRATIC, activate_team, command, submitted  # noqa: E402
 from balsamic import procedures as module  # noqa: E402
 from balsamic.procedures import COMMAND_HINTS, TOOL_HINTS, Procedures  # noqa: E402
 from optimization_framework.agents.models import ROLES  # noqa: E402
-from optimization_framework.agents.tools import EXTRA_TOOLS, GRANT_INSTRUCTIONS, PiTools  # noqa: E402
-from optimization_framework.contracts.base import content_hash  # noqa: E402
+from optimization_framework.agents.tools import EXTRA_TOOLS, PiTools  # noqa: E402
 
 MAIN = "thread_main_demo"
 
@@ -45,24 +44,16 @@ def test_every_procedure_is_a_valid_skill_for_real_roles_and_every_hint_names_on
         assert item["roles"] and item["roles"] <= set(ROLES), name
         assert len(item["description"]) <= 1024 and item["body"].startswith("# "), name
     assert set(TOOL_HINTS.values()) | set(COMMAND_HINTS.values()) <= set(catalog.items)
-    assert catalog.catalog("lead") == sorted(catalog.catalog("lead")) and catalog.catalog("implementation_builder") == []
+    assert catalog.catalog("lead") == sorted(catalog.catalog("lead")) and catalog.catalog("implementation_builder") == []   # retired (H8)
 
 
-def test_the_lead_is_given_a_short_contract_and_its_catalog_and_a_grant_its_old_instructions(team):
+def test_the_lead_is_given_a_short_contract_and_its_catalog(team):
     run = team.turn("Hello")
     manifest = team.tools.manifest(team.lead["id"], run["id"])
     assert "Procedures: before you start one of these workflows, read its procedure with procedure_read." in manifest["instructions"]
     assert "- report-brief: " in manifest["instructions"] and "procedure_read" in {tool["name"] for tool in manifest["tools"]}
     # The workflow texts are no longer in every turn.
     assert "Proposal fields." not in manifest["instructions"] and "journal.compaction_request" not in manifest["instructions"]
-    # An implementation grant's protected roles are told exactly what they were told before the plan (§2.8), with the lab's own
-    # later edits to that text (what to ask the researcher for, speed per device) and nothing from the harness work.
-    assert content_hash(GRANT_INSTRUCTIONS)[:16] == "420aad5a94f2718d"
-    builder = team.workspace.pi.create_agent("demo", "implementation_builder", "Build", "builder_x", parent_id=team.lead["id"], grant_id="grant_x")
-    built = submitted(team.workspace, team.workspace.pi.enqueue(builder, "builder_run", "Build it")["id"])
-    grant = team.tools.manifest(builder["id"], built["id"])
-    assert grant["instructions"].startswith(GRANT_INSTRUCTIONS) and "Procedures" not in grant["instructions"]
-    assert "procedure_read" not in {tool["name"] for tool in grant["tools"]}
 
 
 def test_a_procedure_is_read_by_its_roles_only_whole_or_cut_and_the_read_is_receipted(team, monkeypatch, tmp_path):

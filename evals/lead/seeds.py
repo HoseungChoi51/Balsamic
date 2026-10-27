@@ -64,13 +64,14 @@ def large_record(ctx):
 
 
 def two_small_runs(ctx):
-    """Two short runs of the installed random search, started by the researcher; S8 lets them finish before it asks."""
+    """Two short runs of the installed random search, started by the researcher with their own commands; S8 lets them finish
+    before it asks. Since R6 their ends wake no agent."""
     task = ctx.workspace.current_tasks(ctx.campaign_id)[0]
     ids = []
     for seed in (1, 2):
-        trial = ctx.workspace.create_trial(TrialInput(campaign_id=ctx.campaign_id, task_id=task["id"], algorithm="random", seed=seed,
-                                                      max_steps=400, wall_seconds=30, question=f"Screen · random · seed {seed}"))
-        ids.append(trial["id"])
+        receipt = ctx.stack.command(ctx.campaign_id, "trial.create", {"task_id": task["id"], "algorithm": "random", "seed": seed,
+                                    "max_steps": 400, "wall_seconds": 30, "question": f"Screen · random · seed {seed}"})
+        ids.append(receipt["outcome"]["trial_id"])
     return {"trial_ids": ", ".join(ids)}
 
 

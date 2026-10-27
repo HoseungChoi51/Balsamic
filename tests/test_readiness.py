@@ -1,5 +1,6 @@
 """The readiness files name the triage layer and the register rows of what they fixed (docs/incident-triage.md): the two
-lines follow "What was wrong", the layer is one of the five or `none`, and each row they name is in docs/invariants.md."""
+lines follow "What was wrong", the layer is one of the five or `none`, and each row they name is in the register
+(docs/invariants.md and its part files, docs/invariants/)."""
 import re
 from pathlib import Path
 
@@ -8,6 +9,7 @@ import pytest
 ROOT = Path(__file__).resolve().parents[1]
 READINESS = ROOT / "docs" / "readiness"
 REGISTER = ROOT / "docs" / "invariants.md"
+PARTS = ROOT / "docs" / "invariants"   # the part files of the register (INV-<part>-<n> rows)
 LAYERS = {"mandate", "budget", "evidence", "prompt", "UI", "none"}
 # Written before triage existed; a later part that changes one says so in its own file.
 BEFORE_TRIAGE = {"A1", "A3", "I1"}
@@ -54,7 +56,8 @@ def files():
 @pytest.mark.parametrize("path", files(), ids=lambda path: path.stem)
 def test_each_readiness_file_names_its_layer_and_rows(path):
     text = path.read_text(encoding="utf-8")
-    assert problems(text, register_ids(REGISTER.read_text(encoding="utf-8"))) == []
+    register = "\n".join(file.read_text(encoding="utf-8") for file in [REGISTER, *sorted(PARTS.glob("*.md"))])
+    assert problems(text, register_ids(register)) == []
 
 
 def test_readiness_files_after_triage_use_the_two_lines():

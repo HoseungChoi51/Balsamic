@@ -1,4 +1,4 @@
-"""Commissioned evaluators use captured reviewed recipes and worker-owned costs."""
+"""Library-checked evaluators use captured reviewed recipes and worker-owned costs."""
 from copy import deepcopy
 from importlib import metadata
 from pathlib import Path
@@ -20,7 +20,8 @@ from optimization_framework.implementations.models import EvaluatorSpec, JobRequ
 from optimization_framework.implementations.service import ImplementationService
 from optimization_framework.storage.sqlite import read_json
 
-from test_framework_evaluators import MockReviewer, SOURCE, contract_specification, package, specification
+from framework_fixtures import library_job
+from test_framework_evaluators import SOURCE, contract_specification, package, specification
 from test_framework_templates import template
 
 
@@ -41,20 +42,18 @@ def setup(directory, *, contract_only=False, slow=False, recipe_ids=None):
     data = (contract_specification() if contract_only else specification()).model_dump(mode="json")
     data["manifest"]["recipe_ids"] = recipe_ids if recipe_ids is not None else [*RECIPES, "unavailable_analysis:v1"]
     spec = EvaluatorSpec.model_validate(data)
-    service = ImplementationService(directory / "library", adapter_factory=MockReviewer)
+    service = ImplementationService(directory / "library")
     workspace = Workspace(directory / "workspace", implementation_client=Client(service))
     campaign = workspace.create_campaign(CampaignInput(name="Commissioned recipe qualification", compute_budget_seconds=500,
         implementation_compute_budget_seconds=60, validation_reserve_seconds=0,
         tasks=[TaskInput(name="Declared quadratic", problem_id=spec.manifest.id, evaluator_manifest=spec.manifest)]))
     task = workspace.current_tasks(campaign["id"])[0]
     source = SOURCE.replace("self.count += 1", "import time; time.sleep(.02); self.count += 1") if slow else SOURCE
-    receipt = workspace.commands.execute(Command(id="commission-evaluator", campaign_id=campaign["id"], expected_revision=1,
-        operation="evaluator.commission", payload={"task_id": task["id"], "spec": spec.model_dump(mode="json"),
-            "package": package(source).model_dump(mode="json"), "compute_seconds": 30, "max_calls": 1}))
-    grant = workspace.store.get(receipt["outcome"]["grant_id"], "implementation_grant")
-    job = service.run_job(grant["job_id"])
-    assert job["status"] == "completed", job
-    workspace.implementations.reconcile()
+    # The library checks and publishes the supplied evaluator through its own API (roadmap H8); the researcher binds it to the task.
+    job = library_job(service, spec, package(source), key="evaluator", campaign_id=campaign["id"],
+                      workspace_id=workspace.implementations.workspace_id, compute_seconds=30)
+    workspace.commands.execute(Command(id="attach-evaluator", campaign_id=campaign["id"], expected_revision=1, operation="evaluator.attach",
+        payload={"task_id": task["id"], "version_id": job["version_id"], "rationale": "The evaluator the library checked"}))
     return workspace, service, campaign, workspace.current_tasks(campaign["id"])[0], spec
 
 
@@ -163,9 +162,9 @@ def test_real_worker_recipes_pin_evaluator_and_attribute_shared_costs_once(tmp_p
         check = workspace.validations.assess(identity)
         assert check["measured_pass"] and check["requirement"]["kind"] == "solution_fidelity"
     for trial in (reevaluation, fidelity):
-        assert workspace.assets.attributed_costs(trial["latest_output_asset_ids"])["quantities"]["evaluation_requests"]["total"] == 30
+        assert workspace.assets.attributed_costs(trial["latest_output_asset_ids"])["quantities"]["evaluation_requests"]["known"] == 30
     both = workspace.assets.attributed_costs(reevaluation["latest_output_asset_ids"] + fidelity["latest_output_asset_ids"])
-    assert both["quantities"]["evaluation_requests"]["total"] == 36  # 20 checks + 4 shared prefix + 12 new measurements
+    assert both["quantities"]["evaluation_requests"]["known"] == 36  # 20 checks + 4 shared prefix + 12 new measurements
 
 
 def test_recipe_pause_restores_multiple_hosts_and_preserves_attempt_costs(tmp_path):
@@ -192,7 +191,7 @@ def test_recipe_pause_restores_multiple_hosts_and_preserves_attempt_costs(tmp_pa
         if process.poll() is None:
             workspace.control(trial["id"], ControlInput(action="stop"))
             process.wait(timeout=10)
-    service = ImplementationService(tmp_path / "library", adapter_factory=MockReviewer)
+    service = ImplementationService(tmp_path / "library")
     workspace = Workspace(tmp_path / "workspace", implementation_client=Client(service))
     workspace.control(trial["id"], ControlInput(action="resume"))
     completed = finish(workspace, workspace.store.get(trial["id"], "trial"))
@@ -201,7 +200,7 @@ def test_recipe_pause_restores_multiple_hosts_and_preserves_attempt_costs(tmp_pa
     assert len(observations) == len({row["request_id"] for row in observations}) == 26
     assert completed["result"]["evaluations"] == completed["result"]["solver_calls"] == 26
     assert len({row["attempt_id"] for row in observations}) == 2
-    assert workspace.assets.attributed_costs(completed["latest_output_asset_ids"])["quantities"]["evaluation_requests"]["total"] == 50
+    assert workspace.assets.attributed_costs(completed["latest_output_asset_ids"])["quantities"]["evaluation_requests"]["known"] == 50
     before = workspace.store.list("validation_result")
     workspace.reconcile()
     assert workspace.store.list("validation_result") == before
@@ -307,6 +306,6 @@ def test_reviewed_extension_keeps_its_captured_source_after_uninstallation(tmp_p
         summary = child["result"]["recipe_result"]["subjects"][0]
         assert summary["count"] == 3 and summary["range"] == [summary["mean"], summary["mean"]]
         assert child["result"]["evaluations"] == 3 and not child["validation_requirement_ids"]
-        assert workspace.assets.attributed_costs(child["latest_output_asset_ids"])["quantities"]["evaluation_requests"]["total"] == 27
+        assert workspace.assets.attributed_costs(child["latest_output_asset_ids"])["quantities"]["evaluation_requests"]["known"] == 27
     finally:
         sys.modules.pop("fixture_recipes", None)

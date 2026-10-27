@@ -47,6 +47,7 @@ def common(tools, agent, run):
     else:
         lines.append("Open questions to the researcher: none.")
     lines.append(compute_rule(tools, agent["campaign_id"]))
+    lines += mandate_line(tools, agent, run)
     return lines + pack_procedures(tools, agent)
 
 
@@ -54,6 +55,29 @@ def pack_procedures(tools, agent):
     """The procedures the campaign's problems bring (their packs), which the role catalogs in the cached instructions leave out."""
     procedures = getattr(tools.workspace, "procedures", None)
     return procedures.campaign_lines(tools.workspace, agent["role"], agent["campaign_id"]) if procedures is not None else []
+
+
+def mandate_line(tools, agent, run):
+    """The mandate this turn's request is checked against (R3: its own newest, else a standing one), with its model dollars (R5),
+    the worker time and coding workspaces it has left and its deadline (R2); with none, Explore by default."""
+    from optimization_framework.campaigns import mandates
+    from optimization_framework.campaigns.compute_consent import _minutes, request_root
+    root = tools.controller.run_root(agent, run) or request_root(tools.workspace, {"run_id": run["id"]})
+    if not root or not root.get("thread_id"):
+        return []
+    mandate = mandates.governing(tools.workspace, agent["campaign_id"], root)
+    if mandate is None:
+        return ["Mandate: none, Explore by default (mandate_propose for more)."]
+    left = mandates.model_left(mandate)
+    compute, used = mandate.compute, mandate.used
+    coding = compute.coding_workspaces - used.coding_workspaces
+    return [f"Mandate: {mandate.template.replace('_', ' ')} ({mandate.id}); model spend "
+            + (f"${left:.2f} left of ${mandate.model_usd:.2f}" + (" (spent: new turns under this request wait for the researcher)" if left <= 1e-9 else "")
+               if left is not None else "without an envelope of its own (the campaign's cap applies)")
+            + (f"; {mandate.status}" + (", new work is refused" if mandate.status in mandates.ENDED else "") if mandate.status != "active" else "")
+            + f"; worker time {_minutes(max(0.0, compute.worker_seconds - used.worker_seconds))} left"
+            + (f", {coding} coding workspace{'s' if coding != 1 else ''}" if compute.coding_workspaces else "")
+            + (f"; deadline {mandate.deadline_at[:16].replace('T', ' ')} UTC" if mandate.deadline_at else "; no deadline") + "."]
 
 
 def compute_rule(tools, campaign_id):

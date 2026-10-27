@@ -5,7 +5,7 @@
 A method is `method(problem, evaluate, rng)`. `evaluate(candidate)` returns the objective and raises `StopSearch` once
 the run's seconds or evaluations are spent. `rng` is a `numpy.random.Generator` seeded for the run. A method that
 computes the objective itself is stopped at `max_seconds` all the same. If it returns a candidate, that candidate is
-evaluated once more while the evaluation cap allows.
+evaluated once more while the evaluation cap allows; a returned string says why it stopped, as in Balsamic.
 """
 from __future__ import annotations
 
@@ -28,6 +28,21 @@ class StopSearch(BaseException):
 
 class InvalidCandidate(ValueError):
     """A candidate the charter does not allow: the message says what it breaks."""
+
+
+def methods() -> dict:
+    """Each method listed in `METHODS` (methods.py), by id: the function of that name."""
+    from . import methods as module
+    out = {}
+    for name, listed in module.METHODS.items():
+        if not isinstance(listed, dict) or not all(isinstance(listed.get(key), str) for key in ("name", "description")):
+            raise ValueError(f"METHODS[{name!r}] must be a dict with a name and a description, e.g. "
+                             f"{{'name': 'Random search', 'description': 'What it does.'}}")
+        function = getattr(module, name, None)
+        if not callable(function):
+            raise ValueError(f"METHODS lists {name!r}, but methods.py defines no function {name}(problem, evaluate, rng)")
+        out[name] = function
+    return out
 
 
 def deterministic(method):
@@ -127,7 +142,7 @@ def run(method, problem: Problem, seed: int, max_seconds: float | None = None, m
     except StopSearch as stop:
         stopped = stop.args[0] if stop.args else "seconds"
     elapsed = evaluate.elapsed
-    if stopped == "finished" and returned is not None and (max_evaluations is None or evaluate.evaluations < max_evaluations):
+    if stopped == "finished" and returned is not None and not isinstance(returned, str) and (max_evaluations is None or evaluate.evaluations < max_evaluations):
         if evaluate.best is None or list(np.asarray(returned, dtype=float).reshape(-1)) != evaluate.best:
             evaluate._evaluate(returned)
     return Result(method=name or getattr(method, "__name__", "method"), instance=problem.instance, seed=seed,

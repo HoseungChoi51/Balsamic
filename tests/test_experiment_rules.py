@@ -8,6 +8,8 @@ from optimization_framework.contracts.requests import TrialInput
 
 from test_page_agents import call, finish, submitted, wakes
 from test_pi_agents import activated
+from optimization_framework.campaigns.compute_consent import request_root
+from test_mandates import granted
 
 
 def command(w, c, operation, payload, identity):
@@ -42,6 +44,8 @@ def test_the_rules_start_from_the_runtime_gate_and_change_by_revision(tmp_path, 
     state = PiTools(w.pi).turn_state(operator['id'], asked['id'])['text']
     assert 'revision 2' in state and 'Short runs are allotted less than 900 seconds' in state and 'expected improvement' not in state
     assert 'experiment rules' in PiTools(w.pi).manifest(operator['id'], asked['id'])['instructions'] and '900' not in PiTools(w.pi).manifest(operator['id'], asked['id'])['instructions']
+    # Experiment rules are configure work, which only Run the campaign allows (R3): the researcher granted it for this request.
+    granted(w, c['id'], 'run_campaign', root=request_root(w, {'run_id': asked['id']}))
     changed = call(w, operator, asked, 'campaign_command', {'operation': 'experiments.rules', 'request_key': 'two', 'guidance_revision': w.memory.state(c['id'])['guidance_revision'],
         'payload': {'max_concurrent': 2, 'expected_revision': 2, 'rationale': 'The researcher asked for two at once'}}, 'rules')
     assert changed['outcome']['max_concurrent'] == 2 and current(w.store, c['id'])['updated_by'] == 'manager' and changed['page'] == '#experiments/rules'

@@ -1,12 +1,14 @@
 """The implementation allocation is the researcher's optional ceiling (roadmap B3): with none set, an agent's commission
-needs only the compute go-ahead the bus guard asks for, a positive ceiling still caps, and an agent cannot ask to raise it."""
+needs only the compute go-ahead the bus guard asks for, a positive ceiling still caps, and an agent cannot ask to raise it.
+Since roadmap H8 a commission is a headless coding box (test_commission_box's lab, over a fake driver), and the ceiling counts
+its compute time as it counted a service job's."""
 import pytest
 from framework_fixtures import researcher_idea
 
 from optimization_framework.contracts.commands import Command
 from optimization_framework.contracts.requests import CampaignInput, CampaignUpdate, TaskInput
 from optimization_framework.execution.service import Workspace
-from optimization_framework.implementations.models import ImplementationSpec
+from test_commission_box import Lab, commission
 
 
 class Library:
@@ -36,53 +38,49 @@ def send(workspace, campaign_id, identity, operation, payload, actor="manager"):
         operation=operation, payload=payload, **pins), actor=actor)
 
 
-def commission(hypothesis, seconds):
-    spec = ImplementationSpec(name="Coordinate variant", mechanism="Bounded coordinate search", problem_id="bounded_continuous",
-        capabilities=["continuous"], acceptance_criteria=["Feasible candidates"]).model_dump(mode="json")
-    return {"hypothesis_id": hypothesis["id"], "spec": spec, "compute_seconds": seconds}
+def box_lab(tmp_path, monkeypatch, ceiling=0):
+    """A campaign whose implementation lead commissions under the researcher's go-ahead (a Screen mandate for 2,400 worker
+    seconds), coding workspaces on, and the researcher's implementation ceiling (0: none)."""
+    monkeypatch.setenv("GRATING_DEVELOPMENT_ENABLED", "true")
+    monkeypatch.setenv("GRATING_PI_PROVIDER", "openai-codex")
+    monkeypatch.setenv("GRATING_AUTO_INSTALL", "false")
+    lab = Lab(tmp_path)
+    store = lab.workspace.store
+    store.put("campaign", {**store.get(lab.cid, "campaign"), "implementation_compute_budget_seconds": ceiling})
+    return lab
 
 
-def go_ahead(workspace, campaign_id, hypothesis, seconds):
-    send(workspace, campaign_id, "ask", "approval.request", {"kind": "compute", "plan": "Build the coordinate variant",
-        "rationale": "The proposal needs code", "wall_seconds": seconds, "worker_seconds": seconds,
-        "meanwhile": "Read the earlier results", "hypothesis_ids": [hypothesis["id"]]})
-    decision = workspace.store.list("decision", campaign_id)[-1]
-    send(workspace, campaign_id, "approve", "decision.resolve", {"decision_id": decision["id"], "choice": "0", "comment": "",
-        "expected_resolution_revision": 0}, actor="researcher")
+def test_with_no_ceiling_a_commission_needs_only_the_compute_go_ahead(tmp_path, monkeypatch):
+    lab = box_lab(tmp_path, monkeypatch)
+    store = lab.workspace.store
+    with pytest.raises(ValueError, match="mandate_propose"):
+        commission(lab, "build_early", compute_seconds=5000)   # more than the go-ahead covers
+    assert store.list("development_workspace", lab.cid) == []
+    receipt = commission(lab, "build", compute_seconds=900)
+    assert receipt["status"] == "completed" and receipt["outcome"]["workspace_id"]
+    assert lab.workspace.implementations.compute_committed(lab.cid) == 900
+    assert store.get(lab.cid, "campaign")["implementation_compute_budget_seconds"] == 0   # no raise was needed
 
 
-def test_with_no_ceiling_a_commission_needs_only_the_compute_go_ahead(tmp_path):
-    workspace, cid, hypothesis = lab(tmp_path)
-    with pytest.raises(ValueError, match="approval.request with kind compute"):
-        send(workspace, cid, "build_early", "implementation.commission", commission(hypothesis, 900))
-    assert workspace.store.list("implementation_grant", cid) == []
-    go_ahead(workspace, cid, hypothesis, 900)
-    receipt = send(workspace, cid, "build", "implementation.commission", commission(hypothesis, 900))
-    assert receipt["status"] == "completed"
-    assert workspace.implementations.compute_committed(cid) == 900
-    assert workspace.store.get(cid, "campaign")["implementation_compute_budget_seconds"] == 0   # no raise was needed
-
-
-def test_a_positive_ceiling_still_caps(tmp_path):
-    workspace, cid, hypothesis = lab(tmp_path, ceiling=60)
-    spec = ImplementationSpec(name="Coordinate", mechanism="Bounded coordinate search", problem_id="bounded_continuous",
-        capabilities=["continuous"], acceptance_criteria=["Feasible candidates"])
-    workspace.implementations.commission(hypothesis["id"], spec, compute_seconds=50, idempotency_key="first")
-    with pytest.raises(ValueError, match=r"implementation ceiling the researcher set \(60s\)"):
-        workspace.implementations.commission(hypothesis["id"], spec, compute_seconds=20, idempotency_key="second")
+def test_a_positive_ceiling_still_caps(tmp_path, monkeypatch):
+    lab = box_lab(tmp_path, monkeypatch, ceiling=1000)
+    workspace, cid = lab.workspace, lab.cid
+    commission(lab, "first", compute_seconds=900)
+    with pytest.raises(ValueError, match=r"implementation ceiling the researcher set \(1000s\)"):
+        commission(lab, "second", compute_seconds=200)
     # A revalidation goes through the same check (bridge.over_ceiling).
-    assert workspace.implementations.over_ceiling(workspace.store.get(cid, "campaign"), 20)
+    assert workspace.implementations.over_ceiling(workspace.store.get(cid, "campaign"), 200)
     # The researcher may lower the ceiling only to what is committed, or remove it with 0.
     with pytest.raises(ValueError, match="exceed the proposed implementation compute cap"):
-        workspace.update_campaign(cid, CampaignUpdate(implementation_compute_budget_seconds=40))
+        workspace.update_campaign(cid, CampaignUpdate(implementation_compute_budget_seconds=800))
     workspace.update_campaign(cid, CampaignUpdate(implementation_compute_budget_seconds=0))
-    workspace.implementations.commission(hypothesis["id"], spec, compute_seconds=20, idempotency_key="second")
-    assert workspace.implementations.compute_committed(cid) == 70
+    commission(lab, "second_without_ceiling", compute_seconds=200)
+    assert workspace.implementations.compute_committed(cid) == 1100
 
 
 def test_an_agent_asking_to_raise_the_allocation_is_sent_to_the_compute_go_ahead(tmp_path):
     workspace, cid, _ = lab(tmp_path, ceiling=60)
-    redirect = r"Ask for a compute go-ahead \(kind compute\) instead; the implementation allocation is only an optional ceiling"
+    redirect = r"Propose a mandate with mandate_propose instead; the implementation allocation is only an optional ceiling"
     for identity, value in (("raise", 600), ("remove", 0)):
         with pytest.raises(ValueError, match=redirect):
             send(workspace, cid, identity, "approval.request", {"kind": "campaign_limits", "rationale": "Room to build",
@@ -96,6 +94,6 @@ def test_an_agent_asking_to_raise_the_allocation_is_sent_to_the_compute_go_ahead
 
 def test_with_no_ceiling_any_raise_is_refused(tmp_path):
     workspace, cid, _ = lab(tmp_path)
-    with pytest.raises(ValueError, match="kind compute"):
+    with pytest.raises(ValueError, match="mandate_propose"):
         send(workspace, cid, "raise", "approval.request", {"kind": "campaign_limits", "rationale": "Room to build",
             "limits": {"implementation_compute_budget_seconds": 600}})

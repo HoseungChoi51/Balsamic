@@ -90,48 +90,13 @@ def commission(workspace, campaign, identity="build_once"):
                 problem_id="bounded_continuous", capabilities=["continuous"], acceptance_criteria=["Feasible proposals"]).model_dump()})
 
 
-def test_build_dispatch_survives_lost_acknowledgement_without_duplicate_job(tmp_path):
+def test_a_commission_reserves_no_service_job_and_never_contacts_the_implementation_service(tmp_path, monkeypatch):
+    """Since roadmap H8 a commission builds only in a coding box: with coding workspaces off it is refused with the switch that
+    turns them on, and nothing reserves a grant, queues a delivery or reaches the implementation library for it."""
     workspace, campaign, _ = prepare(tmp_path)
     command = commission(workspace, campaign)
-    class Client:
-        jobs = {}
-        deliveries = 0
-        scans = 0
-        def versions(self):
-            self.scans += 1
-            return []
-        def submit(self, request):
-            assert not workspace.store.in_transaction
-            assert workspace.store.get(request["grant_id"], "implementation_grant")
-            self.deliveries += 1
-            job = self.jobs.setdefault(request["idempotency_key"], {"id": "job_once", "status": "queued"})
-            if self.deliveries == 1:
-                raise ValueError("Acknowledgement lost after accepting the job")
-            return job
-    client = Client()
-    workspace.implementations.client = client
-    first = workspace.commands.execute(command)
-    assert len(client.jobs) == 1
-    assert workspace.store.list("outbox")[0]["status"] == "pending"
-    assert workspace.implementations.compute_committed(campaign["id"]) == 10
-    restarted = Workspace(tmp_path, implementation_client=client)
-    restarted.dispatch_outbox()
-    assert restarted.commands.execute(command) == first
-    assert len(client.jobs) == 1 and client.deliveries == 2
-    assert client.scans == 1
-    assert restarted.store.list("outbox")[0]["status"] == "completed"
-
-
-def test_rolled_back_build_never_contacts_the_implementation_service(tmp_path, monkeypatch):
-    workspace, campaign, _ = prepare(tmp_path)
-    command = commission(workspace, campaign)
-    monkeypatch.setattr(workspace.implementations.client, "submit", lambda request: pytest.fail("Uncommitted grant was dispatched"))
-    apply = workspace.commands._apply
-    def fail(request, actor):
-        apply(request, actor)
-        raise RuntimeError("Cannot commit outcome")
-    monkeypatch.setattr(workspace.commands, "_apply", fail)
-    with pytest.raises(RuntimeError):
+    monkeypatch.setattr(workspace.implementations.client, "submit", lambda request: pytest.fail("A commission reached the implementation service"))
+    with pytest.raises(ValueError, match="code is built only in them"):
         workspace.commands.execute(command)
     workspace.dispatch_outbox()
     assert workspace.store.list("implementation_grant") == workspace.store.list("outbox") == []
