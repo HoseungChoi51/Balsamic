@@ -2,9 +2,13 @@
 
 Stages: proposed → reviewed → screening (short runs) → extended (long runs or race rungs) → finalist → confirmed → stopped.
 Stopped is a decision with a reason, never a failure. Unknown values stay None.
+"Best" follows the objective's direction: the lowest score when minimizing.
 """
+import math
+
 from optimization_framework.campaigns.experiment_rules import check_trial_ids, classify, current as experiment_rules
 from optimization_framework.campaigns.proposals import readiness
+from optimization_framework.contracts.problems import Objective
 
 RACE_ACTIVE = {"preflight", "running", "paused"}
 CURVE_POINTS = 200
@@ -19,6 +23,33 @@ def score_of(trial):
             if isinstance(source.get(key), (int, float)):
                 return float(source[key]), basis
     return None, None
+
+
+def direction_of(trial, task=None):
+    """The direction a run's objective is ranked in: its result's, else its problem's, else its task's.
+
+    A record that says none predates objective definitions; those were all maximized (efficiency).
+    """
+    sources = [((trial.get(key) or {}).get("objective_definition") or {}) for key in ("result", "progress")]
+    sources += [((problem or {}).get("primary_objective") or {}) for problem in (trial.get("problem"), (task or {}).get("problem"))]
+    return next((source["direction"] for source in sources if source.get("direction") in {"minimize", "maximize"}), "maximize")
+
+
+def best_of(entries):
+    """The best of (score, direction, item) entries, and the direction they share.
+
+    Entries that disagree on direction have no single best: (None, None), never a mixed comparison.
+    """
+    entries = [entry for entry in entries if entry[0] is not None and math.isfinite(entry[0])]
+    directions = {direction for _, direction, _ in entries}
+    if len(directions) != 1:
+        return None, None
+    objective = Objective(name="score", direction=directions.pop())
+    best = None
+    for entry in entries:
+        if best is None or objective.better(entry[0], best[0]):
+            best = entry
+    return best, objective.direction
 
 
 def curve(workspace, trial_id):
@@ -64,6 +95,7 @@ def rows(workspace, campaign_id, *, with_curves=False):
     store = workspace.store
     hypotheses = store.list("hypothesis", campaign_id)
     trials = store.list("trial", campaign_id)
+    tasks = {task["id"]: task for task in store.list("task", campaign_id)}
     aliases = {row["record_id"]: row["label"] for row in store.list("agent_alias", campaign_id)}
     rules = experiment_rules(store, campaign_id)
     kinds = classify(trials, rules.get("short_run_seconds") or rules.get("long_run_threshold_seconds") or 600, check_trial_ids(store, campaign_id)) if trials else {}
@@ -85,11 +117,12 @@ def rows(workspace, campaign_id, *, with_curves=False):
     for hypothesis in hypotheses:
         own = [t for t in trials if t.get("hypothesis_id") == hypothesis["id"]]
         own_ids = {t["id"] for t in own}
-        best_trial, best, basis = None, None, None
+        scored = []
         for trial in own:
             score, how = score_of(trial)
-            if score is not None and (best is None or score > best):
-                best_trial, best, basis = trial, score, how
+            scored.append((score, direction_of(trial, tasks.get(trial.get("task_id"))), (trial, how)))
+        chosen, direction = best_of(scored)
+        best, (best_trial, basis) = (chosen[0], chosen[2]) if chosen else (None, (None, None))
         race = None
         for view in race_views.values():
             for configuration in view["configurations"]:
@@ -120,7 +153,8 @@ def rows(workspace, campaign_id, *, with_curves=False):
                "algorithm": hypothesis.get("algorithm"), "worker_seconds": sum(float(t.get("execution_seconds") or 0) for t in own),
                "allotted_seconds": sum(float(t.get("wall_seconds") or 0) for t in own),
                "evaluations": sum(int(((t.get("result") or t.get("progress") or {}).get("evaluations") or 0)) for t in own) or None,
-               "best": {"score": best, "basis": "measured" if best is not None else None, "source": basis, "trial_id": best_trial["id"] if best_trial else None, "interval": None},
+               "best": {"score": best, "basis": "measured" if best is not None else None, "source": basis, "trial_id": best_trial["id"] if best_trial else None, "interval": None,
+                        "direction": direction},
                "highest_rung_seconds": (race or {}).get("highest_rung_seconds") or (max((t.get("wall_seconds") or 0) for t in own) if own else None),
                "race": race, "review": review, "implementation_readiness": workspace.implementations.readiness(hypothesis),
                "trial_ids": [t["id"] for t in own], "live_trials": sum(1 for t in own if t.get("status") in {"queued", "running", "pausing", "stopping"}),
