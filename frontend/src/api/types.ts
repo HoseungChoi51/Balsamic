@@ -58,8 +58,8 @@ export interface Panels { campaign_id: string; panels: Panel[] }
 export type MandateTemplate = 'answer' | 'explore' | 'screen' | 'run_campaign';
 export interface MessageMandate { template: MandateTemplate; worker_seconds?: number; coding_workspaces?: number; model_usd?: number; deadline_minutes?: number }
 export interface MandateView { id: string; template: MandateTemplate; label: string; status: 'proposed' | 'active' | 'exhausted' | 'expired' | 'closed'; standing: boolean;
-  plan: string | null; hypothesis_ids: string[]; deadline_at: string | null; granted: 'message' | 'card' | 'automatic';
+  plan: string | null; hypothesis_ids: string[]; deadline_at: string | null; granted: 'message' | 'card' | 'automatic' | 'autopilot';
   envelope: { worker_seconds: number; coding_workspaces: number; model_usd: number | null }; left: { worker_seconds: number; coding_workspaces: number; model_usd: number | null };
-  summary: string; closable: boolean; closed_by?: string | null; created_at: string }
+  summary: string; closable: boolean; close_hint?: string; closed_by?: string | null; created_at: string }
 export interface ThreadMandate { thread_id: string; campaign_id: string; request: { thread_id: string; message_id: string | null; run_id: string | null } | null;
   current: MandateView | null; others: MandateView[]; default_template: MandateTemplate }

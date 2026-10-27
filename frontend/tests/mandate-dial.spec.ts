@@ -71,6 +71,22 @@ test('Answer and Explore send at once with the message; a slash command carries 
   expect(recorded.commands.filter(c => c.operation === 'agent.message')).toHaveLength(1);
 });
 
+test('autopilot\'s standing mandate shows above the chat with no Close, pointing to the autopilot switch', async ({ page }) => {
+  const autopilot = { ...screen, id: 'mandate_autopilot', template: 'run_campaign', label: 'Run the campaign', granted: 'autopilot', deadline_at: null,
+    envelope: { worker_seconds: 600, coding_workspaces: 0, model_usd: null }, left: { worker_seconds: 600, coding_workspaces: 0, model_usd: null }, closable: false,
+    close_hint: 'Autopilot\'s mandate: it ends when you switch autopilot off (the Autopilot switch in the top bar)' };
+  const recorded = await mockWorkspace(page);
+  await page.route(`**${MANDATE}`, route => route.fulfill({ json: { ...view(null), others: [autopilot] } }));
+  await page.goto(`/#t/${THREAD_ID}/hypotheses`);
+  const row = page.getByTestId('mandate-other');
+  await expect(row).toContainText('Run the campaign');
+  await expect(row).toContainText('Autopilot · left: 10.0 min of worker time · no deadline');
+  await expect(row).toContainText('granted by your autopilot switch');
+  await expect(row.getByTestId('mandate-close')).toHaveCount(0);
+  await expect(row.getByTestId('mandate-close-hint')).toHaveText('switch autopilot off to end it');
+  expect(recorded.commands).toEqual([]);
+});
+
 test('the campaign\'s default mandate is set on the Resources page', async ({ page }) => {
   const recorded = await mockWorkspace(page, { [`/api/v1/campaigns/${CAMPAIGN_ID}/summary`]: { ...f.summary, row: { ...f.campaignRow, default_template: 'screen' } } });
   await page.goto(`/#t/${THREAD_ID}/monitor/resources`);

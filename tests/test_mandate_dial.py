@@ -136,6 +136,23 @@ def test_only_the_researcher_grants_a_mandate_with_a_message_or_closes_one(team)
     assert "mandate.close" not in team.workspace.commands.delegated and mandates.CLASSES["mandate.close"] == "configure"
 
 
+def test_close_refuses_autopilots_mandate_while_autopilot_is_on_and_the_bar_points_to_its_switch(team):
+    switched = command(team.client, "autopilot.set", "demo", {"enabled": True, "compute_cap_seconds": 600, "rationale": "overnight"}, version(team))
+    settings = switched["outcome"]["autopilot"]
+    refused = command(team.client, "mandate.close", "demo", {"mandate_id": settings["mandate_id"]}, version(team), expect=409)
+    assert "autopilot's standing mandate" in refused["detail"] and "switch autopilot off (the Autopilot switch in the top bar)" in refused["detail"]
+    assert mandates.governing(team.workspace, "demo", settings["mandate_root"]).status == "active"
+    shown = bar(team, settings["mandate_root"]["thread_id"])
+    [view] = [found for found in [shown["current"], *shown["others"]] if found and found["id"] == settings["mandate_id"]]
+    assert (view["granted"], view["closable"], view["status"]) == ("autopilot", False, "active") and "switch autopilot off" in view["close_hint"]
+    # Switching autopilot off closes it, as before; a mandate the researcher granted with a message still closes from the chat.
+    command(team.client, "autopilot.set", "demo", {"enabled": False, "rationale": "morning"}, version(team))
+    assert mandates.governing(team.workspace, "demo", settings["mandate_root"]).status == "closed"
+    run = send(team, "Screen it.", SCREEN)
+    granted = mandates.governing(team.workspace, "demo", root(team, run))
+    assert command(team.client, "mandate.close", "demo", {"mandate_id": granted.id}, version(team))["outcome"]["status"] == "closed"
+
+
 def test_the_default_template_is_a_setting_that_autonomy_maps_onto(team):
     assert {autonomy: mandates.default_template({"autonomy": autonomy}) for autonomy in ("manual", "guided", "delegated")} == \
         {"manual": "answer", "guided": "explore", "delegated": "screen"}

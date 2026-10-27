@@ -285,10 +285,10 @@ the composer shows them while they match the last message, and the stage default
 **The mandate dial** (roadmap R7, `docs/readiness/R7.md`). Beside Send, the four templates (Answer, Explore, Screen, Run the
 campaign); the message grants its request that mandate (`agent.message` `mandate`). Screen and Run the campaign first ask for
 their envelope and deadline in a small form, and are recorded as the researcher's go-ahead, which pays for that request's work
-only. The dial starts at the campaign's
-default template (Monitor › Resources; unset, it follows `autonomy`) and returns to it after each message; slash commands carry
-none. Above the chat, the mandate of the thread's latest request, what is left of it and its deadline, with Close
-(`mandate.close`), and any other still in force in the thread (`GET /api/v1/threads/{id}/mandate`).
+only. The dial starts at the campaign's default template (Monitor › Resources; unset, it follows `autonomy`) and returns to it
+after each message; slash commands carry none. Above the chat, the mandate of the thread's latest request, what is left of it and
+its deadline, with Close (`mandate.close`), and any other still in force in the thread (`GET /api/v1/threads/{id}/mandate`).
+Autopilot's standing mandate has no Close: it ends with the autopilot switch.
 
 **Folded exchanges.** The chat groups messages into exchanges (a researcher message and the replies before the next one)
 and folds all but the last two under a one-sentence title: the housekeeper's `fold_title` on the researcher message
@@ -504,9 +504,11 @@ researcher's; it records the baseline allocation, sets delegation while on and r
 starts a round when autopilot is on, the team runs, no request is open (researcher messages come first), the lead is
 idle, and the previous round's runs have finished: a request turn in the system thread `autopilot` with
 `agent_run.autopilot = true`. Its `campaign_command` runs as actor `autopilot`: every command needs a rationale, the
-receipt's origin says so, ledger rows carry `autonomous` and the pages a badge. The cap guard refuses a command whose
-reservation would take `allocated − baseline` past the cap. When the cap is reached or the report date is within a day,
-the last round asks for the report (`report_write`) and no further round starts. Rounds completed are counted when the
+receipt's origin says so, ledger rows carry `autonomous` and the pages a badge. The switch grants a standing
+Run-the-campaign mandate for autopilot's request, which every round carries (roadmap R4): the bus's mandate guard refuses
+a command whose reservation would take `allocated − baseline` past the cap, and new work once the cap is spent, the report
+date has passed or autopilot is off. When the cap is reached or the report date is within a day, the last round asks for
+the report (`report_write`) and no further round starts. Rounds completed are counted when the
 run ends; the digest is written then. This is the one exception to "the lead acts on requests" (lead-agent-readiness.md).
 
 **Iteration progress.** During Optimize the top of the stage shows the best so far (measured), the live runs and the

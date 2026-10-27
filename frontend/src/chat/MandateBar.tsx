@@ -7,7 +7,8 @@ import type { MandateView } from '../api/types';
 import { send } from '../commands/bus';
 import { duration, Pill } from '../primitives/ui';
 
-const GRANTED: Record<MandateView['granted'], string> = { message: 'granted with your message', card: 'approved by you', automatic: 'granted automatically' };
+const GRANTED: Record<MandateView['granted'], string> = { message: 'granted with your message', card: 'approved by you', automatic: 'granted automatically',
+  autopilot: 'granted by your autopilot switch' };
 
 function left(mandate: MandateView) {
   const terms = [`${String(duration(mandate.left.worker_seconds))} of worker time`];
@@ -46,12 +47,14 @@ export function MandateBar({ campaignId, threadId, version }: { campaignId: stri
         return (
           <div key={view.id} className="mandate-row" data-testid={current ? 'mandate-current' : 'mandate-other'} data-status={view.status} title={view.plan || view.summary}>
             <Pill tone={ended ? 'attention' : view.template === 'screen' || view.template === 'run_campaign' ? 'you' : ''}>{view.label}</Pill>
-            <span className="grow">{current ? (view.standing ? 'Standing mandate' : 'This request') : 'An earlier request'}
+            <span className="grow">{view.granted === 'autopilot' ? 'Autopilot' : current ? (view.standing ? 'Standing mandate' : 'This request') : 'An earlier request'}
               {ended ? ` · ${view.status === 'closed' ? `closed${view.closed_by === 'researcher' ? ' by you' : ''}` : view.status === 'exhausted' ? 'envelope spent' : 'time is up'}: new work is refused`
                 : ` · left: ${left(view)} · ${deadline(view.deadline_at)}`}
               {view.hypothesis_ids.length ? ` · for ${view.hypothesis_ids.join(', ')}` : ''} · <span className="faint">{GRANTED[view.granted]}</span></span>
             {view.closable ? <button className="btn quiet small" disabled={closing === view.id || version === undefined} onClick={() => void close(view)} data-testid="mandate-close"
-              title="Close this mandate: the agents start no new work under it; work already running goes on">Close</button> : null}
+              title="Close this mandate: the agents start no new work under it; work already running goes on">Close</button>
+              // Autopilot's mandate ends with its switch, not here: closing it alone would leave every round's work refused.
+              : view.close_hint ? <span className="faint small" data-testid="mandate-close-hint" title={view.close_hint}>switch autopilot off to end it</span> : null}
           </div>
         );
       })}
