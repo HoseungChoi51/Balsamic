@@ -9,10 +9,22 @@ while read -r key value rest; do
         iptables -A OUTPUT -d "$value" -p udp --dport 53 -j ACCEPT
         iptables -A OUTPUT -d "$value" -p tcp --dport 53 -j ACCEPT
     fi
-done < /etc/resolv.conf
+done < "${RESOLV_CONF:-/etc/resolv.conf}"
 for network in 10.0.0.0/8 172.16.0.0/12 192.168.0.0/16 100.64.0.0/10 169.254.0.0/16; do
     iptables -A OUTPUT -d "$network" -j REJECT
 done
+# The egress allowlist (decision 18): the hosts the host names, resolved now (the harness's model endpoint, the
+# package index, and those the researcher approved with the workspace). Every other public address is refused.
+for host in ${EGRESS_HOSTS:-}; do
+    addresses=$(getent ahostsv4 "$host" | awk '{print $1}' | sort -u || true)
+    if [ -z "$addresses" ]; then
+        echo "egress: $host does not resolve; it stays blocked" >&2
+    fi
+    for address in $addresses; do
+        iptables -A OUTPUT -d "$address" -p tcp -j ACCEPT
+    done
+done
+iptables -A OUTPUT -j REJECT
 # Docker's default bridge has no IPv6 route. Reject new IPv6 connections as well
 # if enabled later; established browser connections can still receive replies.
 if [ -e /proc/net/if_inet6 ]; then

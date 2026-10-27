@@ -787,12 +787,17 @@ class CommandService:
                         raise ValueError(f"Proposal {identity} belongs to another campaign")
                 if values.hypothesis_ids:
                     request["hypothesis_ids"] = list(dict.fromkeys(values.hypothesis_ids))
+                if values.egress_hosts:
+                    request["egress_hosts"] = sorted(set(values.egress_hosts))
                 if values.runs:
                     # The experiments' plan, from the records: what the researcher reads before approving.
                     from .experiment_plan import plan as experiment_plan
                     request["runs"] = [run.model_dump(exclude_none=True, exclude={"schema_version"}) for run in values.runs]
                     planned = experiment_plan(self.workspace, command.campaign_id, request["runs"])
                 coding = f" and opens {values.coding_workspaces} coding workspace{'s' if values.coding_workspaces > 1 else ''}" if values.coding_workspaces else ""
+                # The hosts beyond their model and the package index its coding workspaces may reach (H5): approved with it.
+                reach = (f"\nIts coding workspaces may also reach {', '.join(request['egress_hosts'])}, beyond their model and the package index."
+                         if values.egress_hosts else "")
                 if values.kind == "mandate":
                     from .mandates import LABELS, OPTIONS as options
                     request.update(template=values.template, model_usd=values.model_usd, deadline_minutes=values.deadline_minutes,
@@ -804,12 +809,12 @@ class CommandService:
                         + (f"Deadline: {_minutes(values.deadline_minutes * 60)} after you approve. " if values.deadline_minutes else "No deadline. ")
                         + (f"It stops when: {values.stop_when.text}" if values.stop_when else "")
                         + (f"\nMeanwhile: {values.meanwhile}" if values.meanwhile else "")
-                        + (f"\nIt covers only the work for {', '.join(named)}." if named else ""))
+                        + (f"\nIt covers only the work for {', '.join(named)}." if named else "") + reach)
                 else:
                     title, approve = f"Start this work now? About {_minutes(values.wall_seconds)} until results", "Start now"
                     proposal = (f"{asker} asks to start: {values.plan}\nIt takes about {_minutes(values.wall_seconds)} until results and uses up to "
                         f"{_minutes(values.worker_seconds)} of worker time{coding}.\nMeanwhile: {values.meanwhile}" +
-                        (f"\nIt covers only the work for {', '.join(named)}." if named else ""))
+                        (f"\nIt covers only the work for {', '.join(named)}." if named else "") + reach)
                 from .compute_consent import request_root
                 root = request_root(self.workspace, command.origin)
             else:
