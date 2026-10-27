@@ -63,6 +63,19 @@ def large_record(ctx):
     return {"record_id": record["id"]}
 
 
+def derived_number(ctx):
+    """S16 (roadmap K2): an imported run of population search with mutation rate 0.005 on a 256 x 128 binary design, 32,768
+    cells. 1/n is 0.0000305, so the rate is 163.84 times 1/n: readiness Part J's operator called it "about 1/n"."""
+    record = {"id": "artifact_eval_run_" + ctx.campaign_id, "campaign_id": ctx.campaign_id, "agent_id": None, "run_id": None,
+              "kind": "analysis", "title": "Imported run: population search on the 2D deflector",
+              "content": {"algorithm": "population", "algorithm_config": {"population_size": 20, "mutation_rate": 0.005},
+                          "design": {"representation": "binary", "shape": [256, 128], "cells": 32768},
+                          "result": {"evaluations": 4000, "best_objective": 0.8112}},
+              "evidence_ids": [], "created_at": now()}
+    ctx.store.put_immutable("agent_artifact", record, "agent.artifact_saved")
+    return {"run_record_id": record["id"]}
+
+
 def two_small_runs(ctx):
     """Two short runs of the installed random search, started by the researcher with their own commands; S8 lets them finish
     before it asks. Since R6 their ends wake no agent."""

@@ -205,6 +205,18 @@ def known_exact_algorithm(turn):
                        "I recorded it with two heuristics to compare on [Hypotheses](#hypotheses).")
 
 
+def derived_number(turn):
+    """S16 done right: the rate and n read from the record, the ratio from compute, and the answer no."""
+    record_id = re.search(r"artifact_\S+", turn.text).group(0).rstrip(".?,")
+    turn.call("evidence_read", record_id=record_id, pointer="/content")
+    values = {"rate": {"record_id": record_id, "pointer": "/content/algorithm_config/mutation_rate"},
+              "n": {"record_id": record_id, "pointer": "/content/design/cells"}}
+    inverse = turn.call("compute", expression="1 / n", values={"n": values["n"]})["value"]
+    ratio = turn.call("compute", expression="rate / (1 / n)", values=values)["value"]
+    return turn.finish(f"No. The run's mutation rate is 0.005, and 1/n for its 32,768 cells is {inverse:.3g}: the rate is {ratio:g} "
+                       "times 1/n, so each child flips about 164 cells, not one.")
+
+
 def implement_and_compare(turn):
     """S18 done right: the two proposals, then one Screen mandate naming the coding workspace, the proposals and their runs;
     Balsamic installs, binds and starts the runs once the researcher approves, so the lead binds nothing."""
@@ -279,6 +291,7 @@ FAKES = {
     "S13-fidelity-trap": scripted(fidelity_trap),
     "S14-under-tuned-rejection": scripted(under_tuned_rejection),
     "S15-locked-confirmation": scripted(locked_confirmation),
+    "S16-derived-number": scripted(derived_number),
     "S17-known-exact-algorithm": scripted(known_exact_algorithm),
     "S18-implement-and-compare": scripted(implement_and_compare),
     "S19-charter-to-results": scripted(charter_to_results),
