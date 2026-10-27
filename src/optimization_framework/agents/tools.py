@@ -33,7 +33,7 @@ AGENT_RECORD_KINDS = {"agent_artifact", "agent_run"}
 ROLE_OPERATIONS = {
     "discussion_moderator": {"hypothesis.create", "hypothesis.edit", "hypothesis.review", "hypothesis.status", "approval.request"},
     "experiment_operator": {"draft.save", "draft.launch", "trial.create", "trial.control", "trial.extension_request", "trial.continue",
-                            "runtime.profile", "fixed_mask.run", "comparison.report", "approval.request", "experiments.rules", "trial.hide"},
+                            "runtime.profile", "comparison.report", "approval.request", "experiments.rules", "trial.hide"},
     "implementation_lead": {"implementation.commission", "implementation.attach", "implementation.revalidate", "implementation.bind_builtin",
                             "implementation.resolve_runtime", "evaluator.commission", "evaluator.attach", "evaluator.equivalence", "approval.request"},
     "resource_planner": {"resources.plan", "resources.estimate", "runtime.profile", "approval.request"},
@@ -41,14 +41,14 @@ ROLE_OPERATIONS = {
 # The pages' own work (harness plan, D1): the lead asks the agent in charge (page_agent_message) instead of running it, and
 # campaign_command refuses it from the lead with that agent's name. The researcher's own commands are not affected.
 LEAD_PAGE_WORK = {**{operation: "experiment_operator" for operation in ("draft.save", "draft.launch", "trial.create", "trial.continue",
-                     "trial.extension_request", "experiments.rules", "trial.hide", "runtime.profile", "fixed_mask.run")},
+                     "trial.extension_request", "experiments.rules", "trial.hide", "runtime.profile")},
                   **{operation: "implementation_lead" for operation in ("implementation.commission", "implementation.attach", "implementation.revalidate",
                      "implementation.bind_builtin", "implementation.resolve_runtime", "evaluator.commission", "evaluator.attach", "evaluator.equivalence")}}
 LEAD_EXCLUDED_OPERATIONS = frozenset(LEAD_PAGE_WORK)
 OPERATIONS = {"hypothesis.create", "hypothesis.review", "hypothesis.status", "draft.save", "draft.launch", "trial.create",
     "trial.control", "trial.extension_request", "implementation.commission", "implementation.attach", "implementation.revalidate", "implementation.bind_builtin",
     "implementation.resolve_runtime", "evaluator.commission", "evaluator.attach", "finding.record", "comparison.report",
-    "validation.run", "validation.execute", "study.create", "study.activate", "fixed_mask.run",
+    "validation.run", "validation.execute", "study.create", "study.activate",
     "study.race.control", "study.race.decide", "asset.snapshot", "runtime.profile", "evaluator.equivalence", "trial.continue", "journal.compaction_request", "approval.request",
     "experiments.rules", "trial.hide", "campaign.adopt_problem"}
 # What every agent but an implementation grant's is told: role and authority, requests and notices, the turn's end, replies,
@@ -353,7 +353,6 @@ TOOLS = {
     "source_ingest": ("Capture a DOI, arXiv identifier, or public primary-source HTTPS URL.", obj({"identifier": S}, ["identifier"])),
     "source_read": ("Read saved source passages; available even after the legacy source quota was exhausted.", obj({"source_id": S, "query": S, "offset": {"type": "integer", "minimum": 0}, "limit": {"type": "integer", "minimum": 1, "maximum": 12}}, ["source_id"])),
     "artifact_save": ("Save an immutable finding, implementation handoff, analysis, or fixed binary mask with evidence links.", obj({"title": S, "kind": {"enum": ["finding", "handoff", "analysis", "mask", "assessment", "review", "checkpoint"]}, "content": {}, "evidence_ids": {"type": "array", "items": S, "maxItems": 100}}, ["title", "kind", "content"])),
-    "mask_create": ("Create a reproducible full-sized binary diagnostic mask without putting every cell in model context.", obj({"task_id": S, "pattern": {"enum": ["zeros", "ones", "stripes_x", "stripes_y", "seeded_random"]}, "seed": {"type": "integer", "minimum": 0}, "fill_fraction": {"type": "number", "minimum": 0, "maximum": 1}}, ["task_id", "pattern"])),
     "proposal_review": ("Record an independent conceptual review of the exact hypothesis revision. Test means plausible, not effective.", obj({"hypothesis_id": S, "hypothesis_hash": S, "verdict": {"enum": ["test", "revise", "reject"]}, "rationale": S, "required_changes": {"type": "array", "items": S}, "suggested_tests": {"type": "array", "items": S, "minItems": 1}}, ["hypothesis_id", "hypothesis_hash", "verdict", "rationale", "suggested_tests"])),
     "delegate": ("Create a persistent specialist child with a focused objective and exact evidence IDs. You receive its result automatically. "
         "The objective: " + READABLE, obj({"role": {"enum": [r for r in ROLES if r not in STANDING]}, "objective": S, "evidence_ids": {"type": "array", "items": S, "maxItems": 100}, "request_key": S}, ["role", "objective", "request_key"])),
@@ -440,14 +439,31 @@ TOOLS = {
 }
 
 
-# Tools the service layer adds: name -> {"description", "schema", "roles", "handler"(tools, agent, run, args, identity)}.
+# Tools the service layer and problem packs add: name -> {"description", "schema", "roles", "handler"(tools, agent, run, args,
+# identity), "pack", "local"}. A pack's tool (pack: its package) is offered only in campaigns that have the pack; a local tool's
+# changes commit with its receipt.
 EXTRA_TOOLS = {}
+# Re-evaluating chosen designs, at the run's fidelity or at several, on any problem; a problem pack may add its own tools.
+FIXED_DESIGN_CHECK = ("validation.run on a run, with one of the validation recipes its problem declares (such as a re-evaluation "
+                      "or a fidelity comparison)")
+# Commands a problem pack adds to a page agent's page (roadmap N4): operation -> {"role", "pack", "purpose"}. The lead asks that
+# agent for them, as for LEAD_PAGE_WORK; "purpose" names the capability in campaign_inspect.
+PACK_OPERATIONS = {}
 
 
-def register_tool(name, description, schema, handler, *, roles=(LEAD,)):
+def register_tool(name, description, schema, handler, *, roles=(LEAD,), pack=None, local=False):
     if name in TOOLS or name in EXTRA_TOOLS:
         raise ValueError(f"Tool {name} exists")
-    EXTRA_TOOLS[name] = {"description": description, "schema": schema, "roles": set(roles), "handler": handler}
+    EXTRA_TOOLS[name] = {"description": description, "schema": schema, "roles": set(roles), "handler": handler, "pack": pack, "local": local}
+
+
+def register_page_operation(operation, role, *, pack, purpose):
+    """A pack's command, run by the page agent ``role`` in the campaigns that have the pack (the bus registers its handler)."""
+    if role not in ROLE_OPERATIONS:
+        raise ValueError(f"{role} is not a page agent")
+    if operation in OPERATIONS or PACK_OPERATIONS.get(operation, {}).get("pack", pack) != pack:
+        raise ValueError(f"Operation {operation} exists")
+    PACK_OPERATIONS[operation] = {"role": role, "pack": pack, "purpose": purpose}
 
 
 class PiTools:
@@ -456,7 +472,7 @@ class PiTools:
         self.workspace, self.store = controller.workspace, controller.store
 
     def names(self, agent):
-        names = {"campaign_inspect", "resource_inspect", "evidence_search", "evidence_read", "source_search", "source_ingest", "source_read", "artifact_save", "mask_create", "yield_work",
+        names = {"campaign_inspect", "resource_inspect", "evidence_search", "evidence_read", "source_search", "source_ingest", "source_read", "artifact_save", "yield_work",
                  "file_list", "file_read", "file_search", "workspace_list", "workspace_read", "workspace_write", "analysis_run", "compute"}
         implementation = {"implementation_workspace_create", "implementation_workspace_inspect", "implementation_workspace_message",
                           "implementation_workspace_validate"}
@@ -487,8 +503,19 @@ class PiTools:
             # library supplies. They cannot read campaign fixtures or peer work.
             names = {"artifact_save", "workspace_list", "workspace_read", "workspace_write", "workspace_run", "submit_output"}
         else:
-            names |= {name for name, tool in EXTRA_TOOLS.items() if agent["role"] in tool["roles"]}
+            packages = self.packages(agent)
+            names |= {name for name, tool in EXTRA_TOOLS.items() if agent["role"] in tool["roles"] and tool.get("pack") in {None, *packages}}
         return names
+
+    def packages(self, agent):
+        """The packages of the problem packs of the agent's campaign (evaluation/packs.py)."""
+        packs = getattr(self.workspace, "packs", None)
+        return packs.packages(agent["campaign_id"]) if packs is not None and agent.get("campaign_id") else set()
+
+    def pack_operations(self, agent):
+        """The commands this campaign's packs add, by operation: the page agent that runs each, and its capability."""
+        packages = self.packages(agent)
+        return {operation: entry for operation, entry in PACK_OPERATIONS.items() if entry["pack"] in packages}
 
     def schema(self, agent, name):
         """A tool's input schema for this agent: a page agent sees only its own commands, and the moderator only the roles it may ask."""
@@ -498,7 +525,9 @@ class PiTools:
         if name in {"campaign_command", "command_schema"}:
             # The service layer may give this workspace's lead more operations (workspace.lead_operations); the enum is read per manifest.
             extra = set(getattr(self.workspace, "lead_operations", ()) or ())
-            schema = deepcopy(schema); schema["properties"]["operation"]["enum"] = sorted(ROLE_OPERATIONS[agent["role"]] if agent["role"] in ROLE_OPERATIONS
+            # A pack's commands are its page agent's work, in the campaigns that have the pack.
+            packed = {operation for operation, entry in self.pack_operations(agent).items() if entry["role"] == agent["role"]}
+            schema = deepcopy(schema); schema["properties"]["operation"]["enum"] = sorted(ROLE_OPERATIONS[agent["role"]] | packed if agent["role"] in ROLE_OPERATIONS
                                                                                           else (OPERATIONS | extra) - LEAD_EXCLUDED_OPERATIONS)
         if name == "delegate" and agent["role"] == "discussion_moderator":
             schema = deepcopy(schema); schema["properties"]["role"]["enum"] = list(DISCUSSION_ROLES)
@@ -712,7 +741,8 @@ class PiTools:
             self.store.put_immutable("agent_tool_receipt", {"id": identity, "campaign_id": agent["campaign_id"],
                 "agent_id": agent_id, "run_id": run_id, "tool": name, "request_hash": request_hash, "result": result,
                 "created_at": now()}, "agent.tool_completed")
-        if name in {"artifact_save", "mask_create", "proposal_review", "delegate", "agent_message", "agent_cancel", "page_agent_message", "lead_ask", "researcher_ask", "yield_work", "submit_output"}:
+        if name in {"artifact_save", "proposal_review", "delegate", "agent_message", "agent_cancel", "page_agent_message", "lead_ask", "researcher_ask", "yield_work", "submit_output"} \
+                or EXTRA_TOOLS.get(name, {}).get("local"):
             # Local changes and their acknowledgment commit together. External
             # I/O and idempotent command delivery never hold a SQL transaction.
             with self.workspace.lock, self.store.transaction():
@@ -737,9 +767,11 @@ class PiTools:
     def page_work(self, agent, name, arguments):
         """Why the lead may not run this command itself, naming the page agent that does; empty when it may."""
         operation = arguments.get("operation") if isinstance(arguments, dict) else None
-        if agent["role"] != LEAD or name not in {"campaign_command", "command_schema"} or operation not in LEAD_PAGE_WORK:
+        if agent["role"] != LEAD or name not in {"campaign_command", "command_schema"}:
             return ""
-        owner = LEAD_PAGE_WORK[operation]
+        owner = LEAD_PAGE_WORK.get(operation) or (self.pack_operations(agent).get(operation) or {}).get("role")
+        if owner is None:
+            return ""
         return (f"{operation} is the work of {PAGE_AGENT_NAMES[owner]}: ask it with page_agent_message (page_agent: {owner}), saying what to do "
                 f"and naming the records; its result comes back to you, and the researcher follows it on #{PAGE_AGENTS[owner]}.")
 
@@ -945,11 +977,14 @@ class PiTools:
                 "guidance": "Use current implementation_readiness, not stale historical executable fields."}}
 
     def capabilities(self, agent):
-        """How experiments, fixed-design checks and implementations are done, as this agent does them."""
+        """How experiments, fixed-design checks and implementations are done, as this agent does them, with what the campaign's
+        problem packs add."""
+        packed = {entry["purpose"]: operation if entry["role"] == agent["role"] else f"{PAGE_AGENT_NAMES[entry['role']]} ({operation})"
+                  for operation, entry in self.pack_operations(agent).items()}
         if agent["role"] == LEAD:
             return {"experiment": "the experiment operator (page_agent_message): drafts, runs, continuations, profiles; experiment_progress reads how runs go",
-                    "fixed_mask_diagnostics": "the experiment operator (fixed_mask.run)", "implementation": "a library built in a coding workspace and installed by the researcher (procedure implementation-supervision), run by binding the proposal to its method; or the implementation lead (implementation.commission)"}
-        return {"fixed_mask_diagnostics": "fixed_mask.run", "implementation": "a library built in a coding workspace and installed by the researcher (procedure implementation-supervision), run by binding the proposal to its method (implementation.bind_builtin); or implementation.commission", "experiment": "draft.save then draft.launch; trial.create"}
+                    "fixed_design_check": FIXED_DESIGN_CHECK, **packed, "implementation": "a library built in a coding workspace and installed by the researcher (procedure implementation-supervision), run by binding the proposal to its method; or the implementation lead (implementation.commission)"}
+        return {"fixed_design_check": "the lead agent (lead_ask): " + FIXED_DESIGN_CHECK, **packed, "implementation": "a library built in a coding workspace and installed by the researcher (procedure implementation-supervision), run by binding the proposal to its method (implementation.bind_builtin); or implementation.commission", "experiment": "draft.save then draft.launch; trial.create"}
 
     def _execute(self, agent, run, name, args, identity):
         cid = agent["campaign_id"]
@@ -1020,29 +1055,6 @@ class PiTools:
             self.record(agent, args["source_id"])
             from optimization_framework.research.literature import LiteratureReader
             return LiteratureReader(self.workspace).read(cid, **args)
-        if name == "mask_create":
-            import numpy as np
-            from optimization_framework.contracts.problems import ProblemInstance
-            task = self.record(agent, args["task_id"])
-            instance = ProblemInstance.model_validate(task["problem"])
-            n = instance.candidate_schema.dimensions
-            pattern = args["pattern"]
-            fraction = args.get("fill_fraction", .5)
-            if pattern in {"zeros", "ones"}:
-                mask = np.full(n, int(pattern == "ones"))
-            elif pattern == "seeded_random":
-                mask = (np.random.default_rng(args.get("seed", 0)).random(n) < fraction).astype(int)
-            else:
-                x, y = instance.configuration.get("grid_x"), instance.configuration.get("grid_y")
-                if not x or not y or x * y != n:
-                    raise ValueError("Stripe masks require a declared grid_x by grid_y binary problem")
-                yy, xx = np.indices((y, x))
-                mask = ((xx if pattern == "stripes_x" else yy) < round((x if pattern == "stripes_x" else y) * fraction)).astype(int).ravel()
-            candidate = instance.candidate_schema.canonicalize(mask.tolist())
-            result = self._execute(agent, run, "artifact_save", {"title": "Fixed mask: " + pattern, "kind": "mask",
-                "content": {"mask": candidate, "generator": args, "problem_identity": instance.evaluation_identity},
-                "evidence_ids": [args["task_id"]]}, identity)
-            return {**result, "dimensions": n, "ones": int(mask.sum()), "pattern": pattern}
         if name == "proposal_review":
             from optimization_framework.campaigns.proposals import hypothesis_revision
             hypothesis = self.record(agent, args["hypothesis_id"])

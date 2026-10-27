@@ -1,6 +1,7 @@
 """Balsamic's additions to the command bus. Each feature module registers its own operations here."""
 from balsamic import housekeeping
 from optimization_framework.contracts.base import Contract
+from optimization_framework.contracts.requests import Family
 from optimization_framework.storage.sqlite import now
 from pydantic import Field
 from typing import Literal
@@ -14,6 +15,7 @@ class HypothesisEditInput(Contract):
     short_title: str | None = Field(default=None, min_length=1, max_length=40)
     mechanism: str | None = Field(default=None, max_length=20000)
     rationale: str | None = Field(default=None, max_length=20000)
+    family: Family | None = None
     algorithm: str | None = Field(default=None, min_length=1, max_length=100)
     algorithm_config: dict | None = None
     reason: str = Field(default="", max_length=2000)
