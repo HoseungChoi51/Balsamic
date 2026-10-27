@@ -200,7 +200,8 @@ class DockerWorkspace:
         for source, target, readonly in [(root / "work", "/work", False), (root / "home", "/home/developer", False),
                 (root / "incoming", "/bridge/in", True), (root / "outgoing", "/bridge/out", False),
                 (root / "references", "/references", True),
-                (ROOT / "agent-harness/extensions/implementation.ts", "/opt/workspace/extension.ts", True)]:
+                (ROOT / "agent-harness/extensions/implementation.ts", "/opt/workspace/extension.ts", True),
+                (ROOT / "deploy/implementation-workspace/balsamic-workspace.mjs", "/opt/workspace/balsamic-workspace.mjs", True)]:
             args += ["--mount", f"type=bind,src={source},dst={target}" + (",readonly" if readonly else "")]
         model = record.get("model") or LEGACY_MODEL
         args += ["-e", f"PI_PROVIDER={model['provider']}", "-e", f"PI_MODEL={model['model']}", "-e", f"PI_THINKING={model.get('effort') or ''}"]
