@@ -1,8 +1,12 @@
 #!/usr/bin/env node
 /** balsamic-workspace: the coding box's bridge to Balsamic, as a CLI and a stdio MCP server, for any harness.
  * It writes the same event files as the Pi extension (agent-harness/extensions/implementation.ts) into the same
- * file bridge, so the host side does not change; agent-harness/test/workspace-cli.test.mjs pins the parity. */
-import {spawn} from 'node:child_process';
+ * file bridge, so the host side does not change; agent-harness/test/workspace-cli.test.mjs pins the parity.
+ *
+ * Outside the box (roadmap H3), with the workspace's address and the researcher's token (BALSAMIC_WORKSPACE_URL and
+ * BALSAMIC_WORKSPACE_TOKEN, or --url and --token), `clone` fetches the workspace's library as a Git repository and
+ * `submit` sends the commit as a Git bundle over HTTP; the host captures it as it captures the box's (agents/own_session.py). */
+import {spawn, spawnSync} from 'node:child_process';
 import crypto from 'node:crypto';
 import fs from 'node:fs';
 import os from 'node:os';
@@ -171,6 +175,12 @@ export async function runCheck({library} = {}, {timeoutSeconds = 1800} = {}) {
     contract, conformance: contract.failed ? 'failed' : ran ? 'passed' : 'not_run', exit_code: code.status};
 }
 
+/** The host's answer to a submission, in words: the same from the box and from outside it. */
+function submitted(result) {
+  const ignored = result.ignored_fields?.length ? ` The manifest's unknown fields were ignored: ${result.ignored_fields.join(', ')}.` : '';
+  return {text: `Submitted ${result.submission_id}.${ignored} Independent validation has not been run yet.`, details: result};
+}
+
 async function waitFor(id, signal) {
   const reply = path.join(bridge(), 'in', 'results', `${id}.json`);
   for (let attempt = 0; attempt < 120; attempt++) {
@@ -178,19 +188,95 @@ async function waitFor(id, signal) {
     if (fs.existsSync(reply)) {
       const result = JSON.parse(fs.readFileSync(reply, 'utf8'));
       if (result.error) throw new Error(result.error);
-      const ignored = result.ignored_fields?.length ? ` The manifest's unknown fields were ignored: ${result.ignored_fields.join(', ')}.` : '';
-      return {text: `Submitted ${result.submission_id}.${ignored} Independent validation has not been run yet.`, details: result};
+      return submitted(result);
     }
     await new Promise(resolve => setTimeout(resolve, 500));
   }
   return {text: `Submission queued as ${id}; campaign receipt is delayed. Check workspace status before retrying.`, details: {id, status: 'pending'}};
 }
 
-/** One tool call, the same for the CLI and the MCP server: {text, details}. */
-export async function call(name, args = {}, {signal} = {}) {
+// ---- Outside the box: the researcher's own session (roadmap H3) ----
+
+/** The workspace's address and the researcher's token, from the flags or the environment; null inside the box. */
+export function remote({url, token} = {}) {
+  const address = (url || process.env.BALSAMIC_WORKSPACE_URL || '').replace(/\/+$/, '');
+  return address ? {url: address, token: token || process.env.BALSAMIC_WORKSPACE_TOKEN || ''} : null;
+}
+
+function git(args, {cwd = repository(), quiet = false} = {}) {
+  const result = spawnSync('git', args, {cwd, encoding: 'utf8', maxBuffer: 64 * 1024 * 1024});
+  if (result.error) throw result.error;
+  if (result.status !== 0 && !quiet) throw new Error(`git ${args[0]}: ${(result.stderr || result.stdout).trim().slice(-1000)}`);
+  return result.status === 0 ? result.stdout.trim() : null;
+}
+
+async function request(outside, route, body) {
+  if (!outside.token) throw new Error("Set BALSAMIC_WORKSPACE_TOKEN (or --token): the token from the workspace's card");
+  const response = await fetch(outside.url + route, {method: body ? 'POST' : 'GET', body: body && JSON.stringify(body),
+    headers: {authorization: `Bearer ${outside.token}`, accept: 'application/json', ...(body ? {'content-type': 'application/json'} : {})}});
+  const text = await response.text();
+  let data;
+  try { data = JSON.parse(text); } catch { data = {detail: text}; }
+  if (!response.ok) throw new Error(`${response.status}: ${typeof data.detail === 'string' ? data.detail : JSON.stringify(data.detail ?? data)}`);
+  return data;
+}
+
+/** The commit as a Git bundle: everything it needs except the commits the workspace already has. */
+function bundleOf(commit, have) {
+  const exclude = have.filter(sha => git(['cat-file', '-e', `${sha}^{commit}`], {quiet: true}) !== null
+    && git(['merge-base', '--is-ancestor', commit, sha], {quiet: true}) === null);
+  const folder = fs.mkdtempSync(path.join(os.tmpdir(), 'balsamic-bundle-'));
+  const file = path.join(folder, 'submission.bundle');
+  // A bundle names refs, not bare commits: a temporary one, removed at once.
+  const ref = `refs/balsamic-workspace/submit-${process.pid}`;
+  git(['update-ref', ref, commit]);
+  try {
+    git(['bundle', 'create', file, ref, ...(exclude.length ? ['--not', ...exclude] : [])]);
+    return fs.readFileSync(file).toString('base64');
+  } finally {
+    git(['update-ref', '-d', ref], {quiet: true});
+    fs.rmSync(folder, {recursive: true, force: true});
+  }
+}
+
+async function submitOutside(args, outside) {
+  const {commits = []} = await request(outside, '/bundles/base');
+  const bundle = bundleOf(args.commit, commits);
+  return submitted(await request(outside, '/bundles', {commit: args.commit,
+    manifest_path: args.manifest_path || 'implementation-manifest.json', notes: args.notes || '', report: args.report, bundle}));
+}
+
+/** The workspace's library, as the box started from it, cloned into a new directory. */
+export async function clone(target, outside) {
+  if (!outside) throw new Error("clone works outside the box: set BALSAMIC_WORKSPACE_URL (or --url) to the workspace's address from its card");
+  if (!target) throw new Error('Name the directory to clone into');
+  if (fs.existsSync(target) && fs.readdirSync(target).length) throw new Error(`${target} exists and is not empty`);
+  const start = await request(outside, '/bundles/start');
+  const folder = fs.mkdtempSync(path.join(os.tmpdir(), 'balsamic-start-'));
+  const file = path.join(folder, 'start.bundle');
+  fs.writeFileSync(file, Buffer.from(start.bundle, 'base64'));
+  try {
+    git(['clone', '--quiet', '--branch', 'main', file, target], {cwd: process.cwd()});
+    git(['remote', 'remove', 'origin'], {cwd: target});
+  } finally {
+    fs.rmSync(folder, {recursive: true, force: true});
+  }
+  return {text: `Cloned ${start.library} (commit ${start.commit.slice(0, 7)}) into ${target}. Work there with your own coding agent, `
+    + 'commit, and deliver the commit with balsamic-workspace submit HEAD --report FILE.',
+    details: {directory: path.resolve(target), library: start.library, commit: start.commit}};
+}
+
+/** One tool call, the same for the CLI and the MCP server: {text, details}. Outside the box (`outside`, from remote()),
+ * submit goes over HTTP; checkpoint and ask need the box's bridge. */
+export async function call(name, args = {}, {signal, outside = remote()} = {}) {
   const tool = TOOLS.find(item => item.name === name);
   if (!tool) throw new Error(`Unknown tool ${name}; the tools are ${TOOLS.map(item => item.name).join(', ')}`);
+  if (outside && (name === 'checkpoint' || name === 'ask'))
+    throw new Error(`${name} goes through the coding box's bridge; from your own session, deliver with submit (check and evidence work here too)`);
+  if (outside && name === 'submit' && typeof args.commit === 'string' && !/^[a-f0-9]{40}$/.test(args.commit))
+    args = {...args, commit: git(['rev-parse', '--verify', '--end-of-options', `${args.commit}^{commit}`])};
   validate(tool.inputSchema, args);
+  if (name === 'submit' && outside) return submitOutside(args, outside);
   if (name === 'checkpoint') {
     const id = emit('checkpoint', args);
     return {text: `Checkpoint ${id} saved for the campaign.`, details: {id}};
@@ -267,6 +353,12 @@ const USAGE = `balsamic-workspace: the coding workspace's bridge to Balsamic
   balsamic-workspace evidence [ID]
   balsamic-workspace mcp                     serve the five tools over stdio (MCP)
 
+Outside the box, from your own coding agent, with the workspace's address and your token from its card
+(BALSAMIC_WORKSPACE_URL and BALSAMIC_WORKSPACE_TOKEN, or --url and --token):
+  balsamic-workspace clone DIRECTORY         the workspace's library, as the box started from it, as a Git repository
+  balsamic-workspace submit COMMIT --report FILE [--manifest PATH] [--notes TEXT]
+                                             sends the commit (HEAD will do) as a Git bundle
+
 Any command also takes --json OBJECT (or --json - to read it from stdin) with the tool's arguments.
 Results are printed as JSON.`;
 
@@ -324,7 +416,9 @@ export async function main(argv = process.argv.slice(2)) {
   if (!command || command === '--help' || command === 'help') { console.log(USAGE); return 0; }
   if (command === 'mcp') { await serve(); return 0; }
   try {
-    const result = await call(command, argumentsFor(command, rest));
+    const {flags, positional} = parse(rest);
+    const outside = remote({url: flags.url?.at(-1), token: flags.token?.at(-1)});
+    const result = command === 'clone' ? await clone(positional[0], outside) : await call(command, argumentsFor(command, rest), {outside});
     console.log(JSON.stringify({ok: true, message: result.text, ...result.details}, null, 2));
     return 0;
   } catch (error) {

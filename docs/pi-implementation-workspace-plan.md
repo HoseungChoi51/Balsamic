@@ -153,6 +153,22 @@ It writes the same event files the extension writes, so the host does not change
 `agent-harness/test/workspace-cli.test.mjs` pins that both write the same events for
 the same inputs (roadmap H1).
 
+The researcher can deliver from their own coding agent instead (roadmap H3,
+`agents/own_session.py`). On the workspace's card they make a token, shown to them
+once (Balsamic keeps its SHA-256; a new one replaces it; stopping the workspace
+revokes it). With the workspace's address and that token
+(`BALSAMIC_WORKSPACE_URL`, `BALSAMIC_WORKSPACE_TOKEN`), the same CLI on their machine
+clones the workspace's library (`clone DIR`: the library generated from the charter,
+byte for byte what the box started from, as one commit) and sends a commit back
+(`submit HEAD --report FILE`) as a Git bundle that leaves out what the workspace has
+(`GET .../bundles/base`). The host takes it only while the workspace runs (a paused
+one, at its deadline among others, waits for its resume), checks the bundle carries
+the commit, fetches it into a store of its own (`own/git`, never mounted into the
+box; the box's store is its alternate) and captures it with `capture_submission()`,
+as `source: own_session`. Install, binding and the approved runs then follow as for
+the coding agent's commit. `checkpoint` and `ask` stay the box's; the box's walls
+(egress, limits) bound the box, not the researcher's machine.
+
 The initial application contract should support these operations; the names
 below are proposed application operations, not existing Pi API names:
 

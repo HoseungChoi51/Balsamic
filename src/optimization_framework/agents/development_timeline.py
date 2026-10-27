@@ -49,10 +49,12 @@ def tests_text(tests):
 
 
 def delivery(submission):
-    """A delivery as the researcher reads it: the coding agent's verdict, what it says, each method's state, and what comes next."""
+    """A delivery as the researcher reads it: the coding agent's verdict, what it says, each method's state, and what comes next.
+    One the researcher delivered from their own coding agent (roadmap H3) says so."""
     report = submission.get("report")
+    commit = submission["commit"][:7] + (" from your own session" if submission.get("source") == "own_session" else "")
     if not report:
-        return f"Delivered commit {submission['commit'][:7]}, without a delivery report", submission.get("notes", ""), "", []
+        return f"Delivered commit {commit}, without a delivery report", submission.get("notes", ""), "", []
     parts = [report["summary"], "Tests: " + tests_text(report["tests"]) + (f" (`{report['tests']['command']}`)" if report["tests"].get("command") else "")]
     if report.get("limitations"):
         parts.append("Limitations:\n" + "\n".join(f"- {item}" for item in report["limitations"]))
@@ -60,7 +62,7 @@ def delivery(submission):
         parts.append("Next:\n" + "\n".join(f"- {action['owner']}: {action['action']}" for action in report["next_actions"]))
     methods = [f"{m['method_id']}: {m['state'].replace('_', ' ')}, conformance {m['conformance'].replace('_', ' ')}"
                + (f", {tests_text(m['tests'])}" if m.get("tests") else "") for m in report["methods"]]
-    return (f"Delivered commit {submission['commit'][:7]}: {VERDICTS[report['verdict']]}", "\n\n".join(parts),
+    return (f"Delivered commit {commit}: {VERDICTS[report['verdict']]}", "\n\n".join(parts),
             VERDICT_TONES[report["verdict"]], methods)
 
 
