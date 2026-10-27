@@ -216,8 +216,13 @@ def test_a_workspace_runs_on_the_campaigns_model(setup):
     config = workspace.pi.configuration(cid)
     config['models'] = {'default': {'provider': 'centinels', 'model': 'gpt-6.1-sol', 'effort': None}, 'roles': {}}
     workspace.store.put('agent_campaign', config)
-    record = development.create(cid, {'hypothesis_id': 'hypothesis_dev', 'objective': 'Implement', 'request_key': 'model'})
+    request = {'hypothesis_id': 'hypothesis_dev', 'objective': 'Implement', 'request_key': 'model'}
+    # A provider whose host Balsamic does not know: the box could not reach it, so it is refused unless its host is named.
+    with pytest.raises(ValueError, match='centinels is served from. Name its host in egress_hosts'):
+        development.create(cid, request)
+    record = development.create(cid, {**request, 'egress_hosts': ['router.example.com']})
     assert record['model'] == {'provider': 'centinels', 'model': 'gpt-6.1-sol', 'effort': None}
+    assert record['egress'] == {'model': [], 'package_index': ['pypi.org', 'files.pythonhosted.org'], 'named': ['router.example.com']}
 
 
 def test_the_container_gets_the_campaigns_provider_only(tmp_path, monkeypatch):
@@ -559,3 +564,114 @@ def test_the_lead_opening_a_workspace_records_the_request_its_turn_works_on(setu
                                    'objective': 'Implement', 'request_key': 'tool'}, 'call_one')
     assert captured['root'] == {'thread_id': 'thread_main', 'message_id': 'message_ask', 'run_id': 'run_ask'}
     assert captured['opener'] == {'agent_id': lead['id'], 'role': 'lead'}
+
+
+def test_the_box_has_an_egress_allowlist_on_its_record_and_its_card(setup, tmp_path, monkeypatch):
+    from optimization_framework.agents import development_runtime
+    from optimization_framework.agents.development_runtime import DockerWorkspace
+    workspace, campaign, development, driver = setup
+    cid = campaign['id']
+    record = development.create(cid, {'hypothesis_id': 'hypothesis_dev', 'objective': 'Implement', 'request_key': 'walls',
+                                      'egress_hosts': ['github.com', 'codeload.github.com']})
+    assert record['egress'] == {'model': ['chatgpt.com', 'auth.openai.com'], 'package_index': ['pypi.org', 'files.pythonhosted.org'],
+                                'named': ['codeload.github.com', 'github.com']}
+    assert development.view(cid)['workspaces'][0]['egress'] == record['egress']
+    with pytest.raises(ValueError, match='lowercase DNS name'):
+        development.create(cid, {'hypothesis_id': 'hypothesis_dev', 'objective': 'Implement', 'request_key': 'url',
+                                 'egress_hosts': ['https://github.com']})
+    # A configured package mirror replaces PyPI; the container is started with every allowed host and its limits.
+    monkeypatch.setenv('GRATING_PACKAGE_INDEX_URL', 'https://mirror.example.org/simple')
+    commands = []
+    monkeypatch.setattr(development_runtime, 'run', lambda args, **kwargs: commands.append(args) or '')
+    monkeypatch.setattr(DockerWorkspace, 'inspect', lambda self, record: None)
+    DockerWorkspace(tmp_path / 'boxes').start({'id': 'development_old', 'model': None})   # recorded before the allowlist
+    assert 'EGRESS_HOSTS=chatgpt.com auth.openai.com mirror.example.org' in commands[0]
+    assert commands[0][commands[0].index('--cpus') + 1] == '4' and commands[0][commands[0].index('--memory') + 1] == '8192m'
+    assert '--gpus' not in commands[0]
+    DockerWorkspace(tmp_path / 'boxes').start({**record, 'limits': {'cpus': 2, 'memory_gb': 4, 'gpus': 1}})
+    assert 'EGRESS_HOSTS=chatgpt.com auth.openai.com pypi.org files.pythonhosted.org codeload.github.com github.com' in commands[1]
+    assert commands[1][commands[1].index('--cpus') + 1] == '2' and commands[1][commands[1].index('--gpus') + 1] == '1'
+
+
+def test_limits_above_the_researchers_ceiling_are_refused(setup, monkeypatch):
+    workspace, campaign, development, driver = setup
+    cid = campaign['id']
+    request = {'hypothesis_id': 'hypothesis_dev', 'objective': 'Implement', 'request_key': 'limits'}
+    with pytest.raises(ValueError, match=r'above the researcher\'s ceilings: cpus 8 \(ceiling 4\)'):
+        development.create(cid, {**request, 'limits': {'cpus': 8}})
+    with pytest.raises(ValueError, match=r'gpus 1 \(ceiling 0\)'):   # no GPU unless the researcher allows one
+        development.create(cid, {**request, 'limits': {'gpus': 1}})
+    assert workspace.store.list('development_workspace', cid) == []
+    monkeypatch.setenv('GRATING_DEVELOPMENT_MAX_CPUS', '2')
+    monkeypatch.setenv('GRATING_DEVELOPMENT_MAX_GPUS', '1')
+    assert development.create(cid, request)['limits'] == {'cpus': 2, 'memory_gb': 8, 'gpus': 0}   # the default, lowered to the ceiling
+
+
+def test_a_workspace_past_its_deadline_is_paused_its_last_state_kept_and_its_opener_told_once(setup, monkeypatch):
+    from datetime import datetime, timedelta, timezone
+    from optimization_framework.agents import development as module
+    from optimization_framework.campaigns import compute_consent
+    workspace, campaign, development, driver = setup
+    cid = campaign['id']
+    consent = compute_consent.grant(workspace, {'id': 'decision_go', 'campaign_id': cid}, {'plan': 'Implement the method',
+        'wall_seconds': 3600, 'worker_seconds': 600, 'coding_workspaces': 1, 'egress_hosts': ['github.com']})
+    request = {'hypothesis_id': 'hypothesis_dev', 'objective': 'Implement', 'request_key': 'deadline'}
+    with pytest.raises(ValueError, match=r'past the go-ahead\'s wall time \(3600 s\)'):
+        development.create(cid, {**request, 'wall_seconds': 7200}, actor='lead')
+    with pytest.raises(ValueError, match='did not approve these hosts for the workspace: gitlab.com'):
+        development.create(cid, {**request, 'egress_hosts': ['gitlab.com']}, actor='lead')
+    record = development.create(cid, {**request, 'egress_hosts': ['github.com']}, actor='lead')
+    assert record['wall_seconds'] == 3600 and record['deadline_at'] is None   # the go-ahead's wall time, from the first start
+    development.sync(cid)
+    started = development.get(cid, record['id'])
+    deadline = datetime.fromisoformat(started['deadline_at'])
+    assert timedelta(seconds=3590) < deadline - datetime.now(timezone.utc) <= timedelta(seconds=3600)
+    outgoing(driver, record, 'cp', 'checkpoint', {'summary': 'Seeded replay passes; checkpoint test left', 'phase': 'testing'})
+    development.sync(cid)
+
+    later = deadline + timedelta(seconds=1)
+    class Clock(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return later
+    monkeypatch.setattr(module, 'datetime', Clock)
+    development.sync(cid)
+    development.sync(cid)
+    saved = development.get(cid, record['id'])
+    assert (saved['status'], saved['desired_status'], driver.paused > 0) == ('paused', 'paused', True)   # paused, not removed
+    assert saved['deadline_reached']['phase'] == 'testing' and 'Seeded replay passes' in saved['deadline_reached']['checkpoint']
+    assert 'reached its deadline' in saved['error']
+    assert [e['type'] for e in development.workspace_events(saved)].count('deadline_reached') == 1
+    told = [run for run in notices(workspace, cid, workspace.pi.configuration(cid)['lead_id']) if 'reached its deadline' in json.dumps(run)]
+    assert len(told) == 1
+    # Its wall time was charged to the go-ahead it opened under.
+    used = workspace.store.get(consent['id'], 'compute_consent')['used_wall_seconds']
+    assert used >= 3600 and saved['usage']['wall_seconds'] == used
+    # Going on is a new go-ahead: a resume names how long.
+    with pytest.raises(ValueError, match='Going on is a new go-ahead'):
+        development.control(cid, record['id'], {'action': 'resume', 'request_key': 'go-on', 'expected_revision': saved['control_revision']})
+    resumed = development.control(cid, record['id'], {'action': 'resume', 'request_key': 'go-on-hour', 'wall_seconds': 1800,
+                                                      'expected_revision': saved['control_revision']})
+    assert resumed['desired_status'] == 'running' and resumed['wall_seconds'] == 1800 and not resumed.get('deadline_reached')
+
+
+def test_an_agents_workspace_takes_its_deadline_and_hosts_from_its_requests_mandate(setup):
+    # Since Phase 3 an agent's go-ahead is its request's Screen mandate, whose compute part is a consent: the box's deadline
+    # defaults to that wall time and it may reach only the hosts the researcher approved with it (H5).
+    from optimization_framework.campaigns import mandates
+    from optimization_framework.storage.sqlite import now
+    workspace, campaign, development, driver = setup
+    cid = campaign['id']
+    root = {'thread_id': 'thread_main', 'message_id': 'message_ask', 'run_id': 'run_ask'}
+    decision = workspace.store.put('decision', {'id': 'decision_screen', 'campaign_id': cid, 'title': 'Screen', 'question': 'Screen',
+        'status': 'resolved', 'requested_by': 'lead', 'audience': 'researcher', 'created_at': now(), 'request_root': root,
+        'approval_request': {'kind': 'mandate', 'template': 'screen', 'plan': 'Build the method from its reference code', 'wall_seconds': 5400,
+                             'worker_seconds': 600, 'coding_workspaces': 1, 'hypothesis_ids': ['hypothesis_dev'], 'egress_hosts': ['github.com']}})
+    outcome = mandates.approve(workspace, decision)
+    request = {'hypothesis_id': 'hypothesis_dev', 'objective': 'Implement', 'request_key': 'screen'}
+    with pytest.raises(ValueError, match='did not approve these hosts for the workspace: gitlab.com'):
+        development.create(cid, {**request, 'egress_hosts': ['gitlab.com']}, actor='lead', root=root, asked=root)
+    with pytest.raises(ValueError, match=r"past the go-ahead's wall time \(5400 s\)"):
+        development.create(cid, {**request, 'wall_seconds': 6000}, actor='lead', root=root, asked=root)
+    record = development.create(cid, {**request, 'egress_hosts': ['github.com']}, actor='lead', root=root, asked=root)
+    assert (record['wall_seconds'], record['egress']['named'], record['consent']['id']) == (5400, ['github.com'], outcome['consent_id'])

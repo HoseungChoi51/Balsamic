@@ -115,6 +115,19 @@ def test_a_screen_mandate_becomes_one_card_and_approving_it_records_the_mandate_
     assert f"Mandate: screen ({mandate.id}); model spend $2.00 left of $2.00; worker time 40 min left, 1 coding workspace; deadline " in state(team)
 
 
+def test_a_screen_mandate_names_the_hosts_its_coding_workspaces_may_reach_and_its_consent_keeps_them(team):
+    # The box's egress allowlist (roadmap H5): hosts beyond the model and the package index are approved with the go-ahead.
+    hypothesis(team, "H1")
+    propose(team, "hosts", template="screen", plan="Build H1 from the reference code on github.com", hypothesis_ids=["H1"],
+            worker_seconds=2400, coding_workspaces=1, egress_hosts=["github.com"])
+    [decision] = team.workspace.store.list("decision", "demo")
+    assert decision["approval_request"]["egress_hosts"] == ["github.com"]
+    assert "Its coding workspaces may also reach github.com, beyond their model and the package index." in decision["proposal"]
+    resolve(team, decision, "0")
+    [consent] = team.workspace.store.list("compute_consent", "demo")
+    assert consent["egress_hosts"] == ["github.com"] and mandates.active(team.workspace, "demo", root(team)).consent_id == consent["id"]
+
+
 def test_approve_as_explore_only_records_explore_and_decline_records_nothing(team):
     hypothesis(team, "H1")
     propose(team, "screen", template="screen", plan="Screen H1", hypothesis_ids=["H1"], worker_seconds=2400)

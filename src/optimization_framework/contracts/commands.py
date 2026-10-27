@@ -280,6 +280,10 @@ class PlannedRun(Contract):
     device: Literal["cuda", "cpu"] | None = None
 
 
+# A host a coding workspace may reach (agents/development.py), as a lowercase DNS name.
+HOSTNAME = r"^(?=.{1,253}$)[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?(\.[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?)+$"
+
+
 class StopCondition(Contract):
     """When a request's work is done: in words, and optionally a condition the code can check (a mandate's, contracts/mandates.py)."""
     text: str = Field(min_length=1, max_length=2000)
@@ -304,6 +308,8 @@ class ApprovalRequestInput(Contract):
     hypothesis_ids: list[str] = Field(default_factory=list, max_length=50, description="compute: the proposals the plan is for. "
         "The go-ahead then covers only their workspaces, runs and commissions, with those its runs name; work for no proposal is "
         "covered in this request only. A plan that names none covers any work in the campaign")
+    egress_hosts: list[str] = Field(default_factory=list, max_length=20, description="mandate, compute: hosts its coding workspaces may reach "
+        "beyond their model and the package index (lowercase DNS names); the researcher approves them with the plan")
     meanwhile: str | None = Field(default=None, min_length=1, max_length=2000, description="compute: what the researcher can do while it runs")
     runs: list[PlannedRun] = Field(default_factory=list, max_length=50, description="compute for experiments: each planned experiment, "
         "so the researcher reads the plan (speed, evaluations, outputs and disk use, measured on earlier runs) before approving")
@@ -323,8 +329,14 @@ class ApprovalRequestInput(Contract):
             raise ValueError("A compute plan states wall_seconds, worker_seconds and what the researcher can do meanwhile")
         if self.kind == "mandate" and (self.plan is None or self.worker_seconds is None):
             raise ValueError("A mandate states its plan and the worker_seconds of its envelope")
-        if (self.runs or self.hypothesis_ids) and self.kind not in {"compute", "mandate"}:
-            raise ValueError("Planned runs and the proposals a plan is for belong to a mandate or a compute request")
+        if (self.runs or self.hypothesis_ids or self.egress_hosts) and self.kind not in {"compute", "mandate"}:
+            raise ValueError("Planned runs, the proposals a plan is for and the hosts its workspaces reach belong to a mandate or a compute request")
+        if self.egress_hosts and not self.coding_workspaces:
+            raise ValueError("egress_hosts are for the coding workspaces a plan opens: set coding_workspaces")
+        import re
+        bad = [host for host in self.egress_hosts if not re.fullmatch(HOSTNAME, host)]
+        if bad:
+            raise ValueError("egress_hosts: name each host by its lowercase DNS name, without scheme, port or path: " + ", ".join(bad))
         if (self.model_usd is not None or self.deadline_minutes is not None or self.stop_when is not None) and self.kind != "mandate":
             raise ValueError("A model-spend envelope, a deadline and a stop condition belong to a mandate")
         if set(self.limits) - set(LIMITS):

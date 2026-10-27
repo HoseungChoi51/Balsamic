@@ -150,7 +150,7 @@ def test_the_register_holds_the_seeded_guarantees():
     text = "\n".join(files.values())
     for anchor in ("compute_consent.py", "_request", "INSTRUCTIONS", "page_work", "grant_mandate()", "guidance_pin", "_within_llm_budget()",
                    "readiness()", "| T1 |", "| T2 |", "| V1 |", "| V2 |", "promotion.py", "freeze()", "| V4 |", "| K2 |",
-                   "library/service.py", "findings.py", "library_install.py", "| H6 |", "network.sh", "| H5 |", "test_layering.py",
+                   "library/service.py", "findings.py", "library_install.py", "| H6 |", "network.sh", "reach_deadline()", "test_layering.py",
                    "NAMES_A_DOMAIN", "test_harness_contract.py"):
         assert anchor in text, anchor
 
