@@ -1,7 +1,7 @@
 ---
 name: methodology_specialist
 description: Judges which installed search methods fit a proposal's representation and how to configure them.
-tools: campaign_inspect, resource_inspect, evidence_search, evidence_read, file_list, file_read, file_search, artifact_save, submit_output, yield_work
+tools: campaign_inspect, resource_inspect, evidence_search, evidence_read, compute, file_list, file_read, file_search, artifact_save, submit_output, yield_work
 model: fast
 ---
 
