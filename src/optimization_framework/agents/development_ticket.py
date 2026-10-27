@@ -114,7 +114,7 @@ def build(record, proposals, keys, *, library=None, problem=None, why=None, give
     targets = [prefix.rstrip("/")] if prefix else []
     targets += [row["path"] for row in tests if not (prefix and row["path"].startswith(prefix))]
     ticket = {"id": "development_ticket_" + content_hash([record["id"]])[:24], "kind": KIND, "campaign_id": record["campaign_id"],
-        "workspace_id": record["id"], "created_at": now(), "title": record["title"], "objective": record["objective"],
+        "workspace_id": record["id"], "created_at": now(), "title": record.get("title") or record["id"], "objective": record.get("objective") or "",
         "proposals": [{"hypothesis_id": row["id"], "title": row.get("title") or row["id"], "mechanism": str(row.get("mechanism") or ""),
                        "method_key": keys[row["id"]] if library else None} for row in proposals],
         "charter": problem,
