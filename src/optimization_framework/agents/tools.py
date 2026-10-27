@@ -955,7 +955,8 @@ class PiTools:
                 snapshot["admission"] = detail
             return snapshot
         if name == "implementation_workspace_create":
-            return self.controller.development.create(cid, args, actor=LEAD, opener={"agent_id": agent["id"], "role": agent["role"]})
+            return self.controller.development.create(cid, args, actor=LEAD, opener={"agent_id": agent["id"], "role": agent["role"]},
+                                                     root=self.assignment_origin(agent, run))
         if name == "implementation_workspace_inspect":
             return self.controller.development.events(cid, args["workspace_id"], args.get("after", 0))
         if name == "implementation_workspace_message":

@@ -139,7 +139,7 @@ class Installer:
                 "requested_at": now(), "finished_at": now(), "error": str(exc)[:2000], "methods_added": [], "missing_methods": [],
                 "changes": [], "log_tail": ""}, "library.install_failed")
             self.development.notify(self.development.get(campaign_id, workspace_id), identity, f"Balsamic could not install the library "
-                f"from commit {submission['commit'][:7]}: {exc} Have the coding agent fix it and deliver again.")
+                f"from commit {submission['commit'][:7]}: {exc} Have the coding agent fix it and deliver again.", "installs")
             return record
 
     def reparsed(self, campaign_id, submission, *, background=True):
@@ -233,7 +233,7 @@ class Installer:
                 self.development.notify(plan["record"], identity, f"{who} installed {plan['package']} {plan['version']} from commit "
                     f"{plan['submission']['commit'][:7]}: methods {', '.join(record['methods_added']) or 'none new'}"
                     + (f"; not found: {', '.join(record['missing_methods'])}" if record["missing_methods"] else "")
-                    + ". Bind each proposal to its method (implementation.bind_builtin) and tell the researcher which can run now.")
+                    + ". Bind each proposal to its method (implementation.bind_builtin) and tell the researcher which can run now.", "installs")
                 return record
             except Exception as exc:   # every failure is recorded and the lab is put back as it was
                 self._restore(saved, target, backup, created)
