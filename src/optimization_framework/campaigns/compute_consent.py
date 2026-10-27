@@ -14,7 +14,9 @@ is not a go-ahead for its compute.
 
 A consent covers only the work its plan names (decision 4): a coding workspace for a proposal it names, a run or commission of
 such a proposal, and work for no proposal (a runtime profile, a validation) asked in the same researcher request. A plan that
-names no proposals, as every consent recorded before plans named them, covers any work in the campaign. A consent stays in force
+names no proposals, as every consent recorded before plans named them, covers any work in the campaign. A go-ahead the
+researcher gives with a chat message (R7) is request-only: it covers the work of that request alone, with or without proposals
+(Hoseung, 27 October 2026). A consent stays in force
 while a coding workspace it opened runs, and for three times its wall time after the last one stops. The runs a plan lists
 start by themselves once their proposals can run (plan_runs.py), each charged to the consent it ran under.
 
@@ -138,7 +140,13 @@ def consents(workspace, campaign_id):
 
 
 def covers(row, hypothesis_ids=(), root=None):
-    """Whether a consent's plan names this work: every proposal it is for, or for no proposal, the same researcher request."""
+    """Whether a consent's plan names this work: every proposal it is for, or for no proposal, the same researcher request. A
+    request-only consent (the researcher's go-ahead given with a chat message, R7) covers work in its own request and nothing else,
+    whether or not it names proposals."""
+    if row.get("request_only"):
+        from .mandates import same_root
+        if not same_root(row.get("request_root"), root):
+            return False
     named = row.get("hypothesis_ids")
     if not named:
         return True
@@ -166,7 +174,9 @@ def _left(row):
 
 def refusal(workspace, campaign_id, what, seconds=None, *, hypothesis_ids=(), root=None):
     gate = _minutes(thresholds(workspace, campaign_id)[1])
-    rows = consents(workspace, campaign_id)
+    from .mandates import same_root
+    # Another request's request-only go-ahead (R7) is not this work's to use, so it is not offered.
+    rows = [row for row in consents(workspace, campaign_id) if not row.get("request_only") or same_root(row.get("request_root"), root)]
     named = [row for row in rows if covers(row, hypothesis_ids, root)]
     work = f"work for {', '.join(hypothesis_ids)}" if hypothesis_ids else "this work"
     if named:
@@ -251,7 +261,9 @@ def grant(workspace, decision, request):
         "wall_seconds": request["wall_seconds"], "coding_workspaces": request.get("coding_workspaces", 0), "used_seconds": 0.0,
         "used_workspaces": 0, "hypothesis_ids": list(dict.fromkeys(value for value in named if value)), "runs": list(request.get("runs") or []),
         "request_root": decision.get("request_root"), "workspace_ids": [], "launched": [], "granted_at": now(),
-        "expires_at": (granted + timedelta(seconds=max(3600, 3 * request["wall_seconds"]))).isoformat()}, "compute.consent_granted")
+        "expires_at": (granted + timedelta(seconds=max(3600, 3 * request["wall_seconds"]))).isoformat(),
+        # Given with the researcher's chat message (R7): it pays for the work of that request only (covers()).
+        **({"request_only": True} if decision.get("request_only") else {})}, "compute.consent_granted")
 
 
 def register(bus):

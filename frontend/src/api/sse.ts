@@ -14,6 +14,8 @@ const ROUTES: [RegExp, string[]][] = [
   [/^(resources|workers|cost|llm)\./, ['monitor', 'resources']],
   [/^panel\./, ['panels', 'panel', 'messages']],
   [/^(development|implementation|library)\./, ['implementation-workspaces', 'implementations', 'timeline', 'methods', 'agents']],
+  // A request's mandate: granted, charged (directly or on its consent), closed; a new message opens a new request.
+  [/^(mandate|compute|message)\./, ['mandate']],
 ];
 
 const PROGRESS = /\.progress$/;

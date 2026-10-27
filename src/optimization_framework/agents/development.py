@@ -335,10 +335,11 @@ class DevelopmentWorkspaces:
                 pass
             from optimization_framework.campaigns import compute_consent, mandates
             consent = None
+            # The request the agent works for: its mandate must allow the workspace, and a request-only go-ahead (R7) covers it there.
+            request = asked if asked is not None else root
             if actor != "researcher":
-                consent = compute_consent.require(self.workspace, campaign_id, "Opening a coding workspace", coding=1, hypothesis_ids=served)
-                mandates.require(self.workspace, campaign_id, asked if asked is not None else root, {"implement"},
-                                 what="Opening a coding workspace", hypothesis_ids=served)
+                consent = compute_consent.require(self.workspace, campaign_id, "Opening a coding workspace", coding=1, hypothesis_ids=served, root=request)
+                mandates.require(self.workspace, campaign_id, request, {"implement"}, what="Opening a coding workspace", hypothesis_ids=served)
             for evidence_id in values.evidence_ids:
                 self.evidence(campaign_id, evidence_id)
             config = self.controller.configuration(campaign_id)
@@ -360,7 +361,8 @@ class DevelopmentWorkspaces:
                           "billing_mode": "subscription", "api_cost_usd": 0}, "event_files": [], "cursor": 0}
             self.store.put("development_workspace", record, "development.created")
             if actor != "researcher":
-                compute_consent.charge(self.workspace, campaign_id, coding=1, what="a coding workspace", subjects=[identity], hypothesis_ids=served)
+                compute_consent.charge(self.workspace, campaign_id, coding=1, what="a coding workspace", subjects=[identity], hypothesis_ids=served,
+                                       root=request)
             self.message(campaign_id, identity, {"message": values.objective +
                 "\nRead .campaign/assignment.md and .campaign/evidence.json first. Save checkpoints in .campaign/checkpoint.md. "
                 "Use the normal Pi coding tools to implement, debug, and test. Submit a committed package with campaign_submit. "
@@ -796,18 +798,19 @@ class DevelopmentWorkspaces:
             raise ValueError("Protected validation is unavailable: " + capability["reason"])
         from optimization_framework.campaigns import compute_consent, mandates
         served = record.get("hypothesis_ids") or [record["hypothesis_id"]]   # a go-ahead covers the validation of what it opened
+        # Checked against the request the agent works for (asked), else the one the workspace was opened for.
+        request = asked if asked is not None else record.get("request_root")
         if actor != "researcher":
-            compute_consent.require(self.workspace, campaign_id, "Validating a submission", values.compute_seconds, hypothesis_ids=served)
-            # Checked against the mandate of the request the agent works for (asked), else the one the workspace was opened for.
-            mandates.require(self.workspace, campaign_id, asked if asked is not None else record.get("request_root"), {"validate"},
-                             what="Validating a submission", hypothesis_ids=served, seconds=values.compute_seconds)
+            compute_consent.require(self.workspace, campaign_id, "Validating a submission", values.compute_seconds, hypothesis_ids=served, root=request)
+            mandates.require(self.workspace, campaign_id, request, {"validate"}, what="Validating a submission", hypothesis_ids=served,
+                             seconds=values.compute_seconds)
         grant = self.workspace.implementations.reserve_commission(record["hypothesis_id"], spec,
             compute_seconds=values.compute_seconds, max_calls=12, api_budget_usd=0,
             idempotency_key="development-" + content_hash([identity, values.request_key])[:24],
             package=submission["package"], accounting_mode="execution_v1")
         if actor != "researcher":
             compute_consent.charge(self.workspace, campaign_id, values.compute_seconds, what="a validation of a coding workspace's submission",
-                                   subjects=[identity], hypothesis_ids=served)
+                                   subjects=[identity], hypothesis_ids=served, root=request)
         # A validation of the same submission again: its result is news to the coding agent, like the first one's.
         submission.update(grant_id=grant["id"], status="validating", feedback_sent=False)
         self.store.put("development_submission", submission, "development.validation_requested")

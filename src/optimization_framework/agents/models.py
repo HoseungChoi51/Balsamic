@@ -1,6 +1,7 @@
 from typing import Literal
 from pydantic import Field, model_validator
 from optimization_framework.contracts.base import Contract
+from optimization_framework.contracts.mandates import MessageMandate
 
 
 # The campaign lead coordinates the other roles. ("pi" was a misreading of the
@@ -87,6 +88,8 @@ class Message(Contract):
     thread_id: str | None = None
     parent_message_id: str | None = None
     edit_of_message_id: str | None = None
+    # The mandate the researcher grants with this message, for the request it opens (R7, the dial beside the chat's send button).
+    mandate: MessageMandate | None = None
 
     @model_validator(mode="after")
     def one_recipient(self):

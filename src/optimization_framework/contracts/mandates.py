@@ -3,7 +3,7 @@ the proposals, coding workspaces and runs it names, a compute and model-spend en
 The records and their templates are in campaigns/mandates.py."""
 from typing import Literal
 
-from pydantic import Field
+from pydantic import Field, model_validator
 
 from .base import Contract
 from .commands import PlannedRun, StopCondition
@@ -50,3 +50,31 @@ class Mandate(Contract):
     used: MandateUse = Field(default_factory=MandateUse)
     consent_id: str | None = Field(default=None, description="The compute consent that is its compute part, if any")
     created_at: str
+
+
+class MessageMandate(Contract):
+    """The mandate the researcher grants with a message (R7, the dial in the chat): the request the message opens works under it.
+    Answer and Explore take their template's envelope; Screen and Run the campaign are the researcher's go-ahead, with an envelope
+    (worker time, coding workspaces, model spend) and optionally a deadline and the proposals it is for."""
+    template: TemplateName
+    worker_seconds: float | None = Field(default=None, gt=0, le=2419200, description="screen, run_campaign: the worker time it may use in all")
+    coding_workspaces: int = Field(default=0, ge=0, le=10, description="screen, run_campaign: coding workspaces it may open")
+    model_usd: float | None = Field(default=None, ge=0, le=10000, description="screen, run_campaign: the model-spend envelope; none sets none")
+    deadline_minutes: float | None = Field(default=None, gt=0, le=40320, description="screen, run_campaign: minutes from the message to its deadline")
+    hypothesis_ids: list[str] = Field(default_factory=list, max_length=50, description="screen, run_campaign: the proposals it is for; none names no limit")
+
+    @model_validator(mode="after")
+    def envelope(self):
+        if self.template in {"screen", "run_campaign"}:
+            if self.worker_seconds is None:
+                raise ValueError("A Screen or Run the campaign mandate states the worker time of its envelope")
+        elif self.worker_seconds is not None or self.coding_workspaces or self.model_usd is not None or self.deadline_minutes is not None or self.hypothesis_ids:
+            raise ValueError("Answer and Explore take their template's envelope: give no worker time, coding workspaces, model spend, "
+                             "deadline or proposals")
+        return self
+
+
+class MandateCloseInput(Contract):
+    """The researcher closes a mandate (R7): new work under it is refused, work already running goes on."""
+    mandate_id: str = Field(min_length=1, max_length=200)
+    reason: str = Field(default="Closed by the researcher", min_length=1, max_length=2000)

@@ -282,6 +282,14 @@ autopilot, with a state dot or switch); `.btn.primary` for the one main action. 
 (`thread.suggestions {items, as_of_message_id}`, event `thread.suggested`) from the stage, the counts and the last exchange;
 the composer shows them while they match the last message, and the stage defaults only until the lead has spoken.
 
+**The mandate dial** (roadmap R7, `docs/readiness/R7.md`). Beside Send, the four templates (Answer, Explore, Screen, Run the
+campaign); the message grants its request that mandate (`agent.message` `mandate`). Screen and Run the campaign first ask for
+their envelope and deadline in a small form, and are recorded as the researcher's go-ahead, which pays for that request's work
+only. The dial starts at the campaign's default template (Monitor › Resources; unset, it follows `autonomy`) and returns to it
+after each message; slash commands carry none. Above the chat, the mandate of the thread's latest request, what is left of it and
+its deadline, with Close (`mandate.close`), and any other still in force in the thread (`GET /api/v1/threads/{id}/mandate`).
+Autopilot's standing mandate has no Close: it ends with the autopilot switch.
+
 **Folded exchanges.** The chat groups messages into exchanges (a researcher message and the replies before the next one)
 and folds all but the last two under a one-sentence title: the housekeeper's `fold_title` on the researcher message
 (written once the next exchange begins), else the question's first sentence. Expand all / fold all is one button.

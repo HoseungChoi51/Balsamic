@@ -497,6 +497,15 @@ class PiController:
             **({"parent_message_id": values.parent_message_id} if values.parent_message_id else {}),
             **({"edited_from_message_id": values.edit_of_message_id} if values.edit_of_message_id else {}),
             **({"desk": agent["role"]} if agent["role"] in PAGE_AGENTS else {})}, "message.created")
+        if values.mandate is not None:
+            # The researcher grants the request's mandate with the message (R7): rooted at the request it opens, as request_root()
+            # gives it for the lead's run, or as the page agent's desk_root for its own request (decision 12).
+            from optimization_framework.campaigns.mandates import with_message
+            if agent["role"] != LEAD and agent["role"] not in PAGE_AGENTS:
+                raise ValueError("A mandate is granted with a message to the lead or to a page's agent, whose request it opens")
+            thread_id = values.thread_id or ("desk_" + agent["role"] if agent["role"] in PAGE_AGENTS else None)
+            with_message(self.workspace, campaign_id, values.mandate, {"thread_id": thread_id, "message_id": "message_" + command_id,
+                         "run_id": "pi_run_" + command_id}, plan=values.message, message_id="message_" + command_id)
         if agent["role"] in PAGE_AGENTS:
             # Asked from a chat thread (/plan), it answers in that thread; asked on its page, on the page.
             origin = {"thread_id": values.thread_id, "message_id": "message_" + command_id, "actor": "researcher"} if values.thread_id else None
