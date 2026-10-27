@@ -27,7 +27,10 @@ def score_of(trial):
 
 
 def _direction(trial):
-    return ((trial.get("problem") or {}).get("primary_objective") or {}).get("direction", "maximize")
+    """As the ledger ranks it (A2): the result's objective, else the problem's; records that say none were maximized."""
+    sources = [((trial.get(key) or {}).get("objective_definition") or {}) for key in ("result", "progress")]
+    sources.append((trial.get("problem") or {}).get("primary_objective") or {})
+    return next((source["direction"] for source in sources if source.get("direction") in {"minimize", "maximize"}), "maximize")
 
 
 def best_trial(store, hypothesis):
