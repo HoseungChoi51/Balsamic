@@ -20,7 +20,15 @@ turns under that request hold, as the campaign's model cap holds every turn, wit
 An agent proposes its request's mandate with mandate_propose (R2, agents/tools.py): Answer and Explore within the researcher's
 thresholds are granted at once (propose()); Screen and Run the campaign become one inbox card, an approval.request of kind mandate,
 and the researcher's choice records the mandate (approve()). A request with none has Explore, recorded at its first command that
-starts work (register()). The bus records and charges mandates; it does not refuse work outside one yet (R3)."""
+starts work (register()).
+
+The bus refuses an agent's work outside its request's mandate (R3, require()): a class the mandate does not allow, for a Screen
+mandate a proposal it does not name, work past what is left of Explore's envelope, and once the mandate has ended (its deadline
+passed, its envelope spent, or closed: decision 11) anything but answering, asking and recording what the work found; work already
+running goes on. A request's own newest mandate governs it (governing()); a standing one serves requests with none of their own.
+A request never narrows its own mandate, and has one Explore. The researcher's commands are never checked. When every run of a
+mandate with the stop condition all_runs_terminal has ended, it closes and the agent working for its request is told once
+(settle()); the researcher is told once when a mandate they granted ends."""
 from datetime import datetime, timedelta, timezone
 
 from optimization_framework.contracts.commands import PlannedRun
@@ -41,19 +49,21 @@ CLASSES = {
                      "implementation.resolve_runtime", "implementation.reuse", "implementation.reference", "implementation.control",
                      "evaluator.commission", "evaluator.attach", "library.apply", "campaign.adopt_problem", "asset.reuse", "asset.import_reference_set"), "implement"),
     # A batch of interventions is checked by its items' classes (classes_of).
+    # The resource planner's plan governs how runs are admitted, within the researcher's level (moved from configure by R3).
     **dict.fromkeys(("trial.create", "trial.continue", "trial.control", "draft.launch", "fixed_mask.run", "inference.run",
                      "runtime.profile", "hypothesis.allocate", "intervention.batch", "study.create", "study.activate",
-                     "study.race.create", "study.race.control"), "run"),
+                     "study.race.create", "study.race.control", "resources.plan"), "run"),
     **dict.fromkeys(("validation.run", "validation.execute", "validation.require", "trial.validate", "evaluator.equivalence",
                      "confirmation.schedule", "confirmation.validate", "reproduction.compare"), "validate"),
     # Stops, nominations, finalists, and what settles a result or a requirement.
     **dict.fromkeys(("hypothesis.status", "hypothesis.nominate", "study.nominate", "finalist.set", "study.race.decide",
                      "confirmation.release", "validation.waive", "validation.revoke_waiver", "decision.resolve",
                      "problem_note.adopt"), "decide"),
+    # An agent closing an inbox issue records that its condition no longer holds (moved from configure by R3).
     **dict.fromkeys(("finding.record", "comparison.report", "bundle.export", "bundle.publish", "library.publish", "asset.snapshot",
-                     "source.record", "source.ingest", "cost.reconcile", "problem_note.revise", "study.freeze_template"), "record"),
+                     "source.record", "source.ingest", "cost.reconcile", "problem_note.revise", "study.freeze_template", "issue.resolve"), "record"),
     **dict.fromkeys(("experiments.rules", "trial.hide", "journal.compact", "campaign.create", "campaign.update", "campaign.stage_pin",
-                     "context.edit", "workers.set", "autopilot.set", "resources.plan", "issue.resolve", "issue.reopen",
+                     "context.edit", "workers.set", "autopilot.set", "issue.reopen",
                      "problem_note.skip", "problem_note.unskip", "agent.activate", "agent.configure", "agent.control", "agent.rollback",
                      "thread.fork", "thread.rename", "thread.park", "thread.unpark", "thread.pin", "thread.merge_draft",
                      "thread.merge"), "configure"),
@@ -72,6 +82,9 @@ OPTIONS = [{"id": "0", "label": "Approve", "description": "The requester starts 
            {"id": "2", "label": "Decline", "description": "The requester is told and nothing starts."}]
 # The classes of work that start something: a request's first such command records its default, Explore.
 STARTING = {"propose", "review", "implement", "run", "validate", "decide", "record"}
+# What a request may still do once its mandate has ended (decision 11): answer, ask for more, and record what its work found.
+AFTER_END = {"answer", "ask", "record"}
+ENDED = {"expired", "exhausted", "closed"}
 _UNFINISHED = {"queued", "running", "pausing", "paused", "stopping", "interrupted"}
 
 
@@ -169,7 +182,13 @@ def from_consent(workspace, consent, current=None):
         classes=list(TEMPLATES["screen"]["classes"]), plan=consent.get("plan"), hypothesis_ids=consent.get("hypothesis_ids") or [],
         workspace_ids=consent.get("workspace_ids") or [], runs=consent.get("runs") or [], compute=compute, used=used,
         granted_by=consent["decision_id"], consent_id=consent["id"], created_at=consent["granted_at"],
-        status=_status(workspace, "active", compute, used, None, None, consent, current))
+        status=_status(workspace, "closed" if consent.get("closed_at") else "active", compute, used, None, None, consent, current))
+
+
+def of_consent(workspace, consent):
+    """The mandate a consent is the compute part of: the recorded one that names it, else the consent read as a Screen mandate."""
+    row = next((row for row in workspace.store.list("mandate", consent["campaign_id"]) if row.get("consent_id") == consent["id"]), None)
+    return read(workspace, row) if row is not None else from_consent(workspace, consent)
 
 
 def mandates(workspace, campaign_id):
@@ -192,10 +211,23 @@ def active(workspace, campaign_id, root):
     return next((mandate for mandate in reversed(mandates(workspace, campaign_id)) if mandate.status == "active" and serves(mandate, root)), None)
 
 
+def governing(workspace, campaign_id, root, found=None):
+    """The mandate an agent's work for this request is checked against (R3): the request's own newest, ended or not, else the newest
+    campaign-wide standing mandate in force (one for no request that names no proposals, as a consent from before B2); None when
+    neither, and the request has the default, Explore. A consent for named proposals in no request pays for their work (decision
+    4) but governs no request."""
+    root = _root(root)
+    found = [mandate for mandate in (mandates(workspace, campaign_id) if found is None else found) if mandate.status != "proposed"]
+    own = [mandate for mandate in found if root and mandate.root and same_root(mandate.root.model_dump(), root)]
+    if own:
+        return own[-1]
+    return next((mandate for mandate in reversed(found) if mandate.root is None and mandate.status == "active" and not mandate.hypothesis_ids), None)
+
+
 def current(workspace, campaign_id, root):
-    """The newest mandate in force for this request, its envelope spent or not: the one whose model spend holds its turns."""
-    return next((mandate for mandate in reversed(mandates(workspace, campaign_id))
-                 if mandate.status in {"active", "exhausted"} and serves(mandate, root)), None)
+    """The mandate in force for this request, its envelope spent or not: the one whose model spend holds its turns."""
+    mandate = governing(workspace, campaign_id, root)
+    return mandate if mandate is not None and mandate.status in {"active", "exhausted"} else None
 
 
 def model_spent_out(mandate):
@@ -317,9 +349,127 @@ def stop_reached(workspace, mandate):
         return False
     row = _record(workspace, mandate.id, "mandate") or {}
     consent = _record(workspace, mandate.consent_id, "compute_consent") or {}
+    from .plan_runs import planned, run_of
+    if consent and any(run_of(workspace.store, consent, run, seed, index) is None for index, seed, run in planned(consent)):
+        return False   # a run its plan lists has not run yet
     launched = [*row.get("launched", []), *consent.get("launched", [])]
     trials = [_record(workspace, identity, "trial") for identity in launched]
     return bool(trials) and all(trial is not None and trial.get("status") not in _UNFINISHED for trial in trials)
+
+
+def _needs(classes):
+    """The narrowest template that allows these classes."""
+    return next(name for name in TEMPLATES if set(classes) <= set(TEMPLATES[name]["classes"]))
+
+
+def _ended(mandate):
+    if mandate.status == "closed":
+        return "it was closed"
+    if mandate.status == "exhausted":
+        return "its envelope is spent"
+    return "its deadline passed" if mandate.deadline_at and compute_consent._clock(mandate.deadline_at) <= datetime.now(timezone.utc) \
+        else "the go-ahead's time ran out"
+
+
+def require(workspace, campaign_id, root, classes, *, what, hypothesis_ids=(), seconds=None):
+    """Refuse (ValueError) an agent's work that its request's mandate does not allow (R3): a class outside it; for a Screen mandate,
+    work for a proposal it does not name; once it has ended, anything but answering, asking and recording (decision 11); past what
+    is left of an Answer or Explore envelope, unless a consent pays for the work. Returns the mandate, None for the default Explore."""
+    classes = set(classes)
+    if not classes:
+        return None
+    mandate = governing(workspace, campaign_id, root)
+    template = mandate.template if mandate is not None else "explore"
+    allowed = set(mandate.classes if mandate is not None else TEMPLATES["explore"]["classes"])
+    named = (f"this request's {LABELS[template]} mandate ({mandate.id})" if mandate.root is not None else
+             f"the standing {LABELS[template]} mandate ({mandate.id})") if mandate is not None else \
+        "this request's default mandate, Explore,"   # it has none of its own
+    if mandate is not None and mandate.status in ENDED:
+        if classes - AFTER_END:
+            raise ValueError(f"{what} is new work, and {named} has ended: {_ended(mandate)}. Work already running goes on; you may still answer, "
+                             "ask and record what the work found. For more, propose a new mandate with mandate_propose, saying what was done "
+                             "and what is left (screen goes to the researcher as one card).")
+        return mandate
+    if classes - allowed:
+        need = _needs(classes)
+        raise ValueError(f"{what} is {' and '.join(sorted(classes - allowed))} work, which {named} does not allow: {LABELS[template]} allows "
+                         f"{', '.join(cls for cls in ALL_CLASSES if cls in allowed)}. To do it, propose the request's mandate with "
+                         f"mandate_propose, template {need}" + (", which goes to the researcher as one card." if TEMPLATES[need]["go_ahead"] else "."))
+    if template == "screen" and mandate.hypothesis_ids and (outside := [value for value in hypothesis_ids if value not in mandate.hypothesis_ids]):
+        raise ValueError(f"{named[0].upper() + named[1:]} covers the work for {', '.join(mandate.hypothesis_ids)} only, and {what} is for {', '.join(outside)}. "
+                         "Propose a mandate that names it with mandate_propose (template screen); it goes to the researcher as one card.")
+    if template in {"answer", "explore"} and (mandate is None or not mandate.consent_id) and seconds and seconds != compute_consent.UNKNOWN:
+        notice, _ = compute_consent.thresholds(workspace, campaign_id)
+        if seconds > notice and any(compute_consent.covers(row, hypothesis_ids, _root(root)) for row in compute_consent.consents(workspace, campaign_id)):
+            return mandate   # a consent pays for it, as register() charges it
+        total = mandate.compute.worker_seconds if mandate is not None else envelope(workspace, campaign_id, template).worker_seconds
+        left = max(0.0, total - (mandate.used.worker_seconds if mandate is not None else 0.0))
+        if seconds > left + 1e-9:
+            raise ValueError(f"{what} would compute for about {compute_consent._minutes(seconds)}, and {named} has "
+                             f"{compute_consent._minutes(left)} of worker time left of {compute_consent._minutes(total)} in total. For more, propose "
+                             "the request's mandate with mandate_propose, template screen; it goes to the researcher as one card.")
+    return mandate
+
+
+def close(workspace, mandate_id, *, by, reason):
+    """Close a mandate (by the researcher, or when its stop condition holds): new work under it is refused, work already running goes
+    on. The consent that is its compute part closes with it, so it pays for nothing more and starts no planned run."""
+    with workspace.lock:
+        row = _record(workspace, mandate_id, "mandate")
+        consent = _record(workspace, row.get("consent_id") if row else mandate_id, "compute_consent")
+        if row is None and consent is None:
+            raise ValueError(f"No mandate {mandate_id}")
+        at = now()
+        if consent is not None and not consent.get("closed_at"):
+            consent.update(closed_at=at, closed_by=by)
+            workspace.store.put("compute_consent", consent, "compute.consent_closed")
+        if row is not None and row["status"] != "closed":
+            row.update(status="closed", closed_at=at, closed_by=by, close_reason=reason)
+            workspace.store.put("mandate", row, "mandate.closed")
+    return read(workspace, row) if row is not None else from_consent(workspace, workspace.store.get(consent["id"], "compute_consent"))
+
+
+def _owner(workspace, mandate):
+    """The agent working for a mandate's request: the page agent whose own request it is, else the lead. None with no team."""
+    from optimization_framework.agents.models import PAGE_AGENTS
+    config = workspace.pi.configuration(mandate.campaign_id)
+    if not config or not config.get("enabled"):
+        return None
+    root = mandate.root.model_dump() if mandate.root else None
+    page = next((agent for agent in workspace.store.list("agent_session", mandate.campaign_id) if agent.get("role") in PAGE_AGENTS
+                 and root and same_root(agent.get("desk_root"), root)), None)
+    return page or _record(workspace, config.get("lead_id"), "agent_session")
+
+
+def settle(workspace, campaign_id):
+    """Close each mandate whose stop condition holds (all_runs_terminal) and tell the agent working for its request once, under that
+    request; tell the researcher once when a mandate they granted ends (expired or spent). Returns the ids of the mandates closed."""
+    from optimization_framework.agents.models import NOTICE
+    from optimization_framework.contracts.base import content_hash
+    closed = []
+    for mandate in mandates(workspace, campaign_id):
+        row = _record(workspace, mandate.id, "mandate")
+        if row is None:
+            continue
+        if mandate.status == "active" and stop_reached(workspace, mandate):
+            mandate = close(workspace, mandate.id, by="stop_when", reason=mandate.stop_when.text)
+            closed.append(mandate.id)
+            launched = list(dict.fromkeys([*row.get("launched", []), *((_record(workspace, mandate.consent_id, "compute_consent") or {}).get("launched") or [])]))
+            agent = _owner(workspace, mandate)
+            if agent is not None:
+                workspace.pi.enqueue(agent, "mandate_stop_" + content_hash(mandate.id)[:24], NOTICE +
+                    f"Every run of this request's {LABELS[mandate.template]} mandate ({mandate.id}) has ended: {', '.join(launched)}. Its stop condition "
+                    f"(\"{mandate.stop_when.text}\") holds, so it is closed and starts nothing more. Read the runs and report what they found "
+                    "(comparison.report when they compare methods); you may answer, ask and record under it.",
+                    root=mandate.root.model_dump(exclude={"schema_version"}) if mandate.root else None)
+        elif mandate.status in {"expired", "exhausted"} and mandate.granted_by != "automatic" and not row.get("ended_notice_at"):
+            with workspace.lock:
+                row["ended_notice_at"] = now()
+                workspace.store.put("mandate", row, "mandate.ended")
+            workspace.memory.issue(campaign_id, "mandate_ended", f"The {LABELS[mandate.template]} mandate you approved ({mandate.id}: "
+                f"\"{(mandate.plan or '')[:120]}\") has ended: {_ended(mandate)}. The agents start no new work under it; work already running "
+                "goes on. Their next card asks you for more, if the request needs it.", affected=mandate.id)
+    return closed
 
 
 
@@ -344,7 +494,9 @@ def deadline(minutes):
 def propose(workspace, campaign_id, template, root, *, plan=None, hypothesis_ids=(), runs=(), worker_seconds=None, coding_workspaces=0,
             model_usd=None, deadline_minutes=None, stop_when=None):
     """An Answer or Explore mandate an agent proposes, granted at once when it fits the template: none of the researcher's compute for
-    Answer, up to their go-ahead threshold in total and no coding workspace for Explore. Larger work is a card (kind mandate)."""
+    Answer, up to their go-ahead threshold in total and no coding workspace for Explore. Larger work is a card (kind mandate).
+    (mandate, granted): a request never narrows its own mandate, so one in force that already allows the template's classes is
+    returned ungranted; and a request has one Explore, so a second is refused (R3)."""
     if template not in {"answer", "explore"}:
         raise ValueError(f"A {LABELS.get(template, template)} mandate is the researcher's go-ahead: it is proposed as a card")
     from .compute_consent import _minutes
@@ -352,8 +504,17 @@ def propose(workspace, campaign_id, template, root, *, plan=None, hypothesis_ids
     if coding_workspaces or (worker_seconds or 0) > allowed:
         raise ValueError(f"{LABELS[template]} covers up to {_minutes(allowed)} of worker time in total and no coding workspace. "
                          "Propose screen (or run_campaign) for more; it goes to the researcher as one card.")
+    found = mandates(workspace, campaign_id)
+    held = governing(workspace, campaign_id, root, found)
+    if held is not None and held.status == "active" and set(TEMPLATES[template]["classes"]) <= set(held.classes):
+        return held, False
+    used = next((mandate for mandate in reversed(found) if template == "explore" and mandate.template == "explore" and mandate.root
+                 and same_root(mandate.root.model_dump(), _root(root))), None)
+    if used is not None:
+        raise ValueError(f"This request has had its Explore ({used.id}, {used.status}); a request has one. Propose screen for more work; "
+                         "it goes to the researcher as one card.")
     return grant(workspace, campaign_id, template, root=root, plan=plan, hypothesis_ids=hypothesis_ids, runs=runs, model_usd=model_usd,
-                 deadline_at=deadline(deadline_minutes), stop_when=stop_when)
+                 deadline_at=deadline(deadline_minutes), stop_when=stop_when), True
 
 
 def approve(workspace, decision, explore_only=False):
@@ -374,10 +535,26 @@ def approve(workspace, decision, explore_only=False):
 
 
 def register(bus):
-    """A request's first command that starts work, from an agent, records the request's default, Explore, when no mandate serves it;
-    work an Answer or Explore mandate covers is charged to it, unless a consent pays for it (compute_consent.charge)."""
+    """The bus checks an agent's command against its request's mandate (guard, require()), and Balsamic's planned runs against the
+    mandate whose consent they run under. A request's first command that starts work, from an agent, records the request's default,
+    Explore, when no mandate serves it; work an Answer or Explore mandate covers is charged to it, unless a consent pays for it
+    (compute_consent.charge); every run started under a mandate is listed on it, for its stop condition."""
     from . import compute_consent as consents
     workspace = bus.workspace
+
+    def guard(command, actor, campaign):
+        if actor == "balsamic" and command.operation == "trial.create":
+            identity = (command.origin.mandate_id or command.origin.consent_id) if command.origin else None
+            mandate = next((found for found in mandates(workspace, command.campaign_id) if identity in {found.id, found.consent_id}), None)
+            if mandate is not None and mandate.status != "active":
+                raise ValueError(f"The {LABELS[mandate.template]} mandate {mandate.id} that this planned run is approved under has ended "
+                                 f"({_ended(mandate)}); Balsamic starts nothing more under it")
+            return
+        if actor != "manager" or command.operation not in CLASSES:
+            return
+        require(workspace, command.campaign_id, consents.request_root(workspace, command.origin), classes_of(command.operation, command.payload),
+                what=command.operation, hypothesis_ids=consents.proposals(workspace, command.operation, command.payload),
+                seconds=consents.estimate(workspace, command.operation, command.payload))
 
     def listener(record):
         if record.get("actor") != "manager" or record.get("status") != "completed":
@@ -391,17 +568,25 @@ def register(bus):
         if root is None:
             return
         with workspace.lock:
-            found = active(workspace, campaign_id, root)
-            if found is None and not any(same_root(mandate.root.model_dump(), root) for mandate in mandates(workspace, campaign_id) if mandate.root):
+            found = governing(workspace, campaign_id, root)
+            if found is None:
                 found = grant(workspace, campaign_id, "explore", root=root)
+            if found.status != "active":
+                return
+            trials = consents._trials(record.get("outcome"))
+            row = _record(workspace, found.id, "mandate")
+            if trials and row is not None and set(trials) - set(row.get("launched", [])):
+                row["launched"] = list(dict.fromkeys([*row.get("launched", []), *trials]))
+                workspace.store.put("mandate", row, "mandate.launched")
             seconds = consents.estimate(workspace, operation, payload)
-            if found is None or found.consent_id or found.template not in {"answer", "explore"} or not seconds or seconds == consents.UNKNOWN:
+            if found.consent_id or found.template not in {"answer", "explore"} or not seconds or seconds == consents.UNKNOWN:
                 return
             notice, gate = consents.thresholds(workspace, campaign_id)
             hypothesis_ids = consents.proposals(workspace, operation, payload)
             if seconds > notice and any(consents.covers(row, hypothesis_ids, asked) for row in consents.consents(workspace, campaign_id)):
                 return   # a consent pays for it
-            charge(workspace, found.id, seconds, trial_ids=consents._trials(record.get("outcome")))
+            charge(workspace, found.id, seconds, trial_ids=trials)
 
+    bus.guards.append(guard)
     # Before the consent's own listener, so that a consent's use is read before it charges.
     bus.listeners.insert(0, listener)

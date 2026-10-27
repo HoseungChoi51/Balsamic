@@ -29,6 +29,15 @@ def send(workspace, campaign_id, identity, operation, payload, actor="manager"):
         operation=operation, payload=payload, **pins), actor=actor)
 
 
+def granted(workspace, campaign_id, template="run_campaign", root=None, worker_seconds=0.0):
+    """A mandate the researcher granted, for this request, or with no root campaign-wide: the bus checks an agent's commands
+    against its request's mandate (R3), and a test of another guard grants the work first."""
+    from optimization_framework.storage.sqlite import identifier, now
+    decision = workspace.store.put("decision", {"id": identifier("decision"), "campaign_id": campaign_id, "title": "Go ahead", "question": "Go ahead",
+        "status": "resolved", "requested_by": "researcher", "audience": "researcher", "created_at": now()})
+    return mandates.grant(workspace, campaign_id, template, root=root, granted_by=decision["id"], compute={"worker_seconds": worker_seconds})
+
+
 def proposal(workspace, campaign_id, identity):
     workspace.store.put("hypothesis", {"id": identity, "campaign_id": campaign_id, "title": identity, "status": "proposed"})
 

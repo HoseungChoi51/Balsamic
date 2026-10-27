@@ -13,6 +13,8 @@ from optimization_framework.contracts.requests import CampaignInput, TaskInput
 
 from test_experiment_rules import activated, call, submitted
 from test_pi_development_workspaces import outgoing, setup  # noqa: F401 (a fixture)
+from optimization_framework.campaigns.compute_consent import request_root
+from test_mandates import granted
 
 MANIFEST = {'contract': 'optimizer_v1', 'entrypoint': 'optimizer:create_optimizer', 'files': ['libraries/bakery/optimizer.py']}
 
@@ -86,6 +88,8 @@ def test_an_agent_command_drops_an_unknown_field_and_lists_it_but_refuses_a_near
     refused = call(w, operator, asked, 'campaign_command', {'operation': 'trial.create', 'request_key': 'short', 'guidance_revision': guidance,
         'payload': {'task_id': task['id'], 'algorithm': 'coordinate', 'max_steps': 2, 'wall_secs': 10}}, 'misspelled')
     assert refused['executed'] is False and 'did you mean wall_seconds' in refused['error'] and not w.store.list('trial', c['id'])
+    # Experiment rules are configure work, which only Run the campaign allows (R3): the researcher granted it for this request.
+    granted(w, c['id'], 'run_campaign', root=request_root(w, {'run_id': asked['id']}))
     args = {'operation': 'experiments.rules', 'request_key': 'two', 'guidance_revision': guidance,
             'payload': {'max_concurrent': 2, 'expected_revision': 0, 'rationale': 'The researcher asked', 'note': 'two at once'}}
     changed = call(w, operator, asked, 'campaign_command', args, 'rules')

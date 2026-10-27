@@ -996,6 +996,9 @@ class PiController:
         if planner["status"] in {"paused", "stopped"}:
             return
         if not planner.get("request_open"):
+            # The platform's request is no researcher's: its work and model calls belong to none (R3, R5).
+            planner.pop("assignment_origin", None)
+            planner.pop("desk_root", None)
             planner.update(request_open=True, requested_by="platform", request_changed_at=now())
             self.store.put("agent_session", planner, "agent.request_opened")
         self.enqueue(planner, "pi_events_" + content_hash([row["id"] for row in signals])[:28], NOTICE +
