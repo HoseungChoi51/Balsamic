@@ -1,6 +1,6 @@
 import { test, expect } from '@playwright/test';
 import { mockWorkspace } from './mocks/workspace';
-import { THREAD_ID, BRANCH_ID } from './mocks/fixtures';
+import { THREAD_ID, BRANCH_ID, CAMPAIGN_ID, evolution } from './mocks/fixtures';
 
 test('the frontier table shows stages honestly and sends a batched stop with its reason', async ({ page }) => {
   const recorded = await mockWorkspace(page);
@@ -22,6 +22,26 @@ test('the frontier table shows stages honestly and sends a batched stop with its
   expect(command.payload.items[0]).toMatchObject({ operation: 'hypothesis.status', payload: { status: 'archived', stop_reason: "both dominated by H03's parent" } });
   expect(command.payload.all_or_nothing).toBe(true);
   await expect.poll(async () => { await page.evaluate(() => (window as any).dispatchEvent(new Event('pagehide'))); return recorded.uiEvents.map((e: any) => e.kind); }).toContain('intervention.send');
+});
+
+test('the frontier lists the highest score first when maximizing', async ({ page }) => {
+  await mockWorkspace(page);
+  await page.goto(`/#t/${THREAD_ID}/evolution/frontier`);
+  const table = page.getByTestId('frontier');
+  await expect(table.locator('tbody tr')).toHaveCount(3);
+  expect(await table.locator('tbody tr').evaluateAll(rows => rows.map(r => r.getAttribute('data-record-id')))).toEqual(['hypothesis_b', 'hypothesis_a', 'hypothesis_c']);
+  await expect(table.getByTestId('lower-is-better')).toHaveCount(0);
+});
+
+test('the frontier lists the lowest score first and says lower is better when minimizing', async ({ page }) => {
+  const minimizing = { ...evolution, progress: { ...evolution.progress, best_so_far: 0.1, direction: 'minimize' },
+    nodes: evolution.nodes.map(n => ({ ...n, best: { ...n.best, direction: 'minimize' } })) };
+  await mockWorkspace(page, { [`/api/v1/campaigns/${CAMPAIGN_ID}/evolution`]: minimizing });
+  await page.goto(`/#t/${THREAD_ID}/evolution/frontier`);
+  const table = page.getByTestId('frontier');
+  await expect(table.getByTestId('lower-is-better')).toBeVisible();
+  expect(await table.locator('tbody tr').evaluateAll(rows => rows.map(r => r.getAttribute('data-record-id')))).toEqual(['hypothesis_c', 'hypothesis_a', 'hypothesis_b']);
+  await expect(page.getByTestId('page-evolution')).toContainText('best so far 0.1000');
 });
 
 test('the lineage tree draws rounds as columns with typed edges; a node opens its card', async ({ page }) => {
