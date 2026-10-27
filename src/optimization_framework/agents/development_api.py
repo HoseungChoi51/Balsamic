@@ -71,6 +71,10 @@ def install(app, workspace):
     def freeze_envelope(campaign_id: str, identity: str, body: WorkspaceEnvelope):
         return development.freeze_envelope(campaign_id, identity, body.model_dump())
 
+    # Bring your own session (roadmap H3): the researcher's token, and the routes balsamic-workspace takes it to.
+    from .own_session import routes as own_session_routes
+    own_session_routes(app, workspace)
+
     def port(identity):
         record = workspace.store.get(identity, "development_workspace")
         state = development.driver.inspect(record)
