@@ -92,6 +92,8 @@ class Workspace:
         self.implementations = ImplementationBridge(self, implementation_client)
         from optimization_framework.evaluation.commissioning import EvaluatorService
         self.evaluators = EvaluatorService(self)
+        from optimization_framework.evaluation.packs import CampaignPacks
+        self.packs = CampaignPacks(self)
         from optimization_framework.assets.catalog import AssetCatalog
         self.assets = AssetCatalog(self.store)
         from optimization_framework.assets.bundles import BundleService
@@ -465,7 +467,7 @@ class Workspace:
             used_reserved = self.allocated_seconds(campaign_id)
             if proposed["compute_budget_seconds"] < used_reserved:
                 raise ValueError(f"Existing spent/reserved compute is {used_reserved:.1f}s; stop or finish work before lowering this cap")
-            if proposed.get("implementation_compute_budget_seconds", 0) < self.implementations.compute_committed(campaign_id):
+            if 0 < (proposed.get("implementation_compute_budget_seconds") or 0) < self.implementations.compute_committed(campaign_id):
                 raise ValueError("Existing implementation allocations exceed the proposed implementation compute cap")
             from optimization_framework.llm.providers import api_spend
             api_committed = self.implementations.api_committed(campaign_id) + sum(api_spend(r.get("usage")) for r in self.store.list("research_run", campaign_id))
@@ -1356,7 +1358,8 @@ class Workspace:
                     env.pop(key)
             threads = str(trial.get("numerical_threads", 1))
             from optimization_framework.execution.devices import environment
-            env.update(PYTHONPATH=str(code), PYTHONUNBUFFERED="1", OPENBLAS_NUM_THREADS=threads,
+            # PYTHONHASHSEED=0: str and bytes hash alike in every worker, so a method's set order is reproducible.
+            env.update(PYTHONPATH=str(code), PYTHONUNBUFFERED="1", PYTHONHASHSEED="0", OPENBLAS_NUM_THREADS=threads,
                        OMP_NUM_THREADS=threads, MKL_NUM_THREADS=threads, MPLBACKEND="Agg", **environment(trial.get("device") or "cpu"))
             with (directory / "worker.log").open("ab") as log:
                 module = "optimization_framework.execution.worker" if trial.get("execution_contract") == 1 else "dqn_meent.workspace.worker"

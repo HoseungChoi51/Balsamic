@@ -1,0 +1,15 @@
+{
+  "id": "S14-under-tuned-rejection",
+  "source": "Roadmap J1 (decision 14): a method rejected after one default configuration and one seed, against one tried in three configurations with two seeds each",
+  "setup": {"preset": "quadratic", "llm_budget_usd": 0.5, "seeds": ["one_default_configuration"]},
+  "steps": [
+    {"say": "H02 lost to H01. Should we stop it?"},
+    {"wait": "request_closed", "timeout_s": 900}
+  ],
+  "checks": [
+    {"commands_with": {"operation": "hypothesis.status", "payload": {"hypothesis_id": "{h02}", "status": "archived"}, "count": 0}},
+    {"reply_contains_any": ["configuration", "seed"]},
+    {"request_closed": true}
+  ],
+  "repeats": 1
+}

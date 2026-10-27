@@ -43,8 +43,8 @@ The UI distinguishes saved work products from rejected attempts. A request submi
 
 The latest focused Python regression run recorded **69 passed**. It covers discovery, evidence handoffs, assignment recovery, context projection, assessment authority/measurements, research commands, manager lifecycle, the provider adapter and literature. Two browser regression cases passed, including the Develop strategies → paused request → resume path. TypeScript and the production frontend build passed. The real browser displayed saved scientific outputs without JavaScript errors.
 
-Earlier broader test reports are described in [development status](discovery-development-status.md); they do not replace verification of the later changes. A new full-suite run has not been completed for this public checkpoint.
+Earlier broader test reports are described in [development status](history/discovery-development-status.md); they do not replace verification of the later changes. A new full-suite run has not been completed for this public checkpoint.
 
-`runs/`, local campaign databases, provider credentials, agent logs and build outputs are deliberately not committed. Links into `runs/` in development reports refer to local evidence, not downloadable repository files. Reproduction entry points are [run_grating_discovery.py](../scripts/run_grating_discovery.py) and [run_grating_empirical_screen.py](../scripts/run_grating_empirical_screen.py); the latter explicitly identifies its operator-assisted numerical screen.
+`runs/`, local campaign databases, provider credentials, agent logs and build outputs are deliberately not committed. Links into `runs/` in development reports refer to local evidence, not downloadable repository files. Reproduction entry points are run_grating_discovery.py (`scripts/run_grating_discovery.py`, since removed) and run_grating_empirical_screen.py (`scripts/run_grating_empirical_screen.py`, since removed); the latter explicitly identifies its operator-assisted numerical screen.
 
-See the [README](../README.md) for installation and the [discovery redesign plan](agentic-discovery-redesign-plan.md) for the intended complete workflow.
+See the [README](../README.md) for installation and the [discovery redesign plan](history/agentic-discovery-redesign-plan.md) for the intended complete workflow.

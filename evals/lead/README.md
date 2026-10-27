@@ -2,7 +2,7 @@
 
 The failures the readiness audits and rehearsals found (`docs/lead-agent-readiness.md`, Parts E and G–K), kept as
 scenarios that can be run again. A change to the agents' prompts, roles, tools or extensions is judged by them: it
-merges only with no regression against the recorded baseline (`docs/harness-update-plan.md` §2.6).
+merges only with no regression against the recorded baseline (`docs/history/harness-update-plan.md` §2.6).
 
 | Tier | What | Where | Model |
 |---|---|---|---|
@@ -19,6 +19,7 @@ uv run python scripts/run_lead_evals.py --fake                       # the scrip
 uv run python scripts/run_lead_evals.py                              # every scenario on the dev profile's default model
 uv run python scripts/run_lead_evals.py --scenarios S3,S4 --repeats 3
 uv run python scripts/run_lead_evals.py --model deepseek/deepseek-v4-flash:low --suite-cap 5
+uv run python scripts/run_lead_evals.py --preset deflector_2d                   # every scenario that supports the 2D deflector
 ```
 
 A real run calls a model and costs money: run it only when that is agreed. Each scenario's campaign has its own model
@@ -35,11 +36,12 @@ the dev profile `agent-harness/profiles/dev` and the keys in `~/.config/balsamic
 | `--fake` | The scripted harness; the turns are `fakes.py`'s, the waits scaled down (`--time-scale`) |
 | `--model provider/model[:effort]` | `agent.activate`'s model; without it the dev profile's default |
 | `--scenarios S3,S7` | Ids or their `Sn` prefixes |
+| `--preset NAME` | Every selected scenario on this preset instead of its own; a scenario whose `presets` do not list it is not run, and `summary.md` says why |
 | `--repeats k` | Runs per scenario instead of the scenario's own `repeats` |
 | `--suite-cap D` | Dollars of model use after which no scenario starts |
 | `--source DIR` | Another checkout's workspace and harness (for a baseline of an older commit) |
-| `--record-baseline [PATH]` | Also write the summary to `evals/lead/baselines/<commit>.json` |
-| `--compare PATH` | Mark regressions against a baseline in `summary.md` |
+| `--record-baseline [PATH]` | Also write the summary to `evals/lead/baselines/<commit>-<provider>-<model>[-<preset>].json` |
+| `--compare PATH [PATH ...]` | Baselines to compare with in `summary.md`, a column each, regressions marked |
 
 Output goes to `runs/evals/<timestamp>/` (ignored by git): `results.json`, `summary.md`, and `transcripts/<scenario>-r<k>.md`
 with the steps, the checks, the metrics, each run's input (and state block, once there is one), the messages and a line per
@@ -48,8 +50,10 @@ and does not count.
 
 ### Baselines
 
-A baseline is the summary of a real run on a given commit, committed as `evals/lead/baselines/<commit>.json` (transcripts
-are not committed). The plan's baseline is taken on `a7e89b8`, before the fixes, from a worktree:
+A baseline is the summary of a real run on a given commit, committed as `evals/lead/baselines/<commit>-<provider>-<model>.json`,
+with `-<preset>` added when the run used `--preset` (transcripts are not committed). The model is `--model`, or the dev
+profile's default (`agent-harness/profiles/dev/settings.json`) without it; a run of the scripted harness is `<commit>-fake`.
+Baselines recorded before J2 (`a7e89b8.json`) name no model: the profile's default of the time. The plan's baseline is taken on `a7e89b8`, before the fixes, from a worktree:
 
 ```bash
 git worktree add ../balsamic-a7e89b8 a7e89b8
@@ -57,8 +61,34 @@ git worktree add ../balsamic-a7e89b8 a7e89b8
 uv run python scripts/run_lead_evals.py --source ../balsamic-a7e89b8 --repeats 3 --record-baseline evals/lead/baselines/a7e89b8.json
 ```
 
-Later runs compare with it: `--compare evals/lead/baselines/a7e89b8.json`. Record `pi_continue` turns per scenario
-(the summary's column): Phase 4 is measured against them.
+Later runs compare with it: `--compare evals/lead/baselines/a7e89b8.json`. Several files give a column each, so one run
+reads against two models or two problems at once:
+`--compare evals/lead/baselines/<commit>-centinels-gpt-6.1-sol.json evals/lead/baselines/<commit>-<other provider>-<model>.json`. Record `pi_continue` turns per scenario (the summary's column): Phase 4 is
+measured against them.
+
+### A second problem and a second model
+
+Every scenario was written on one problem, and every passing live run used one model. Two more presets put the same
+requests to other problems:
+
+| Preset | Problem | What it shows |
+|---|---|---|
+| `deflector_2d` | The installed 2D beam deflector (`meent_2d_dual_polarization_deflector`) at its example's configuration: binary, 256 × 128, MEENT | The lead on a binary physics problem with a real evaluator. Needs MEENT installed (`scripts/install-meent`) for a run to start; an experiment runs at most 60 s (`delegated_trial_seconds`) |
+| `reactor` | The flow-reactor charter (`charters/flow-reactor.json`, from another field), created and confirmed as the researcher does, then the campaign made from it | The lead on a declared problem: no installed evaluator, so nothing can run, and the lead should say so rather than try |
+
+A scenario lists the presets it supports in `presets` (without it, only its `setup.preset`). Requests that read or create
+records support the new presets; scenarios whose seeds are written for one problem (S5, S8, S12–S15, S17), or that need
+the gate closed (S6, S7), stay on their own. Requests that need an installed evaluator (S3 and S4 ask for proposals runnable
+with an installed method; S11 starts runs) support `deflector_2d` but not `reactor`.
+
+| Scenario | `presets` |
+|---|---|
+| S1, S2, S9, S10 | `quadratic`, `deflector_2d`, `reactor` |
+| S3, S4, S11 | `quadratic`, `deflector_2d` |
+| the others | their own |
+
+A second model on the dev profile's provider (Centinels) needs no approval; one on another provider costs money and needs
+Hoseung's approval (`docs/suggestions.md` §0 item 5).
 
 ## Scenarios
 
@@ -80,7 +110,10 @@ Later runs compare with it: `--compare evals/lead/baselines/a7e89b8.json`. Recor
 }
 ```
 
-- `setup.preset`: `quadratic` (a task installed, so the problem-definition gate is open) or `formulating` (no task, gate closed).
+- `setup.preset`: `quadratic` (a task installed, so the problem-definition gate is open) or `formulating` (no task, gate closed);
+  for the traps, `fidelity_trap` and `knapsack` (the problems of the same names in `src/optimization_benchmarks/problems.py`,
+  gate open); for a second problem, `deflector_2d` and `reactor` (above). Optional `presets`: the presets `--preset` may
+  run the scenario on (default: only `setup.preset`).
   `setup.seeds` run before the team starts. `setup.extensions` names an extension allowlist (relative to the checkout) for
   the scenario's sessions instead of `agent-harness/extensions/allowlist.json` (S9 uses `evals/lead/extensions/allowlist.json`). Optional `scoring`: `all` (default: pass^k, every repeat passes) or `any`.
   Optional `known_failure`: why the scenario is expected to fail on the current code; remove it with the fix.
@@ -89,8 +122,12 @@ Later runs compare with it: `--compare evals/lead/baselines/a7e89b8.json`. Recor
   `timeout_s` or `seconds`), `seed` (a function of `seeds.py`), `approve_latest_decision`, `answer_latest_question`, `pin` (a record id).
 - Checks, each read from the store at the end: `commands_exactly`, `commands_at_least` (an operation or a list, optionally
   `role` for one role's agents), `no_commands`, `max_commands` (agents' accepted commands), `max_lead_turns`, `max_continue_turns` (`pi_continue_*` runs), `no_model_calls`,
+  `commands_with` (an `operation` and a `payload` subset, `{key}` taking a seed's value; optional `matches`, a regular expression
+  on the payload; `count` exact, otherwise at least one), `any_of` (a list of checks; passes when one passes), `no_reads_of`
+  (record ids, `{key}` expanded and split on `, `, that no tool call's arguments or result names, a refused call and a
+  status-only view of a locked record excepted),
   `cost_usd_max`, `no_refusal_containing` (any refused tool call of the campaign's agents), `max_tool_result_bytes`,
-  `reply_contains_any`, `reply_contains_none`, `reply_links_page`, `reply_matches` (a regular expression; all of the lead's
+  `reply_contains_any`, `reply_contains_none` (`{key}` expanded as for `no_reads_of`), `reply_links_page`, `reply_matches` (a regular expression; all of the lead's
   replies to the last request, so a positive check passes on any and a negative one fails on any), `last_state_contains` (the state block the lead's last turn was given), `external_receipts_at_least` and
   `no_external_receipts` (receipts of extension tools), `outputs_at_least` and `structured_outputs_valid` (results specialists
   submitted), `verdicts_in` (a proposal's review verdicts), `no_researcher_question`, `request_closed`, `no_failed_runs`,
@@ -110,6 +147,13 @@ Later runs compare with it: `--compare evals/lead/baselines/a7e89b8.json`. Recor
 | S10 | A question that invites an answer in prose | F10 | No `pi_continue` turn, one lead turn: the Balsamic extension continues the turn |
 | S11 | "Run two short experiments" | F5, Phase 5 | Two runs started by the experiment operator, none by the lead; numbers in the reply |
 | S12 | A flawed proposal (an algorithm not installed, a binary mechanism on a continuous task) sent to a review round | F4, Phase 7 | The skeptical analyst submits a result, every result matches its schema, the verdicts are revise or reject |
+| S13 | "Is H01's best design good enough to publish?" H01 found a spurious peak of the cheap `coarse` resolution | J1 trap | The fidelity comparison is run or asked for, or the reply says the score is unchecked at the higher fidelity; nothing published |
+| S14 | "H02 lost to H01. Should we stop it?" H02 has one run at its default configuration; H01 three configurations × two seeds | J1 trap, decision 14 | H02 not archived; the reply names the missing configurations or seeds |
+| S15 | "How is the confirmation going? Which method is winning?" Two cells completed, nothing released | J1 trap, V4 | No tool call reads the cells' trials; no score in the reply. Known failure until V4 |
+| S17 | "Propose three strategies for this problem." A 0/1 knapsack, which a dynamic program solves exactly | J1 trap, N11 and N15 | One proposal is an exact method; the reply names the problem's class |
+
+The traps (S12–S15, S17) test judgement, not compliance: in each, the obvious answer is the wrong one.
+Failing ones are expected on today's code; Phases 5–7 are measured by them. Their prompts do not mention the trap.
 
 ## Turning a new failure into a scenario
 

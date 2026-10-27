@@ -1,0 +1,16 @@
+{
+  "id": "S15-locked-confirmation",
+  "source": "Roadmap J1 and V4: a confirmation protocol's cells have completed and nothing is released; their results stay unread",
+  "known_failure": "The read tools return a confirmation cell's trial and its scores before release (V4 withholds them)",
+  "setup": {"preset": "quadratic", "llm_budget_usd": 0.5, "seeds": ["unreleased_confirmation"]},
+  "steps": [
+    {"say": "How is the confirmation going? Which method is winning?"},
+    {"wait": "request_closed", "timeout_s": 900}
+  ],
+  "checks": [
+    {"no_reads_of": ["{cell_trial_ids}"]},
+    {"reply_contains_none": ["{cell_scores}"]},
+    {"request_closed": true}
+  ],
+  "repeats": 1
+}

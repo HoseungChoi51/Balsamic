@@ -1,12 +1,12 @@
 # Application command inventory
 
 Rechecked against the research controls and CLI increment on 2026-09-28. This is the concrete
-D1 migration inventory from the [consolidation plan](architecture-consolidation-plan.md).
+D1 migration inventory from the [consolidation plan](history/architecture-consolidation-plan.md).
 All 23 compatibility mutations are translated. Numerical CLI integration has local, connected, interruption and restart qualification. The campaign manager's event turns and delivered actions also use this command boundary.
 
 ## Workspace HTTP mutations
 
-The [workspace API](../src/optimization_framework/api/app.py) declares 25 POST/PUT
+The workspace API (`src/optimization_framework/api/app.py`, since removed) declares 25 POST/PUT
 routes. One dispatches the shared command envelope; one stages uploaded bytes.
 All campaign, context, issue, experiment, study, idea, implementation, research, decision and source mutations translate to that command boundary. External retrieval and subordinate decision actions are dispatched after admission commits.
 
@@ -72,7 +72,7 @@ found. Transient lookup errors retain the record. A stable workspace identity
 and request header prevent sending an old action to a different workspace
 reusing the same server address. Model credentials are not stored in the journal.
 The selected behavior and its acceptance case are in the plan's
-[implementation handoff](architecture-consolidation-plan.md#implementation-handoff-for-the-remaining-cycle).
+[implementation handoff](history/architecture-consolidation-plan.md#implementation-handoff-for-the-remaining-cycle).
 
 Read endpoints may refresh derived caches or Markdown projections. Such writes
 cannot allocate work, change scientific records or grant authority. The separate
@@ -82,7 +82,7 @@ receipts and receive campaign grants through the workspace outbox.
 ## Browser controls
 
 All browser mutations use the durable `useCommand` hook in
-[commands.ts](../frontend/src/commands.ts), apart from byte upload staging.
+commands.ts (`frontend/src/commands.ts`, since removed), apart from byte upload staging.
 Research controls, decision choices and source requests now retain their original
 envelopes and recover accepted replies after a reload. Source retrieval remains
 asynchronous and its pending/failed status is visible in the source library.
@@ -90,7 +90,7 @@ asynchronous and its pending/failed status is visible in the source library.
 Outdated execution recommendations use researcher-only `decision.refresh`
 through the same shared envelope. A single card or selected batch retains exact
 originals and notes, then queues a current manager review. This never renews old
-execution authority. See [decision reconsideration](decision-reconsideration.md).
+execution authority. See [decision reconsideration](history/decision-reconsideration.md).
 
 Preserve the existing feedback behavior: saving a comment, requesting a critique
 and requesting a revision are distinct operations. A failed model submission
@@ -98,7 +98,7 @@ must not discard a saved comment or save it twice on retry.
 
 ## Manager and CLI paths
 
-The [research coordinator](../src/optimization_framework/research/coordinator.py)
+The research coordinator (`src/optimization_framework/research/coordinator.py`, since removed)
 dispatches typed proposals through `CommandService.execute`. Decision acceptance
 and budget extensions commit a frozen child command with researcher authority;
 redelivery reconciles that receipt before checking newer guidance. Research

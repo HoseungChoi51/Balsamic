@@ -46,6 +46,9 @@ DELEGATED.update({"experiments.rules", "trial.hide"})
 DELEGATED.update({"resources.plan", "resources.estimate"})
 # The lead works the evolution graph on request (docs/ui-workspace.md): allocations, batched interventions, new rounds, library reuse.
 DELEGATED.update({"hypothesis.allocate", "intervention.batch", "research.generate", "library.apply"})
+# Balsamic's own system actor (decision 6) runs only these, each citing what it acts under: binding a proposal to a method an
+# install delivered (B4). Its receipts name it as their origin.
+SYSTEM_OPERATIONS = frozenset({"implementation.bind_builtin"})
 
 
 class CommandService:
@@ -124,6 +127,20 @@ class CommandService:
 
     def describe(self):
         """Use the application's schemas in prompts instead of a second tool model."""
+        return {key: {"payload_schema": model.model_json_schema(), "delegable": key in self.delegated,
+                      **({"additional_required_target": "trial_id"} if key in {"validation.run", "validation.require"} else {})}
+                for key, model in self.payload_models().items()}
+
+    def payload_keys(self, operation):
+        """The top-level keys an operation's payload accepts, or None for an operation without a payload model."""
+        from optimization_framework.contracts.base import field_names
+        model = self.payload_models().get(operation)
+        if model is None:
+            return None
+        return field_names(model) | {"campaign_id"} | ({"trial_id"} if operation in {"validation.run", "validation.require"} else set())
+
+    def payload_models(self):
+        """Each operation's payload model."""
         from .experiment_rules import ExperimentRulesInput, TrialHideInput
         from optimization_framework.execution.admission import ResourcePlanInput, UsageEstimateInput
         from optimization_framework.agents.models import Activate, Configure, Message, Control, QuestionDismiss, Rollback, UiRespond
@@ -165,11 +182,9 @@ class CommandService:
             "implementation.resolve_runtime": RuntimeResolutionInput,
             "confirmation.release": ConfirmationReleaseInput, "confirmation.schedule": ConfirmationScheduleInput,
             "confirmation.validate": ConfirmationScheduleInput}
-        return {key: {"payload_schema": model.model_json_schema(), "delegable": key in self.delegated,
-                      **({"additional_required_target": "trial_id"} if key in {"validation.run", "validation.require"} else {})}
-                for key, model in {**models, **self.models}.items()}
+        return {**models, **self.models}
 
-    def execute(self, command, *, actor="researcher"):
+    def execute(self, command, *, actor="researcher", ignored_fields=()):
         command = command if isinstance(command, Command) else Command(**command)
         try:
             prepared = None
@@ -188,7 +203,7 @@ class CommandService:
                     # Read fresh library evidence before reserving or attaching.
                     # Accepted retries retain their original outcome and need no service call.
                     self.workspace.implementations.catalog(refresh=True)
-            return self._execute(command, actor=actor, prepared=prepared)
+            return self._execute(command, actor=actor, prepared=prepared, ignored_fields=list(ignored_fields))
         except ValueError as exc:
             # Rejected attempts remain reviewable without owning a successful
             # command identity or overwriting an earlier accepted outcome.
@@ -202,9 +217,14 @@ class CommandService:
                         "reason": str(exc), "created_at": now()}, "command.rejected")
             raise
 
-    def _execute(self, command, *, actor, prepared=None):
-        if actor not in {"researcher", "manager", "autopilot"}:
+    def _execute(self, command, *, actor, prepared=None, ignored_fields=()):
+        if actor not in {"researcher", "manager", "autopilot", "balsamic"}:
             raise ValueError("Unknown command authority")
+        if actor == "balsamic":
+            if command.operation not in SYSTEM_OPERATIONS:
+                raise ValueError("Balsamic's system actor runs only " + ", ".join(sorted(SYSTEM_OPERATIONS)))
+            if command.origin is None or command.origin.actor != "balsamic":
+                raise ValueError("A command of Balsamic's system actor names it as its origin")
         # The fields the rebuild added are left out of the hash when unset, so receipts written before them still replay.
         request = command.model_dump(mode="json")
         for key in ("origin", "expected_thread_revision"):
@@ -272,7 +292,9 @@ class CommandService:
                 record = {"id": command.id, "campaign_id": command.campaign_id, "request_hash": request_hash,
                     "request": command.model_dump(mode="json"), "actor": actor, "authority_hash": authority,
                     "origin": command.origin.model_dump(mode="json") if command.origin else None,
-                    "status": "completed", "outcome": outcome, "created_at": now(), "finished_at": now()}
+                    "status": "completed", "outcome": outcome, "created_at": now(), "finished_at": now(),
+                    # The payload's unknown top-level keys an agent sent, dropped before it ran (decision 5).
+                    **({"ignored_fields": list(ignored_fields)} if ignored_fields else {})}
                 self.store.put("work_command", record, "command.completed")
         for listener in self.listeners:
             try:
@@ -343,7 +365,7 @@ class CommandService:
             if command.operation == "hypothesis.create":
                 values = HypothesisInput(**{**payload, "campaign_id": command.campaign_id})
                 hypothesis = hypotheses.create(self.workspace, command.campaign_id, values,
-                    identity="hypothesis_" + command.id, bundle=prepared)
+                    identity="hypothesis_" + command.id, bundle=prepared, actor=actor)
                 if actor == "manager":
                     from .proposals import researcher_request
                     asked = researcher_request(self.workspace, command.origin)
@@ -490,7 +512,7 @@ class CommandService:
             return {"draft_id": launched["draft_id"], "trial_id": launched["trial_id"]}
         if command.operation == "implementation.bind_builtin":
             from optimization_framework.implementations.builtin import bind
-            return bind(self.workspace, command.campaign_id, payload, command.id)
+            return bind(self.workspace, command.campaign_id, payload, command.id, actor=actor)
         if command.operation == "implementation.reference":
             self._target(command, "hypothesis_id", "hypothesis")
             from optimization_framework.implementations.references import capture
@@ -647,7 +669,7 @@ class CommandService:
             return {"nomination_id": nominate(self.workspace, values.study_id, authority=actor, expected_evidence_hash=values.expected_evidence_hash)["id"]}
         if command.operation == "finalist.set":
             from optimization_framework.analysis.finalists import set_selection
-            record = set_selection(self.workspace, command.campaign_id, FinalistSetInput(**payload), command_id=command.id)
+            record = set_selection(self.workspace, command.campaign_id, FinalistSetInput(**payload), command_id=command.id, actor=actor)
             return {"finalist_selection_id": record["id"], "revision": record["revision"],
                 "trial_ids": record["trial_ids"], "prototype_trial_ids": record["prototype_trial_ids"]}
         if command.operation in {"validation.run", "validation.require"}:
@@ -699,6 +721,9 @@ class CommandService:
             request, planned, root = {"kind": values.kind}, None, None
             if values.kind == "campaign_limits":
                 CampaignUpdate(**values.limits)
+                ceiling, asked = campaign.get("implementation_compute_budget_seconds") or 0, values.limits.get("implementation_compute_budget_seconds")
+                if asked is not None and asked != ceiling and not 0 < asked < ceiling:
+                    raise ValueError("Ask for a compute go-ahead (kind compute) instead; the implementation allocation is only an optional ceiling")
                 changes = {key: value for key, value in values.limits.items() if campaign.get(key) != value}
                 if not changes:
                     raise ValueError("The campaign already has these limits")
@@ -810,6 +835,11 @@ class CommandService:
         if command.operation == "validation.waive":
             values = WaiverInput(**payload)
             requirement = self._target(command, "requirement_id", "validation_requirement")
+            if actor != "researcher":
+                from .promotion import promotion_recipe
+                if promotion_recipe(self.workspace, requirement):
+                    raise ValueError("Only the researcher waives a fidelity check that guards promotion (decision 16); "
+                                     "ask with approval.request kind waiver and this requirement_id")
             waiver = Waiver(id="waiver_" + command.id, campaign_id=command.campaign_id, study_id=requirement["study_id"],
                 requirement_id=requirement["id"], subject_digest=requirement["subject_digest"], recipe_id=requirement["recipe_id"],
                 rationale=values.rationale, evidence_ids=values.evidence_ids, authority=actor, authority_kind=actor, created_at=now())

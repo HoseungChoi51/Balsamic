@@ -59,9 +59,11 @@ def run(args, *, timeout=45, cwd=None):
 
 
 class DockerWorkspace:
-    def __init__(self, directory, image=None):
+    def __init__(self, directory, image=None, source=None):
+        """source: the repository a workspace clones, this checkout unless given (the coding evals give one without the method)."""
         self.directory = Path(directory)
         self.image = image or os.environ.get("GRATING_DEVELOPMENT_IMAGE", IMAGE)
+        self.source = Path(source) if source else ROOT
 
     def root(self, record):
         return self.directory / record["id"]
@@ -123,7 +125,7 @@ class DockerWorkspace:
         self.configure_pi(record, root)
         work = root / "work"
         if not (work / "git").exists():
-            run(["git", "clone", "--bare", "--no-local", "--single-branch", str(ROOT), str(work / "git")], timeout=120)
+            run(["git", "clone", "--bare", "--no-local", "--single-branch", str(self.source), str(work / "git")], timeout=120)
         if not (work / "repo/.git").exists():
             (work / "repo").mkdir(exist_ok=True, mode=0o700)
             branch = "implementation/" + record["id"]
@@ -231,21 +233,27 @@ class DockerWorkspace:
     def snapshot(self, record, commit, manifest_path):
         import re
         from pathlib import PurePosixPath
-        from .development import SubmissionManifest
+        from .development import submission_manifest
         from optimization_framework.implementations.models import Package
         if not re.fullmatch(r"[a-f0-9]{40}", commit):
             raise ValueError("Submit the full 40-character Git commit hash")
-        def read(path):
+        def git(*args):
+            return run(["docker", "exec", "--user", f"{os.getuid()}:{os.getgid()}", self.name(record),
+                        "git", "--no-replace-objects", "-C", "/work/repo", *args], timeout=10)
+        def inside(path):
             p = PurePosixPath(path)
             if p.is_absolute() or str(p) != path or ".." in p.parts or "\\" in path:
                 raise ValueError("Submission paths must stay in the repository")
-            output = run(["docker", "exec", "--user", f"{os.getuid()}:{os.getgid()}", self.name(record),
-                          "git", "--no-replace-objects", "-C", "/work/repo",
-                          "show", commit + ":" + path], timeout=10)
+            return path
+        def read(path):
+            output = git("show", commit + ":" + inside(path))
             if len(output.encode()) > 1048576:
                 raise ValueError("Submitted file exceeds the package transport limit")
             return output
-        manifest = SubmissionManifest.model_validate_json(read(manifest_path))
+        # No manifest committed: one is derived from the commit's single library.
+        present = bool(git("ls-tree", "--name-only", commit, "--", inside(manifest_path)).strip())
+        manifest, ignored = submission_manifest(read(manifest_path) if present else None,
+                                                git("ls-tree", "-r", "--name-only", commit, "--", "libraries").splitlines())
         package = Package(contract=manifest.contract, entrypoint=manifest.entrypoint,
                           files=[{"path": p, "content": read(p)} for p in manifest.files])
-        return package.model_dump(), manifest.model_dump()
+        return package.model_dump(), manifest.model_dump(), ignored

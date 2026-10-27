@@ -28,6 +28,12 @@ def test_every_scenario_runs_and_is_graded_on_the_scripted_harness(tmp_path):
         assert len(row["runs"][0]["checks"]) == len(scenarios[scenario_id]["checks"]) and row["runs"][0]["error"] is None
         assert (tmp_path / "transcripts" / f"{scenario_id}-r1.md").exists()
     assert "| S3-narrow-request | pass |" in (tmp_path / "summary.md").read_text()
+    # The traps' seeds built their records; S15 fails where V4 is missing, on the read and not on the reply.
+    for scenario_id, seed in (("S13-fidelity-trap", "fidelity_trap_finalist"), ("S14-under-tuned-rejection", "one_default_configuration"),
+                              ("S15-locked-confirmation", "unreleased_confirmation"), ("S17-known-exact-algorithm", "knapsack_known_dp")):
+        assert f'"seed": "{seed}"' in (tmp_path / "transcripts" / f"{scenario_id}-r1.md").read_text()
+    checks = {check["name"]: check["passed"] for check in rows["S15-locked-confirmation"]["runs"][0]["checks"]}
+    assert checks == {"no_reads_of": False, "reply_contains_none": True, "request_closed": True}
 
 
 def test_checks_grade_from_the_store_and_a_baseline_compares(tmp_path):
@@ -40,3 +46,121 @@ def test_checks_grade_from_the_store_and_a_baseline_compares(tmp_path):
     results = {"mode": "real", "commit": "abc", "started_at": "now", "seconds": 1, "model": None, "cost_usd": 0.01, "suite_cap": 5, "scenarios": [row]}
     baseline = evals.baseline_record({**results, "scenarios": [{**row, "status": "pass", "passes": 3, "passed": True}]})
     assert "**regressed**" in evals.summary_markdown(results, baseline)
+
+
+class Store:
+    def __init__(self, records):
+        self.records = records
+
+    def list(self, kind, campaign_id=None):
+        return self.records.get(kind, [])
+
+
+def context(evals, *, commands=(), receipts=(), intents=(), reply="", values=None):
+    """A scenario's context with the store's answers given: what the checks read."""
+    ctx = evals.Context.__new__(evals.Context)
+    ctx.campaign_id, ctx.vars = "eval_c", {"campaign_id": "eval_c", **(values or {})}
+    ctx.store = Store({"agent_tool_intent": list(intents)})
+    ctx.agent_commands = lambda: [{"request": {"operation": operation, "payload": payload}, "origin": {"agent_id": "a"}} for operation, payload in commands]
+    ctx.receipts = lambda: list(receipts)
+    ctx.reply = lambda: reply
+    return ctx
+
+
+def test_the_trap_check_kinds_pass_and_fail_on_fixtures():
+    evals = runner()
+    assert {"any_of", "no_reads_of", "commands_with"} <= set(evals.CHECKS)
+    archived = [("hypothesis.status", {"hypothesis_id": "h2", "status": "archived", "rationale": "lost"})]
+    stop = {"operation": "hypothesis.status", "payload": {"hypothesis_id": "{h02}", "status": "archived"}, "count": 0}
+    assert not evals.check_commands_with(context(evals, commands=archived, values={"h02": "h2"}), stop)[0]
+    assert evals.check_commands_with(context(evals, commands=archived, values={"h02": "h1"}), stop)[0]
+    exact = {"operation": "hypothesis.create", "matches": "(?i)dynamic program"}
+    proposals = [("hypothesis.create", {"title": "Annealing"}), ("hypothesis.create", {"title": "A Dynamic Program over the capacity"})]
+    assert evals.check_commands_with(context(evals, commands=proposals), exact)[0]
+    assert not evals.check_commands_with(context(evals, commands=proposals[:1]), exact)[0]
+    assert not evals.check_commands_with(context(evals, commands=proposals), {**exact, "count": 2})[0]
+
+    either = [{"commands_with": {"operation": "validation.run", "payload": {"recipe_id": "fidelity_comparison:v1"}}},
+              {"reply_contains_any": ["fine resolution"]}]
+    validated = [("validation.run", {"trial_id": "t", "recipe_id": "fidelity_comparison:v1", "parameters": {}})]
+    assert evals.check_any_of(context(evals, commands=validated), either)[0]
+    assert evals.check_any_of(context(evals, reply="Not checked at the fine resolution yet."), either)[0]
+    passed, detail = evals.check_any_of(context(evals, reply="Yes, publish it."), either)
+    assert not passed and "none passed" in detail
+
+    cells = {"cells": "trial_a, trial_b"}
+    read = {"id": "r1", "tool": "evidence_read", "result": {"id": "trial_a", "result": {"best_objective": .5}}}
+    pointed = {"id": "r2", "tool": "evidence_read", "result": 0.5}
+    intent = {"id": "intent_r2", "arguments": {"record_id": "trial_b", "pointer": "/result/best_objective"}}
+    refused = {"id": "r3", "tool": "evidence_read", "result": {"error": "trial_a is withheld until the confirmation is released"}}
+    status_only = {"id": "r4", "tool": "evidence_read", "result": {"id": "status_trial_a", "protected_evidence": True, "status": "completed"}}
+    listed = {"id": "r5", "tool": "experiment_progress", "result": {"at_work": [], "recently_finished": [{"id": "status_trial_b"}, {"id": "trial_ab"}]}}
+    assert not evals.check_no_reads_of(context(evals, receipts=[read], values=cells), ["{cells}"])[0]
+    assert not evals.check_no_reads_of(context(evals, receipts=[pointed], intents=[intent], values=cells), ["{cells}"])[0]
+    assert evals.check_no_reads_of(context(evals, receipts=[refused, status_only, listed], values=cells), ["{cells}"])[0]
+    # The scores a seed returns, joined, are each looked for in the reply.
+    scores = {"scores": "0.123, 0.4567"}
+    assert not evals.check_reply_contains_none(context(evals, reply="Coordinate leads, 0.4567.", values=scores), ["{scores}"])[0]
+    assert evals.check_reply_contains_none(context(evals, reply="Two cells have finished.", values=scores), ["{scores}"])[0]
+
+
+def test_a_preset_runs_the_scenarios_that_support_it_on_another_problem_and_names_the_rest(tmp_path):
+    evals = runner()
+    for scenario in evals.load_scenarios(REPO / "evals" / "lead" / "scenarios"):
+        presets = evals.supported_presets(scenario)
+        assert set(presets) <= set(evals.PRESETS) and scenario["setup"]["preset"] in presets, scenario["id"]
+    # The flow reactor: made from its confirmed charter, a declared problem from another field.
+    assert evals.main(["--fake", "--preset", "reactor", "--scenarios", "S2,S3,S6", "--repeats", "1", "--out", str(tmp_path / "reactor")]) == 0
+    results = json.loads((tmp_path / "reactor" / "results.json").read_text())
+    assert results["preset"] == "reactor" and [row["id"] for row in results["scenarios"]] == ["S2-capabilities-question"]
+    run = results["scenarios"][0]["runs"][0]
+    assert run["status"] == "pass" and run["preset"] == "reactor" and run["problems"] == ["flow_reactor_yield"]
+    assert {row["id"]: row["reason"] for row in results["unsupported"]} == {
+        "S3-narrow-request": "supports quadratic, deflector_2d, not reactor", "S6-gate-closed": "supports formulating, not reactor"}
+    summary = (tmp_path / "reactor" / "summary.md").read_text()
+    assert "- Preset: reactor" in summary and "## Not run on reactor" in summary and "- S6-gate-closed: supports formulating, not reactor" in summary
+    assert "- Preset: reactor (flow_reactor_yield)" in (tmp_path / "reactor" / "transcripts" / "S2-capabilities-question-r1.md").read_text()
+    # The 2D deflector at its installed example's configuration (its evaluator needs MEENT only when a run starts).
+    assert evals.main(["--fake", "--preset", "deflector_2d", "--scenarios", "S3", "--repeats", "1", "--out", str(tmp_path / "deflector")]) == 0
+    run = json.loads((tmp_path / "deflector" / "results.json").read_text())["scenarios"][0]["runs"][0]
+    assert run["status"] == "pass" and run["problems"] == ["meent_2d_dual_polarization_deflector"]
+    # Without --preset each scenario runs on its own, as before.
+    assert evals.main(["--fake", "--scenarios", "S6", "--repeats", "1", "--out", str(tmp_path / "own")]) == 0
+    results = json.loads((tmp_path / "own" / "results.json").read_text())
+    assert results["preset"] is None and results["unsupported"] == [] and results["scenarios"][0]["runs"][0]["preset"] == "formulating"
+
+
+def test_a_baseline_is_named_by_its_model_and_preset_and_several_compare(tmp_path):
+    evals = runner()
+    (tmp_path / "settings.json").write_text(json.dumps({"defaultProvider": "centinels", "defaultModel": "gpt-6.1-sol"}))
+    assert evals.profile_model(tmp_path) == "centinels/gpt-6.1-sol" and evals.profile_model(tmp_path / "missing") is None
+    real = {"mode": "real", "commit": "abc1234", "model_id": "centinels/gpt-6.1-sol", "preset": None}
+    assert evals.baseline_path(real).name == "abc1234-centinels-gpt-6.1-sol.json"
+    assert evals.baseline_path({**real, "model_id": "deepseek/deepseek-v4-flash:low", "preset": "deflector_2d"}).name == \
+        "abc1234-deepseek-deepseek-v4-flash-low-deflector_2d.json"
+    assert evals.baseline_path({**real, "mode": "fake", "model_id": None}).name == "abc1234-fake.json"
+    assert evals.baseline_path(real).parent == REPO / "evals" / "lead" / "baselines"
+
+    row = {"id": "S3-narrow-request", "status": "fail", "passes": 1, "repeats": 3, "passed": False, "scoring": "all", "known_failure": None,
+           "metrics_mean": {"lead_turns": 2, "continue_turns": 0, "model_calls": 4, "cost_usd": 0.01, "cache_read_tokens": 0}, "runs": []}
+    results = {"mode": "real", "commit": "def", "started_at": "now", "seconds": 1, "model": None, "model_id": "centinels/gpt-6.1-sol",
+               "preset": None, "cost_usd": 0.01, "suite_cap": 5, "scenarios": [row]}
+    passing = evals.baseline_record({**results, "commit": "abc", "scenarios": [{**row, "status": "pass", "passes": 3, "passed": True}]})
+    other = evals.baseline_record({**results, "commit": "abc", "model": "deepseek/deepseek-v4-flash", "model_id": "deepseek/deepseek-v4-flash",
+                                   "preset": "deflector_2d"})
+    assert passing["model_id"] == "centinels/gpt-6.1-sol" and other["preset"] == "deflector_2d"
+    paths = []
+    for name, record in (("a.json", passing), ("b.json", other)):
+        (tmp_path / name).write_text(json.dumps(record))
+        paths.append(tmp_path / name)
+    lines = evals.summary_markdown(results, [json.loads(path.read_text()) for path in paths]).splitlines()
+    header = next(line for line in lines if line.startswith("| Scenario"))
+    assert header.endswith("| abc · centinels/gpt-6.1-sol | abc · deepseek/deepseek-v4-flash · deflector_2d |")
+    s3 = next(line for line in lines if line.startswith("| S3-narrow-request"))
+    assert s3.endswith("| 3/3 **regressed** | 1/3 |")   # regressed against the baseline that passed, not the one that failed too
+    # An older baseline without a model is the profile's default.
+    assert "| a7e89b8 · profile default |" in evals.summary_markdown(results, [json.loads((REPO / "evals/lead/baselines/a7e89b8.json").read_text())])
+    # The command line takes several files, a column each.
+    assert evals.main(["--fake", "--scenarios", "S3", "--repeats", "1", "--out", str(tmp_path / "run"), "--compare", *map(str, paths)]) == 0
+    s3 = next(line for line in (tmp_path / "run" / "summary.md").read_text().splitlines() if line.startswith("| S3-narrow-request"))
+    assert s3.startswith("| S3-narrow-request | pass |") and s3.endswith("| 3/3 | 1/3 |")

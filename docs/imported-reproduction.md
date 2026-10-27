@@ -1,7 +1,7 @@
 # Imported-source reproduction
 
 This is the C4 implementation handoff from the
-[consolidation plan](architecture-consolidation-plan.md#c4--make-reproduction-an-explicit-new-execution).
+[consolidation plan](history/architecture-consolidation-plan.md#c4--make-reproduction-an-explicit-new-execution).
 Source resolution, compiler isolation and the supervised numerical-worker
 lifecycle support an explicit reproduction draft and frozen comparison through
 the shared commands. Importing a bundle keeps its historical jobs archived;
@@ -46,7 +46,7 @@ timeout, missing isolation support, unrecorded bytecode,
 source resolution after directory removal, and changed/missing snapshot
 identities. Model services are not involved.
 
-The [foundation checkpoint](consolidation-progress.md#imported-source-and-compiler-foundation--2026-09-27)
+The [foundation checkpoint](history/consolidation-progress.md#imported-source-and-compiler-foundation--2026-09-27)
 records 410 passing Python tests and an isolated probe of an actual older C3
 capture that matches its original prepared procedure. That checkpoint qualified
 the compiler boundary; subsequent numerical and scheduler evidence is below.
@@ -101,7 +101,7 @@ unchanged, the probe has a new experiment identity, and no native campaign is
 allocated. This is direct host compatibility evidence, not a product command or
 a complete accounting/reproduction workflow.
 
-The [host checkpoint](consolidation-progress.md#imported-numerical-and-package-host-foundation--2026-09-27)
+The [host checkpoint](history/consolidation-progress.md#imported-numerical-and-package-host-foundation--2026-09-27)
 records 422 passing Python tests on a 304-file source manifest. The source was
 unchanged after verification. Frontend source is unchanged and no new browser
 or real-model qualification is claimed by these host checks.
@@ -154,7 +154,7 @@ The focused scheduler checks use real workers and generated packages with
 fixture semantic reviews. They cover both executable kinds, host adoption,
 pause/resume, policy tampering, inherited diagnostics, missing source after host
 death, forced stop, repeated reconciliation and exported receipts. The final
-full-suite [checkpoint](consolidation-progress.md#imported-scheduler-and-storage-checkpoint--2026-09-27)
+full-suite [checkpoint](history/consolidation-progress.md#imported-scheduler-and-storage-checkpoint--2026-09-27)
 records **437 passing tests**, a 310-file unchanged source manifest and another
 exact older-capture probe. An additional supervisor-loss probe resumes from a
 published checkpoint, exhausts its original request allowance, then completes
@@ -248,7 +248,7 @@ The browser imports an archive, edits a reproduction draft, loses an accepted
 launch response, retries and inspects agreement from one new experiment. Both
 isolated services also restart without changing the recorded scientific or
 command evidence or adding costs when the original launch command is replayed.
-See the [reproduction checkpoint](consolidation-progress.md#historical-reproduction-checkpoint--2026-09-27)
+See the [reproduction checkpoint](history/consolidation-progress.md#historical-reproduction-checkpoint--2026-09-27)
 for exact source and test scope. Model reviews are fixtures; the numerical
 processes and HTTP/browser workflow are real.
 

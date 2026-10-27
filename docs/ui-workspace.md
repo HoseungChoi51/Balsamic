@@ -2,8 +2,8 @@
 
 Status: milestone M0 (foundations) built on branch `workspace-rebuild`, 2026-10-19. This document is the reference for the
 rebuilt service and frontend. It supersedes `workspace.md`, `cli-research.md`, the discovery documents, the model control
-panel, decision reconsideration, proposal exploration and the consolidation plans, each of which now carries a banner
-pointing here. The scientific core (problem adapters, optimizers, scheduler and workers, races, confirmation, admission,
+panel, decision reconsideration, proposal exploration and the consolidation plans, each of which carries a banner
+pointing here and is now in [history/](history/README.md). The scientific core (problem adapters, optimizers, scheduler and workers, races, confirmation, admission,
 the implementation service, assets and accounting), the Pi agent tools and the report writer are unchanged; their own
 documents remain current.
 
@@ -399,6 +399,10 @@ the page shows it in a sandboxed frame that can only ask to open a page). `probl
 the note's markdown into the statement of a problem import and starts the formulator; the charter it writes appears on
 the note's Charter tab, where the researcher confirms it (`/problem-charters/{id}/confirm`, then `campaign.update` with
 the charter reference sets the tasks and ends the formulation stage). A revision after adoption reopens the draft.
+"Export as Python project" on the Charter tab (`export-charter`) downloads the revision on screen, confirmed or not, from
+`GET /api/v1/problem-charters/{id}/revisions/{n}/export.zip`: `scaffold()` (`problem_charter/scaffold.py`) zipped under
+`<project-name>/` as `<project-name>-r<n>.zip`, the same bytes for the same revision. A charter the generator cannot turn
+into a project (no objective, no decision variables, a value that does not resolve) answers 409 and the tab says why.
 
 **Fake harness.** `tests/fake_harness.py` speaks the harness protocol with a scripted turn (read the campaign, reply
 through `yield_work`) and a session tree; `tests/balsamic/test_e2e_fake_harness.py` runs a message, a fork and a branch
@@ -479,6 +483,16 @@ of life (a UI event or a message) for 30 minutes, an `away_digest` is written: r
 (with reasons and who stopped them), promoted, runs started and finished, decisions and questions waiting, the
 commands. `GET /campaigns/{id}/away-digest` returns the open one (and `?since=<event>` computes one on demand);
 `POST …/away-digest/{id}/seen` closes it, which the page does when it opens.
+
+**Partnership** (`balsamic/monitor/partnership.py`, roadmap J3). One row per researcher request (a lead turn a researcher
+message started; autopilot turns and notices open none): the researcher's commands from the message to the lead's report
+(messages, decisions resolved, other commands), the time to the report (`yield_work(complete)`, on the request's turn or a
+notice turn that continues it) and to the first `comparison.report` its work made, the measured worker time of the runs its
+commands started (a race's runs included), the model dollars of its turns (each call given to the turn its agent was in),
+and the best objective of any run that had finished by then, in the objective's direction. `GET
+/campaigns/{id}/partnership`; the Monitor's Partnership tab. An agent turn records `finished_at` when it ends; older turns
+take the time of their terminal update from the event log. The protocol that compares these numbers with the researcher
+working alone is [evals/partnership.md](evals/partnership.md).
 
 **Autopilot** (`balsamic/autopilot/`). `autopilot.set {enabled, compute_cap_seconds, report_by, rationale}` is the
 researcher's; it records the baseline allocation, sets delegation while on and restores it after. The maintenance tick
