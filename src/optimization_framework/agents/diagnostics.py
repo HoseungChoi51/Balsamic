@@ -1,4 +1,8 @@
-"""Bounded fixed-design evaluator diagnostics, separate from optimizer trials."""
+"""Bounded fixed-design evaluator diagnostics, separate from optimizer trials: the runner of ``fixed_mask_job`` records.
+
+A problem pack's ``fixed_mask.run`` queues the jobs; the runner starts, bounds and reconciles them for any campaign, so
+the jobs of earlier campaigns finish and read as before.
+"""
 import json
 import os
 from pathlib import Path
@@ -7,50 +11,9 @@ import subprocess
 import sys
 import time
 
-from pydantic import Field
-from optimization_framework.contracts.base import Contract, content_hash
 from optimization_framework.contracts.problems import ProblemInstance
 from optimization_framework.evaluation.registry import problems
 from optimization_framework.storage.sqlite import atomic_json, now
-
-
-class FixedMaskInput(Contract):
-    task_id: str
-    mask_artifact_ids: list[str] = Field(min_length=1, max_length=20)
-    fidelities: list[dict] = Field(min_length=1, max_length=8)
-    repeats: int = Field(default=2, ge=1, le=4)
-    wall_seconds: float = Field(default=60, gt=0, le=86400)
-    rationale: str = Field(min_length=1, max_length=5000)
-
-
-def reserve(workspace, campaign_id, payload, command_id):
-    values = FixedMaskInput.model_validate(payload)
-    campaign = workspace.store.get(campaign_id, "campaign")
-    if values.wall_seconds > campaign["delegated_trial_seconds"]:
-        raise ValueError("Fixed-mask diagnostic exceeds the delegated per-job allowance")
-    task = workspace.store.get(values.task_id, "task")
-    if task["campaign_id"] != campaign_id or task.get("split", "development") != "development":
-        raise ValueError("Fixed-mask diagnostics require a development task in this campaign")
-    if not workspace.evaluators.readiness(task)["runnable"]:
-        raise ValueError("The selected evaluator is not runnable")
-    instance = ProblemInstance.model_validate(task["problem"])
-    adapter = problems.get(instance.definition_id)
-    fixtures = []
-    for identity in values.mask_artifact_ids:
-        artifact = workspace.store.get(identity, "agent_artifact")
-        if artifact["campaign_id"] != campaign_id or artifact["kind"] != "mask":
-            raise ValueError("Choose an immutable mask artifact in this campaign")
-        content = artifact["content"]
-        candidate = instance.candidate_schema.canonicalize(content["mask"] if isinstance(content, dict) else content)
-        fixtures.append({"artifact_id": identity, "artifact_hash": artifact["content_hash"], "candidate": candidate})
-    instances = [adapter.resolve(instance.configuration, fidelity).model_dump(mode="json") for fidelity in values.fidelities]
-    workspace._check_allocation(campaign, values.wall_seconds)
-    record = {"id": "fixed_mask_" + command_id, "campaign_id": campaign_id, "status": "queued", "created_at": now(),
-        "task_id": task["id"], "request": values.model_dump(mode="json"), "instances": instances, "fixtures": fixtures,
-        "wall_seconds": values.wall_seconds, "execution_seconds": 0,
-        "identity": content_hash([instances, fixtures]), "scope": "Development evaluator diagnostics; no optimizer performance or independent-solver claim."}
-    workspace.store.put("fixed_mask_job", record, "fixed_mask.queued")
-    return {"job_id": record["id"], "status": "queued"}
 
 
 def reconcile(workspace):

@@ -159,7 +159,7 @@ the researcher or the lead writes to it, and acts on nothing else.
 | Agent | Page | Commands (`ROLE_OPERATIONS`) | Also |
 |---|---|---|---|
 | Discussion moderator | Hypotheses | `hypothesis.create`, `.review`, `.status`; `approval.request` | `delegate` to specialists and reviewers only; their results come back to it |
-| Experiment operator | Experiments | `draft.save`, `draft.launch`, `trial.create`, `trial.control`, `trial.extension_request`, `trial.continue`, `runtime.profile`, `fixed_mask.run`, `comparison.report`; `approval.request` | |
+| Experiment operator | Experiments | `draft.save`, `draft.launch`, `trial.create`, `trial.control`, `trial.extension_request`, `trial.continue`, `runtime.profile`, `comparison.report`; `approval.request` | in campaigns on a problem whose pack adds commands, those it names (MEENT's `fixed_mask.run`) |
 | Implementation lead | Implementations | `implementation.commission`, `.attach`, `.revalidate`, `.bind_builtin`, `.resolve_runtime`; `evaluator.commission`, `.attach`, `.equivalence`; `approval.request` | the `implementation_workspace_*` tools |
 
 All three read like the other agents (campaign and resources, evidence, files, analyses) and may ask
@@ -457,7 +457,9 @@ above is what lets MCP connect.
 
 ## Numerical diagnostics
 
-`mask_create` makes deterministic full-size masks without putting all cells into
+MEENT's problem pack (`src/dqn_meent/pack/tools.py`, roadmap N4) adds two tools, offered only to agents of campaigns
+on MEENT's problems; on any other problem, chosen designs are re-evaluated with `validation.run` and a recipe the problem
+declares. `mask_create` makes deterministic full-size masks without putting all cells into
 model context. `fixed_mask.run` evaluates immutable masks at specified fidelities
 and retains objective values, energy totals, startup/evaluation times, cache flags,
 and actual solver counts. Each uncached evaluation is one solve that returns both polarizations.
