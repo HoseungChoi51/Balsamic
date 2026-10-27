@@ -65,8 +65,9 @@ of the roadmap has its own entry, `docs/readiness/<id>.md`.
     rebase and resolve the conflict yourself, run the affected tests again and push: do not wait to be asked.
 11. When closing a part:
     - add the part's readiness entry as a new file, `docs/readiness/<id>.md` (e.g. `docs/readiness/A1.md`), in the format
-      of `docs/readiness/README.md`: a State line, then What was wrong / What changed / Checked / Not done. Each part has
-      a file of its own, so parts built in parallel never edit the same one. Do not add Parts or summary rows to
+      of `docs/readiness/README.md`: a State line, then What was wrong / What changed / Checked / Not done / Acceptance
+      test, the steps a user of the app follows to check the part, which the phase's release checklist collects. Each part
+      has a file of its own, so parts built in parallel never edit the same one. Do not add Parts or summary rows to
       `docs/lead-agent-readiness.md`;
     - once I1 has landed, update the rows of `docs/invariants.md` the part changes, with the test that now pins each one.
       Edit those rows in place, and put a new row next to the rows it relates to, not at the end of the table;

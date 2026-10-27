@@ -22,7 +22,14 @@ State: implemented and tested (PR #3, 2026-10-27); the live check is Hoseung's.
 ## Checked
 
 ## Not done
+
+## Acceptance test
 ```
 
 The State line says how far the part got: implemented and tested, live, or checked live, with its PR and date. A later part
 that changes what an earlier one did says so in its own file and leaves the earlier file as it is.
+
+The acceptance test is written for someone using the app, not reading the code: where to go, what to do, and what should
+happen, with no commands beyond starting the app. Each phase's release checklist ([releases](../releases/README.md)) is
+built from these sections. A part that changes nothing a user can see writes "None:" and the reason, and says how the
+change shows instead. Live evals go here too, with the command and what to compare.
