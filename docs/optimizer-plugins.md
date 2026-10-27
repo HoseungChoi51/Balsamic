@@ -316,6 +316,15 @@ changed objective is another evaluator. A field mapped to a derived quantity (th
 rate) must agree with what the charter computes; a configuration that is none of the charter's instances gets a
 `Problem` of its own, resolved from the charter.
 
+A coding workspace of a campaign made from a charter starts from this library (`agents/development.py`
+`generated_library()`): the workspace's first preparation writes it into `libraries/<problem-id>/` of the worktree, never
+over a file that is already there, and records the hash of each generated file. Its brief gives each proposal it serves
+the `METHODS` key to write it under, with its `hypothesis_id`. Under decision 9, `charter.json` and `data.py` are fixed:
+the install refuses a delivery whose copies differ from the generated ones ("the library's data no longer matches the
+charter revision"), and lists the other generated files the coding agent changed (`changed_generated_files`; the
+objective and the methods, which it writes, are not listed). A charter with no evaluator gives no library, and the brief
+says why; the coding agent then builds one as this page describes.
+
 ### Failure policy
 
 | Situation | Behavior | Why |

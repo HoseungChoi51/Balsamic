@@ -206,6 +206,8 @@ function InstallBox({ workspace: w, submission }: { workspace: Workspace; submis
           {latest.problems_added?.length ? ` · problems ${latest.problems_added.join(', ')}` : null}
           {[...latest.missing_methods, ...(latest.missing_problems || [])].length
             ? <span className="pill bad"> not found: {[...latest.missing_methods, ...(latest.missing_problems || [])].join(', ')}</span> : null}</span> : null}
+        {latest?.changed_generated_files?.length ? <span className="small faint" data-testid="install-changed-generated">
+          changed from the generated library: {latest.changed_generated_files.map(path => path.split('/').slice(2).join('/')).join(', ')}</span> : null}
         {!open && latest?.status !== 'installing' && latest?.status !== 'queued' ? <button className="btn small primary" onClick={() => setOpen(true)} data-testid="install-open">
           {latest?.status === 'installed' ? 'Install again…' : 'Install…'}</button> : null}
       </div>
