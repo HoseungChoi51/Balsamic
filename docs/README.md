@@ -21,6 +21,7 @@ describe Balsamic are in [history/](history/README.md).
 | [status.md](status.md) | The one current status page: what works, each roadmap phase's state, the known gaps |
 | [roadmap/](roadmap/README.md) | The roadmap in seven phases, its principles and its settled decisions |
 | [invariants.md](invariants.md) | The invariant register: which guarantees code holds, which rest on the prompt, which nothing holds |
+| [incident-triage.md](incident-triage.md) | Triage by layer: where to fix a failure, from the mandate down to the UI |
 | [adr/](adr/README.md) | Short dated decision records |
 | [releases/](releases/README.md) | One release per roadmap phase, checked by acceptance tests |
 
