@@ -105,7 +105,7 @@ def test_native_package_build_binding_and_experiment_share_the_common_worker(tmp
             self.callback({"type": "provider_call_reserved", "usage": self.usage})
             return ReviewResult(passed=True, criteria=payload["spec"]["acceptance_criteria"], findings=["Mock semantic review"])
 
-    service = ImplementationService(tmp_path / "library", adapter_factory=MockSemanticReviewer)
+    service = ImplementationService(tmp_path / "library")
 
     class Client:
         def submit(self, payload): return service.submit(JobRequest(**payload))

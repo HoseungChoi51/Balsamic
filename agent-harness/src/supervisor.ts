@@ -8,8 +8,6 @@ import { createUIContext } from './ui-bridge.js';
 export { brief };
 
 const terminal = new Set(['completed', 'failed', 'paused', 'stopped', 'interrupted']);
-// An implementation grant's protected roles: their runtime takes no extensions (harness plan §2.8).
-const GRANT_ROLES = new Set(['implementation_builder', 'implementation_test_designer', 'implementation_validator']);
 const safeID = (id: string) => { if (!/^[a-zA-Z0-9_-]{1,200}$/.test(id)) throw new Error('Invalid identity'); return id; };
 function atomic(file: string, value: any) {
   const temp = file + '.tmp'; fs.writeFileSync(temp, JSON.stringify(value), {mode: 0o600}); fs.renameSync(temp, file);
@@ -213,8 +211,8 @@ export class Supervisor {
             return {content: [{type: 'text', text: JSON.stringify(result)}], details: {}, ...(ends ? {terminate: true} : {})};
           }}));
         // The extension set is part of the manifest, so it is fixed for the runtime's life. An older workspace's manifest
-        // says nothing of it: then every role but an implementation grant's hosts the Balsamic extension.
-        const extensionHost = typeof manifest.extension_host === 'boolean' ? manifest.extension_host : !GRANT_ROLES.has(agent.spec.role);
+        // says nothing of it: then the agent hosts the Balsamic extension (the grant roles that did not were retired in roadmap H8).
+        const extensionHost = typeof manifest.extension_host === 'boolean' ? manifest.extension_host : true;
         const extensions = extensionHost && Array.isArray(manifest.extensions) ? manifest.extensions : [];
         const host = {agentId: agent.id, role: agent.spec.role, gatewayTools: new Set<string>(manifest.tools.map((tool: any) => tool.name)),
           allowedTools: new Map<string, string>(extensions.flatMap((e: any) => (e.tools || []).map((name: string) => [name, e.name] as [string, string]))),

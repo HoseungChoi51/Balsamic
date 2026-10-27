@@ -61,6 +61,6 @@ go-ahead, with the commission's compute time as its deadline, and its questions,
 The specification is all the coding agent sees, so it states the mechanism in full. Writing the protected tests is yours, outside
 the box: give at least one in `ticket.protected_tests` (an evaluator's `correctness_cases` become one by themselves).
 
-When coding workspaces are off (`implementation_workspace_create` refuses), tell the researcher once what turns them on, as the
-refusal says. A commission is then an implementation service job, as is one that imports a package: builders, a test designer and
-a reviewer build and check a package of at most 256 KiB per file and 1 MiB in all.
+A coding workspace is the only place code is built. When coding workspaces are off (`implementation_workspace_create` and a
+commission refuse), tell the researcher once what turns them on, as the refusal says. A commission imports no package: code the
+researcher already has is delivered from their own coding agent, or given to a workspace as reference code.

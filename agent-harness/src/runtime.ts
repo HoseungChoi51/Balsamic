@@ -8,7 +8,7 @@ import path from 'node:path';
 // acts is the application gateway's or receipted by it (gateway-extension.ts).
 // Dev mode (GRATING_PI_PROFILE names an agent directory): that profile's settings, packages, extensions and skills
 // load too, so Pi configurations can be tried without changing Balsamic; the Balsamic extension still loads first.
-// An implementation grant's roles get no extensions in either mode. Pi's built-in file/shell tools stay off.
+// A runtime whose manifest says it hosts no extension gets none in either mode. Pi's built-in file/shell tools stay off.
 // Sessions recorded before the provider was stored all used the OpenAI Codex subscription.
 export const LEGACY_PROVIDER = 'openai-codex';
 // Locked mode offers exactly one provider, and only when the server names it: no default provider.

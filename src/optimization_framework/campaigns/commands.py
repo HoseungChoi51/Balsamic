@@ -213,7 +213,7 @@ class CommandService:
                     # Fetch and verify the artifact before opening the command's
                     # transaction. Accepted replay requires no library access.
                     prepared = self.workspace.implementations.prepare(values.implementation_version_id, None, values.algorithm_config)
-            if command.operation in {"implementation.commission", "evaluator.commission", "implementation.revalidate", "implementation.reuse", "implementation.resolve_runtime", "implementation.attach", "evaluator.attach"}:
+            if command.operation in {"implementation.revalidate", "implementation.reuse", "implementation.resolve_runtime", "implementation.attach", "evaluator.attach"}:
                 try:
                     self.store.get(command.id, "work_command")
                 except KeyError:
@@ -547,20 +547,10 @@ class CommandService:
             from optimization_framework.implementations.references import capture
             return capture(self.workspace, command.campaign_id, payload, command.id)
         if command.operation in {"implementation.commission", "evaluator.commission"}:
-            from optimization_framework.agents.development_commission import commission, opens_box
+            # A headless coding box on a ticket (roadmap H7), the one route that builds code (H8), or the refusal saying why not.
             self._target(command, "hypothesis_id" if command.operation == "implementation.commission" else "task_id",
                          "hypothesis" if command.operation == "implementation.commission" else "task")
-            if opens_box(self.workspace, command.operation, payload):   # a headless coding box on a ticket (roadmap H7)
-                return commission(self.workspace, command, actor)
-            if payload.get("ticket") is not None:
-                raise ValueError("A ticket goes with a commission that opens a coding box, and this one runs as an implementation "
-                                 "service job (coding workspaces are off, it imports a package, or no charter declares its evaluator): "
-                                 "send it without ticket")
-        if command.operation == "implementation.commission":
-            values = CommissionInput(**payload).model_dump(exclude={"schema_version", "ticket"})
-            service_key = values.pop("service_idempotency_key") or command.id
-            grant = self.workspace.implementations.reserve_commission(**values, idempotency_key=service_key)
-            return {"grant_id": grant["id"]}
+            return self.workspace.implementations.commission(command, actor)
         if command.operation == "implementation.revalidate":
             values = RevalidationInput(**payload).model_dump(mode="json", exclude={"schema_version"})
             grant = self.workspace.implementations.reserve_revalidation(command.campaign_id, **values, idempotency_key=command.id)
@@ -592,10 +582,6 @@ class CommandService:
                 "status": "pending", "created_at": now()}
             self.store.put("outbox", effect, "effect.queued")
             return {"effect_id": effect["id"], "reuse_decision_id": effect["identity"], "version_id": values["version_id"]}
-        if command.operation == "evaluator.commission":
-            values = EvaluatorCommissionInput(**payload).model_dump(exclude={"schema_version", "ticket"})
-            grant = self.workspace.implementations.reserve_commission(hypothesis_id=None, **values, idempotency_key=command.id)
-            return {"grant_id": grant["id"]}
         if command.operation in {"evaluator.attach", "implementation.control"}:
             model = EvaluatorAttachInput if command.operation == "evaluator.attach" else ImplementationControlInput
             target, kind = ("task_id", "task") if command.operation == "evaluator.attach" else ("grant_id", "implementation_grant")

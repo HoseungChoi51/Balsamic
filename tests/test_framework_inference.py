@@ -51,7 +51,7 @@ def build_parent(directory):
             self.callback({"type": "provider_call_reserved", "usage": self.usage})
             return ReviewResult(passed=True, criteria=payload["spec"]["acceptance_criteria"], findings=["Fixture semantic review"])
 
-    library = ImplementationService(directory / "library", adapter_factory=MockReview)
+    library = ImplementationService(directory / "library")
     class Client:
         def submit(self, payload): return library.submit(JobRequest(**payload))
         def artifact(self, identity): return library.artifact(identity)

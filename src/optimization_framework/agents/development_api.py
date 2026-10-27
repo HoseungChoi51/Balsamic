@@ -13,7 +13,7 @@ from fastapi.responses import StreamingResponse
 from pydantic import Field
 
 from optimization_framework.contracts.base import Contract
-from .development import WorkspaceCreate, WorkspaceMessage, WorkspaceControl, WorkspaceValidate, WorkspaceEnvelope
+from .development import WorkspaceCreate, WorkspaceMessage, WorkspaceControl
 
 
 class InstallRequest(Contract):
@@ -54,10 +54,6 @@ def install(app, workspace):
     def control(campaign_id: str, identity: str, body: WorkspaceControl):
         return development.control(campaign_id, identity, body.model_dump(), actor="researcher")
 
-    @app.post("/api/campaigns/{campaign_id}/implementation-workspaces/{identity}/validations")
-    def validate(campaign_id: str, identity: str, body: WorkspaceValidate):
-        return development.validate(campaign_id, identity, body.model_dump())
-
     # The researcher's alone: HTTP is their boundary, and no agent tool reaches it.
     @app.post("/api/campaigns/{campaign_id}/implementation-workspaces/{identity}/submissions/{submission_id}/install")
     def install(campaign_id: str, identity: str, submission_id: str, body: InstallRequest):
@@ -66,10 +62,6 @@ def install(app, workspace):
         workspace.store.get(campaign_id, "campaign")
         return Installer(workspace, development, ROOT).request(campaign_id, identity, submission_id, request_key=body.request_key,
             confirm_changes=body.confirm_changes, accept_not_ready=body.accept_not_ready)
-
-    @app.post("/api/campaigns/{campaign_id}/implementation-workspaces/{identity}/envelopes")
-    def freeze_envelope(campaign_id: str, identity: str, body: WorkspaceEnvelope):
-        return development.freeze_envelope(campaign_id, identity, body.model_dump())
 
     # Bring your own session (roadmap H3): the researcher's token, and the routes balsamic-workspace takes it to.
     from .own_session import routes as own_session_routes

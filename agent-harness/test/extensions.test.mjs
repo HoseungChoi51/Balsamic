@@ -52,10 +52,10 @@ test('the harness binds extensions: session_start runs, the Balsamic extension f
   await runtime.shutdown();   // idempotent
 });
 
-test('an implementation grant\'s runtime takes no extensions; an extension error is reported', async t => {
-  const grant = await session(t, {extensionHost: false});
-  assert.ok(!fs.existsSync(path.join(grant.markers, 'marker-started')) && !globalThis.__balsamicOrder.length);
-  await grant.runtime.shutdown();
+test('a runtime that hosts no extension takes none; an extension error is reported', async t => {
+  const bare = await session(t, {extensionHost: false});
+  assert.ok(!fs.existsSync(path.join(bare.markers, 'marker-started')) && !globalThis.__balsamicOrder.length);
+  await bare.runtime.shutdown();
   const broken = await session(t, {extensions: [{name: 'broken', path: path.join(fixtures, 'broken', 'index.js'), tools: []}]});
   assert.equal(broken.errors.length, 1);
   assert.match(broken.errors[0].error, /broken on purpose/); assert.equal(broken.errors[0].event, 'session_start');
@@ -162,7 +162,7 @@ test('extension dialogs become questions to the researcher: answered, timed out,
   assert.equal(await idle.confirm('x', 'y'), false);
 });
 
-test('the supervisor hosts extensions for every role but a grant\'s, and journals extension errors and notices', async t => {
+test('the supervisor hosts extensions unless the manifest says not to, and journals extension errors and notices', async t => {
   const directory = temp(t, 'pi-sup-');
   const options = [], runtimes = [];
   const factory = async opts => {
@@ -190,7 +190,7 @@ test('the supervisor hosts extensions for every role but a grant\'s, and journal
   await options[0].tools[0].execute('y1', {disposition: 'complete'});
   assert.equal(s.agents.get('lead').runs.r1.yielded, true);
   runtimes[0].finish(); await until(() => s.view('lead').runs.r1.status === 'completed');
-  await s.submit('builder_1', {run_id: 'r2', text: 'build', spec: {model: 'm', role: 'implementation_builder'}}); await until(() => runtimes[1]?.finish);
+  await s.submit('builder_1', {run_id: 'r2', text: 'build', spec: {model: 'm', role: 'results_analyst'}}); await until(() => runtimes[1]?.finish);
   assert.equal(options[1].extensionHost, false); assert.equal(options[1].balsamicExtension, undefined); assert.deepEqual(options[1].extensions, []);
   runtimes[1].finish(); await until(() => s.view('builder_1').runs.r2.status === 'completed');
   // Forgetting an agent ends its runtime through session_shutdown.

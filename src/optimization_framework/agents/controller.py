@@ -39,7 +39,7 @@ SCHEDULING_KINDS = ("agent_run", "agent_session", "agent_campaign", "development
 # locked provider. No provider is chosen by default.
 LEGACY_MODELS = {"default": {"provider": "openai-codex", "model": "gpt-6-sol", "effort": "xhigh"},
     "roles": {role: {"provider": "openai-codex", "model": "gpt-6-astra", "effort": "xhigh"}
-              for role in (LEAD, "proposal_reviewer", "implementation_validator")}}
+              for role in (LEAD, "proposal_reviewer")}}
 
 
 def turn_marks(run):
@@ -188,12 +188,12 @@ class PiController:
             config["request_changed_at"] = now()
             self.store.put("agent_campaign", config, "agent.request_opened" if open else "agent.request_closed")
 
-    def create_agent(self, campaign_id, role, objective, identity, *, parent_id=None, evidence_ids=None, grant_id=None, output_schema=None):
+    def create_agent(self, campaign_id, role, objective, identity, *, parent_id=None, evidence_ids=None, output_schema=None):
         if role not in ROLES:
             raise ValueError("Unknown agent role")
         try:
             saved = self.store.get(identity, "agent_session")
-            if saved["role"] != role or saved["campaign_id"] != campaign_id or saved.get("parent_agent_id") != parent_id or saved.get("grant_id") != grant_id:
+            if saved["role"] != role or saved["campaign_id"] != campaign_id or saved.get("parent_agent_id") != parent_id or saved.get("grant_id"):
                 raise ValueError("Agent identity belongs to a different assignment")
             return saved
         except KeyError:
@@ -212,7 +212,7 @@ class PiController:
         # campaign may mix families across roles (e.g. a strong lead and a fast specialist).
         family = family_of(choice["provider"], choice["model"])
         record = {"id": identity, "campaign_id": campaign_id, "parent_agent_id": parent_id,
-            "role": role, "objective": objective, "evidence_ids": evidence_ids or [], "grant_id": grant_id,
+            "role": role, "objective": objective, "evidence_ids": evidence_ids or [],
             "provider": choice["provider"], "model": choice["model"], "family": family,
             "tier": tier, "model_source": "tier" if tier else "campaign",
             "reasoning_effort": choice.get("effort"), "status": "queued", "control_revision": 0,

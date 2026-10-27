@@ -1,4 +1,4 @@
-"""Commissions run as headless coding boxes (roadmap H7).
+"""Commissions run as headless coding boxes (roadmap H7), the one route that builds code (H8).
 
 A commission (`implementation.commission` for a proposal's method, `evaluator.commission` for a task's evaluator) is a coding
 workspace that Balsamic opens for the command bus once the bus has checked it against the request's go-ahead and mandate. Pi
@@ -16,9 +16,11 @@ One log, one cost ledger, one contract: the box's timeline is the commission's h
 `compute_seconds`, which the bus charges to the go-ahead once (`campaigns/compute_consent.py`), and the box's wall time and its
 validation are counted against it on the box, not charged again; and what it builds is a library.
 
-Until H8 retires it, the implementation service's job (`implementations/service.py`) still serves a commission that cannot open
-a box: while coding workspaces are off, one that imports a package rather than building one, and an evaluator for a task that no
-charter declares (nothing would have the task adopt the problem). Jobs and grants recorded before stay as they are, readable."""
+A commission that cannot open a box is refused, saying what to do instead (refusal()): while coding workspaces are off (the
+researcher turns them on), one that imports a package (deliver the code as a library from one's own coding session, or give it to
+a coding workspace as reference code), and an evaluator for a task no charter declares (nothing would have the task adopt the
+problem; attach a validated evaluator version instead). Since H8 nothing builds code in the implementation service: its jobs and
+grants recorded before stay as they are, readable."""
 from __future__ import annotations
 
 import json
@@ -32,13 +34,26 @@ NEEDS_PROTECTED = ("A commission needs at least one protected acceptance test: t
                    "are part of what the coding agent reads; they are not run as protected tests.")
 
 
-def opens_box(workspace, operation, payload):
-    """Whether a commission runs as a headless coding box: when coding workspaces are on, for one that builds (not one that imports a
-    package), and for an evaluator only when its campaign's charter declares the task's problem."""
+PACKAGE = ("A commission builds its method in a coding box and imports no package (roadmap H8). To bring code you have, deliver it "
+           "as a library from your own coding agent (Deliver from your own coding agent, on the workspace's card), or record it as "
+           "reference code (implementation.reference) and open a coding workspace with it among its evidence_ids.")
+UNDECLARED = ("This task's evaluator cannot be commissioned: only a problem the campaign's charter declares is built as a library and "
+              "adopted by its tasks once installed, and this campaign's charter does not declare this task's. Attach a validated "
+              "evaluator version (evaluator.attach), or make the campaign from a charter that declares the problem.")
+
+
+def refusal(workspace, operation, payload):
+    """Why a commission cannot open a coding box, as the text that says what to do instead; None when it can: coding workspaces on,
+    a build (not a package import), and for an evaluator a task whose problem the campaign's charter declares."""
     payload = payload if isinstance(payload, dict) else {}
-    if operation not in KINDS or payload.get("package") or not workspace.pi.development.enabled():
-        return False
-    return operation == "implementation.commission" or declared(workspace, payload.get("task_id")) is not None
+    development = workspace.pi.development
+    if not development.enabled():
+        return development.disabled()
+    if payload.get("package"):
+        return PACKAGE
+    if operation == "evaluator.commission" and declared(workspace, payload.get("task_id")) is None:
+        return UNDECLARED
+    return None
 
 
 def declared(workspace, task_id):
@@ -110,13 +125,15 @@ def test_the_evaluator_agrees_with_each_independent_fixture(case):
 
 
 def commission(workspace, command, actor):
-    """Open the commission's headless box: the bus's handler of implementation.commission and evaluator.commission when
-    opens_box() holds. The outcome names the box and its ticket."""
+    """Open the commission's headless box (the bus's implementation.commission and evaluator.commission, through
+    ImplementationBridge.commission()), or refuse with refusal()'s reason. The outcome names the box and its ticket."""
     from optimization_framework.campaigns.compute_consent import request_root
     from optimization_framework.contracts.commands import CommissionInput, EvaluatorCommissionInput
     from optimization_framework.implementations.models import BoundOptimizerSpec, ImplementationSpec, digest
     from .development_ticket import TicketInput
     store, kind = workspace.store, KINDS[command.operation]
+    if (why := refusal(workspace, command.operation, command.payload)) is not None:
+        raise ValueError(why)
     task = hypothesis = None
     if kind == "evaluator":
         values = EvaluatorCommissionInput(**command.payload)

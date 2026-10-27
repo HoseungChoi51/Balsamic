@@ -2,28 +2,13 @@
 from concurrent.futures import ThreadPoolExecutor
 import json
 from pathlib import Path
-from types import SimpleNamespace
 import pytest
 
-from balsamic.api.internal_pi import active_implementation_grant
 from optimization_framework.agents.tools import PiTools
 from optimization_framework.contracts.requests import CampaignInput, TaskInput, TrialInput
 from optimization_framework.contracts.commands import Command
 from optimization_framework.execution.service import Workspace
 from optimization_framework.storage.sqlite import now
-
-
-def test_resumed_library_job_can_dispatch_review_before_grant_projection():
-    grant = {'id': 'grant_one', 'campaign_id': 'campaign_one', 'job_id': 'job_one',
-             'status': 'failed', 'request': {'agent_parent_id': 'pi_one'}}
-    job = {'status': 'reviewing', 'request': {'grant_id': 'grant_one', 'campaign_id': 'campaign_one',
-           'workspace_id': 'workspace_one', 'agent_parent_id': 'pi_one'}}
-    client = SimpleNamespace(job=lambda identity: job)
-    workspace = SimpleNamespace(implementations=SimpleNamespace(client=client, workspace_id='workspace_one'))
-    assert active_implementation_grant(workspace, grant, 'pi_one')
-    assert not active_implementation_grant(workspace, grant, 'pi_other')
-    job['status'] = 'failed'
-    assert not active_implementation_grant(workspace, grant, 'pi_one')
 
 
 @pytest.fixture
@@ -247,12 +232,23 @@ def test_control_revision_pause_and_rollback_keep_evidence(prepared):
     assert not w.pi.owns(c['id']) and not rolled_back['enabled'] and rolled_back['rollback_reason'] == 'Test rollback'
 
 
-def test_implementation_workers_cannot_read_protected_or_peer_evidence(prepared):
-    w,c,a,_=prepared
-    child=w.pi.create_agent(c['id'],'implementation_builder','Build','builder',parent_id=a['id'],grant_id='grant')
-    names=PiTools(w.pi).names(child)
-    assert 'evidence_read' not in names and 'campaign_command' not in names
-    assert {'workspace_run','submit_output'} <= names
+def test_an_agent_recorded_for_a_retired_implementation_grant_takes_no_more_turns(prepared):
+    """The builder, test designer and validator roles were retired in roadmap H8: none is created again, and an agent recorded
+    under one before (its record kept, readable) is refused a manifest and every tool call."""
+    w, c, a, _ = prepared
+    for role in ('implementation_builder', 'implementation_test_designer', 'implementation_validator'):
+        with pytest.raises(ValueError, match='Unknown agent role'):
+            w.pi.create_agent(c['id'], role, 'Build', 'retired_' + role, parent_id=a['id'])
+    old = w.store.put('agent_session', {**w.store.get(a['id'], 'agent_session'), 'id': 'agent_impl_before_h8', 'role': 'implementation_builder',
+                                        'parent_agent_id': a['id'], 'grant_id': 'grant_before_h8', 'status': 'running', 'output_schema': None})
+    run = w.store.put('agent_run', {'id': 'run_before_h8', 'campaign_id': c['id'], 'agent_id': old['id'], 'status': 'running', 'created_at': now()})
+    tools = PiTools(w.pi)
+    with pytest.raises(ValueError, match='retired in roadmap H8'):
+        tools.manifest(old['id'], run['id'])
+    with pytest.raises(ValueError, match='retired in roadmap H8'):
+        tools.call(old['id'], run['id'], 'call_1', 'workspace_list', {})
+    assert w.store.get(old['id'], 'agent_session')['grant_id'] == 'grant_before_h8'   # the record stays as it was
+    assert 'workspace_run' not in tools.names(a) and 'implementation_workspace_validate' not in tools.names(a)
 
 
 def test_private_gateway_requires_token(prepared,monkeypatch,tmp_path):
@@ -814,22 +810,6 @@ def test_resource_events_wake_the_resource_planner_which_plans_but_starts_nothin
     w.admission.set_level('aggressive', authority='researcher', reason='The other GPU job ended')
     w.pi._campaign_events(c['id'])
     assert len([run for run in w.store.list('agent_run') if run['agent_id'] == planner['id']]) == 2
-
-
-def test_an_implementation_agent_runs_its_script_with_the_servers_python_in_the_sandbox(prepared):
-    import shutil
-    if not shutil.which('bwrap'):
-        pytest.skip('bubblewrap is not installed')
-    w, c, lead, _ = prepared
-    builder = w.pi.create_agent(c['id'], 'implementation_builder', 'Build', 'builder_sandbox', parent_id=lead['id'], grant_id='grant')
-    run = w.pi.enqueue(builder, 'builder_run', 'Build it')
-    run['status'] = 'submitted'; w.store.put('agent_run', run)
-    tools = PiTools(w.pi)
-    tools.call(builder['id'], run['id'], 'write', 'workspace_write', {'path': 'check.py', 'content': 'import json, sys\nprint(json.dumps(sys.version_info[:2]))\n'})
-    # The environment's python is a link into its installation (with uv, through a link to the minor version); the sandbox holds them all.
-    result = tools.call(builder['id'], run['id'], 'run', 'workspace_run', {'path': 'check.py'})
-    assert result['exit_code'] == 0, result.get('stderr')
-    assert json.loads(result['stdout']) == list(__import__('sys').version_info[:2])
 
 
 def test_a_reviewer_can_change_its_own_verdict_but_not_override_another(prepared):

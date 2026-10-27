@@ -14,7 +14,7 @@ from optimization_framework.contracts.commands import HOSTNAME
 from optimization_framework.storage.sqlite import atomic_json, now
 from .development_runtime import HARNESSES, IMAGE, LEGACY_MODEL, LIMITS, DockerWorkspace, ceilings, egress, harness, harness_refusal
 from .development_ticket import TicketInput
-from .models import LEAD, NOTICE
+from .models import LEAD, NOTICE, RETIRED_ROLES
 
 
 class WorkspaceLimits(Contract):
@@ -228,25 +228,6 @@ def outcome(record, submissions):
     return None
 
 
-class WorkspaceValidate(Contract):
-    submission_id: str
-    spec: dict | None = None
-    envelope_id: str | None = None
-    compute_seconds: float = Field(gt=0, le=86400)
-    request_key: str = Field(min_length=1, max_length=200)
-
-    @model_validator(mode="after")
-    def one_specification(self):
-        if (self.spec is None) == (self.envelope_id is None):
-            raise ValueError("Provide exactly one frozen spec or validation envelope ID")
-        return self
-
-
-class WorkspaceEnvelope(Contract):
-    spec: dict
-    request_key: str = Field(min_length=1, max_length=200)
-
-
 def request_hash(values):
     """The create request's identity; a request without other proposals hashes as it did before they could be named."""
     dump = values.model_dump()
@@ -342,9 +323,8 @@ class DevelopmentWorkspaces:
     def disabled(self):
         """Why workspaces are refused, and the two ways on: the commission the agents can make now, the switch the researcher can turn."""
         image = getattr(self.driver, "image", IMAGE)
-        return ("Full implementation workspaces are disabled in the server configuration. Commission the implementation instead "
-                "(implementation.commission, by the implementation lead): builders, test designers and reviewers build and validate it "
-                "without a workspace. The researcher can turn workspaces on: build the image (docker build -t " + image + " "
+        return ("Coding workspaces are off in the server configuration, and code is built only in them: a commission "
+                "(implementation.commission, evaluator.commission) runs in one too. The researcher can turn them on: build the image (docker build -t " + image + " "
                 "deploy/implementation-workspace), then restart the lab with GRATING_DEVELOPMENT_ENABLED=true (scripts/stop, then "
                 "GRATING_DEVELOPMENT_ENABLED=true scripts/start; development_enabled in a launcher file).")
 
@@ -529,7 +509,7 @@ class DevelopmentWorkspaces:
             raise ValueError("Evidence is not shareable implementation context in this campaign")
         if data.get("agent_id"):
             author = self.store.get(data["agent_id"], "agent_session")
-            if author["role"] in {"implementation_test_designer", "implementation_validator"}:
+            if author["role"] in RETIRED_ROLES - {"implementation_builder"}:   # protected work of a retired grant role (H8)
                 raise ValueError("Protected reviewer context cannot enter a builder workspace")
         return {"kind": entry["kind"], "data": data}
 
@@ -1043,72 +1023,9 @@ class DevelopmentWorkspaces:
             atomic_json(self.driver.root(record) / "incoming/results" / (key + ".json"), result)
         return result
 
-    def validate(self, campaign_id, identity, payload, *, actor="researcher", asked=None):
-        from optimization_framework.implementations.models import BoundOptimizerSpec, ImplementationSpec
-        from .capabilities import implementation_execution
-        values = WorkspaceValidate.model_validate(payload)
-        record = self.get(campaign_id, identity)
-        submission = self.store.get(values.submission_id, "development_submission")
-        if submission["workspace_id"] != identity:
-            raise ValueError("Submission belongs to another workspace")
-        source = values.spec
-        if values.envelope_id:
-            envelope = self.store.get(values.envelope_id, "development_envelope")
-            if envelope["workspace_id"] != identity or envelope["campaign_id"] != campaign_id:
-                raise ValueError("Validation envelope belongs to another workspace")
-            source = envelope["spec"]
-        spec = (BoundOptimizerSpec if source.get("evaluator_version_id") else ImplementationSpec).model_validate(source)
-        if spec.dependencies != submission["manifest"]["dependencies"]:
-            raise ValueError("Validation dependencies must match the committed submission manifest")
-        capability = implementation_execution()
-        if not capability["available"]:
-            raise ValueError("Protected validation is unavailable: " + capability["reason"])
-        from optimization_framework.campaigns import compute_consent, mandates
-        served = proposals_of(record)   # a go-ahead covers the validation of what it opened
-        # Checked against the request the agent works for (asked), else the one the workspace was opened for.
-        request = asked if asked is not None else record.get("request_root")
-        if actor != "researcher":
-            compute_consent.require(self.workspace, campaign_id, "Validating a submission", values.compute_seconds, hypothesis_ids=served, root=request)
-            mandates.require(self.workspace, campaign_id, request, {"validate"}, what="Validating a submission", hypothesis_ids=served,
-                             seconds=values.compute_seconds)
-        grant = self.workspace.implementations.reserve_commission(record["hypothesis_id"], spec,
-            compute_seconds=values.compute_seconds, max_calls=12, api_budget_usd=0,
-            idempotency_key="development-" + content_hash([identity, values.request_key])[:24],
-            package=submission["package"], accounting_mode="execution_v1")
-        if actor != "researcher":
-            compute_consent.charge(self.workspace, campaign_id, values.compute_seconds, what="a validation of a coding workspace's submission",
-                                   subjects=[identity], hypothesis_ids=served, root=request)
-        # A validation of the same submission again: its result is news to the coding agent, like the first one's.
-        submission.update(grant_id=grant["id"], status="validating", feedback_sent=False)
-        self.store.put("development_submission", submission, "development.validation_requested")
-        return {"submission_id": submission["id"], "grant_id": grant["id"]}
-
-    def freeze_envelope(self, campaign_id, identity, payload):
-        from optimization_framework.implementations.models import BoundOptimizerSpec, ImplementationSpec, digest
-        values = WorkspaceEnvelope.model_validate(payload)
-        record = self.get(campaign_id, identity)
-        spec = (BoundOptimizerSpec if values.spec.get("evaluator_version_id") else ImplementationSpec).model_validate(values.spec)
-        self.workspace.implementations.check_self_contained(spec.model_dump(mode="json"))
-        if spec.problem_id != self.store.get(record["hypothesis_id"], "hypothesis").get("problem_id", spec.problem_id):
-            raise ValueError("Validation envelope uses a different problem")
-        serialized = spec.model_dump(mode="json")
-        identity_hash = digest(serialized)
-        envelope_id = "development_envelope_" + content_hash([identity, identity_hash])[:24]
-        with self.workspace.lock, self.store.transaction():
-            try:
-                saved = self.store.get(envelope_id, "development_envelope")
-            except KeyError:
-                saved = self.store.put_immutable("development_envelope", {"id": envelope_id,
-                    "workspace_id": identity, "campaign_id": campaign_id, "hypothesis_id": record["hypothesis_id"],
-                    "created_at": now(), "request_key": values.request_key, "spec_digest": identity_hash,
-                    "spec": serialized, "checks": {"behavior": len(spec.behavior_checks),
-                        "mechanism": len(spec.mechanism_checks), "diagnostic": len(spec.diagnostic_checks)},
-                    "problem_id": spec.problem_id, "n_cells": [spec.n_cells_min, spec.n_cells_max],
-                    "dependencies": spec.dependencies}, "development.envelope_frozen")
-                self.notify(record, envelope_id, f"Protected validation envelope {envelope_id} frozen with spec digest {identity_hash}. Use this ID with implementation_workspace_validate after an exact submission and explicit remaining allocation; do not reinsert the full specification into the lead agent's context.", "validation_envelopes")
-            return {k: v for k, v in saved.items() if k != "spec"}
-
     def validation_feedback(self, record):
+        """The result of a service validation of a submission (implementation_workspace_validate, retired in roadmap H8), recorded on
+        the submission and told to the coding agent once: it reads grants recorded before, which may still finish."""
         for submission in self.store.list("development_submission", record["campaign_id"]):
             if submission["workspace_id"] != record["id"] or not submission.get("grant_id"):
                 continue

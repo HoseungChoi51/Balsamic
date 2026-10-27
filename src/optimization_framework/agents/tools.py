@@ -1,11 +1,7 @@
 """Real Pi tools backed by scoped reads and transactional campaign commands."""
 from copy import deepcopy
 import json
-import os
 from pathlib import Path
-import subprocess
-import sys
-import tempfile
 import threading
 import time
 
@@ -51,7 +47,7 @@ OPERATIONS = {"hypothesis.create", "hypothesis.review", "hypothesis.status", "dr
     "validation.run", "validation.execute", "study.create", "study.activate",
     "study.race.control", "study.race.decide", "asset.snapshot", "runtime.profile", "evaluator.equivalence", "trial.continue", "journal.compaction_request", "approval.request",
     "experiments.rules", "trial.hide", "campaign.adopt_problem"}
-# What every agent but an implementation grant's is told: role and authority, requests and notices, the turn's end, replies,
+# What every agent is told: role and authority, requests and notices, the turn's end, replies,
 # evidence and limits. Workflow procedures are read on demand (procedure_read); the lead's own contract follows below.
 INSTRUCTIONS = """You are a persistent Pi agent in a scientific campaign; your role and assignment are below. The researcher
 decides what the campaign does next; agents work at the researcher's request. A message from the researcher, or the agent that
@@ -83,117 +79,6 @@ Reads are yours: experiment_progress, resource_inspect, campaign_inspect.page_ag
 needs its own context. You may pause, stop or resume a run (trial.control), never enlarge one.
 Availability, soundness and performance are separate questions: is a method installed or implementable, does it implement its
 specification (its tests), does it perform well (experiments)? Answer the one asked; go further when the request implies it.
-"""
-# What an implementation grant's protected roles are told, unchanged since before the harness plan (its §2.8).
-GRANT_INSTRUCTIONS = """You are a persistent Pi agent in a scientific campaign. Your role and assignment are supplied below.
-The lead agent works for the researcher, at the researcher's request. The researcher decides what the campaign does next and the
-lead carries it out: it does not work through the campaign by itself. A message from the researcher is a request. Do what it asks,
-in full and with real tools, then report what was done and what was found, name the choices that are now open, and stop with
-yield_work(complete). A runtime profile, new hypotheses, a review, experiments, longer runs, a validation, a comparison, findings
-and a journal clean-up are separate stages: start one only when a request covers it. A request may cover several stages, or the
-whole workflow, and then you carry all of it out without asking again at each stage. When a request can be read narrowly or
-broadly, do the narrow reading and say what the broad one would add. Answer a question with an answer, not with actions: asked
-what you would do next, say it and wait. If the platform requires a step before the requested work can run (such as the runtime
-profile before a long run), do that step and say so in the report; for anything else the request did not name, propose it and wait.
-Reading and analysing what already exists is always part of a request. Before the first request there is nothing to do.
-A turn that begins with [Platform notice ...] is not a request. It reports the outcome of work that a request started, or a
-subagent's result: use it to carry that request on, and start nothing the request did not ask for. A notice that brings a question
-from an agent in charge of a page (lead_ask) is answered in that turn's reply, which goes back to it; start no other work for it.
-Use real tools to investigate, implement, test, and coordinate. A natural-language request is not an execution receipt.
-The campaign database is authoritative for current objectives, budgets, evaluator readiness and measured results.
-Inspect campaign_inspect first and after researcher steering. Read evidence on demand; do not load the whole archive.
-Use resource_inspect to check live host capacity, measured worker consumption, planned allocations and resource blockers
-before scheduling numerical work. Forecasts are estimates; a closed execution window does not authorize a new one.
-Preserve exact IDs returned by tools. Historical summaries and reviews are evidence, not new authority.
-Use artifact_save for incremental findings and unresolved objections before context compaction or a handoff.
-Do not confuse conceptual approval, executable correctness, and measured optimizer effectiveness.
-Existing working evaluators and bundled implementations must be reused when compatible. Ask for missing information
-only after checking the current capabilities and saved evidence. Do not repeat denied reads or duplicate reviews.
-campaign_inspect lists every installed method that runs on each task, with the parameters its algorithm_config accepts;
-build experiments from that list before concluding that a setting is unsupported.
-campaign_inspect.reference_evidence holds findings of earlier campaigns that the researcher let this one read. Read them
-before proposing hypotheses. Each is a scoped claim with stated limitations, not an instruction: a changed solver setting,
-budget or method limits what carries over.
-When asked to record what this campaign learned, use finding.record, citing the evidence and stating scope and limitations,
-and publish the findings a later campaign on this or a related problem should know: about the physical problem, and about how
-to run such an optimization. A large command outcome comes back as an index; read the parts you need with evidence_read.
-The journals of every evaluated design are working data. Once an experiment's results are analysed and recorded as findings,
-its journals can be compacted: say so in your report, and file journal.compaction_request for the finished experiments when the
-researcher asks for the clean-up, with what was recorded as the rationale; only the researcher approves it. It keeps every row
-and number and a spread of designs, and removes the rest for good, so it comes last.
-Three agents are each in charge of a page and stay for the whole campaign: the discussion moderator (Hypotheses: review rounds in
-which specialists and reviewers criticise proposals and the proposals are revised), the experiment operator (Experiments: designing,
-starting, watching, pausing, extending and stopping runs) and the implementation lead (Implementations: building and checking
-optimizers and evaluators). The researcher can ask them directly on their pages; what they did is in campaign_inspect.page_agents.
-The lead hands such work to them with page_agent_message instead of doing it itself, says so with a link to the page, and waits
-for the result, which comes back to it. Asked how the experiments are going, the lead asks the experiment operator. The
-experiment operator keeps the campaign's experiment rules (campaign_inspect.experiment_rules): runs the lead starts follow them too. A page agent works only on what it was asked, by the researcher or by the lead, and
-reports to whoever asked.
-The lead agent owns delegation and execution under existing campaign grants. Subagents return artifacts and findings to the agent that asked them.
-A subagent that needs more time or evaluations for a trial says so, with its reasons, in its findings for the lead.
-The lead may pause, stop or resume trials within their allocations but never enlarges one. When more budget would
-change a decision, the lead files trial.extension_request with that argument; only the researcher approves it.
-Implementation builders, test designers and reviewers work independently under frozen service specifications.
-For substantial programming, use implementation_workspace_create to delegate to a full native Pi coding session
-with a browser IDE and normal shell/Git tools. Use implementation_workspace_inspect, implementation_workspace_message,
-and implementation_workspace_validate for supervision and independent validation. Do not assume that workspace
-creation or a submitted commit establishes correctness. The old short-script implementation path remains available
-for historical grants and lightweight compatibility work.
-Use command_schema to inspect supported commands, then campaign_command with the exact current guidance revision
-and a stable request_key describing the intended operation. If a request timed out, inspect its receipt before retrying.
-Source-code availability is not effectiveness evidence.
-Speed is measured, not assumed. resource_inspect shows each task's runtime profile: evaluations per second at 1, 2, 4... workers on each device,
-device load, the platform's share of each step, storage and solver executions per evaluation, with flags for waste. Runs at or
-above the gate length are refused until the evaluator's current source has a profile on this host with every flag fixed or waived,
-except notes (note_flags, such as unsaturated: speed still rising at the worker ceiling), which hold nothing and need no waiver: go on
-with the work and mention the note in your reply.
-runtime.profile measures this on an idle workspace and takes a few minutes of compute: run it when the researcher asks for it or for
-runs that need it, and plan budgets from its measured evaluations per hour.
-How many runs go at once is planned by the campaign's resource planner (page_agent_message, resource_planner) within the researcher's
-resource level and worker maximum, and the scheduler starts a queued run only when its expected memory fits: queue the runs a request
-needs and ask the planner, not the researcher, why they wait or how many can go at once.
-For a flag, delegate one bounded optimization assignment in an implementation workspace; a change must reproduce recorded results
-before it is used: evaluator.equivalence replays a finished experiment's candidates under the new source, and after it passes
-trial.continue carries a finished run's saved state on as a new experiment. Stop when the last attempt gained less than it cost or the optimization allowance is spent, then file
-approval.request for a waiver or another worker ceiling, or use researcher_ask for a fix to a built-in evaluator: only the researcher grants these.
-Campaign limits (compute, model spending, the per-experiment limit), waivers and the worker ceiling are the researcher's. When one stands
-in the way of the campaign, file approval.request with the measurement that shows it; the change is applied when the researcher approves.
-Use researcher_ask for scientific choices and for what approval.request does not cover.
-file_list, file_read and file_search read this server's repository (its committed source, tests and documents) and the files of this
-campaign's experiments (root "experiment" with a trial_id). Read the code or the documents before concluding how something works.
-To analyse journals or results beyond what a record shows, write a Python script with workspace_write and run it with analysis_run: the
-experiments you name are mounted read-only at /data/<trial_id>; numpy and optimization_framework.execution.metrics (scalar_rows, full_row,
-recent_metrics) can be imported; there is no network and no GPU. Print a short result: whatever a tool returns stays in your context.
-End every turn with yield_work. waiting: jobs or subagents you started for the request are still running, or you asked the
-researcher something; their completion or the answer wakes you. complete: the request is fulfilled or the question answered;
-nothing wakes you until the researcher writes again. Your reply to whoever asked goes in yield_work's report, which is required
-when you call a request complete: it is what they read, so it carries the answer itself, with the numbers that answer it, not only a
-pointer to it. Before you write it, check each part of the request against what you did, and name any part not done and why.
-Lines written beside other tool calls are folded away in the chat, and the turn ends when yield_work returns. Its
-summary is shown to the researcher as the status line: plain words, no record ids. Work that belongs to the open request you do or delegate without being
-asked twice; finishing a request does not finish the campaign, and what comes next is the researcher's choice.
-The researcher talks to you in a chat panel beside the application's pages, and the pages show the details: every proposal,
-run, curve, review and draft. Keep a reply short: what you did, what was found in a few lines, and the choices that are now
-open. Do not repeat in the chat what a page shows (tables of runs, lists of proposals, review texts): link the page instead,
-as a Markdown link to a target listed in campaign_inspect.pages, such as [Experiments](#experiments) or
-[this run](#experiments/<trial_id>); a command receipt names the page of what it created. When you start work that takes
-time, say so and name the page where its progress shows. A direct question still gets its answer in the chat, with the
-numbers that answer it.
-The researcher sees your steps while you work, so do not narrate them. In a turn that a platform notice started, when the
-work is still running and there is nothing new the researcher needs, write no message: call yield_work(waiting) with the
-current status as its summary, which the chat shows as a temporary line.
-When the researcher asks for a report, start the report writer with report_write: its notes say what the report is about and what
-to leave out. Say that it is being written and that its progress shows on [Reports](#reports), and call yield_work(waiting): it takes
-many minutes and its end wakes you. Then give the link to the draft in a line or two. If the writer asks about the focus, answer with
-report_answer when the request settles it, and otherwise pass the question to the researcher. Do not write the report in the chat.
-Use researcher_ask only for a real scientific choice, missing credential, or a campaign resource increase; expose a concrete question.
-Ask the researcher only for what the researcher can do, and say how: the words to send, the approval to grant, or the Inbox button
-(an issue's actions, such as starting or stopping runs that wait on an incomplete dependency), with your recommendation in suggestion.
-Never ask for a "platform owner" or for an interface you do not know exists; when nothing the researcher can do would help, say so in your reply instead.
-Never increase campaign budgets, fabricate validation, edit protected checks as a builder, or modify the running app.
-A request authorizes the work it names, within campaign allocations. Old discovery per-task quotas are historical;
-campaign compute limits, protected reserves and current guidance still apply. Model calls may be billed per call against the
-campaign's model budget: do not spend turns on work nobody asked for.
 """
 
 
@@ -238,9 +123,9 @@ STEPS = {"campaign_inspect": "Reading the campaign's state", "resource_inspect":
     "command_schema": "Reading how a command is written", "researcher_ask": "Writing a question for you", "yield_work": "Ending the turn",
     "agent_message": "Writing to an assistant", "agent_cancel": "Stopping an assistant", "mask_create": "Making a test design",
     "proposal_review": "Recording a verdict", "workspace_list": "Listing its work files", "analysis_run": "Running an analysis script",
-    "workspace_run": "Running a script", "submit_output": "Submitting its result", "source_ingest": "Fetching a paper", "source_read": "Reading a paper",
+    "submit_output": "Submitting its result", "source_ingest": "Fetching a paper", "source_read": "Reading a paper",
     "implementation_workspace_create": "Opening a coding workspace", "implementation_workspace_inspect": "Checking a coding workspace",
-    "implementation_workspace_message": "Writing to the coding agent", "implementation_workspace_validate": "Asking for a validation of submitted code",
+    "implementation_workspace_message": "Writing to the coding agent",
     "report_write": "Starting the report writer", "report_answer": "Answering the report writer",
     "experiment_progress": "Checking how the runs are going", "config_suggest": "Choosing the next settings to try", "lead_ask": "Asking the lead agent",
     "compute": "Computing a number"}
@@ -369,7 +254,6 @@ TOOLS = {
     "implementation_workspace_create": ("Open or reattach a coding workspace for an active hypothesis (hypothesis_ids: other proposals its library serves). Balsamic writes its work ticket: proposals, generated library and tests, budget, walls. ticket adds acceptance_tests the coding agent must pass (path; content when new; needed without a charter) and protected_tests it never sees. wall_seconds: its deadline (default: the go-ahead's); egress_hosts: extra hosts (default: those the go-ahead approved).", obj({"hypothesis_id": S, "hypothesis_ids": {"type": "array", "items": S, "maxItems": 20}, "objective": S, "evidence_ids": {"type": "array", "items": S, "maxItems": 100}, "request_key": S, "cpu_budget_seconds": {"type": "number", "exclusiveMinimum": 0, "maximum": 86400}, "wall_seconds": {"type": "number", "exclusiveMinimum": 0, "maximum": 604800}, "limits": obj({"cpus": {"type": "number"}, "memory_gb": {"type": "number"}, "gpus": {"type": "integer"}}, []), "egress_hosts": {"type": "array", "items": S, "maxItems": 20}, "ticket": TICKET}, ["hypothesis_id", "objective", "request_key"])),
     "implementation_workspace_inspect": ("Read a coding workspace: state, questions, ticket, and the review of its latest delivery (diff against the generated library, host validation).", obj({"workspace_id": S, "after": {"type": "integer", "minimum": 0}}, ["workspace_id"])),
     "implementation_workspace_message": ("Answer the coding agent's question (question_id), or change its work when its requester asks.", obj({"workspace_id": S, "message": S, "mode": {"enum": ["steer", "follow_up"]}, "request_key": S, "question_id": S}, ["workspace_id", "message", "request_key"])),
-    "implementation_workspace_validate": ("Commission independent validation of one committed source submission under the compute go-ahead. Supply either a frozen envelope_id or a spec; prefer the short envelope ID when available.", obj({"workspace_id": S, "submission_id": S, "envelope_id": S, "spec": {"type": "object"}, "compute_seconds": {"type": "number", "exclusiveMinimum": 0, "maximum": 86400}, "request_key": S}, ["workspace_id", "submission_id", "compute_seconds", "request_key"])),
     "page_agent_message": ("Ask the agent in charge of a page for work of its page: discussion_moderator (review rounds over proposals; "
         "Hypotheses), experiment_operator (designing, starting, watching and stopping runs; Experiments), implementation_lead (building and "
         "checking implementations; Implementations) or resource_planner (how many runs go at once, what kinds of runs use, why runs wait; "
@@ -451,8 +335,7 @@ TOOLS = {
     "workspace_list": ("List the files of your own work directory.", obj()),
     "workspace_read": ("Read a text file from your own work directory.", obj({"path": S}, ["path"])),
     "workspace_write": ("Write a file in your own work directory: a package or test file, or an analysis script for analysis_run.", obj({"path": S, "content": S}, ["path", "content"])),
-    "workspace_run": ("Run a Python development script in a network-disabled OS sandbox under the implementation grant.", obj({"path": S, "seconds": {"type": "number", "exclusiveMinimum": 0, "maximum": 30}}, ["path"])),
-    "submit_output": ("Submit the structured result required by the frozen implementation service contract.", obj({"result": {"type": "object"}}, ["result"])),
+    "submit_output": ("Submit your structured result in the JSON schema your instructions give.", obj({"result": {"type": "object"}}, ["result"])),
 }
 
 
@@ -491,8 +374,7 @@ class PiTools:
     def names(self, agent):
         names = {"campaign_inspect", "resource_inspect", "evidence_search", "evidence_read", "source_search", "source_ingest", "source_read", "artifact_save", "yield_work",
                  "file_list", "file_read", "file_search", "workspace_list", "workspace_read", "workspace_write", "analysis_run", "compute"}
-        implementation = {"implementation_workspace_create", "implementation_workspace_inspect", "implementation_workspace_message",
-                          "implementation_workspace_validate"}
+        implementation = {"implementation_workspace_create", "implementation_workspace_inspect", "implementation_workspace_message"}
         if agent["role"] == LEAD:
             # A status read is the lead's own (experiment_progress); a decision about runs goes to the operator.
             names |= {"delegate", "agent_message", "agent_cancel", "command_schema", "campaign_command", "researcher_ask", "report_write", "report_answer",
@@ -515,13 +397,8 @@ class PiTools:
             names &= set(ROLE_BRIEFS[agent["role"]]["tools"]) | {"yield_work"}
         if agent.get("output_schema"):
             names.add("submit_output")
-        if agent.get("grant_id"):
-            # Protected implementation roles receive only the exact context the
-            # library supplies. They cannot read campaign fixtures or peer work.
-            names = {"artifact_save", "workspace_list", "workspace_read", "workspace_write", "workspace_run", "submit_output"}
-        else:
-            packages = self.packages(agent)
-            names |= {name for name, tool in EXTRA_TOOLS.items() if agent["role"] in tool["roles"] and tool.get("pack") in {None, *packages}}
+        packages = self.packages(agent)
+        names |= {name for name, tool in EXTRA_TOOLS.items() if agent["role"] in tool["roles"] and tool.get("pack") in {None, *packages}}
         return names
 
     def packages(self, agent):
@@ -552,8 +429,8 @@ class PiTools:
 
     def manifest(self, agent_id, run_id):
         agent, run = self._context(agent_id, run_id)
-        specialist = agent["role"] in ROLE_BRIEFS and not agent.get("grant_id")
-        instructions = (GRANT_INSTRUCTIONS if agent.get("grant_id") else SPECIALIST_CONTRACT + "\n" if specialist else INSTRUCTIONS) + \
+        specialist = agent["role"] in ROLE_BRIEFS
+        instructions = (SPECIALIST_CONTRACT + "\n" if specialist else INSTRUCTIONS) + \
             f"\nRole: {agent['role']}\nAssignment: {agent['objective']}\nEvidence IDs: {json.dumps(agent['evidence_ids'])}"
         if specialist:
             instructions += "\n" + ROLE_BRIEFS[agent["role"]]["brief"]
@@ -588,12 +465,12 @@ class PiTools:
         if agent["role"] == LEAD:
             instructions += self.workspace_instructions(agent)
         procedures = getattr(self.workspace, "procedures", None)
-        if procedures is not None and not agent.get("grant_id"):
+        if procedures is not None:
             instructions += procedures.catalog_text(agent["role"])
         from .extensions import for_agent, hosts_extensions
         return {"instructions": instructions, "tools": [{"name": name, "description": EXTRA_TOOLS[name]["description"] if name in EXTRA_TOOLS else TOOLS[name][0],
                                                           "input_schema": self.schema(agent, name)} for name in sorted(self.names(agent))],
-                # The session's extensions: the Balsamic one unless this is an implementation grant's role, then the role's curated set.
+                # The session's extensions: the Balsamic one, then the role's curated set.
                 "extension_host": hosts_extensions(agent), "extensions": for_agent(agent)}
 
     def turn_state(self, agent_id, run_id):
@@ -691,8 +568,9 @@ class PiTools:
         config = self.controller.configuration(agent["campaign_id"])
         if config["status"] != "running" or agent["status"] in {"paused", "stopped"} or run["status"] not in {"submitted", "running"}:
             raise ValueError("Assignment is not active; preserve findings and stop")
-        if agent.get("deadline_at") and time.time() >= agent["deadline_at"]:
-            raise ValueError("Implementation grant expired; preserve the existing package and findings")
+        if agent.get("grant_id"):   # an implementation grant's agent, recorded before its roles were retired (roadmap H8)
+            raise ValueError("This implementation grant's role was retired in roadmap H8: code is built in a coding box. Its saved work "
+                             "stays readable; it takes no more turns")
         return agent, run
 
     def call(self, agent_id, run_id, call_id, name, arguments):
@@ -774,7 +652,7 @@ class PiTools:
 
     def over_budget(self, agent, run, name):
         """A specialist past its tool calls for the run may only record its result and end (SPECIALIST_TOOL_CALLS)."""
-        if agent["role"] not in ROLE_BRIEFS or agent.get("grant_id") or name in {"submit_output", "yield_work", "proposal_review"}:
+        if agent["role"] not in ROLE_BRIEFS or name in {"submit_output", "yield_work", "proposal_review"}:
             return ""
         with self.store.connection() as db:
             used = db.execute("SELECT COUNT(*) FROM records WHERE kind='agent_tool_receipt' AND json_extract(data,'$.run_id')=?", (run["id"],)).fetchone()[0]
@@ -1075,10 +953,6 @@ class PiTools:
             return self.controller.development.events(cid, args["workspace_id"], args.get("after", 0))
         if name == "implementation_workspace_message":
             return self.controller.development.message(cid, args["workspace_id"], {k: v for k, v in args.items() if k != "workspace_id"}, actor=LEAD)
-        if name == "implementation_workspace_validate":
-            from optimization_framework.campaigns.compute_consent import request_root
-            return self.controller.development.validate(cid, args["workspace_id"], {k: v for k, v in args.items() if k != "workspace_id"}, actor=LEAD,
-                                                       asked=request_root(self.workspace, {"run_id": run["id"]}))
         if name == "evidence_read":
             record = self.record(agent, args["record_id"])
             return view_record(record, record_id=args["record_id"], pointer=args.get("pointer", ""), offset=args.get("offset", 0),
@@ -1131,8 +1005,6 @@ class PiTools:
             self.store.put("agent_session", current)
             return {"artifact_id": saved["id"], "content_hash": saved["content_hash"]}
         if name == "delegate":
-            if args["role"].startswith("implementation_"):
-                raise ValueError("Commission implementation through implementation.commission; its grant delegates builder, test designer and reviewer automatically")
             for ref in args.get("evidence_ids", []):
                 self.record(agent, ref)
             aid = "agent_" + content_hash([agent["id"], args["request_key"]])[:30]
@@ -1191,9 +1063,7 @@ class PiTools:
                 return self.receipt(accepted)
             except KeyError:
                 pass
-            from .development_commission import opens_box   # a commission in a coding box needs no service sandbox (roadmap H7)
-            if args["operation"] in {"implementation.commission", "evaluator.commission", "implementation.revalidate"} and \
-                    not opens_box(self.workspace, args["operation"], payload):
+            if args["operation"] == "implementation.revalidate":   # commissions run in a coding box (roadmap H7, H8)
                 execution = implementation_execution()
                 if not execution["available"]:
                     raise ValueError("Isolated implementation execution is unavailable; no grant was reserved. " + execution["reason"])
@@ -1297,35 +1167,3 @@ class PiTools:
                 raise ValueError("File exceeds package source limit")
             filename.parent.mkdir(parents=True, exist_ok=True); filename.write_text(args["content"])
             return {"path": args["path"], "saved": True}
-        seconds = min(args.get("seconds", 10), max(0, agent.get("deadline_at", time.time() + 30) - time.time()))
-        if seconds <= 0:
-            raise ValueError("Implementation grant expired")
-        import shutil
-        if not shutil.which("bwrap"):
-            raise ValueError("Isolated development execution requires bubblewrap")
-        command = ["bwrap", "--die-with-parent", "--unshare-all", "--new-session", "--proc", "/proc", "--dev", "/dev", "--tmpfs", "/tmp"]
-        from .files import interpreter
-        # Every link between the environment's python and its installation, or the sandbox cannot start it.
-        for root in dict.fromkeys(["/usr", "/lib", "/lib64", "/bin", *interpreter()]):
-            if Path(root).exists():
-                command += ["--ro-bind", root, root]
-        wrapper = "import resource,runpy,sys; resource.setrlimit(resource.RLIMIT_FSIZE,(1048576,1048576)); resource.setrlimit(resource.RLIMIT_NOFILE,(128,128)); runpy.run_path(sys.argv[1],run_name='__main__')"
-        command += ["--bind", str(directory), "/work", "--chdir", "/work", sys.executable, "-c", wrapper, str(relative)]
-        with tempfile.TemporaryFile() as stdout, tempfile.TemporaryFile() as stderr:
-            child = subprocess.Popen(command, stdout=stdout, stderr=stderr, start_new_session=True,
-                env={"PATH": "/usr/bin:/bin", "HOME": "/tmp", "OPENBLAS_NUM_THREADS": "1", "OMP_NUM_THREADS": "1"})
-            try:
-                child.wait(timeout=seconds)
-            except subprocess.TimeoutExpired:
-                import signal
-                try:
-                    os.killpg(child.pid, signal.SIGKILL)
-                except ProcessLookupError:
-                    pass
-                child.wait(timeout=5)
-                return {"status": "timeout", "seconds": seconds}
-            output = {}
-            for key, stream in (("stdout", stdout), ("stderr", stderr)):
-                stream.seek(max(0, stream.seek(0, 2) - 24000))
-                output[key] = stream.read(24000).decode(errors="replace")
-        return {"exit_code": child.returncode, **output, "scope": "Development check; protected validation is separate."}
