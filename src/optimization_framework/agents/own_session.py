@@ -10,13 +10,14 @@ workspace's latest stop stays revoked after a resume. Every route that takes it 
 The library. `balsamic-workspace clone` fetches the workspace's start (`start()`): the library generated from its campaign's
 charter (roadmap F4), byte for byte what the box started from, as one commit holding `libraries/<name>/`, in a Git bundle.
 
-The delivery. `balsamic-workspace submit` sends a commit as a Git bundle (`deliver()`). The host checks that the bundle
-carries that commit, fetches it into a store of its own beside the box's (`own/git`, which the box never mounts; the box's
-store is only its alternate, so a bundle may build on the box's commits), and captures it as the box's submissions are
-captured (`DevelopmentWorkspaces.capture_submission()`): the exact commit's manifest and files, never loose files, with its
-delivery report. From there nothing asks who wrote it: Balsamic installs it at its next sync, reading that exact commit
-(`library_install.Installer.files()`), and binds the proposals it serves and starts the approved runs, citing the install,
-as for the coding agent's delivery. The submission records `source: own_session`.
+The delivery. `balsamic-workspace submit` sends a commit as a Git bundle (`deliver()`), taken only while the workspace runs
+(`closed()`: a paused one, at its deadline among others, waits for its resume, as its coding agent does). The host checks
+that the bundle carries that commit, fetches it into a store of its own beside the box's (`own/git`, which the box never
+mounts; the box's store is only its alternate, so a bundle may build on the box's commits), and captures it as the box's
+submissions are captured (`DevelopmentWorkspaces.capture_submission()`): the exact commit's manifest and files, never loose
+files, with its delivery report. From there nothing asks who wrote it: Balsamic installs it at its next sync, reading that
+exact commit (`library_install.Installer.files()`), and binds the proposals it serves and starts the approved runs, citing
+the install, as for the coding agent's delivery. The submission records `source: own_session`.
 
 Git runs on the host's own store only, without the system's or the user's configuration, hooks or background upkeep, and
 checks every object a bundle brings; the box's store is never run as a repository here (its refs are read as files).
@@ -35,7 +36,8 @@ import tempfile
 import threading
 from pathlib import Path, PurePosixPath
 
-from pydantic import Field
+from fastapi import HTTPException, Request
+from pydantic import Field, ValidationError
 
 from optimization_framework.contracts.base import Contract, content_hash
 from optimization_framework.storage.sqlite import now
@@ -82,6 +84,21 @@ def revoked(store, record, saved):
     if any(command["workspace_id"] == record["id"] and command.get("operation") == "stop" and command.get("recorded")
            and command["created_at"] >= saved["issued_at"] for command in store.list("development_command", record["campaign_id"])):
         return "the workspace was stopped after it was made"
+    return None
+
+
+def closed(record):
+    """Why the workspace takes no delivery now, or None. A delivery goes on the workspace's work, so it needs the workspace
+    running: one paused at its deadline (roadmap H5), at its CPU allowance or by the researcher waits for its resume, which for
+    a deadline is a new go-ahead. The box's walls themselves (egress, limits) bound the box, not the researcher's machine."""
+    from .development import past
+    if record.get("desired_status") == "stopped":
+        return "The workspace is stopped"
+    if record.get("deadline_reached") or past(record.get("deadline_at")):
+        return ("The workspace reached its deadline and is paused: going on is a new go-ahead. Resume it with a new deadline "
+                "before delivering to it")
+    if record.get("desired_status") != "running":
+        return "The workspace is paused" + (f" ({record['error']})" if record.get("error") else "") + ": resume it before delivering to it"
     return None
 
 
@@ -283,10 +300,14 @@ def snapshot(store, commit, manifest_path):
 
 def deliver(development, record, values):
     """Capture the commit a bundle carries, as the box's submissions are captured (capture_submission): {submission_id,
-    status, ignored_fields?}. A bundle that does not carry the commit, or builds on commits the host does not have, is refused
-    before anything is captured; the refusal is on the workspace's history, as a refused submission from the box is."""
+    status, ignored_fields?}. A workspace that is not running (closed()), a bundle that does not carry the commit, or one that
+    builds on commits the host does not have, is refused before anything is captured; the refusal is on the workspace's
+    history, as a refused submission from the box is."""
     key = "own_session_" + content_hash([values.commit, now()])[:16]
     try:
+        why = closed(development.get(record["campaign_id"], record["id"]))
+        if why:
+            raise ValueError(why)
         try:
             data = base64.b64decode(values.bundle, validate=True)
         except (binascii.Error, ValueError):
@@ -306,10 +327,12 @@ def deliver(development, record, values):
                     raise ValueError(f"The bundle does not carry commit {values.commit}: it carries "
                                      + (", ".join(head[:12] for head in heads) or "no commit"))
                 try:
-                    _git(store, "bundle", "verify", "-q", str(bundle))
+                    _git(store, "bundle", "verify", str(bundle))
                 except ValueError as exc:
-                    raise ValueError("The bundle builds on commits this workspace does not have; send it with their history "
-                                     f"(balsamic-workspace submit leaves out only the commits the workspace names): {exc}") from None
+                    lacking = re.findall(r"\b[a-f0-9]{40}\b", str(exc))
+                    raise ValueError("The bundle builds on commits this workspace does not have (" + (", ".join(lacking) or str(exc))
+                                     + "); send it with their history (balsamic-workspace submit leaves out only the commits "
+                                     "the workspace names)") from None
                 _git(store, "fetch", "--quiet", "--no-tags", "--no-write-fetch-head", str(bundle),
                      f"{values.commit}:refs/balsamic/submissions/{values.commit}", timeout=600)
         result = development.capture_submission(record, key, {"commit": values.commit, "manifest_path": values.manifest_path,
@@ -330,8 +353,6 @@ def deliver(development, record, values):
 # HTTP --------------------------------------------------------------------------------------------------------------------
 def routes(app, workspace):
     """The token's two routes, the researcher's (the card), and the three `balsamic-workspace` takes it to from outside the box."""
-    from fastapi import HTTPException, Request
-    from pydantic import ValidationError
     from starlette.concurrency import run_in_threadpool
     from .development_runtime import ROOT
     development = workspace.pi.development
