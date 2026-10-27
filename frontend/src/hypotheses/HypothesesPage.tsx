@@ -10,6 +10,7 @@ import { HypothesisCard } from './HypothesisCard';
 import { Implementations } from './Implementations';
 import { Markdown, clip, dollarMath } from '../chat/render/Markdown';
 import { useEvolution, STAGE_TONE } from '../evolution/EvolutionPage';
+import { FAMILY } from '../api/evolution';
 import { track } from '../telemetry/events';
 
 export default function HypothesesPage({ campaignId, route, threadId }: PageProps) {
@@ -51,7 +52,7 @@ export default function HypothesesPage({ campaignId, route, threadId }: PageProp
               {h.readiness ? <Pill tone={h.readiness.eligible ? 'clear' : 'attention'} title={h.readiness.reason}>{h.requested_by ? 'asked for' : h.approved_by ? 'approved' : h.readiness.state.replaceAll('_', ' ')}</Pill> : null}
               {node?.autonomous ? <Pill tone="agent">autopilot</Pill> : null}</div>
             <Markdown text={clip(dollarMath(h.mechanism || ''))} thread={route.thread} className="md small muted" />
-            <div className="row small faint"><span>{h.algorithm ? <>{h.algorithm}{h.algorithm_chosen === false ? <span className="pill attention" style={{ marginLeft: 6 }} title="The default search lane was recorded because none was chosen; the lead can set it with hypothesis.edit">default, not chosen</span> : null}</> : 'no executable algorithm yet'}</span><span>· {h.reviews?.length || 0} reviews</span><span>· round {node?.round ?? '–'}</span><span>· {when(h.created_at)}</span></div>
+            <div className="row small faint">{h.family ? <span data-testid="family">{FAMILY[h.family] || h.family} ·</span> : null}<span>{h.algorithm === 'unchosen' ? <span className="pill attention" data-testid="unchosen" title="No method was chosen for it, so it cannot run; the lead chooses one with hypothesis.edit">no method chosen</span> : h.algorithm ? <>{h.algorithm}{h.algorithm_chosen === false ? <span className="pill attention" style={{ marginLeft: 6 }} title="The default search lane was recorded because none was chosen; the lead can set it with hypothesis.edit">default, not chosen</span> : null}</> : 'no executable algorithm yet'}</span><span>· {h.reviews?.length || 0} reviews</span><span>· round {node?.round ?? '–'}</span><span>· {when(h.created_at)}</span></div>
           </article>); })}
         {placeholders.filter(p => p.status === 'pending').map(p => <div key={p.id} className="card" data-testid="placeholder"><div className="row"><Pill tone="agent">generating</Pill><span className="faint">{p.id}: the lead is recording this strategy</span></div></div>)}
       </> : <Empty>No proposal yet. Ask the lead for hypotheses in the conversation (/generate 3); each lands here with its mechanism, its stage and its review.</Empty>) : null}
