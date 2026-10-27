@@ -320,7 +320,7 @@ def step_label(tool, args=None):
 
 def comparison_brief(report):
     """What a comparison report concludes, without its curves or method definitions."""
-    return [{"group_id": group["id"], "common_observed_cost": group.get("common_observed_cost"),
+    return [{"group_id": group["id"], "direction": group.get("direction"), "common_observed_cost": group.get("common_observed_cost"),
              **({} if group.get("common_observed_cost") is not None else {"note": "These runs share no cost that all of them reached, "
                  "so no method summary could be computed. Name the runs to compare with each other in trial_ids."}),
              "method_summaries": group.get("method_summaries", []),
