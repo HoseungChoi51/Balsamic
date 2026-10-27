@@ -98,7 +98,9 @@ def apply(workspace, campaign_id, values, *, command, actor):
             values_in = values_in.model_copy(update={"implementation_version_id": strategy["implementation_version_id"]})
     record = hypotheses.create(workspace, campaign_id, values_in, identity="hypothesis_" + command.id, bundle=bundle)
     if actor != "researcher":
-        record.update(origin="pi", requires_concept_review=True)
+        from optimization_framework.campaigns.proposals import researcher_request
+        asked = researcher_request(workspace, command.origin)
+        record.update(origin="pi", requires_concept_review=True, **({"requested_by": asked} if asked else {}))
         workspace.store.put("hypothesis", record)
     return {"hypothesis_id": record["id"], "hypothesis": record, "entry_id": entry["id"], "match": {"score": score, "reasons": reasons}}
 
