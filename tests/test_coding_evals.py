@@ -100,6 +100,7 @@ def test_a_fake_run_opens_the_workspace_through_the_implementation_lead_and_reco
     assert metrics["researcher_approvals"] == 1 and metrics["submissions"] == 1 and metrics["cost_usd"] == 0
     assert 0 <= metrics["seconds_to_workspace"] <= metrics["seconds_to_submission"]
     assert metrics["lead_turns"] >= 2 and metrics["notices_from_workspace"] >= 1
+    assert metrics["ticket"] == {"acceptance_tests": 1, "protected_tests": 0}   # the ticket route (H4): the request's contract test
     assert row["delivery"]["conformance"]["passed"] and row["delivery"]["contract"]["ok"]
     assert (tmp_path / "out" / "delivered" / "C1-cyclic-geometric-vnd" / "libraries" / "grating-mask-search" / "pyproject.toml").exists()
     assert "| C1-cyclic-geometric-vnd | pass |" in (tmp_path / "out" / "summary.md").read_text()

@@ -223,6 +223,13 @@ steps in durable files and campaign artifacts. Store large command outputs as
 files with references. Pi can retrieve relevant material as needed and compact
 its conversation without discarding the underlying work.
 
+The specification is the workspace's work ticket (roadmap H4, `agents/development_ticket.py`):
+`TASK.md`, the house rules in `AGENTS.md` and `CLAUDE.md` for any harness, and
+`.balsamic/spec.json`, written into the worktree when it is prepared and never over
+the coding agent's edits. `.campaign/assignment.md` keeps only the Pi session's own
+rules (`DEVELOPMENT_INSTRUCTIONS`). Protected acceptance tests stay on the host.
+"A library generated from a charter" in `docs/optimizer-plugins.md` describes it.
+
 Each delegated programming task gets its own focused session and worktree. The
 PI receives progress summaries, blockers, artifact references, and commits. It
 does not need every specialist's full transcript in its active context.

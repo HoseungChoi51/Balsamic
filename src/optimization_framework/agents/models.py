@@ -27,8 +27,8 @@ PAGE_OBJECTIVES = {
     "experiment_operator": "Run this campaign's experiments when the researcher or the lead agent asks: design, start, watch, pause, extend "
         "and stop runs within the campaign's allocations, find out why a run failed from its records and files, and report what ran and "
         "what it measured.",
-    "implementation_lead": "Build, check and attach optimizer and evaluator implementations when the researcher or the lead agent asks, "
-        "through implementation commissions and coding workspaces, and report what was built, how it was checked, and what remains.",
+    "implementation_lead": "Build, check and attach optimizer and evaluator implementations when the researcher or the lead agent asks: "
+        "coding workspaces (write the ticket, review the delivery) or commissions. Report what was built and checked, and what remains.",
     "resource_planner": "Plan how this campaign uses the machine within the researcher's resource level: estimate what kinds of runs never "
         "measured will use, decide how many of the campaign's runs and of each kind go at once, explain why runs wait or ran out of "
         "memory, and report the plan and its reasons. Start no runs and stop none.",

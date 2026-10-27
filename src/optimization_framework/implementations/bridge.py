@@ -342,15 +342,29 @@ class ImplementationBridge:
     def check_self_contained(self, spec):
         """Refuse a specification whose text names campaign records instead of stating them: the test designer, builders and
         reviewer see the specification alone, by design, and cannot read a record it points to. Provenance may cite them, and
-        structured fields (an evaluator version a method is bound to) name what the service itself resolves."""
-        text = json.dumps([spec.get(key) for key in ("name", "mechanism", "acceptance_criteria")])
+        structured fields (an evaluator version a method is bound to) name what the service itself resolves.
+        A coding workspace's work ticket (agents/development_ticket.py, roadmap H4) is checked the same way: it needs runnable
+        acceptance tests, and its text names only what the coding agent can read (the proposals it serves, its evidence)."""
+        ticket = spec.get("kind") == "development_ticket"
+        if ticket and not spec.get("acceptance_tests"):
+            raise ValueError("The work ticket names no acceptance tests, so the coding agent cannot tell when it is done. Name at least one "
+                             "runnable pytest file in ticket.acceptance_tests: its path, with its content when it is new (a campaign made "
+                             "from a charter gets the generated library's tests)")
+        keys = ("objective", "proposals", "acceptance_tests") if ticket else ("name", "mechanism", "acceptance_criteria")
+        readable = {*(row["hypothesis_id"] for row in spec.get("proposals") or []), *(spec.get("evidence_ids") or [])} if ticket else set()
+        text = json.dumps([spec.get(key) for key in keys])
         named = []
         for token in dict.fromkeys(RECORD_ID.findall(text)):
             try:
                 self.store.get_entry(token)
-                named.append(token)
+                if token not in readable:
+                    named.append(token)
             except KeyError:
                 pass
+        if named and ticket:
+            raise ValueError(f"The work ticket names campaign records ({', '.join(named)}) that the coding agent cannot read: it sees the "
+                             "ticket and the evidence it is given. Write what they state into the objective or an acceptance test, or give "
+                             "them as evidence_ids")
         if named:
             raise ValueError(f"The specification names campaign records ({', '.join(named)}) that the independent test designer, builders "
                              "and reviewer cannot read: they see the specification alone. Write what those records state into the "

@@ -1,6 +1,6 @@
 ---
 name: implementation-supervision
-description: Implementing a method as a library: coding workspace, tests, install, binding.
+description: A method as a library: workspace ticket, review, install, binding.
 metadata:
   roles: lead, implementation_lead
 ---
@@ -17,13 +17,20 @@ Asked to implement methods and compare them, propose one Screen mandate (`mandat
 task_id, hypothesis_id, seeds, wall_seconds, max_evaluations, device). That one go-ahead covers all of it: building,
 installing, binding and running. Do not ask again at each step, and never ask the researcher to run commands.
 
-1. Open a coding workspace with `implementation_workspace_create`: the objective, the hypothesis and the evidence ids. It builds
-   the library under `libraries/<name>/` (its brief says how): a module per method, its own tests against the specification,
-   and the plug-in that names the methods. Proposals built together can share one library: name the others in
-   `hypothesis_ids`, so the researcher sees which proposals it serves.
-2. Supervise with `implementation_workspace_inspect`, and steer or answer with `implementation_workspace_message`. Settle what
-   the specification means from the hypothesis or with the researcher; do not turn open points into acceptance gates.
-3. The library is done when its tests pass, Balsamic's contract checks included (`tests/test_contract.py`: valid candidates,
+1. Open a coding workspace with `implementation_workspace_create` on its work ticket: the objective, the hypothesis and the
+   evidence ids. Proposals built together share one library: name the others in `hypothesis_ids`. Balsamic writes the
+   ticket into the workspace (`TASK.md`, and the house rules in `AGENTS.md`): the proposals with their METHODS keys, the
+   library generated from the charter and its tests, the go-ahead's budget and walls. Your part is `ticket`: the acceptance
+   tests the work must pass beyond the generated ones (`acceptance_tests`: a pytest file's path, with its content when it is
+   new; a campaign without a charter needs at least one, such as the library's `tests/test_contract.py`), and
+   `protected_tests` that run outside the box and that the coding agent never sees. State in them what the specification
+   requires; a ticket that names records the coding agent cannot read is refused (give them as evidence instead).
+2. The coding agent's questions come to you as notices: answer with `implementation_workspace_message` and the question_id.
+   Settle what the specification means from the hypothesis or with the researcher; do not turn open points into acceptance
+   gates. Its progress shows on the Implementations page: do not relay it.
+3. Review each delivery with `implementation_workspace_inspect` (`review`): the diff against the generated library (files and
+   lines changed, generated files and acceptance tests it touched) and the host's validation. The library is done when its
+   tests pass, Balsamic's contract checks included (`tests/test_contract.py`: valid candidates,
    seeded replay, checkpoint continuation), and the workspace has submitted the commit with its delivery report: the coding
    agent's verdict (ready, ready with limits, not ready), each method's state, conformance and tests, the limitations, and the
    next steps with who does each. The researcher reads that report on the Implementations page and in the inbox; relay its

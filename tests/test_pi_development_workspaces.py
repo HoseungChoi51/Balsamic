@@ -28,12 +28,17 @@ class Driver:
     def capability(self):
         return {'available': True}
 
-    def prepare(self, record, brief, evidence):
+    def repo(self, record):
+        return self.root(record) / 'work' / 'repo'
+
+    def prepare(self, record, brief, evidence, ticket=None):
+        from optimization_framework.agents.development_runtime import write_ticket
         self.prepared += 1
         root = self.root(record)
         for name in ('incoming/commands', 'incoming/results', 'outgoing/events'):
             (root / name).mkdir(parents=True, exist_ok=True)
         (root / 'brief.md').write_text(brief)
+        write_ticket(self.repo(record), ticket)   # as the Docker driver writes the work ticket into the worktree
 
     def start(self, record):
         self.started += 1
@@ -77,6 +82,10 @@ def setup(tmp_path, monkeypatch):
     development = DevelopmentWorkspaces(workspace.pi, driver=driver)
     workspace.pi.development = development
     return workspace, campaign, development, driver
+
+
+# An agent's work ticket needs an acceptance test (H4); these campaigns have no charter, so no generated library gives one.
+TICKET = {'acceptance_tests': [{'path': 'libraries/test-method/tests/test_contract.py'}]}
 
 
 def outgoing(driver, record, identity, kind, payload):
@@ -298,7 +307,7 @@ def test_an_agent_opens_a_coding_workspace_only_with_the_researchers_go_ahead(se
     cid = campaign['id']
     workspace.store.put('hypothesis', {'id': 'hypothesis_other', 'campaign_id': cid, 'title': 'Other method', 'status': 'proposed',
                                        'mechanism': 'Another', 'algorithm': 'custom', 'algorithm_config': {}})
-    request = {'hypothesis_id': 'hypothesis_dev', 'objective': 'Implement', 'request_key': 'agent'}
+    request = {'hypothesis_id': 'hypothesis_dev', 'objective': 'Implement', 'request_key': 'agent', 'ticket': TICKET}
     with pytest.raises(ValueError, match="mandate_propose"):
         development.create(cid, request, actor='lead')
     compute_consent.grant(workspace, {'id': 'decision_go', 'campaign_id': cid},
@@ -317,7 +326,7 @@ def test_a_go_ahead_for_named_proposals_opens_workspaces_only_for_them(setup):
                                        'mechanism': 'Another', 'algorithm': 'custom', 'algorithm_config': {}})
     consent = compute_consent.grant(workspace, {'id': 'decision_go', 'campaign_id': cid}, {'plan': 'Implement the first method',
         'wall_seconds': 3600, 'worker_seconds': 600, 'coding_workspaces': 2, 'hypothesis_ids': ['hypothesis_dev']})
-    request = {'hypothesis_id': 'hypothesis_other', 'objective': 'Implement', 'request_key': 'agent'}
+    request = {'hypothesis_id': 'hypothesis_other', 'objective': 'Implement', 'request_key': 'agent', 'ticket': TICKET}
     with pytest.raises(ValueError, match='No approved plan covers work for hypothesis_other'):
         development.create(cid, request, actor='lead')
     with pytest.raises(ValueError, match='No approved plan covers work for hypothesis_dev, hypothesis_other'):
@@ -338,7 +347,7 @@ def test_the_history_of_a_workspace_reads_newest_first_from_what_it_recorded(set
                           {'plan': 'Build both methods in one library', 'wall_seconds': 1200, 'worker_seconds': 300, 'coding_workspaces': 1})
     # Who opened it, under which go-ahead, for which proposals.
     record = development.create(cid, {'hypothesis_id': 'hypothesis_dev', 'hypothesis_ids': ['hypothesis_two'], 'objective': 'Implement both',
-                                       'request_key': 'history'}, actor='lead', opener={'agent_id': 'agent_impl', 'role': 'implementation_lead'})
+                                       'request_key': 'history', 'ticket': TICKET}, actor='lead', opener={'agent_id': 'agent_impl', 'role': 'implementation_lead'})
     assert record['hypothesis_ids'] == ['hypothesis_dev', 'hypothesis_two'] and record['consent']['decision_id'] == 'decision_go'
     assert record['opened_by'] == {'actor': 'lead', 'agent_id': 'agent_impl', 'role': 'implementation_lead'}
     with pytest.raises(ValueError, match='No proposal hypothesis_missing'):
@@ -502,7 +511,7 @@ def test_a_workspace_opened_by_the_implementation_lead_sends_its_notices_there_c
     root = {'thread_id': 'thread_main', 'message_id': 'message_ask', 'run_id': 'run_ask'}
     compute_consent.grant(workspace, {'id': 'decision_go', 'campaign_id': cid},
                           {'plan': 'Implement the method', 'wall_seconds': 3600, 'worker_seconds': 600, 'coding_workspaces': 1})
-    record = development.create(cid, {'hypothesis_id': 'hypothesis_dev', 'objective': 'Implement', 'request_key': 'opened'},
+    record = development.create(cid, {'hypothesis_id': 'hypothesis_dev', 'objective': 'Implement', 'request_key': 'opened', 'ticket': TICKET},
                                 actor='lead', opener={'agent_id': opener['id'], 'role': opener['role']}, root=root)
     assert record['request_root'] == root
     development.sync(cid)
@@ -615,7 +624,7 @@ def test_a_workspace_past_its_deadline_is_paused_its_last_state_kept_and_its_ope
     cid = campaign['id']
     consent = compute_consent.grant(workspace, {'id': 'decision_go', 'campaign_id': cid}, {'plan': 'Implement the method',
         'wall_seconds': 3600, 'worker_seconds': 600, 'coding_workspaces': 1, 'egress_hosts': ['github.com']})
-    request = {'hypothesis_id': 'hypothesis_dev', 'objective': 'Implement', 'request_key': 'deadline'}
+    request = {'hypothesis_id': 'hypothesis_dev', 'objective': 'Implement', 'request_key': 'deadline', 'ticket': TICKET}
     with pytest.raises(ValueError, match=r'past the go-ahead\'s wall time \(3600 s\)'):
         development.create(cid, {**request, 'wall_seconds': 7200}, actor='lead')
     with pytest.raises(ValueError, match='did not approve these hosts for the workspace: gitlab.com'):
@@ -668,7 +677,7 @@ def test_an_agents_workspace_takes_its_deadline_and_hosts_from_its_requests_mand
         'approval_request': {'kind': 'mandate', 'template': 'screen', 'plan': 'Build the method from its reference code', 'wall_seconds': 5400,
                              'worker_seconds': 600, 'coding_workspaces': 1, 'hypothesis_ids': ['hypothesis_dev'], 'egress_hosts': ['github.com']}})
     outcome = mandates.approve(workspace, decision)
-    request = {'hypothesis_id': 'hypothesis_dev', 'objective': 'Implement', 'request_key': 'screen'}
+    request = {'hypothesis_id': 'hypothesis_dev', 'objective': 'Implement', 'request_key': 'screen', 'ticket': TICKET}
     with pytest.raises(ValueError, match='did not approve these hosts for the workspace: gitlab.com'):
         development.create(cid, {**request, 'egress_hosts': ['gitlab.com']}, actor='lead', root=root, asked=root)
     with pytest.raises(ValueError, match=r"past the go-ahead's wall time \(5400 s\)"):

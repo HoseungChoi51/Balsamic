@@ -375,9 +375,9 @@ def test_the_baking_order_goes_from_a_charter_to_ranked_results(client, workspac
     record = development.get(cid, record["id"])
     assert record["library"]["revision"] == confirmed["charter"]["revision"] and record["library"]["package"] == PACKAGE
     repo = driver.repo(record)
-    brief = (driver.root(record) / "brief.md").read_text()
-    # The brief gives each proposal its METHODS key (made from its short title, which the titling may still be writing).
-    keys = {h["id"]: re.search(rf'\(`{h["id"]}`\); its METHODS key: `(\w+)` with `"hypothesis_id": "{h["id"]}"`', brief).group(1)
+    brief = (repo / "TASK.md").read_text()
+    # The work ticket gives each proposal its METHODS key (made from its short title, which the titling may still be writing).
+    keys = {h["id"]: re.search(rf'\(`{h["id"]}`\)\n\nIts METHODS key: `(\w+)` with `"hypothesis_id": "{h["id"]}"`', brief).group(1)
             for h in proposals}
     assert len(set(keys.values())) == 4
     # The fake coding agent fills the two files it writes, runs the library's tests, commits and submits a ready report.
