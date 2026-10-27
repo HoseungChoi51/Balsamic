@@ -291,6 +291,28 @@ class Plugin(FunctionPlugin):
   returning or at the cap. Each distinct candidate is evaluated once, so the replays compare what the method proposes,
   not the evaluator's noise.
 
+### A library generated from a charter
+
+`scaffold(charter, revision, balsamic=True)` (`problem_charter/scaffold.py`) generates a project that is already such a
+library. Besides the standalone project (the data, the harness, `objective.py` and `methods.py` to fill), it writes:
+
+- `<pkg>/adapter.py`, with two factories named by the entry points in `pyproject.toml`. `problem_adapter()`
+  (`optimization_framework.problems`, under the charter's problem id; only when the charter's evaluator is `declared`) is
+  `problem_charter/library.py` `CharterProblem`: its definition and instances are what `charter.manifest()` gives for the
+  same values, from the charter the library holds in `data.CHARTER`, and its evaluator calls
+  `objective.objective(problem, candidate)` on the library's own `Problem`. `method_plugin()`
+  (`optimization_framework.optimizers`, under the package name) is a `FunctionPlugin` with `MODULE = "<pkg>.methods"`,
+  the charter's representation, and `problem(instance)` giving each method the library's `Problem`. Balsamic is imported
+  only inside these functions, so the project runs without it.
+- `tests/test_contract.py`: `compare_provided()` finds no difference between the library's problem and the charter's,
+  and `check_function` passes for every method. It skips where Balsamic is not installed.
+
+Describing and resolving the problem read only `data.py`; the library's objective and problem are imported when a worker
+evaluates. The evaluator's version is the charter revision and a hash of the package's code other than `methods.py`, so a
+changed objective is another evaluator. A field mapped to a derived quantity (the residence time from a volume and a flow
+rate) must agree with what the charter computes; a configuration that is none of the charter's instances gets a
+`Problem` of its own, resolved from the charter.
+
 ### Failure policy
 
 | Situation | Behavior | Why |
