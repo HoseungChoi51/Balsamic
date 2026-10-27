@@ -117,7 +117,10 @@ def _clock(at):
 
 
 def _in_force(workspace, row, current):
-    """Until its expiry, while a coding workspace it opened runs, and for 3 x its wall time after the last one stops."""
+    """Until its expiry, while a coding workspace it opened runs, and for 3 x its wall time after the last one stops; never once
+    closed with its mandate (R3)."""
+    if row.get("closed_at"):
+        return False
     if _clock(row["expires_at"]) > current:
         return True
     opened = [found for found in (_record(workspace, identity, "development_workspace") for identity in row.get("workspace_ids") or []) if found]

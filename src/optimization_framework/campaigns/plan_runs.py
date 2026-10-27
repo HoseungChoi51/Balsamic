@@ -151,10 +151,14 @@ def launch_ready(workspace, campaign_id):
     from optimization_framework.contracts.commands import Command, CommandOrigin
     from .compute_consent import consents
     store = workspace.store
+    from .mandates import of_consent
     launched, waiting = [], []
     for consent in consents(workspace, campaign_id):
         if not planned(consent):
             continue
+        mandate = of_consent(workspace, consent)
+        if mandate.status != "active":
+            continue   # its deadline passed or it was closed: Balsamic starts nothing more under it (R3)
         for index, seed, run in planned(consent):
             if run_of(store, consent, run, seed, index):
                 continue
@@ -181,7 +185,8 @@ def launch_ready(workspace, campaign_id):
             campaign = store.get(campaign_id, "campaign")
             command = Command(id=command_id(consent["id"], index, seed), campaign_id=campaign_id, operation="trial.create",
                 expected_revision=campaign["version"], payload=payload,
-                origin=CommandOrigin(actor="balsamic", consent_id=consent["id"], thread_id=root.get("thread_id"),
+                origin=CommandOrigin(actor="balsamic", consent_id=consent["id"], mandate_id=mandate.id if mandate.id != consent["id"] else None,
+                                     thread_id=root.get("thread_id"),
                                      message_id=root.get("message_id"),
                                      rationale=f"Run {index + 1} of the plan approved in {consent['decision_id']}, seed {seed}"))
             try:
@@ -225,9 +230,12 @@ def _spent(workspace, consent):
 
 
 def _finished(workspace, consent):
-    """Once per consent that Balsamic started runs for (in force or not): every planned run has a run that ended."""
+    """Once per consent that Balsamic started runs for (in force or not): every planned run has a run that ended. A mandate with a
+    stop condition tells its request itself when it closes (mandates.settle)."""
     store = workspace.store
-    if consent.get("finished_notice_at") or not any(_get(store, command_id(consent["id"], index, seed), "work_command")
+    from .mandates import of_consent
+    stop = of_consent(workspace, consent).stop_when
+    if consent.get("finished_notice_at") or (stop is not None and stop.machine) or not any(_get(store, command_id(consent["id"], index, seed), "work_command")
                                                     for index, seed, _ in planned(consent)):
         return
     runs = [run_of(store, consent, run, seed, index) for index, seed, run in planned(consent)]

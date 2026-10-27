@@ -8,6 +8,7 @@ from optimization_framework.contracts.requests import CampaignInput, CampaignUpd
 from optimization_framework.evaluation.registry import problems
 from optimization_framework.execution.service import Workspace
 from test_problem_charter import installed, reactor
+from test_mandates import granted
 
 
 def library_install(workspace, cid, identity="library_install_reactor", **fields):
@@ -126,6 +127,7 @@ def test_the_lead_can_adopt_and_an_install_that_does_not_provide_the_problem_is_
     with pytest.raises(ValueError, match="is failed, not installed"):
         adopt(workspace, cid, "adopt_failed", "library_install_failed")
     library_install(workspace, cid)
+    granted(workspace, cid, "screen")   # adopting is implement work: the lead's request needs a Screen mandate (R3)
     receipt = adopt(workspace, cid, "lead_adopts", actor="manager")
     assert receipt["actor"] == "manager" and len(receipt["outcome"]["adopted"]) == 1
 

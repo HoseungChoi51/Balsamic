@@ -247,11 +247,16 @@ class CommandService:
         for key in ("origin", "expected_thread_revision"):
             if request.get(key) is None:
                 request.pop(key, None)
-        if request.get("origin") and request["origin"].get("consent_id") is None:
-            request["origin"].pop("consent_id")
+        for key in ("consent_id", "mandate_id"):
+            if request.get("origin") and request["origin"].get(key) is None:
+                request["origin"].pop(key)
         request_hash = content_hash({"command": request, "actor": actor})
-        # A receipt hashed with those fields present but unset (written between the two conventions) still matches.
+        # A receipt hashed with those fields present but unset (written between the two conventions) still matches, with or
+        # without the origin's mandate_id (R3), which came after them.
         full_hash = content_hash({"command": command.model_dump(mode="json"), "actor": actor})
+        hashes = {request_hash, full_hash}
+        if command.origin is not None and command.origin.mandate_id is None:
+            hashes.add(content_hash({"command": command.model_dump(mode="json", exclude={"origin": {"mandate_id"}}), "actor": actor}))
         with self.workspace.lock:
             with self.store.transaction():
                 try:
@@ -259,7 +264,7 @@ class CommandService:
                 except KeyError:
                     previous = None
                 if previous:
-                    if previous["request_hash"] not in {request_hash, full_hash}:
+                    if previous["request_hash"] not in hashes:
                         raise ValueError("Command identity already belongs to a different request or authority")
                     return previous
                 if command.operation == "campaign.create":
@@ -313,7 +318,8 @@ class CommandService:
                 outcome = self._apply(command, actor, prepared=prepared) if prepared is not None else self._apply(command, actor)
                 record = {"id": command.id, "campaign_id": command.campaign_id, "request_hash": request_hash,
                     "request": command.model_dump(mode="json"), "actor": actor, "authority_hash": authority,
-                    "origin": command.origin.model_dump(mode="json", exclude={"consent_id"} if command.origin.consent_id is None else None) if command.origin else None,
+                    "origin": command.origin.model_dump(mode="json", exclude={key for key in ("consent_id", "mandate_id") if getattr(command.origin, key) is None})
+                              if command.origin else None,
                     "status": "completed", "outcome": outcome, "created_at": now(), "finished_at": now(),
                     # The payload's unknown top-level keys an agent sent, dropped before it ran (decision 5).
                     **({"ignored_fields": list(ignored_fields)} if ignored_fields else {})}

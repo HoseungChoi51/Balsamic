@@ -79,12 +79,14 @@ def test_an_explore_mandate_under_the_threshold_is_granted_at_once_and_named_in_
     [saved] = [row for row in team.workspace.store.list("agent_tool_receipt", "demo") if row["tool"] == "mandate_propose"]
     assert saved["result"]["mandate_id"] == mandate.id
     assert f"Mandate: explore ({mandate.id}); model spend without an envelope of its own (the campaign's cap applies); worker time 5 min left; no deadline." in state(team)
-    # Answer starts nothing and is granted at once too; Explore over the threshold, or with a coding workspace, is not Explore.
-    assert propose(team, "answer", template="answer", plan="Answer from the records")["mandate"].startswith("Answer (active)")
+    # A request never narrows its own mandate (R3): Answer is within its Explore, so nothing new is granted. Explore over the
+    # threshold, or with a coding workspace, is not Explore.
+    kept = propose(team, "answer", template="answer", plan="Answer from the records")
+    assert kept["mandate_id"] == mandate.id and kept["mandate"].startswith("Explore (active)") and "nothing new was granted" in kept["next"]
     for call_id, extra in (("long", {"worker_seconds": 900}), ("coding", {"coding_workspaces": 1})):
         refused = propose(team, call_id, template="explore", plan="More", **extra)
         assert refused["executed"] is False and "Propose screen" in refused["error"]
-    assert [m.template for m in mandates.mandates(team.workspace, "demo")] == ["explore", "answer"]
+    assert [m.template for m in mandates.mandates(team.workspace, "demo")] == ["explore"]
 
 
 def test_a_screen_mandate_becomes_one_card_and_approving_it_records_the_mandate_with_the_decision(team):

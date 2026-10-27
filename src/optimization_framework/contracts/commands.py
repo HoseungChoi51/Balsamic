@@ -21,7 +21,7 @@ Operation = Literal["agent.activate", "agent.message", "agent.control", "agent.r
 class CommandOrigin(Contract):
     """Where a command came from: the thread and message of the conversation, and who acted. Shown on every page.
     balsamic is Balsamic's own system actor (decision 6), acting after an install or, for a planned run, under the compute
-    consent it names (consent_id)."""
+    consent it names (consent_id) and the mandate that consent is the compute part of (mandate_id, R3)."""
     thread_id: str | None = None
     message_id: str | None = None
     actor: Literal["researcher", "lead", "page_agent", "autopilot", "balsamic"] = "researcher"
@@ -29,6 +29,7 @@ class CommandOrigin(Contract):
     run_id: str | None = None
     rationale: str | None = Field(default=None, max_length=5000)
     consent_id: str | None = None
+    mandate_id: str | None = None
 
 
 class Command(Contract):

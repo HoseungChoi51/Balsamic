@@ -9,6 +9,7 @@ from optimization_framework.contracts.commands import Command, CommandOrigin
 from optimization_framework.contracts.requests import CampaignUpdate
 from test_library_install import deliver, installer, lab, request as install  # noqa: F401  (lab is a fixture)
 from test_problem_adoption import declared, library_install, provided  # noqa: F401  (fixtures)
+from test_mandates import granted
 
 
 def submission(workspace, cid):
@@ -56,6 +57,7 @@ def test_a_task_with_live_runs_is_not_adopted_the_lead_is_told_and_campaign_adop
     # The lead adopts it with the command, live runs or not.
     campaign = workspace.store.get(cid, "campaign")
     workspace.store.put("campaign", {**campaign, "autonomy": "delegated"})
+    granted(workspace, cid, "screen")   # adopting is implement work: the lead's request needs a Screen mandate (R3)
     receipt = workspace.commands.execute(Command(id="lead_adopts", campaign_id=cid, expected_revision=campaign["version"],
         expected_guidance_revision=workspace.memory.state(cid)["guidance_revision"],
         expected_authority_hash=workspace.commands.authority_hash(workspace.store.get(cid, "campaign")),

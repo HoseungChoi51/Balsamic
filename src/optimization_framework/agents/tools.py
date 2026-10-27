@@ -801,7 +801,10 @@ class PiTools:
         values = {key: args[key] for key in ("plan", "hypothesis_ids", "runs", "worker_seconds", "coding_workspaces", "model_usd",
                                              "deadline_minutes", "stop_when") if args.get(key) is not None}
         if args["template"] in {"answer", "explore"}:
-            mandate = mandates.propose(self.workspace, agent["campaign_id"], args["template"], root, **values)
+            mandate, granted = mandates.propose(self.workspace, agent["campaign_id"], args["template"], root, **values)
+            if not granted:
+                return {"mandate_id": mandate.id, "status": mandate.status, "granted_by": mandate.granted_by, "mandate": mandates.describe(self.workspace, mandate),
+                        "next": "This request already works under this mandate, which allows what you asked for; nothing new was granted. Go on within it."}
             return {"mandate_id": mandate.id, "status": "active", "granted_by": "automatic", "mandate": mandates.describe(self.workspace, mandate),
                     "next": "Granted at once. Say so in one line of your reply, and start the work."}
         payload = {"kind": "mandate", "template": args["template"], "rationale": args["plan"],
@@ -1059,14 +1062,17 @@ class PiTools:
                 snapshot["admission"] = detail
             return snapshot
         if name == "implementation_workspace_create":
+            from optimization_framework.campaigns.compute_consent import request_root
             return self.controller.development.create(cid, args, actor=LEAD, opener={"agent_id": agent["id"], "role": agent["role"]},
-                                                     root=self.assignment_origin(agent, run))
+                                                     root=self.assignment_origin(agent, run), asked=request_root(self.workspace, {"run_id": run["id"]}))
         if name == "implementation_workspace_inspect":
             return self.controller.development.events(cid, args["workspace_id"], args.get("after", 0))
         if name == "implementation_workspace_message":
             return self.controller.development.message(cid, args["workspace_id"], {k: v for k, v in args.items() if k != "workspace_id"}, actor=LEAD)
         if name == "implementation_workspace_validate":
-            return self.controller.development.validate(cid, args["workspace_id"], {k: v for k, v in args.items() if k != "workspace_id"}, actor=LEAD)
+            from optimization_framework.campaigns.compute_consent import request_root
+            return self.controller.development.validate(cid, args["workspace_id"], {k: v for k, v in args.items() if k != "workspace_id"}, actor=LEAD,
+                                                       asked=request_root(self.workspace, {"run_id": run["id"]}))
         if name == "evidence_read":
             record = self.record(agent, args["record_id"])
             return view_record(record, record_id=args["record_id"], pointer=args.get("pointer", ""), offset=args.get("offset", 0),
