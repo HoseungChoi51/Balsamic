@@ -84,23 +84,39 @@ scripted run, such as a reproduction used as a test, is driven the same way: by 
   A request the researcher left unanswered before the team existed is handed over as that first message.
 - **A request is open from a researcher's message until the lead reports it fulfilled** with
   `yield_work(complete)`, which is refused while experiments, subagents, questions or jobs of the
-  campaign are still outstanding. The campaign's agent record carries this as `request_open`. The
-  researcher's answer to something the lead filed (an approval, a trial extension) opens it again.
-- **Outcomes wake the lead only while a request is open.** These are finished or failed experiments,
-  validations, fixed-mask jobs, implementation results and the end of a runtime profile (once, not
-  once per probe). Without an open request they wake nobody; the lead reads the current state at
-  its next request. A change the researcher makes to the campaign is not an outcome and never wakes it.
+  campaign are still outstanding, except what the researcher started directly. The campaign's agent
+  record carries this as `request_open`. The researcher's answer to something the lead filed (an
+  approval, a trial extension) opens it again.
+- **Outcomes belong to the mandate that started the work, and wake only while a request is open.**
+  These are finished or failed experiments, validations, fixed-mask jobs, implementation results and
+  the end of a runtime profile (once, not once per probe). Work a page agent started wakes that agent;
+  the rest wakes the lead, except work the researcher started directly (their own command created it):
+  it is under no agent's mandate, so it wakes nobody and holds no request open, and the researcher
+  follows it on the pages. Without an open request outcomes wake nobody; the lead reads the current
+  state at its next request. A change the researcher makes to the campaign is not an outcome and never wakes it.
 - **Turns the platform starts are marked.** Outcome notices, a subagent's result, a resumption and
   the request for a missing checkpoint begin with `[Platform notice. This is not a request from the
   researcher.]`, and tell the lead to carry the open request on and start nothing it did not ask for.
 - **A turn's message is everything the agent wrote in it**, in order, not only its last line: an
   answer written before the closing checkpoint call would otherwise be hidden behind the remark that follows.
-- **The instructions name the stages** (runtime profile, hypotheses, review, experiments, longer
-  runs, validation, comparison, findings, journal clean-up) and allow one only when a request covers
-  it. A request may cover several stages or the whole workflow. A question gets an answer, not actions.
+- **What a request allows is its mandate**, a record the command bus checks, not a line of the
+  instructions ([Phase 3 of the roadmap](roadmap/phase-3-mandates.md), `campaigns/mandates.py`): the
+  classes of work it allows, the proposals, coding workspaces and runs it names, a compute and
+  model-spend envelope, a deadline and a stop condition. The lead proposes the narrowest mandate that
+  answers the request (`mandate_propose`) and names the broader one in its plan. Answer (reads and
+  answers) and Explore (work up to the researcher's go-ahead threshold in total, no coding workspace)
+  start at once; Screen and Run the campaign are one inbox card. A request with none works under
+  Explore. The bus refuses an agent's command outside its request's mandate (a class it does not
+  allow, a proposal a Screen mandate does not name, work past Explore's envelope, new work once the
+  mandate has ended) and names `mandate_propose`; work already running goes on. A page agent the lead
+  asked works under the lead's mandate, one the researcher asked on its page under its own. The
+  researcher's own commands are never checked. That a question gets an answer, not actions, still
+  rests on the instructions.
 
-Which of these rules the controller enforces and which rest on the lead's instructions is kept in the
-[invariant register](invariants.md) (INV-04 to INV-06), with the test or eval scenario that pins each.
+Which of these rules the controller and the bus enforce, and which rest on the lead's instructions, is
+kept in the [invariant register](invariants.md): INV-04 to INV-06 for requests and outcomes, and the
+rows keyed by the Phase 3 parts (`INV-R1-1` onwards) for the mandate, each with the test or eval
+scenario that pins it.
 
 ## The chat is the researcher's main interface
 
