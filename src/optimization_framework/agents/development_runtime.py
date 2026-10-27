@@ -77,13 +77,19 @@ def allowed_hosts(record):
 
 
 def models_file():
-    """The Pi models.json the harness takes custom providers from (agent-harness/src/runtime.ts, modelsFile); None in locked mode."""
+    """The Pi models.json the harness takes custom providers from (agent-harness/src/runtime.ts, modelsFile); None in locked mode.
+    For a profile with a catalogue (models.template.json), the file the harness resolved from it, which only the harness can
+    write: it alone is given the endpoints' variables (issue #70)."""
     if os.environ.get("GRATING_PI_MODELS_FILE"):
         return Path(os.environ["GRATING_PI_MODELS_FILE"])
     if not os.environ.get("GRATING_PI_PROFILE"):
         return None
-    own = Path(os.environ["GRATING_PI_PROFILE"]) / "models.json"
-    return own if own.exists() else Path.home() / ".pi/agent/models.json"
+    profile = Path(os.environ["GRATING_PI_PROFILE"])
+    own = profile / "models.json"
+    if own.exists():
+        return own
+    resolved = profile / "tmp" / "models.json"
+    return resolved if (profile / "models.template.json").exists() and resolved.exists() else Path.home() / ".pi/agent/models.json"
 
 
 def custom_provider(provider):
@@ -287,7 +293,8 @@ class DockerWorkspace:
         for source, target, readonly in [(root / "work", "/work", False), (root / "home", "/home/developer", False),
                 (root / "incoming", "/bridge/in", True), (root / "outgoing", "/bridge/out", False),
                 (root / "references", "/references", True),
-                (ROOT / "agent-harness/extensions/implementation.ts", "/opt/workspace/extension.ts", True)]:
+                (ROOT / "agent-harness/extensions/implementation.ts", "/opt/workspace/extension.ts", True),
+                (ROOT / "deploy/implementation-workspace/balsamic-workspace.mjs", "/opt/workspace/balsamic-workspace.mjs", True)]:
             args += ["--mount", f"type=bind,src={source},dst={target}" + (",readonly" if readonly else "")]
         model = record.get("model") or LEGACY_MODEL
         args += ["-e", f"PI_PROVIDER={model['provider']}", "-e", f"PI_MODEL={model['model']}", "-e", f"PI_THINKING={model.get('effort') or ''}"]

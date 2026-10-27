@@ -1,7 +1,7 @@
 {
   "id": "S8-experiment-status",
   "source": "F5: asked how the experiments go, the lead asks the operator; one read costs three model turns",
-  "note": "The runs finish before the question: while a run the researcher started is going, yield_work(complete) refuses the lead (outstanding work).",
+  "note": "The runs finish before the question, so the answer has their results. The researcher started them: since R6 their ends wake no agent and do not hold the lead's request open, so one answer closes it.",
   "setup": {"preset": "quadratic", "llm_budget_usd": 0.3},
   "steps": [
     {"seed": "two_small_runs"},

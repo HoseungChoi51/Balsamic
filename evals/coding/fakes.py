@@ -15,10 +15,9 @@ def implementation_lead(turn):
     if not memory.get("hypothesis_id"):
         memory["hypothesis_id"] = re.search(r"hypothesis_\w+", turn.text).group(0)
         memory["method_id"] = re.search(r"method id `(\w+)`", turn.text).group(1)
-        turn.call("campaign_command", operation="approval.request", request_key="coding-go-ahead", payload={
-            "kind": "compute", "plan": f"One coding workspace to build {memory['method_id']} as a library",
-            "rationale": "The proposal names no installed method", "wall_seconds": 3600, "worker_seconds": 3600,
-            "coding_workspaces": 1, "meanwhile": "Nothing waits on it"})
+        turn.call("mandate_propose", template="screen", plan=f"One coding workspace to build {memory['method_id']} as a library: "
+                  "the proposal names no installed method", hypothesis_ids=[memory["hypothesis_id"]], wall_seconds=3600,
+                  worker_seconds=3600, coding_workspaces=1, meanwhile="Nothing waits on it")
         return turn.finish("I asked for your go-ahead to open the coding workspace.", summary="Asked for the go-ahead", disposition="waiting")
     if not memory.get("workspace_id"):
         opened = turn.call("implementation_workspace_create", hypothesis_id=memory["hypothesis_id"], request_key="build",

@@ -206,7 +206,7 @@ def known_exact_algorithm(turn):
 
 
 def implement_and_compare(turn):
-    """S18 done right: the two proposals, then one compute request naming the coding workspace, the proposals and their runs;
+    """S18 done right: the two proposals, then one Screen mandate naming the coding workspace, the proposals and their runs;
     Balsamic installs, binds and starts the runs once the researcher approves, so the lead binds nothing."""
     task = turn.call("campaign_inspect")["tasks"][0]["id"]
     ids = []
@@ -215,19 +215,17 @@ def implement_and_compare(turn):
             "title": title, "mechanism": f"A {title.lower()} built as a library in a coding workspace.",
             "rationale": "The researcher asked for it; the lab has no such method.", "algorithm": "random"})
         ids.append(created["outcome"]["hypothesis"]["id"])
-    turn.call("campaign_command", operation="approval.request", request_key="implement-and-compare", payload={
-        "kind": "compute", "plan": "One coding workspace builds both methods as a library; Balsamic installs it, binds the two proposals "
-        "and starts their runs: 2 seeds each, 5 minutes per run.", "rationale": "Implement and compare, as asked",
-        "wall_seconds": 3600, "worker_seconds": 1200, "coding_workspaces": 1, "hypothesis_ids": ids,
+    turn.call("mandate_propose", **{"template": "screen", "plan": "One coding workspace builds both methods as a library; Balsamic installs it, binds the two proposals "
+        "and starts their runs: 2 seeds each, 5 minutes per run.", "wall_seconds": 3600, "worker_seconds": 1200, "coding_workspaces": 1, "hypothesis_ids": ids,
         "meanwhile": "Read the proposals on Hypotheses", "runs": [{"task_id": task, "hypothesis_id": h, "seeds": [0, 1], "wall_seconds": 300}
                                                                 for h in ids]})
-    return turn.finish("I recorded the two proposals and filed one compute request for the coding workspace and their 4 runs. "
+    return turn.finish("I recorded the two proposals and proposed one Screen mandate for the coding workspace and their 4 runs. "
                        "Once you approve it on [Inbox](#inbox), Balsamic installs the library, binds both and starts the runs.",
                        summary="Waiting for the go-ahead", disposition="waiting")
 
 
 def charter_to_results(turn):
-    """S19 done right as far as the scripted harness goes: three proposals and one compute request naming the coding workspace
+    """S19 done right as far as the scripted harness goes: three proposals and one Screen mandate naming the coding workspace
     and their runs; once the researcher approves, the lead opens the coding workspace and waits. The library, its install, the
     runs and the comparison need a coding agent, so the rest is graded live only."""
     if turn.notice:
@@ -250,13 +248,11 @@ def charter_to_results(turn):
             "algorithm": "custom", "algorithm_config": {"design_note": mechanism}})
         ids.append(created["outcome"]["hypothesis"]["id"])
     turn.memory["proposals"] = ids
-    turn.call("campaign_command", operation="approval.request", request_key="charter-to-results", payload={
-        "kind": "compute", "plan": "One coding workspace builds the three methods in the library generated from the charter; Balsamic "
-        "installs it, binds the proposals and starts their runs: 2 seeds each, 2 minutes per run.", "rationale": "Implement and compare, as asked",
-        "wall_seconds": 3600, "worker_seconds": 1200, "coding_workspaces": 1, "hypothesis_ids": ids,
+    turn.call("mandate_propose", **{"template": "screen", "plan": "One coding workspace builds the three methods in the library generated from the charter; Balsamic "
+        "installs it, binds the proposals and starts their runs: 2 seeds each, 2 minutes per run.", "wall_seconds": 3600, "worker_seconds": 1200, "coding_workspaces": 1, "hypothesis_ids": ids,
         "meanwhile": "Read the charter's data on Problem", "runs": [{"task_id": task, "hypothesis_id": h, "seeds": [0, 1], "wall_seconds": 120}
                                                                     for h in ids]})
-    return turn.finish("I recorded the three proposals and filed one compute request for the coding workspace and their 6 runs. "
+    return turn.finish("I recorded the three proposals and proposed one Screen mandate for the coding workspace and their 6 runs. "
                        "Once you approve it on [Inbox](#inbox), the methods are built and Balsamic installs, binds and starts them; "
                        "I will rank them by total tardiness when they finish.", summary="Waiting for the go-ahead", disposition="waiting")
 

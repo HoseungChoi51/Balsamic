@@ -59,7 +59,7 @@ test('public events exclude hidden reasoning and catalog API prices',async t=>{
   const f=fixture(t);await f.supervisor.submit('pi',request('first'));await until(()=>f.runtimes[0]?.finish);
   f.runtimes[0].listener({type:'message_end',message:{role:'assistant',content:[{type:'thinking',thinking:'private'},{type:'text',text:'finding'}],usage:{input:7,output:3,cost:{total:42}}}});
   const event=f.supervisor.view('pi').events.find(e=>e.type==='assistant.message');
-  assert.equal(event.text,'finding'); assert.equal(event.usage.input,7);assert.ok(!('cost' in event.usage));
+  assert.equal(event.text,'finding'); assert.equal(event.usage.input,7);assert.equal(event.run_id,'first');assert.ok(!('cost' in event.usage));
   assert.ok(!JSON.stringify(event).includes('private'));f.runtimes[0].finish();
 });
 test('service shutdown interrupts work for recovery and preserves an explicit pause',async t=>{

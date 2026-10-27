@@ -254,3 +254,17 @@ def test_without_any_model_a_new_report_says_what_to_do(team):
     with pytest.raises(ValueError, match="Start this campaign's agent team on the Models page"):
         w.report_writer.start(campaign_id=other["id"], evidence=EVIDENCE, brief="Notes", request_id="nothing")
     assert team.harness.calls == [] and not w.store.list("report_writer_job", other["id"])
+
+
+def test_report_stages_count_under_the_request_that_asked_and_stop_at_its_envelope(team):
+    from optimization_framework.campaigns import mandates
+    # As in the test above, against the request's envelope instead of the campaign's budget: three stages fit, the fourth does not.
+    team.harness.cost = 0.05
+    root = {"thread_id": "thread_report", "message_id": "message_report", "run_id": "pi_run_report"}
+    mandate = mandates.grant(team.workspace, team.campaign["id"], "explore", root=root, model_usd=0.2)
+    job = team.write(request_id="enveloped", run_id="pi_run_report", request_root=root)
+    assert job["status"] == "failed" and "request's model-spend envelope cannot cover the next stage" in job["error"]
+    assert len(team.harness.calls) == 3 and llm_usage.spent(team.store, team.campaign["id"], root) == pytest.approx(0.15)
+    assert mandates.read(team.workspace, team.store.get(mandate.id, "mandate")).used.model_usd == pytest.approx(0.15)
+    with team.store.connection() as db:
+        assert {tuple(row) for row in db.execute("SELECT run_id, root_message_id FROM llm_usage")} == {("pi_run_report", "message_report")}
