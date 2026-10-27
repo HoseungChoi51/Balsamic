@@ -250,6 +250,27 @@ test('an install from the library generated from the charter names the generated
     .toHaveText('changed from the generated library: pyproject.toml, baking_order/harness.py');
 });
 
+test('an install says what Balsamic checked outside the box and names the method it did not install, with what failed', async ({ page }) => {
+  const submission = { id: 's1', commit: '2a3eb0899a', status: 'submitted', created_at: '2026-10-27T03:22:04Z', report,
+    manifest: { files: ['libraries/baking_order/pyproject.toml'] } };
+  const failing = ['conformance (check_function on baking_order): seed 0, evaluation 1: an invalid candidate', 'test_hidden.py::test_on_time[late_first]'];
+  const install = { id: 'library_install_1', submission_id: 's1', requested_at: '2026-10-27T04:00:00Z', finished_at: '2026-10-27T04:01:00Z',
+    status: 'installed', actor: 'balsamic', package: 'baking-order', version: '0.1.1', path: 'libraries/baking_order', changes: [],
+    methods_added: ['shuffle'], missing_methods: [], refused_methods: [{ method_id: 'late_first', reported: 'passed', failing }],
+    host_validation: { tests: { passed: 21, failed: 3 }, protected: { passed: 1, failed: 1 }, methods: [
+      { method_id: 'shuffle', reported: 'passed', host: 'passed', failed_tests: [] },
+      { method_id: 'late_first', reported: 'passed', host: 'failed', failed_tests: [] }] } };
+  await mockWorkspace(page);
+  await page.route(`**/api/campaigns/${CAMPAIGN_ID}/implementation-workspaces`, route => route.fulfill({ json: { enabled: true, workspaces: [
+    { ...workspace, status: 'idle', outcome: { state: 'delivered', verdict: 'ready', submission_id: 's1', commit: '2a3eb0899a', at: '2026-10-27T03:22:04Z' },
+      submissions: [submission], installs: [install] }] } }));
+  await page.goto(`/#t/${THREAD_ID}/hypotheses/implementations`);
+  const host = page.getByTestId('install-box').getByTestId('install-host');
+  await expect(host).toContainText('checked outside the box 21 tests passed, 3 failed · conformance passed for 1 of 2 methods · protected tests: 1 passed, 1 failed');
+  await expect(host.getByTestId('install-refused')).toHaveText(
+    `not installed late_first failed outside the box (the coding agent reported passed): ${failing.join('; ')}`);
+});
+
 test('a library the coding agent reported not ready installs only once the researcher says so; loose files cannot be installed', async ({ page }) => {
   const notReady = { ...report, verdict: 'not_ready', limitations: [], next_actions: [{ owner: 'lead', action: 'Fix the seed replay' }] };
   await mockWorkspace(page, { [`/api/campaigns/${CAMPAIGN_ID}/implementation-workspaces`]: { enabled: true, workspaces: [

@@ -8,7 +8,7 @@ import { Markdown } from '../chat/render/Markdown';
 import { Empty, Failed, Kv, Loading, Pill, Section, when } from '../primitives/ui';
 import { Meter } from '../primitives/charts';
 import { formatHash } from '../router/routes';
-import { LIVE, VERDICT, clock, type Submission, type Tests, type Workspace } from './workspace';
+import { LIVE, VERDICT, clock, type Install, type Submission, type Tests, type Workspace } from './workspace';
 
 interface Entry { at: string; kind: string; title: string; detail: string; tone: string; ref: string | null; items: string[] }
 interface Timeline { entries: Entry[]; next_before: string | null }
@@ -184,8 +184,25 @@ function OutcomeBox({ workspace: w, labels, thread }: { workspace: Workspace; la
   );
 }
 
-const INSTALL: Record<string, [string, string]> = { queued: ['install queued', 'agent'], installing: ['installing', 'agent'], installed: ['installed', 'clear'],
-  failed: ['install failed', 'bad'], needs_confirmation: ['waits for your confirmation', 'attention'] };
+const INSTALL: Record<string, [string, string]> = { queued: ['install queued', 'agent'], validating: ['checking outside the box', 'agent'],
+  installing: ['installing', 'agent'], installed: ['installed', 'clear'], failed: ['install failed', 'bad'], needs_confirmation: ['waits for your confirmation', 'attention'] };
+const BUSY = new Set(['queued', 'validating', 'installing']);
+
+/** What Balsamic found when it ran the library's tests and each method's checks outside the coding box (roadmap H6). */
+function HostValidation({ install }: { install: Install }) {
+  const host = install.host_validation;
+  if (!host) return null;
+  const tests = host.tests || { passed: 0, failed: 0 };
+  const passed = host.methods.filter(m => m.host === 'passed').length;
+  return <div className="small" data-testid="install-host">
+    <span className={tests.failed || install.refused_methods?.length ? 'pill bad' : 'pill good'}>checked outside the box</span>
+    {` ${tests.passed} test${tests.passed === 1 ? '' : 's'} passed${tests.failed ? `, ${tests.failed} failed` : ''}`}
+    {host.methods.length ? ` · conformance passed for ${passed} of ${host.methods.length} method${host.methods.length === 1 ? '' : 's'}` : null}
+    {host.protected ? ` · protected tests: ${host.protected.passed} passed${host.protected.failed ? `, ${host.protected.failed} failed` : ''}` : null}
+    {install.refused_methods?.map(r => <div key={r.method_id} data-testid="install-refused"><span className="pill bad">not installed</span> <code>{r.method_id}</code>
+      {` failed outside the box (the coding agent reported ${r.reported.replace('_', ' ')}): ${r.failing.join('; ')}`}</div>)}
+  </div>;
+}
 export const libraryOf = (s: Submission) => { const names = new Set((s.manifest?.files || []).map(f => /^libraries\/([^/]+)\//.exec(f)?.[1]).filter(Boolean)); return names.size === 1 ? [...names][0] as string : null; };
 
 /** Installing the delivered library: the researcher's step. It runs the library's code in the lab's workers, edits
@@ -213,7 +230,7 @@ function InstallBox({ workspace: w, submission }: { workspace: Workspace; submis
   return (
     <div className="install" data-testid="install-box">
       <div className="row wrap">
-        {latest ? <Pill tone={tone} live={latest.status === 'installing'}>{label}</Pill> : null}
+        {latest ? <Pill tone={tone} live={latest.status === 'installing' || latest.status === 'validating'}>{label}</Pill> : null}
         {latest ? <span className="faint small">{latest.actor === 'researcher' ? 'by you' : 'by Balsamic'}</span> : null}
         {latest?.status === 'installed' ? <span className="small" data-testid="install-added">{latest.package} {latest.version}
           {latest.methods_added.length || !latest.problems_added?.length ? ` · methods ${latest.methods_added.join(', ') || 'none new'}` : null}
@@ -222,9 +239,10 @@ function InstallBox({ workspace: w, submission }: { workspace: Workspace; submis
             ? <span className="pill bad"> not found: {[...latest.missing_methods, ...(latest.missing_problems || [])].join(', ')}</span> : null}</span> : null}
         {latest?.changed_generated_files?.length ? <span className="small faint" data-testid="install-changed-generated">
           changed from the generated library: {latest.changed_generated_files.map(path => path.split('/').slice(2).join('/')).join(', ')}</span> : null}
-        {!open && latest?.status !== 'installing' && latest?.status !== 'queued' ? <button className="btn small primary" onClick={() => setOpen(true)} data-testid="install-open">
+        {!open && !BUSY.has(latest?.status || '') ? <button className="btn small primary" onClick={() => setOpen(true)} data-testid="install-open">
           {latest?.status === 'installed' ? 'Install again…' : 'Install…'}</button> : null}
       </div>
+      {latest ? <HostValidation install={latest} /> : null}
       {latest?.status === 'installed' && (latest.bindings?.length || latest.skipped?.length || latest.launched?.length) ? <div className="small" data-testid="install-bindings">
         {latest.bindings?.map(b => <div key={b.binding_id}><span className="pill good">bound</span> {b.title || b.hypothesis_id} → <code>{b.method}</code> by Balsamic</div>)}
         {latest.skipped?.map(s => <div key={s.hypothesis_id} className="faint"><span className="pill">not bound</span> {s.hypothesis_id}: {s.reason}</div>)}

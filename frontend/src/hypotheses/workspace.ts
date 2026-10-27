@@ -11,6 +11,11 @@ export interface Install { id: string; submission_id: string; status: string; ac
   finished_at?: string; methods_added: string[]; missing_methods: string[]; problems_added?: string[]; missing_problems?: string[]; problem_entry_points?: Record<string, string>; changes: { name: string; from: string; to: string | null }[]; error?: string; log_tail?: string;
   /** Files generated from the charter that the coding agent changed (its objective and methods aside). */
   changed_generated_files?: string[];
+  /** What the host found outside the box before installing (roadmap H6): the library's tests, each method's conformance beside
+   *  what the coding agent reported, and the protected tests by name and outcome; the methods it did not install, with why. */
+  host_validation?: { tests: Tests; protected?: Tests | null; seconds?: number;
+    methods: { method_id: string; reported: string; host: string; check?: string; problem_id?: string; failed_tests: string[]; reason?: string }[] };
+  refused_methods?: { method_id: string; reported: string; failing: string[] }[];
   /** What Balsamic bound after the install, and the proposals it left with why. */
   bindings?: { hypothesis_id: string; title?: string; method: string; task_id: string; binding_id: string }[]; skipped?: { hypothesis_id: string; reason: string }[];
   launched?: { hypothesis_id: string; seed: number; trial_id: string; task_id: string; consent_id: string }[] }
