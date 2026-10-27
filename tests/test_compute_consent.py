@@ -170,3 +170,147 @@ def test_a_queued_run_is_placed_on_a_device_until_it_starts(lab):
         workspace.control(trial["id"], ControlInput(action="place", device="cuda"))
     with pytest.raises(ValueError, match="Name the device"):
         workspace.control(trial["id"], ControlInput(action="place"))
+
+
+def proposal(workspace, campaign_id, identity):
+    return workspace.store.put("hypothesis", {"id": identity, "campaign_id": campaign_id, "title": identity, "status": "proposed",
+                                              "mechanism": "A coordinate search", "algorithm": "coordinate", "algorithm_config": {}})
+
+
+def approve(workspace, campaign_id, identity, request, origin=None):
+    campaign = workspace.store.get(campaign_id, "campaign")
+    workspace.commands.execute(Command(id=identity, campaign_id=campaign_id, expected_revision=campaign["version"], operation="approval.request",
+        expected_guidance_revision=workspace.memory.state(campaign_id)["guidance_revision"],
+        expected_authority_hash=workspace.commands.authority_hash(campaign), origin=origin,
+        payload={"kind": "compute", "rationale": "Screen the proposals", "meanwhile": "Read the charter", **request}), actor="manager")
+    decision = workspace.store.get("approval_" + identity, "decision")
+    send(workspace, campaign_id, "approve_" + identity, "decision.resolve", {"decision_id": decision["id"], "choice": "0", "comment": "",
+         "expected_resolution_revision": 0}, actor="researcher")
+    return workspace.store.get(workspace.store.get(decision["id"], "decision")["outcome"]["consent_id"], "compute_consent")
+
+
+def test_a_plan_for_some_proposals_covers_only_their_work_and_the_refusal_says_which_plan_does(lab):
+    from optimization_framework.campaigns import compute_consent
+    workspace, campaign, task = lab
+    cid = campaign["id"]
+    for identity in ("H1", "H2", "H3", "H4", "H5"):
+        proposal(workspace, cid, identity)
+    with pytest.raises(ValueError, match="No proposal H9"):
+        approve(workspace, cid, "unknown", {"plan": "Screen H9", "wall_seconds": 600, "worker_seconds": 600, "hypothesis_ids": ["H9"]})
+    consent = approve(workspace, cid, "four", {"plan": "Screen H1 to H4", "wall_seconds": 600, "worker_seconds": 4800,
+        "hypothesis_ids": ["H1", "H2", "H3"], "runs": [{"task_id": task["id"], "hypothesis_id": "H4", "seeds": [0], "wall_seconds": 600}]})
+    assert consent["hypothesis_ids"] == ["H1", "H2", "H3", "H4"] and consent["runs"][0]["hypothesis_id"] == "H4"
+    assert consent["workspace_ids"] == [] and consent["launched"] == []
+    decision = workspace.store.get(consent["decision_id"], "decision")
+    assert decision["approval_request"]["hypothesis_ids"] == ["H1", "H2", "H3"] and "covers only the work for H1, H2, H3, H4" in decision["proposal"]
+
+    with pytest.raises(ValueError, match="No approved plan covers work for H5") as refused:
+        send(workspace, cid, "run_h5", "trial.create", {**run(task, 590), "hypothesis_id": "H5"})
+    assert '"Screen H1 to H4" (for H1, H2, H3, H4)' in str(refused.value)
+    with pytest.raises(ValueError, match="No approved plan covers this work"):   # work for no proposal, from no request of the plan
+        send(workspace, cid, "unnamed", "trial.create", run(task, 590))
+    assert compute_consent.require(workspace, cid, "A run", 590, hypothesis_ids=["H2"])["id"] == consent["id"]
+    assert compute_consent.require(workspace, cid, "A run", 590, hypothesis_ids=["H1", "H4"])["id"] == consent["id"]
+    receipt = send(workspace, cid, "run_h1", "trial.create", {**run(task, 590), "hypothesis_id": "H1"})
+    assert workspace.store.get(consent["id"], "compute_consent")["launched"] == [receipt["outcome"]["trial_id"]]
+    with pytest.raises(ValueError, match="No approved plan covers work for H1, H5"):
+        compute_consent.require(workspace, cid, "A coding workspace", 590, hypothesis_ids=["H1", "H5"])
+    # A second plan, for H5, covers it; the refusal of work no plan covers names both.
+    second = approve(workspace, cid, "fifth", {"plan": "Screen H5", "wall_seconds": 600, "worker_seconds": 600, "hypothesis_ids": ["H5"]})
+    assert compute_consent.require(workspace, cid, "A run", 590, hypothesis_ids=["H5"])["id"] == second["id"]
+    with pytest.raises(ValueError, match="Approved and unused: 10 min of worker time and 0 coding workspaces for \"Screen H5\" \\(for H5\\)"):
+        compute_consent.require(workspace, cid, "A run", 1200, hypothesis_ids=["H5"])
+
+
+def test_work_for_no_proposal_is_covered_by_a_plan_of_the_same_request(lab):
+    from optimization_framework.contracts.commands import CommandOrigin
+    workspace, campaign, task = lab
+    cid = campaign["id"]
+    proposal(workspace, cid, "H1")
+    workspace.store.put("agent_session", {"id": "agent_lead", "campaign_id": cid, "role": "lead"})
+    for identity, message in (("run_asked", "message_ask"), ("run_other", "message_other")):
+        workspace.store.put("agent_run", {"id": identity, "campaign_id": cid, "agent_id": "agent_lead", "status": "running",
+                                          "origin": {"thread_id": "thread_main", "message_id": message, "actor": "researcher"}})
+    asked = CommandOrigin(thread_id="thread_main", message_id="message_ask", actor="lead", agent_id="agent_lead", run_id="run_asked")
+    consent = approve(workspace, cid, "profile_plan", {"plan": "Profile, then screen H1", "wall_seconds": 3000, "worker_seconds": 6000,
+                                                       "hypothesis_ids": ["H1"]}, origin=asked)
+    assert consent["request_root"] == {"thread_id": "thread_main", "message_id": "message_ask", "run_id": "run_asked"}
+
+    def profile(identity, origin):
+        campaign_now = workspace.store.get(cid, "campaign")
+        return workspace.commands.execute(Command(id=identity, campaign_id=cid, expected_revision=campaign_now["version"], operation="runtime.profile",
+            expected_guidance_revision=workspace.memory.state(cid)["guidance_revision"], expected_authority_hash=workspace.commands.authority_hash(campaign_now),
+            origin=origin, payload={"task_id": task["id"], "probe_seconds": 300}), actor="manager")
+
+    with pytest.raises(ValueError, match="No approved plan covers this work"):   # another request of the researcher's
+        profile("profile_other", CommandOrigin(thread_id="thread_main", message_id="message_other", actor="lead", agent_id="agent_lead", run_id="run_other"))
+    # A notice turn continuing the asked request has the same root, and so does an assistant the lead gave it to.
+    workspace.store.put("agent_run", {"id": "run_notice", "campaign_id": cid, "agent_id": "agent_lead", "status": "running",
+        "origin": {"thread_id": "thread_main", "actor": "lab", "root": consent["request_root"]}})
+    workspace.store.put("agent_session", {"id": "agent_helper", "campaign_id": cid, "role": "analyst", "assignment_origin": consent["request_root"]})
+    workspace.store.put("agent_run", {"id": "run_helper", "campaign_id": cid, "agent_id": "agent_helper", "status": "running", "origin": {}})
+    from optimization_framework.campaigns import compute_consent
+    for run_id in ("run_notice", "run_helper"):
+        root = compute_consent.request_root(workspace, {"run_id": run_id})
+        assert compute_consent.require(workspace, cid, "A runtime profile", 600, root=root)["id"] == consent["id"]
+    profile("profile_asked", asked)
+    assert workspace.store.get(consent["id"], "compute_consent")["used_seconds"] > 0
+
+
+def test_a_consent_recorded_before_plans_named_proposals_covers_the_whole_campaign(lab):
+    from optimization_framework.campaigns import compute_consent
+    from datetime import datetime, timedelta, timezone
+    workspace, campaign, task = lab
+    cid = campaign["id"]
+    proposal(workspace, cid, "H5")
+    workspace.store.put("compute_consent", {"id": "compute_consent_old", "campaign_id": cid, "decision_id": "decision_old", "plan": "Old plan",
+        "worker_seconds": 1200, "wall_seconds": 600, "coding_workspaces": 1, "used_seconds": 0.0, "used_workspaces": 0, "granted_at": "2026-10-20T00:00:00+00:00",
+        "expires_at": (datetime.now(timezone.utc) + timedelta(hours=1)).isoformat()})
+    for names, root in (([], None), (["H5"], None), ([], {"thread_id": "t", "message_id": "m", "run_id": "r"})):
+        assert compute_consent.require(workspace, cid, "Work", 590, coding=1, hypothesis_ids=names, root=root)["id"] == "compute_consent_old"
+    send(workspace, cid, "old_run", "trial.create", {**run(task, 590)})
+    consent = workspace.store.get("compute_consent_old", "compute_consent")
+    assert consent["used_seconds"] == 590 and consent["launched"] == [workspace.store.get("old_run", "work_command")["outcome"]["trial_id"]]
+
+
+def test_charge_records_the_coding_workspaces_and_the_runs_it_paid_for(lab):
+    from optimization_framework.campaigns import compute_consent
+    workspace, campaign, task = lab
+    cid = campaign["id"]
+    proposal(workspace, cid, "H1")
+    consent = approve(workspace, cid, "build", {"plan": "Build and screen H1", "wall_seconds": 600, "worker_seconds": 2400,
+                                                "coding_workspaces": 1, "hypothesis_ids": ["H1"]})
+    compute_consent.charge(workspace, cid, coding=1, what="a coding workspace", subjects=["development_h1"], hypothesis_ids=["H1"])
+    compute_consent.charge(workspace, cid, 590, what="a run", subjects=["trial_a"], hypothesis_ids=["H1"], trial_ids=["trial_a"])
+    compute_consent.charge(workspace, cid, 590, what="a run", subjects=["trial_b"], hypothesis_ids=["H1"], trial_ids=["trial_b", "trial_a"])
+    saved = workspace.store.get(consent["id"], "compute_consent")
+    assert saved["workspace_ids"] == ["development_h1"] and saved["launched"] == ["trial_a", "trial_b"]
+    assert saved["used_workspaces"] == 1 and saved["used_seconds"] == 1180
+
+
+def test_a_consent_stays_in_force_while_its_workspace_builds_and_for_three_wall_times_after(lab):
+    from optimization_framework.campaigns import compute_consent
+    from datetime import datetime, timedelta, timezone
+    workspace, campaign, task = lab
+    cid = campaign["id"]
+    proposal(workspace, cid, "H1")
+    consent = approve(workspace, cid, "build", {"plan": "Build H1", "wall_seconds": 600, "worker_seconds": 2400, "coding_workspaces": 1,
+                                                "hypothesis_ids": ["H1"]})
+    current = datetime.now(timezone.utc)
+    workspace.store.put("development_workspace", {"id": "development_h1", "campaign_id": cid, "hypothesis_id": "H1", "desired_status": "running",
+                                                  "created_at": (current - timedelta(hours=5)).isoformat()})
+    compute_consent.charge(workspace, cid, coding=1, what="a coding workspace", subjects=["development_h1"], hypothesis_ids=["H1"])
+    saved = workspace.store.get(consent["id"], "compute_consent")
+    saved["expires_at"] = (current - timedelta(hours=1)).isoformat()   # past the old expiry, max(1 h, 3 x wall)
+    workspace.store.put("compute_consent", saved)
+    assert [row["id"] for row in compute_consent.consents(workspace, cid)] == [consent["id"]]   # still building
+    assert compute_consent.require(workspace, cid, "A run", 590, hypothesis_ids=["H1"])["id"] == consent["id"]
+    stopped = workspace.store.get("development_h1", "development_workspace")
+    stopped.update(desired_status="stopped", control_requested_at=(current - timedelta(minutes=20)).isoformat())
+    workspace.store.put("development_workspace", stopped)
+    assert compute_consent.consents(workspace, cid) != []   # 20 min after it stopped, within 3 x 10 min
+    stopped["control_requested_at"] = (current - timedelta(minutes=31)).isoformat()
+    workspace.store.put("development_workspace", stopped)
+    assert compute_consent.consents(workspace, cid) == []
+    with pytest.raises(ValueError, match="No approved plan has time left"):
+        compute_consent.require(workspace, cid, "A run", 590, hypothesis_ids=["H1"])
