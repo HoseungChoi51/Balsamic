@@ -164,3 +164,48 @@ def test_a_baseline_is_named_by_its_model_and_preset_and_several_compare(tmp_pat
     assert evals.main(["--fake", "--scenarios", "S3", "--repeats", "1", "--out", str(tmp_path / "run"), "--compare", *map(str, paths)]) == 0
     s3 = next(line for line in (tmp_path / "run" / "summary.md").read_text().splitlines() if line.startswith("| S3-narrow-request"))
     assert s3.startswith("| S3-narrow-request | pass |") and s3.endswith("| 3/3 | 1/3 |")
+
+
+def test_the_charter_to_results_checks_grade_who_started_the_runs_what_the_researcher_did_and_the_ranking():
+    evals = runner()
+    def command(identity, operation, actor, at, outcome=None):
+        return {"id": identity, "request": {"operation": operation, "payload": {}}, "actor": actor, "status": "completed",
+                "created_at": f"2026-10-27T10:{at}+00:00", "outcome": outcome or {}}
+    summaries = [{"method_id": "edd", "mean": 415.0, "rank": 3}, {"method_id": "exact", "mean": 290.0, "rank": 1},
+                 {"method_id": "swap", "mean": 305.0, "rank": 2}]
+    report = command("c_report", "comparison.report", "lead", "40:00", {"groups": [{"direction": "minimize", "method_summaries": summaries}]})
+    commands = [command("c_activate", "agent.activate", "researcher", "00:00"), command("c_ask", "agent.message", "researcher", "01:00"),
+                command("c_go", "decision.resolve", "researcher", "02:00"),
+                *[command(f"c_run{i}", "trial.create", "balsamic", f"1{i}:00", {"trial_id": f"t{i}"}) for i in range(3)], report]
+    trials = [{"id": f"t{i}"} for i in range(3)]
+
+    def ctx(reply, extra=(), trial_rows=trials, waiting=()):
+        c = context(evals, reply=reply)
+        c.store = Store({"work_command": [*commands, *extra], "trial": list(trial_rows), "decision": list(waiting), "agent_question": []})
+        c.lead_replies = lambda: [{"content": reply, "created_at": "2026-10-27T10:45:30+00:00"}]
+        return c
+
+    ranked = "Exact enumeration is best at 290 min of total tardiness, then swap search at 305, and earliest due date at 415."
+    assert evals.check_reply_ranks_by_report(ctx(ranked), True) == (True, "minimize: exact 290, swap 305, edd 415")
+    passed, detail = evals.check_reply_ranks_by_report(ctx("Earliest due date 415, swap search 305, exact enumeration 290."), True)
+    assert not passed and "before a method ranked above it" in detail
+    assert not evals.check_reply_ranks_by_report(ctx("Exact enumeration 290 and swap search 305; 2905 runs."), True)[0]
+    # The researcher asked once and approved once; Balsamic started all three runs.
+    assert evals.check_researcher_actions(ctx(ranked), 2) == (True, "2 researcher actions: agent.message, decision.resolve")
+    assert not evals.check_researcher_actions(ctx(ranked, waiting=[{"id": "d2", "status": "pending"}]), 2)[0]
+    assert evals.check_trials_started_by(ctx(ranked), {"actor": "balsamic", "count": 3}) == (True, "3 started by balsamic")
+    by_lead = command("c_lead", "trial.create", "lead", "30:00", {"trial_id": "t9"})
+    passed, detail = evals.check_trials_started_by(ctx(ranked, [by_lead], [*trials, {"id": "t9"}]), {"actor": "balsamic", "count": 3})
+    assert not passed and "t9 by lead" in detail
+    # Graded live; on the scripted harness reported as not graded.
+    live = ctx("No numbers.")
+    live.stack = type("Stack", (), {"fake": True})()
+    assert evals.check_live_only(live, {"reply_ranks_by_report": True}) == (True, "reply_ranks_by_report: not graded on the scripted harness (no coding agent)")
+    live.stack.fake = False
+    assert not evals.check_live_only(live, {"reply_ranks_by_report": True})[0]
+    # The go-ahead at 10:02:00, the report at 10:40:00, the lead's reply with it at 10:45:30.
+    assert evals.go_ahead_to_results(ctx(ranked)) == 2610.0
+    row = {"id": "S19-charter-to-results", "status": "pass", "passes": 1, "repeats": 1, "passed": True, "scoring": "all", "known_failure": None,
+           "metrics_mean": {"lead_turns": 3, "go_ahead_to_results_s": 2610.0}, "runs": [{"metrics": {"go_ahead_to_results_s": 2610.0}, "checks": [], "error": None}]}
+    results = {"mode": "real", "commit": "abc", "started_at": "now", "seconds": 1, "model": None, "cost_usd": 0, "suite_cap": 5, "scenarios": [row]}
+    assert "- S19-charter-to-results: 43.5 min (2610 s, mean of 1 runs)" in evals.summary_markdown(results)
