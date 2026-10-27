@@ -6,6 +6,9 @@ Two signals, checked on the manager tick and shown in the Monitor's attention li
   starts within ESCALATE_SECONDS more, the researcher gets an inbox issue.
 - A long wait: an agent turn with no reply or step for WAIT_SECONDS, typically a slow or stuck model call. The researcher gets
   an inbox issue naming the role, model and turn.
+- A quiet coding workspace: one meant to run that has said nothing for QUIET_SECONDS while working, or has settled for
+  IDLE_UNDELIVERED_SECONDS with nothing delivered and no question pending. The lead gets one notice; if it stays quiet
+  ESCALATE_SECONDS more, the researcher gets an inbox issue.
 Each issue clears itself once the work moves again; autopilot paces its own rounds and is left to them.
 """
 from datetime import datetime, timezone
@@ -16,6 +19,8 @@ from optimization_framework.storage.sqlite import now
 IDLE_SECONDS = 300
 ESCALATE_SECONDS = 600
 WAIT_SECONDS = 1200
+QUIET_SECONDS = 900
+IDLE_UNDELIVERED_SECONDS = 600
 CHECK_SECONDS = 30
 ACTIVE_TURNS = {"queued", "submitted", "running"}
 LIVE_RUNS = {"queued", "running", "pausing", "stopping"}
@@ -83,6 +88,27 @@ def long_waits(workspace, campaign_id):
     return waits
 
 
+def quiet_workspaces(workspace, campaign_id):
+    """Coding workspaces meant to run that went quiet: [{workspace_id, title, state, since, seconds}]."""
+    store, found = workspace.store, []
+    delivered = {row["workspace_id"] for row in store.list("development_submission", campaign_id)}
+    asking = {row["workspace_id"] for row in store.list("development_question", campaign_id) if row["status"] == "pending"}
+    for record in store.list("development_workspace", campaign_id):
+        if record.get("desired_status") != "running" or (record.get("outcome") or {}).get("final"):
+            continue
+        since = record.get("last_activity_at") or record.get("created_at")
+        seconds = _age(since) or 0.0
+        if (record["status"] == "running" and seconds >= QUIET_SECONDS) or (
+                record["status"] == "idle" and seconds >= IDLE_UNDELIVERED_SECONDS and record["id"] not in delivered | asking):
+            found.append({"workspace_id": record["id"], "title": record.get("title", ""), "state": record["status"], "since": since, "seconds": seconds})
+    return found
+
+
+def _quiet_text(quiet):
+    doing = "has said nothing while working" if quiet["state"] == "running" else "stopped with nothing delivered and no question asked"
+    return f"The coding agent for \"{quiet['title']}\" ({quiet['workspace_id']}) {doing} for {int(quiet['seconds'] // 60)} min, since {quiet['since'][11:16]} UTC."
+
+
 def attention(workspace, campaign_id):
     """The Monitor's attention entries for these signals, computed from the current state."""
     entries = []
@@ -91,6 +117,8 @@ def attention(workspace, campaign_id):
         entries.append(("agents", f"Your request is open but nothing has been in progress for {int(idle['seconds'] // 60)} min"))
     for wait in long_waits(workspace, campaign_id):
         entries.append(("agents", f"The {wait['role'].replace('_', ' ')} has waited {int(wait['seconds'] // 60)} min on {wait['model']}"))
+    for quiet in quiet_workspaces(workspace, campaign_id):
+        entries.append(("agents", f"The coding agent for \"{quiet['title'][:60]}\" has been quiet for {int(quiet['seconds'] // 60)} min"))
     return entries
 
 
@@ -99,7 +127,7 @@ def _watch(store, campaign_id):
         return store.get("stall_watch_" + campaign_id, "stall_watch")
     except KeyError:
         return {"id": "stall_watch_" + campaign_id, "campaign_id": campaign_id, "idle_since": None, "notified_at": None,
-                "issue_id": None, "wait_issues": {}}
+                "issue_id": None, "wait_issues": {}, "quiet": {}}
 
 
 def _clear(workspace, issue_id, basis):
@@ -154,8 +182,34 @@ def check(workspace, campaign_id):
                 affected=run_id, options=["Discuss with the lead", "Defer"])
             raised[run_id] = issue["id"]
     watch["wait_issues"] = raised
+    _check_quiet(workspace, campaign_id, watch)
     if watch != before:
         store.put("stall_watch", watch)
+
+
+def _check_quiet(workspace, campaign_id, watch):
+    """A quiet coding workspace: the lead is told first; if it stays quiet, the researcher gets an issue; both clear when it moves."""
+    quiet = {row["workspace_id"]: row for row in quiet_workspaces(workspace, campaign_id)}
+    known = {key: dict(state) for key, state in (watch.get("quiet") or {}).items()}   # copies: the caller compares with the saved watch
+    for workspace_id, state in list(known.items()):
+        if workspace_id not in quiet or quiet[workspace_id]["since"] != state["since"]:
+            if state.get("issue_id"):
+                _clear(workspace, state["issue_id"], "The coding agent moved again, or its workspace was paused, stopped or finished.")
+            known.pop(workspace_id)
+    for workspace_id, row in quiet.items():
+        state = known.setdefault(workspace_id, {"since": row["since"], "notified_at": None, "issue_id": None})
+        if not state["notified_at"]:
+            development = getattr(workspace.pi, "development", None)
+            if development is not None:
+                development.notify(workspace.store.get(workspace_id, "development_workspace"), "quiet_" + row["since"], _quiet_text(row)
+                    + " Read implementation_workspace_inspect; message the coding agent to go on, or tell the researcher what holds it up.")
+            state["notified_at"] = now()
+        elif not state["issue_id"] and (_age(state["notified_at"]) or 0) >= ESCALATE_SECONDS:
+            issue = workspace.memory.issue(campaign_id, "coding_quiet", _quiet_text(row) + " A notice to the lead did not get it moving. "
+                "Its history is on the Implementations page; you can message the coding agent there, or ask the lead.",
+                affected=workspace_id + ":" + row["since"], options=["Discuss with the lead", "Defer"])
+            state["issue_id"] = issue["id"]
+    watch["quiet"] = known
 
 
 def tick(workspace):

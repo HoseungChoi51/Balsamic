@@ -13,6 +13,7 @@ const ROUTES: [RegExp, string[]][] = [
   [/^(campaign|charter|problem_note|note)\./, ['summary', 'note', 'campaigns']],
   [/^(resources|workers|cost|llm)\./, ['monitor', 'resources']],
   [/^panel\./, ['panels', 'panel', 'messages']],
+  [/^(development|implementation|library)\./, ['implementation-workspaces', 'implementations', 'timeline', 'methods', 'agents']],
 ];
 
 const PROGRESS = /\.progress$/;

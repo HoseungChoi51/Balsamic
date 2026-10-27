@@ -91,3 +91,28 @@ def test_a_turn_with_no_reply_for_long_is_reported_and_clears_when_it_moves(clie
     workspace.store.put("agent_session", {**workspace.store.get(lead["id"], "agent_session"), "last_activity_at": ago(5)})
     stalls.check(workspace, "demo")
     assert pending_issues(workspace, "agent_long_wait") == []
+
+
+def test_a_quiet_coding_workspace_tells_the_lead_then_the_researcher_and_clears_when_it_moves(client, workspace, campaign, lead):
+    workspace.store.put("development_workspace", {"id": "development_quiet", "campaign_id": "demo", "hypothesis_id": "hypothesis_x",
+        "title": "Subset DP", "status": "running", "desired_status": "running", "created_at": ago(3000), "last_activity_at": ago(1000),
+        "cursor": 0, "usage": {}})
+    stalls.check(workspace, "demo")
+    notice = next(r for r in workspace.store.list("agent_run", "demo") if r["id"].startswith("pi_development_"))
+    assert notice["agent_id"] == lead["id"] and 'coding agent for "Subset DP"' in notice["input"] and "said nothing while working" in notice["input"]
+    assert any("quiet for 16 min" in text for _, text in stalls.attention(workspace, "demo"))
+    stalls.check(workspace, "demo")
+    assert not pending_issues(workspace, "coding_quiet")
+    watch = workspace.store.get("stall_watch_demo", "stall_watch")
+    watch["quiet"]["development_quiet"]["notified_at"] = ago(stalls.ESCALATE_SECONDS + 60)
+    workspace.store.put("stall_watch", watch)
+    stalls.check(workspace, "demo")
+    [issue] = pending_issues(workspace, "coding_quiet")
+    assert "notice to the lead did not get it moving" in issue["message"] and "Implementations page" in issue["message"]
+    # It moves again: the issue clears. Settled after delivering, it is not quiet.
+    record = workspace.store.get("development_quiet", "development_workspace")
+    workspace.store.put("development_workspace", {**record, "status": "idle", "last_activity_at": ago(5000)})
+    workspace.store.put("development_submission", {"id": "development_submission_q", "campaign_id": "demo", "workspace_id": "development_quiet",
+        "commit": "a" * 40, "status": "submitted", "created_at": ago(5000)})
+    stalls.check(workspace, "demo")
+    assert not pending_issues(workspace, "coding_quiet") and stalls.quiet_workspaces(workspace, "demo") == []

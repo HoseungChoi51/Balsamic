@@ -280,3 +280,12 @@ tr.accent td { background: var(--accent-soft); } tr.accent td:first-child { bord
 .plan-outputs { border-collapse: collapse; margin-top: 6px; width: 100%; } .plan-outputs td { padding: 2px 8px 2px 0; vertical-align: top; }
 .plan-outputs td.num { text-align: right; white-space: nowrap; }
 a.draft-row { color: inherit; text-decoration: none; gap: 8px; } a.draft-row:hover { border-color: var(--line-2); }
+
+/* A coding workspace's history: newest first, each entry on a line coloured by what kind of news it is. */
+.timeline { list-style: none; margin: 6px 0 0; padding: 0; }
+.timeline > li { border-left: 3px solid var(--line-2); padding: 3px 0 5px 10px; }
+.timeline > li.good { border-left-color: var(--good); } .timeline > li.warn { border-left-color: var(--warn); }
+.timeline > li.bad { border-left-color: var(--bad); background: var(--bad-soft); } .timeline > li.info { border-left-color: var(--info); }
+.timeline > li.you { border-left-color: var(--you); } .timeline > li.agent { border-left-color: var(--agent); }
+.timeline ul { margin: 4px 0 0; padding-left: 18px; }
+.workspace-card .kv { margin-bottom: 6px; }

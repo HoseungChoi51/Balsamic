@@ -15,6 +15,8 @@ from .development_runtime import IMAGE, LEGACY_MODEL, DockerWorkspace
 
 class WorkspaceCreate(Contract):
     hypothesis_id: str
+    # The other proposals the same library serves: shown with the workspace and in what it delivers.
+    hypothesis_ids: list[str] = Field(default_factory=list, max_length=20)
     objective: str = Field(default="Implement this method from the saved specification and references.", min_length=1, max_length=50000)
     evidence_ids: list[str] = Field(default_factory=list, max_length=100)
     request_key: str = Field(min_length=1, max_length=200)
@@ -61,6 +63,21 @@ class WorkspaceEnvelope(Contract):
     request_key: str = Field(min_length=1, max_length=200)
 
 
+def request_hash(values):
+    """The create request's identity; a request without other proposals hashes as it did before they could be named."""
+    dump = values.model_dump()
+    if not dump.get("hypothesis_ids"):
+        dump.pop("hypothesis_ids", None)
+    return content_hash(dump)
+
+
+# Workspace events by the store event they put the workspace with: the pages that show a workspace refresh on them.
+PUT_EVENTS = {"ready": "development.progress", "agent_start": "development.progress", "agent_settled": "development.progress",
+              "message": "development.progress", "tool": "development.progress", "checkpoint": "development.checkpoint"}
+# Events that are errors in their own right; a failed tool call is one when the event says so.
+ERROR_EVENTS = {"bridge_error", "host_blocked", "budget_reached"}
+
+
 class DevelopmentWorkspaces:
     def __init__(self, controller, driver=None):
         self.controller = controller
@@ -78,10 +95,20 @@ class DevelopmentWorkspaces:
             raise ValueError("Implementation workspace belongs to another campaign")
         return record
 
-    def public(self, record):
+    def workspace_events(self, record):
+        return sorted((e for e in self.store.list("development_event", record["campaign_id"]) if e["workspace_id"] == record["id"]),
+                      key=lambda e: e["seq"])
+
+    def public(self, record, events=None):
         base = os.environ.get("GRATING_DEVELOPMENT_PUBLIC_URL", "").rstrip("/")
         runtime = record.get("runtime") or {}
+        events = self.workspace_events(record) if events is None else events
+        errors = [e["occurred_at"] for e in events if e["type"] in ERROR_EVENTS or (e["type"] == "tool" and e["payload"].get("error"))]
         return {**{k: v for k, v in record.items() if k not in {"runtime", "cpu_last", "event_files", "request_hash"}},
+            "hypothesis_ids": record.get("hypothesis_ids") or [record["hypothesis_id"]],
+            # Every checkpoint, not only the latest: what the coding agent said it had done, and when.
+            "checkpoints": [{"at": e["occurred_at"], **e["payload"]} for e in events if e["type"] == "checkpoint"][-20:],
+            "last_error_at": errors[-1] if errors else None,
             "ide_url": base + f"/implementation-workspaces/{record['id']}/ide/?folder=/work/repo",
             "runtime": {"running": runtime.get("running", False), "paused": runtime.get("paused", False)},
             "terminal_command": f"docker exec --user 1000:1000 -it {self.driver.name(record)} tmux attach-session -t implementation",
@@ -100,28 +127,43 @@ class DevelopmentWorkspaces:
                 "GRATING_DEVELOPMENT_ENABLED=true scripts/start; development_enabled in a launcher file).")
 
     def view(self, campaign_id):
+        events = {}
+        for event in sorted(self.store.list("development_event", campaign_id), key=lambda e: e["seq"]):
+            events.setdefault(event["workspace_id"], []).append(event)
         return {"enabled": self.enabled(), **({} if self.enabled() else {"disabled": self.disabled()}),
-                "workspaces": [self.public(r) for r in self.store.list("development_workspace", campaign_id)]}
+                "workspaces": [self.public(r, events.get(r["id"], [])) for r in self.store.list("development_workspace", campaign_id)]}
 
-    def create(self, campaign_id, payload, *, actor="researcher"):
+    def create(self, campaign_id, payload, *, actor="researcher", opener=None):
+        """opener: the agent that opens it ({agent_id, role}), when an agent does."""
         if not self.enabled():
             raise ValueError(self.disabled())
         values = WorkspaceCreate.model_validate(payload)
         hypothesis = self.store.get(values.hypothesis_id, "hypothesis")
         if hypothesis["campaign_id"] != campaign_id or hypothesis["status"] in {"archived", "finalist"}:
             raise ValueError("Choose an active hypothesis in this campaign")
+        served = [values.hypothesis_id]
+        for other in values.hypothesis_ids:
+            try:
+                row = self.store.get(other, "hypothesis")
+            except KeyError:
+                raise ValueError(f"No proposal {other}") from None
+            if row["campaign_id"] != campaign_id:
+                raise ValueError(f"Proposal {other} belongs to another campaign")
+            if other not in served:
+                served.append(other)
         identity = "development_" + content_hash([campaign_id, values.hypothesis_id])[:24]
         with self.workspace.lock, self.store.transaction():
             try:
                 saved = self.get(campaign_id, identity)
-                if saved["request_key"] == values.request_key and saved["request_hash"] != content_hash(values.model_dump()):
+                if saved["request_key"] == values.request_key and saved["request_hash"] != request_hash(values):
                     raise ValueError("Workspace request key was reused with different content")
                 return self.public(saved)
             except KeyError:
                 pass
             from optimization_framework.campaigns import compute_consent
+            consent = None
             if actor != "researcher":
-                compute_consent.require(self.workspace, campaign_id, "Opening a coding workspace", coding=1)
+                consent = compute_consent.require(self.workspace, campaign_id, "Opening a coding workspace", coding=1)
             for evidence_id in values.evidence_ids:
                 self.evidence(campaign_id, evidence_id)
             config = self.controller.configuration(campaign_id)
@@ -129,10 +171,13 @@ class DevelopmentWorkspaces:
                 raise ValueError("Activate the campaign lead agent before creating an implementation workspace")
             # The coding agent runs on the campaign's own model, as its agents do.
             default = (config.get("models") or {}).get("default") or LEGACY_MODEL
-            record = {"id": identity, "campaign_id": campaign_id, "hypothesis_id": values.hypothesis_id,
+            record = {"id": identity, "campaign_id": campaign_id, "hypothesis_id": values.hypothesis_id, "hypothesis_ids": served,
                 "title": hypothesis["title"], "parent_agent_id": config["lead_id"], "created_at": now(),
+                "opened_by": {"actor": actor, **(opener or {})},
+                # The researcher's go-ahead it opened under, for the history: the approved plan, not a deadline.
+                "consent": {"id": consent["id"], "decision_id": consent.get("decision_id"), "plan": (consent.get("plan") or "")[:2000]} if consent else None,
                 "objective": values.objective, "evidence_ids": values.evidence_ids,
-                "request_key": values.request_key, "request_hash": content_hash(values.model_dump()),
+                "request_key": values.request_key, "request_hash": request_hash(values),
                 "status": "queued", "desired_status": "running", "control_revision": 0,
                 "guidance_revision": 0, "cpu_budget_seconds": values.cpu_budget_seconds,
                 "model": {key: default.get(key) for key in ("provider", "model", "effort")},
@@ -140,7 +185,7 @@ class DevelopmentWorkspaces:
                           "billing_mode": "subscription", "api_cost_usd": 0}, "event_files": [], "cursor": 0}
             self.store.put("development_workspace", record, "development.created")
             if actor != "researcher":
-                compute_consent.charge(self.workspace, campaign_id, coding=1)
+                compute_consent.charge(self.workspace, campaign_id, coding=1, what="a coding workspace", subjects=[identity])
             self.message(campaign_id, identity, {"message": values.objective +
                 "\nRead .campaign/assignment.md and .campaign/evidence.json first. Save checkpoints in .campaign/checkpoint.md. "
                 "Use the normal Pi coding tools to implement, debug, and test. Submit a committed package with campaign_submit. "
@@ -260,6 +305,7 @@ class DevelopmentWorkspaces:
                     record.update(error=error, status="blocked")
                     self.store.put("development_workspace", record, "development.blocked" if changed else None)
                     if changed:
+                        self.event(record, f"host_blocked_{record['cursor']}", "host_blocked", {"error": error})
                         self.notify(record, "blocker_" + content_hash(error), error + " Saved work is retained; capability will be rechecked automatically.")
 
     def _sync_one(self, saved):
@@ -286,6 +332,7 @@ class DevelopmentWorkspaces:
                     record["status"] = "starting"
                 self.store.put("development_workspace", record)
                 if recovered:
+                    self.event(record, f"host_recovered_{record['cursor']}", "host_recovered", {})
                     self.notify(record, "recovered_" + str(record["cursor"]), "Workspace capability recovered. Continue within existing authorization.")
         runtime = record.get("runtime") or self.driver.inspect(record)
         cpu = self.driver.cpu_seconds(runtime)
@@ -312,6 +359,7 @@ class DevelopmentWorkspaces:
             with self.workspace.lock:
                 record.update(desired_status="paused", status="pausing", error="Development CPU allowance reached. Workspace and session are saved.")
                 self.store.put("development_workspace", record, "development.budget_reached")
+                self.event(record, "budget_reached_" + str(budget), "budget_reached", {"used": used, "budget": budget})
                 self.notify(record, "budget_" + str(budget), record["error"])
         elif budget is not None and used >= .8 * budget and not record.get("budget_checkpoint_requested"):
             self.message(cid, identity, {"message": "Development CPU allowance is approaching its limit. Save .campaign/checkpoint.md and use campaign_checkpoint with remaining work before starting more expensive commands.",
@@ -319,6 +367,7 @@ class DevelopmentWorkspaces:
             record = self.get(cid, identity)
             record["budget_checkpoint_requested"] = True
             self.store.put("development_workspace", record)
+            self.event(record, "budget_warning_" + str(budget), "budget_warning", {"used": used, "budget": budget})
         if record["desired_status"] in {"paused", "stopped"}:
             elapsed = (datetime.now(timezone.utc) - datetime.fromisoformat(record.get("control_requested_at", record["created_at"]))).total_seconds()
             if record.get("control_acknowledged") or elapsed >= 5 or (budget is not None and used >= budget):
@@ -398,8 +447,11 @@ class DevelopmentWorkspaces:
                 for name in ("input", "output", "cacheRead", "cacheWrite"):
                     record["usage"][name] = record["usage"].get(name, 0) + usage.get(name, 0)
             record["activity"] = payload.get("text", "")[-2000:]
-        record["last_activity_at"] = now()
-        self.store.put("development_workspace", record)
+        at = now()
+        if kind in {"ready", "agent_start"} and not record.get("started_at"):
+            record["started_at"] = at
+        record["last_activity_at"] = record["updated_at"] = at
+        self.store.put("development_workspace", record, PUT_EVENTS.get(kind))
 
     def capture_submission(self, record, key, payload):
         package, manifest = self.driver.snapshot(record, payload["commit"], payload.get("manifest_path", "implementation-manifest.json"))

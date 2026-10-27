@@ -31,6 +31,12 @@ def install(app, workspace):
         workspace.store.get(campaign_id, "campaign")
         return development.events(campaign_id, identity, max(0, after))
 
+    @app.get("/api/campaigns/{campaign_id}/implementation-workspaces/{identity}/timeline")
+    def timeline(campaign_id: str, identity: str, before: str | None = None, limit: int = 100):
+        from .development_timeline import timeline as history
+        workspace.store.get(campaign_id, "campaign")
+        return history(workspace.store, development.get(campaign_id, identity), before, max(1, min(limit, 300)))
+
     @app.post("/api/campaigns/{campaign_id}/implementation-workspaces/{identity}/messages")
     def message(campaign_id: str, identity: str, body: WorkspaceMessage):
         return development.message(campaign_id, identity, body.model_dump(), actor="researcher")

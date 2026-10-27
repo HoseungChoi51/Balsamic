@@ -1,12 +1,13 @@
 /** Hypotheses: every proposal with its stage and reviews; the generating chips of a round in progress; the review rounds; the implementations. */
 import { useQueryClient } from '@tanstack/react-query';
 import type { PageProps } from '../shell/StagePanel';
-import { useHypotheses, useMessages, useRead, useSummary } from '../api/queries';
+import { useHypotheses, useMessages, useSummary } from '../api/queries';
 import { send } from '../commands/bus';
 import { Empty, Failed, Loading, Pill, Section, statusTone, when } from '../primitives/ui';
 import { formatHash, navigate } from '../router/routes';
 import { useSelection } from '../stores/selection';
 import { HypothesisCard } from './HypothesisCard';
+import { Implementations } from './Implementations';
 import { Markdown, clip, dollarMath } from '../chat/render/Markdown';
 import { useEvolution, STAGE_TONE } from '../evolution/EvolutionPage';
 import { track } from '../telemetry/events';
@@ -55,7 +56,7 @@ export default function HypothesesPage({ campaignId, route, threadId }: PageProp
         {placeholders.filter(p => p.status === 'pending').map(p => <div key={p.id} className="card" data-testid="placeholder"><div className="row"><Pill tone="agent">generating</Pill><span className="faint">{p.id}: the lead is recording this strategy</span></div></div>)}
       </> : <Empty>No proposal yet. Ask the lead for hypotheses in the conversation (/generate 3); each lands here with its mechanism, its stage and its review.</Empty>) : null}
       {sub === 'rounds' ? <Rounds rounds={data.rounds} /> : null}
-      {sub === 'implementations' ? <Implementations campaignId={campaignId} /> : null}
+      {sub === 'implementations' ? <Implementations campaignId={campaignId} route={route} labels={labels} /> : null}
     </div>
   );
 }
@@ -74,10 +75,3 @@ function Rounds({ rounds }: { rounds: Record<string, unknown> }) {
   </Section>)}</>;
 }
 
-function Implementations({ campaignId }: { campaignId: string }) {
-  const catalog = useRead<{ versions: Record<string, unknown>[] }>(['implementations', campaignId], `/api/v1/implementations?campaign_id=${campaignId}`);
-  if (catalog.isPending) return <Loading />;
-  if (catalog.error) return <Failed error={catalog.error} />;
-  const versions = catalog.data.versions || [];
-  return <Section title={`Implementations (${versions.length})`}>{versions.length ? <table><thead><tr><th>Version</th><th>Name</th><th>Status</th><th>Validated</th></tr></thead><tbody>{versions.map(v => <tr key={String(v.id)}><td className="mono small">{String(v.id)}</td><td>{String(v.name || (v.spec as Record<string, unknown>)?.name || '')}</td><td><Pill tone={statusTone(String(v.status))}>{String(v.status)}</Pill></td><td>{String(v.validation_status || v.validated || 'unknown')}</td></tr>)}</tbody></table> : <Empty>No implementation yet. The implementation lead builds and validates code on request.</Empty>}</Section>;
-}

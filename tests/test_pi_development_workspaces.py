@@ -283,3 +283,51 @@ def test_an_agent_opens_a_coding_workspace_only_with_the_researchers_go_ahead(se
     with pytest.raises(ValueError, match='0 coding workspaces for "Implement the method"'):
         development.create(cid, {**request, 'hypothesis_id': 'hypothesis_other'}, actor='lead')
     assert development.create(cid, {**request, 'hypothesis_id': 'hypothesis_other'})['id']   # the researcher's own
+
+
+def test_the_history_of_a_workspace_reads_newest_first_from_what_it_recorded(setup, monkeypatch):
+    from optimization_framework.agents.development_timeline import timeline
+    from optimization_framework.campaigns import compute_consent
+    workspace, campaign, development, driver = setup
+    cid = campaign['id']
+    workspace.store.put('hypothesis', {'id': 'hypothesis_two', 'campaign_id': cid, 'title': 'Second method', 'status': 'proposed',
+                                       'mechanism': 'Another', 'algorithm': 'custom', 'algorithm_config': {}})
+    compute_consent.grant(workspace, {'id': 'decision_go', 'campaign_id': cid},
+                          {'plan': 'Build both methods in one library', 'wall_seconds': 1200, 'worker_seconds': 300, 'coding_workspaces': 1})
+    # Who opened it, under which go-ahead, for which proposals.
+    record = development.create(cid, {'hypothesis_id': 'hypothesis_dev', 'hypothesis_ids': ['hypothesis_two'], 'objective': 'Implement both',
+                                       'request_key': 'history'}, actor='lead', opener={'agent_id': 'agent_impl', 'role': 'implementation_lead'})
+    assert record['hypothesis_ids'] == ['hypothesis_dev', 'hypothesis_two'] and record['consent']['decision_id'] == 'decision_go'
+    assert record['opened_by'] == {'actor': 'lead', 'agent_id': 'agent_impl', 'role': 'implementation_lead'}
+    with pytest.raises(ValueError, match='No proposal hypothesis_missing'):
+        development.create(cid, {'hypothesis_id': 'hypothesis_two', 'hypothesis_ids': ['hypothesis_missing'], 'objective': 'x', 'request_key': 'bad'})
+    development.sync(cid)
+    for key, kind, payload in [('e1', 'agent_start', {}), ('e2', 'tool', {'tool': 'bash', 'error': False, 'output': 'ok'}),
+            ('e3', 'tool', {'tool': 'bash', 'error': True, 'output': 'collected 4 items\nFAILED tests/test_seed.py::test_replay\n\nCommand exited with code 1'}),
+            ('e4', 'message', {'role': 'assistant', 'text': 'Both methods pass their tests.'}), ('e5', 'agent_settled', {}),
+            ('e6', 'checkpoint', {'summary': 'Built both methods', 'blocker': 'The evaluator is not commissioned'}),
+            ('e7', 'receipt', {'command_id': 'development_command_missing', 'status': 'accepted'})]:
+        outgoing(driver, record, key, kind, payload)
+    development.sync(cid)
+    # A host that cannot run the workspace, then can again: both stay in its history.
+    monkeypatch.setattr(driver, 'start', lambda record: (_ for _ in ()).throw(ValueError('Docker is not running')))
+    development.sync(cid)
+    monkeypatch.setattr(driver, 'start', lambda record: driver.inspect(record))
+    development.sync(cid)
+    saved = development.public(development.get(cid, record['id']))
+    assert saved['started_at'] and saved['updated_at'] and saved['last_error_at']
+    assert [c['summary'] for c in saved['checkpoints']] == ['Built both methods']
+    entries = timeline(workspace.store, development.get(cid, record['id']))['entries']
+    assert entries == sorted(entries, key=lambda e: e['at'], reverse=True)
+    opened = entries[-1]
+    assert opened['title'] == 'Opened by the implementation lead under your go-ahead' and 'Build both methods in one library' in opened['detail']
+    work = next(e for e in entries if e['kind'] == 'work')
+    assert work['title'].startswith('Worked') and work['title'].endswith('2 tool calls · 1 failed') and work['detail'] == 'Both methods pass their tests.'
+    assert work['items'] == ['bash: FAILED tests/test_seed.py::test_replay (exit 1)']
+    checkpoint = next(e for e in entries if e['kind'] == 'checkpoint')
+    assert checkpoint['tone'] == 'warn' and 'Blocker: The evaluator is not commissioned' in checkpoint['detail']
+    assert [e['kind'] for e in entries if e['tone'] in {'bad', 'ok'} and e['kind'] in {'blocked', 'recovered'}] == ['recovered', 'blocked']
+    assert next(e for e in entries if e['kind'] == 'refused')['tone'] == 'warn'
+    assert any(e['kind'] == 'instruction' and e['title'] == 'The lead wrote to the coding agent' for e in entries)
+    page = timeline(workspace.store, development.get(cid, record['id']), limit=2)
+    assert len(page['entries']) == 2 and timeline(workspace.store, development.get(cid, record['id']), before=page['next_before'])['entries'][0]['at'] <= page['next_before']

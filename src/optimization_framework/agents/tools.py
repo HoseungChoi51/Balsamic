@@ -360,7 +360,7 @@ TOOLS = {
         obj({"operation": {"enum": sorted(OPERATIONS)}, "payload": {"type": "object"}, "request_key": S,
              "guidance_revision": {"type": "integer", "minimum": 0, "description": "Ignored. The revision is pinned from your turn and from any campaign_inspect you ran in it; omit it."},
              "rationale": S}, ["operation", "payload", "request_key"])),
-    "implementation_workspace_create": ("Start or reattach a persistent full Pi coding workspace for an active hypothesis. No numerical grant is reserved by creation.", obj({"hypothesis_id": S, "objective": S, "evidence_ids": {"type": "array", "items": S, "maxItems": 100}, "request_key": S, "cpu_budget_seconds": {"type": "number", "exclusiveMinimum": 0, "maximum": 86400}}, ["hypothesis_id", "objective", "request_key"])),
+    "implementation_workspace_create": ("Start or reattach a persistent full Pi coding workspace for an active hypothesis (hypothesis_ids: the other proposals the same library serves). No numerical grant is reserved by creation.", obj({"hypothesis_id": S, "hypothesis_ids": {"type": "array", "items": S, "maxItems": 20}, "objective": S, "evidence_ids": {"type": "array", "items": S, "maxItems": 100}, "request_key": S, "cpu_budget_seconds": {"type": "number", "exclusiveMinimum": 0, "maximum": 86400}}, ["hypothesis_id", "objective", "request_key"])),
     "implementation_workspace_inspect": ("Read implementation workspace state, progress, questions, submissions, and event cursor.", obj({"workspace_id": S, "after": {"type": "integer", "minimum": 0}}, ["workspace_id"])),
     "implementation_workspace_message": ("Steer or follow up with the full Pi coding agent in the given workspace.", obj({"workspace_id": S, "message": S, "mode": {"enum": ["steer", "follow_up"]}, "request_key": S, "question_id": S}, ["workspace_id", "message", "request_key"])),
     "implementation_workspace_validate": ("Commission independent validation of one committed source submission within the campaign's implementation allocation. Supply either a frozen envelope_id or a spec; prefer the short envelope ID when available.", obj({"workspace_id": S, "submission_id": S, "envelope_id": S, "spec": {"type": "object"}, "compute_seconds": {"type": "number", "exclusiveMinimum": 0, "maximum": 86400}, "request_key": S}, ["workspace_id", "submission_id", "compute_seconds", "request_key"])),
@@ -945,7 +945,7 @@ class PiTools:
                 snapshot["admission"] = detail
             return snapshot
         if name == "implementation_workspace_create":
-            return self.controller.development.create(cid, args, actor=LEAD)
+            return self.controller.development.create(cid, args, actor=LEAD, opener={"agent_id": agent["id"], "role": agent["role"]})
         if name == "implementation_workspace_inspect":
             return self.controller.development.events(cid, args["workspace_id"], args.get("after", 0))
         if name == "implementation_workspace_message":
