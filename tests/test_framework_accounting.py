@@ -324,7 +324,7 @@ def test_imported_executable_reuse_keeps_research_lineage_and_adds_local_work_on
     finish(source, trial)
     root = source.store.get(trial["id"], "trial")["output_asset_ids"][0]
     before = source.assets.attributed_costs([root], axes=["model_calls"])
-    assert before["quantities"]["model_calls"]["total"] == 3
+    assert before["quantities"]["model_calls"]["total"] == 2   # the research's two; the library's check of the package calls no model
     _, archive = export(source, owner["id"], [root])
     library = ImplementationService(tmp_path / "destination-library")
     client = Client(library)
@@ -354,7 +354,7 @@ def test_imported_executable_reuse_keeps_research_lineage_and_adds_local_work_on
     finish(destination, later)
     answer = destination.store.get(later["id"], "trial")["output_asset_ids"][0]
     costs = destination.assets.attributed_costs([answer], axes=["model_calls", "evaluation_requests", "implementation_seconds"])
-    assert costs["quantities"]["model_calls"]["total"] == 3
+    assert costs["quantities"]["model_calls"]["total"] == 2
     assert research_cost["id"] in costs["asset_ids"]
     requests = sum(attempt["report"]["costs"]["evaluation_requests"]
         for producer in (service, library) for job in producer.store.list("implementation_job") for attempt in job["attempts"])

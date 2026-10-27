@@ -9,7 +9,9 @@ REMOVED = ("optimization_framework.api.app", "optimization_framework.api.compati
            "optimization_framework.research.engine", "optimization_framework.research.coordinator", "optimization_framework.research.context",
            "optimization_framework.research.codex_provider", "optimization_framework.research.decision_review", "optimization_framework.research.lifecycle",
            "optimization_framework.research.progress", "optimization_framework.research.action_policy", "optimization_framework.research.discovery",
-           "optimization_framework.research.providers", "optimization_framework.research.model_policy", "dqn_meent.workspace", "dqn_meent.research_seeds")
+           "optimization_framework.research.providers", "optimization_framework.research.model_policy", "dqn_meent.workspace", "dqn_meent.research_seeds",
+           # Roadmap H8: the implementation service's agent loop (its builder, test designer and validator grants).
+           "optimization_framework.agents.implementation")
 
 
 def imports(path):

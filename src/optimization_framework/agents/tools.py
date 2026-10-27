@@ -9,7 +9,7 @@ from optimization_framework.contracts.base import content_hash, lenient
 from optimization_framework.contracts.commands import Command
 from optimization_framework.storage.sqlite import now
 from optimization_framework.campaigns.record_view import view_record
-from .models import ROLES, LEAD, PAGE_AGENTS, STANDING, DISCUSSION_ROLES
+from .models import ROLES, LEAD, PAGE_AGENTS, RETIRED_ROLES, STANDING, DISCUSSION_ROLES
 from .capabilities import implementation_execution
 from .roles import ROLE_BRIEFS, ROLE_OUTPUT_SCHEMAS, SPECIALIST_CONTRACT, SPECIALIST_TOOL_CALLS
 
@@ -372,6 +372,8 @@ class PiTools:
         self.workspace, self.store = controller.workspace, controller.store
 
     def names(self, agent):
+        if agent.get("grant_id") or agent["role"] in RETIRED_ROLES:   # an implementation grant's agent, retired in roadmap H8
+            return set()
         names = {"campaign_inspect", "resource_inspect", "evidence_search", "evidence_read", "source_search", "source_ingest", "source_read", "artifact_save", "yield_work",
                  "file_list", "file_read", "file_search", "workspace_list", "workspace_read", "workspace_write", "analysis_run", "compute"}
         implementation = {"implementation_workspace_create", "implementation_workspace_inspect", "implementation_workspace_message"}

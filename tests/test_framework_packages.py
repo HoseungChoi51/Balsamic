@@ -88,22 +88,12 @@ def test_a_sandboxed_package_that_returns_no_proposal_has_finished(tmp_path):
 
 
 def test_native_package_build_binding_and_experiment_share_the_common_worker(tmp_path):
-    from optimization_framework.implementations.models import JobRequest, ReviewResult
+    from optimization_framework.implementations.models import JobRequest
     from optimization_framework.implementations.service import ImplementationService
     from optimization_framework.contracts.requests import CampaignInput, TaskInput, TrialInput
     from optimization_framework.execution.service import Workspace
     from optimization_framework.execution.worker import run, read_journal
-
-    class MockSemanticReviewer:
-        """A labeled transport fixture; this is not live-model acceptance evidence."""
-        def __init__(self, **kwargs):
-            self.usage = {"calls": 0, "api_cost_usd": 0}
-            self.callback = kwargs["reservation_callback"]
-
-        def call(self, role, payload, *, result_type, instructions):
-            self.usage["calls"] += 1
-            self.callback({"type": "provider_call_reserved", "usage": self.usage})
-            return ReviewResult(passed=True, criteria=payload["spec"]["acceptance_criteria"], findings=["Mock semantic review"])
+    from framework_fixtures import library_job
 
     service = ImplementationService(tmp_path / "library")
 
@@ -120,10 +110,10 @@ def test_native_package_build_binding_and_experiment_share_the_common_worker(tmp
     hypothesis = researcher_idea(workspace, campaign["id"])
     source = (Path(__file__).resolve().parents[1] / "examples/implementation-reference/continuous_optimizer_v1.py").read_text()
     package = Package(contract="optimizer_v1", files=[{"path": "optimizer.py", "content": source}])
-    grant = workspace.implementations.commission(hypothesis["id"], spec(), package=package, compute_seconds=60, max_calls=3, idempotency_key="native-v1")
-    built = service.run_job(grant["job_id"])
-    assert built["status"] == "completed", built
-    workspace.implementations.reconcile()
+    # The library checks the supplied package against its frozen checks (since roadmap H8 a commission builds in a coding box).
+    built = library_job(service, spec(), package, key="native-v1", campaign_id=campaign["id"],
+                        workspace_id=workspace.implementations.workspace_id, hypothesis_id=hypothesis["id"])
+    workspace.implementations.attach(hypothesis["id"], built["version_id"])
     task = workspace.current_tasks(campaign["id"])[0]
     trial = workspace.create_trial(TrialInput(campaign_id=campaign["id"], task_id=task["id"], hypothesis_id=hypothesis["id"],
         max_steps=8, wall_seconds=10))
@@ -137,15 +127,12 @@ def test_native_package_build_binding_and_experiment_share_the_common_worker(tmp
 
 def test_generated_data_is_regenerated_where_the_package_runs_not_shipped():
     """token-sharing: a builder generated 1.26 MB of synthetic traces and could not submit them, since every file is written out
-    in its result. By default a package carries the generator and the SHA-256 of each output, and refuses to run on a mismatch."""
+    in its result. By default a package carries the generator and the SHA-256 of each output, and refuses to run on a mismatch.
+    Since roadmap H8 no service builder is told so (there is none): the package limits refuse shipped data, and the leads who
+    write a specification read it in their procedure."""
     from pydantic import ValidationError
     from optimization_framework.implementations.models import EvaluatorPackage
-    from optimization_framework.implementations.service import BUILD_INSTRUCTIONS, EVALUATOR_BUILD_INSTRUCTIONS, GENERATED_DATA
     from balsamic.procedures import Procedures
-    assert EVALUATOR_BUILD_INSTRUCTIONS.endswith(GENERATED_DATA) and BUILD_INSTRUCTIONS.endswith(GENERATED_DATA)
-    assert "SHA-256" in GENERATED_DATA and "refuses to run" in GENERATED_DATA
-    # A review found a version check made only when a trace was generated, skipped for a stored copy and a restored checkpoint.
-    assert "on every\nuse" in GENERATED_DATA and "restored from a checkpoint" in GENERATED_DATA and "immutable" in GENERATED_DATA
     trace = "x" * 250_000
     with pytest.raises(ValidationError, match="over 256 KiB. Generated data is not shipped"):
         EvaluatorPackage(files=[{"path": "traces/seed_101.jsonl", "content": trace + "y" * 20_000}])

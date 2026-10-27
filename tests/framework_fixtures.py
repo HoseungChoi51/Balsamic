@@ -25,12 +25,14 @@ def library_job(service, spec, package, *, key, campaign_id="campaign", workspac
 
 
 def grant_before_h8(workspace, job, **fields):
-    """The grant a commission recorded, settled and attached, before roadmap H8 retired the library's own build route. Such records
-    stay readable after the upgrade, and the research inputs one declared still count toward what its version cost."""
-    request = job["request"]
+    """The grant a commission recorded for its library job before roadmap H8 retired the library's own build route: settled and
+    attached when the job completed, still open otherwise. Such records stay readable and controllable after the upgrade, and
+    the research inputs one declared still count toward what its version cost."""
+    request, completed = job["request"], job["status"] == "completed"
     return workspace.store.put("implementation_grant", {"id": request["grant_id"], "campaign_id": job["campaign_id"],
         "hypothesis_id": request.get("hypothesis_id"), "charter_version": 1, "hypothesis_digest": None, "request": request,
-        "status": job["status"], "created_at": job["created_at"], "job_id": job["id"], "version_id": job["version_id"],
+        "status": job["status"], "created_at": job["created_at"], "job_id": job["id"], "version_id": job.get("version_id"),
         "upstream_cost_asset_ids": [], "usage": job.get("usage", {}), "compute_seconds": job.get("compute_seconds", 0),
-        "attempts": job.get("attempts", []), "accounting_final": True, "attached": True, "cost_capture_digest": "recorded_before_h8",
+        "attempts": job.get("attempts", []), "accounting_final": completed, "attached": completed,
+        **({"cost_capture_digest": "recorded_before_h8"} if completed else {}),
         "error": job.get("error"), "updated_at": job.get("updated_at", job["created_at"]), **fields})
