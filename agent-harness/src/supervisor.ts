@@ -236,7 +236,8 @@ export class Supervisor {
               .map(key => [key, message.usage?.[key] || 0]));
             // Pi prices every call from its catalog; whether that is a charge depends on billing.
             usage.cost_usd = message.usage?.cost?.total || 0;
-            this.event(agent, 'assistant.message', {text: content, usage, stop_reason: message.stopReason,
+            // The run the call was made in: its spend counts against that run's request (the mandate's model envelope).
+            this.event(agent, 'assistant.message', {run_id: active()?.id ?? null, text: content, usage, stop_reason: message.stopReason,
               provider: message.provider, model: message.model, thinking_level: message.thinkingLevel ?? agent.runtime?.thinkingLevel,
               billing: agent.runtime?.billing || 'unknown'});
           } else if (['tool_execution_start', 'tool_execution_end', 'auto_compaction_start', 'auto_compaction_end', 'auto_retry_start', 'auto_retry_end'].includes(event.type)) {

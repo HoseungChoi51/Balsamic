@@ -118,12 +118,13 @@ class ReportWriter:
                 # A call made through the agent service is listed and charged like an agent's call.
                 from optimization_framework.agents import usage as llm_usage
                 llm_usage.record(self.store, job["campaign_id"], {"id": job_id, "role": "report_writer"},
-                    f"report:{job_id}:{event['reservation_id']}", {**call, "occurred_at": call.get("occurred_at") or now()})
+                    f"report:{job_id}:{event['reservation_id']}", {**call, "occurred_at": call.get("occurred_at") or now()},
+                    run_id=job.get("run_id"), root=job.get("request_root"))
             if job["campaign_id"]:
                 self.workspace.agent_log.capture(job["campaign_id"], job_id, event)
 
     def start(self, *, report_id=None, request=None, campaign_id=None, evidence=None, brief=None, background=True,
-              request_id=None, references=None, literature=True, workflow="staged", requested_by=None):
+              request_id=None, references=None, literature=True, workflow="staged", requested_by=None, run_id=None, request_root=None):
         from optimization_framework.llm.providers import provider_status
         from optimization_framework.llm.model_policy import resolve_policy
         from optimization_framework.contracts.base import content_hash
@@ -208,6 +209,8 @@ class ReportWriter:
                    "created_at": now(), "input": payload, "figures": figures, "provider_snapshot": config, "usage": {},
                    "workflow": workflow, "snapshot_id": snapshot_id, "references": references, "literature": literature,
                    "request_fingerprint": signature, "requested_by": requested_by, "stage_log": [],
+                   # The agent run that asked for it and the researcher's request it serves: its stages' calls count there.
+                   "run_id": run_id, "request_root": request_root,
                    "stage_ids": [], "receipt_ids": [], "limits": {"model_calls": 1} if workflow == "legacy" else LIMITS}
             self.store.put("report_writer_job", job, "report.writer_started")
         return self.launch(job, background=background)

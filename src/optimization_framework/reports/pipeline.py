@@ -61,11 +61,19 @@ class Pipeline:
             spend_guard=self.afford, harness=self.workspace.pi.client)
 
     def afford(self, dollars):
-        """Refuse a billed call that the campaign's model budget cannot cover at its upper bound."""
+        """Refuse a billed call that the campaign's model budget, or the model-spend envelope of the request that asked for the
+        report (R5), cannot cover at its upper bound."""
         allowance = self.workspace.pi.model_allowance(self.job["campaign_id"]) if self.job["campaign_id"] else None
         if allowance is not None and dollars > allowance + 1e-9:
             raise ValueError(f"The campaign's model budget cannot cover the next stage: it may cost up to ${dollars:.2f} and "
                              f"${max(0.0, allowance):.2f} is left. The finished stages are saved; raise the budget and ask for the report again.")
+        if self.job["campaign_id"] and self.job.get("request_root"):
+            from optimization_framework.campaigns import mandates
+            mandate = mandates.current(self.workspace, self.job["campaign_id"], self.job["request_root"])
+            left = mandates.model_left(mandate) if mandate else None
+            if left is not None and dollars > left + 1e-9:
+                raise ValueError(f"The request's model-spend envelope cannot cover the next stage: it may cost up to ${dollars:.2f} and "
+                                 f"${left:.2f} is left. The finished stages are saved; raise the envelope and ask for the report again.")
 
     def update(self, event=None, **values):
         with self.store.transaction():
