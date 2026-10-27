@@ -14,6 +14,7 @@ when, what (package, version, commit, workspace, submission), the methods and pr
 """
 from __future__ import annotations
 
+import hashlib
 import os
 import re
 import shutil
@@ -116,6 +117,7 @@ class Installer:
         for item in (submission.get("package") or {}).get("files", []):
             if item["path"] in files and files[item["path"]] != str(item["content"]).encode():
                 raise ValueError(f"{item['path']} at the commit differs from what was submitted")
+        changed = generated_changes(record, name, files)
         pyproject = files.get(f"libraries/{name}/pyproject.toml")
         if pyproject is None:
             raise ValueError(f"libraries/{name} has no pyproject.toml")
@@ -138,7 +140,7 @@ class Installer:
             if str(current.get("version")) == version and existing != files:
                 raise ValueError(f"{package} {version} is installed with other code; the coding agent has to raise the version for the lab to load the new code")
         return {"name": name, "package": package, "version": version, "entry_points": entries, "problem_entry_points": problems,
-                "files": files, "report": report, "record": record, "submission": submission}
+                "files": files, "report": report, "record": record, "submission": submission, "changed_generated_files": changed}
 
     def _refuse_clashes(self, package, entries, problems, report):
         """A problem id, plug-in name or method id that another installed distribution (the lab's own included) provides is
@@ -177,7 +179,8 @@ class Installer:
                 "submission_id": submission["id"], "commit": submission["commit"], "package": None, "version": None,
                 "path": f"libraries/{library_of(submission)}", "entry_points": {}, "problem_entry_points": {}, "actor": "balsamic",
                 "status": "failed", "requested_at": now(), "finished_at": now(), "error": str(exc)[:2000], "methods_added": [],
-                "missing_methods": [], "problems_added": [], "missing_problems": [], "changes": [], "log_tail": ""}, "library.install_failed")
+                "missing_methods": [], "problems_added": [], "missing_problems": [], "changes": [], "log_tail": "",
+                "changed_generated_files": []}, "library.install_failed")
             self.development.notify(self.development.get(campaign_id, workspace_id), identity, f"Balsamic could not install the library "
                 f"from commit {submission['commit'][:7]}: {exc} Have the coding agent fix it and deliver again.", "installs")
             return record
@@ -215,7 +218,7 @@ class Installer:
                    "commit": plan["submission"]["commit"], "package": plan["package"], "version": plan["version"], "path": f"libraries/{plan['name']}",
                    "entry_points": plan["entry_points"], "problem_entry_points": plan["problem_entry_points"], "actor": actor, "status": "queued",
                    "requested_at": now(), "confirm_changes": confirm_changes, "methods_added": [], "missing_methods": [], "problems_added": [],
-                   "missing_problems": [], "changes": [], "log_tail": "",
+                   "missing_problems": [], "changes": [], "log_tail": "", "changed_generated_files": plan["changed_generated_files"],
                    **({"retry_of": retry_of} if retry_of else {})}
         self.store.put("library_install", install, "library.install_requested")
         if background:
@@ -289,6 +292,7 @@ class Installer:
         who = "The researcher" if record["actor"] == "researcher" else "Balsamic"
         self.development.notify(plan["record"], identity, f"{who} installed {plan['package']} {plan['version']} from commit "
             f"{plan['submission']['commit'][:7]}: {added(record)}."
+            + (f" Generated files it changed: {', '.join(plan['changed_generated_files'])}." if plan["changed_generated_files"] else "")
             + (" " + bound_text(record) + " Tell the researcher which proposals can run now." if plan["entry_points"] else ""), "installs")
         return record
 
@@ -321,6 +325,24 @@ class Installer:
             end = match.start(1) + len(match.group(1).rstrip("\n"))   # after the table's last line
             text = text[:end] + "\n" + source + text[end:]
         path.write_text(text)
+
+
+def generated_changes(record, name, files):
+    """The generated files of libraries/<name>/ the coding agent changed or removed, when the workspace started from a library
+    generated from the charter (its record's `library`, roadmap F4); [] for any other library. Under decision 9 the
+    charter's data is fixed: a changed or missing `charter.json` or `data.py` is refused. The two files the agent writes,
+    `objective.py` and `methods.py`, are not listed."""
+    generated = record.get("library") or {}
+    if generated.get("name") != name:
+        return []
+    digest = lambda path: hashlib.sha256(files[path]).hexdigest() if path in files else None
+    for path in generated["fixed"]:
+        if digest(path) != generated["files"].get(path):
+            raise ValueError(f"The library's data no longer matches the charter revision: {path} differs from the one generated "
+                             f"from revision {generated['revision']}; restore it, or regenerate the library from the charter")
+    filled = {f"libraries/{name}/{generated['package']}/{file}" for file in ("objective.py", "methods.py")}
+    return sorted(path for path, sha in generated["files"].items()
+                  if path not in generated["fixed"] and path not in filled and digest(path) != sha)
 
 
 def added(record):

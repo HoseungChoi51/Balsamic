@@ -9,6 +9,8 @@ export interface Report {
 }
 export interface Install { id: string; submission_id: string; status: string; actor?: string; package: string; version: string; path: string; requested_at: string;
   finished_at?: string; methods_added: string[]; missing_methods: string[]; problems_added?: string[]; missing_problems?: string[]; problem_entry_points?: Record<string, string>; changes: { name: string; from: string; to: string | null }[]; error?: string; log_tail?: string;
+  /** Files generated from the charter that the coding agent changed (its objective and methods aside). */
+  changed_generated_files?: string[];
   /** What Balsamic bound after the install, and the proposals it left with why. */
   bindings?: { hypothesis_id: string; title?: string; method: string; task_id: string; binding_id: string }[]; skipped?: { hypothesis_id: string; reason: string }[];
   launched?: { hypothesis_id: string; seed: number; trial_id: string; task_id: string; consent_id: string }[] }
