@@ -43,6 +43,8 @@ test('status detects persisted login and logout without exposing credentials or 
   assert.equal(status.provider, 'openai-codex');
   assert.ok(status.models.some(m => m.id === 'gpt-6-astra' && m.provider === 'openai-codex'));
   assert.equal(status.providers['openai-codex'].billing, 'subscription');
+  // Each model lists the levels Pi's /thinking offers and the one a session runs at when none is chosen.
+  assert.ok(status.models.every(m => m.thinking_levels.includes(m.thinking_default)));
   assert.ok(!JSON.stringify(status).includes('secret'));
   fs.writeFileSync(authPath, '{}');
   assert.equal((await authStatus(authPath)).configured, false);
@@ -67,4 +69,20 @@ test('custom providers come from the profile\'s models.json, else the researcher
       assert.equal(modelsFile(), own);
     }
   } else assert.equal(modelsFile(), undefined);
+});
+
+test('a session runs at the chosen thinking level, else at the level Pi gives a new session, within what the model offers', async () => {
+  const {thinkingFor} = await import('../dist/runtime.js');
+  const settings = (byModel, fallback) => ({getModelThinkingLevel: () => byModel, getDefaultThinkingLevel: () => fallback});
+  // A catalogue entry that names only the levels above high (the researcher's gpt-6.1-sol): Pi offers every level up to max.
+  const sol = {provider: 'centinels', id: 'gpt-6.1-sol', reasoning: true, thinkingLevelMap: {xhigh: 'xhigh', max: 'max'}};
+  assert.equal(thinkingFor(settings(), sol, 'high'), 'high');
+  assert.equal(thinkingFor(settings(), sol, 'max'), 'max');
+  assert.equal(thinkingFor(settings(), sol, null), 'medium');           // Pi's own default, for new and resumed sessions alike
+  assert.equal(thinkingFor(settings(undefined, 'low'), sol), 'low');     // the settings' default
+  assert.equal(thinkingFor(settings('xhigh', 'low'), sol), 'xhigh');     // the settings' level for this model comes first
+  // A level the model refuses moves up to the next one it offers; a model without reasoning runs at off.
+  assert.equal(thinkingFor(settings(), {...sol, thinkingLevelMap: {...sol.thinkingLevelMap, minimal: null}}, 'minimal'), 'low');
+  assert.equal(thinkingFor(settings(), {...sol, thinkingLevelMap: {}}, 'max'), 'high');
+  assert.equal(thinkingFor(settings(), {provider: 'centinels', id: 'loki'}, 'high'), 'off');
 });

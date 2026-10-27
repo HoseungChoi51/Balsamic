@@ -80,6 +80,13 @@ def charged(store, campaign_id):
         return db.execute("SELECT COALESCE(SUM(charged_usd),0) FROM llm_usage WHERE campaign_id=?", (campaign_id,)).fetchone()[0]
 
 
+def last_thinking_levels(store, campaign_id):
+    """Each agent's thinking level at its latest call: what the chosen level came to on the model."""
+    with store.connection() as db:
+        return dict(db.execute("SELECT agent_id, thinking_level FROM llm_usage WHERE id IN "
+                               "(SELECT MAX(id) FROM llm_usage WHERE campaign_id=? GROUP BY agent_id)", (campaign_id,)).fetchall())
+
+
 BUCKETS = {"hour": "%Y-%m-%dT%H:00:00Z", "day": "%Y-%m-%dT00:00:00Z"}
 TOTALS = ("COUNT(*) AS calls, COALESCE(SUM(input),0) AS input, COALESCE(SUM(output),0) AS output, "
           "COALESCE(SUM(cache_read),0) AS cache_read, COALESCE(SUM(cache_write),0) AS cache_write, "

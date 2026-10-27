@@ -1,3 +1,4 @@
+import { clampThinkingLevel, getSupportedThinkingLevels } from '@earendil-works/pi-ai';
 import { createAgentSession, createExtensionRuntime, DefaultResourceLoader, ModelRuntime, SessionManager, SettingsManager } from '@earendil-works/pi-coding-agent';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -16,6 +17,22 @@ export const profile = process.env.GRATING_PI_PROFILE ? path.resolve(process.env
 export const BALSAMIC = 'balsamic';
 const OVERRIDES = {compaction: {enabled: true, reserveTokens: 16384, keepRecentTokens: 20000},
   retry: {enabled: true, maxRetries: 3, baseDelayMs: 2000}};
+// Pi's own level for a new session when its settings name none (DEFAULT_THINKING_LEVEL, not exported).
+const PI_DEFAULT_THINKING = 'medium';
+
+/**
+ * The thinking level a session runs at: the one Balsamic names, else what Pi gives a new session (the settings' level
+ * for the model, their default, then Pi's), clamped to the model's levels as Pi does. Every session, new or resumed, is
+ * given its level, so "default" is one level, not whatever a resumed session last recorded.
+ */
+export function thinkingFor(settings: any, model: any, effort?: string | null) {
+  return clampThinkingLevel(model, (effort || settings.getModelThinkingLevel(model.provider, model.id)
+    || settings.getDefaultThinkingLevel() || PI_DEFAULT_THINKING) as any);
+}
+
+function settingsFor(directory?: string) {
+  return profile ? SettingsManager.create(directory || profile, profile) : SettingsManager.inMemory(OVERRIDES);
+}
 
 /**
  * Custom providers (a LiteLLM proxy, a local server) come from a Pi models.json: the profile's own when it has one,
@@ -50,7 +67,7 @@ export async function createRuntime(options: any) {
   // Pi loads inline extensions after the files; the Balsamic extension's handlers must run first.
   const balsamicFirst = (result: any) => ({...result, extensions: [...result.extensions.filter((e: any) => e.path === `<inline:${BALSAMIC}>`),
     ...result.extensions.filter((e: any) => e.path !== `<inline:${BALSAMIC}>`)]});
-  const settingsManager: any = profile ? SettingsManager.create(options.directory, profile) : SettingsManager.inMemory(OVERRIDES);
+  const settingsManager: any = settingsFor(options.directory);
   if (profile) settingsManager.applyOverrides(OVERRIDES);
   let resourceLoader: any;
   if (host) {
@@ -76,7 +93,7 @@ export async function createRuntime(options: any) {
   }
   const extensionTools = curated.flatMap((e: any) => e.tools || []);
   const {session, modelFallbackMessage} = await createAgentSession({
-    cwd: options.directory, modelRuntime: runtime, model, thinkingLevel: options.effort,
+    cwd: options.directory, modelRuntime: runtime, model, thinkingLevel: thinkingFor(settingsManager, model, options.effort),
     resourceLoader, customTools: options.tools, sessionManager: manager, settingsManager,
     // Dev profiles may add extension tools; otherwise the gateway's tools and the role's allowlisted extension tools.
     ...(profile && host ? {noTools: 'builtin'} : {tools: [...options.tools.map((t: any) => t.name), ...extensionTools]}),
@@ -111,7 +128,8 @@ export async function applySpec(session: any, spec: any) {
     const auth = await session.modelRuntime.checkAuth(provider).catch(() => undefined);
     session.billing = auth?.type === 'oauth' ? 'subscription' : auth?.type === 'api_key' ? 'api' : 'unknown';
   }
-  if (spec.effort && session.thinkingLevel !== spec.effort) session.setThinkingLevel(spec.effort);
+  const level = thinkingFor(session.settingsManager, session.model, spec.effort);
+  if (session.thinkingLevel !== level) session.setThinkingLevel(level);
 }
 
 /**
@@ -126,24 +144,18 @@ export async function completeOnce(authPath: string, input: any, observe: (event
   if (!model) throw new Error(`Model unavailable: ${provider}/${input.model}`);
   const auth = await runtime.checkAuth(provider).catch(() => undefined);
   if (!auth) throw new Error(`No sign-in or key is configured for ${provider}`);
+  const level = thinkingFor(settingsFor(), model, input.effort);
   const stream = runtime.streamSimple(model, {systemPrompt: String(input.system || ''),
     messages: [{role: 'user', content: String(input.prompt || ''), timestamp: Date.now()}]},
-    {...(input.effort && input.effort !== 'off' ? {reasoning: input.effort} : {}), ...(input.max_tokens ? {maxTokens: input.max_tokens} : {}), signal} as any);
+    {...(level !== 'off' ? {reasoning: level} : {}), ...(input.max_tokens ? {maxTokens: input.max_tokens} : {}), signal} as any);
   for await (const event of stream) observe({type: 'message_update', assistantMessageEvent: event});
   const message: any = await stream.result();
   if (message.stopReason === 'error' || message.stopReason === 'aborted') throw new Error(message.errorMessage || 'Provider request failed');
   const usage: any = Object.fromEntries(['input', 'output', 'cacheRead', 'cacheWrite', 'reasoning', 'totalTokens'].map(key => [key, message.usage?.[key] || 0]));
   usage.cost_usd = message.usage?.cost?.total || 0;
   return {text: message.content.filter((part: any) => part.type === 'text').map((part: any) => part.text).join('\n'), usage,
-    stop_reason: message.stopReason, provider: message.provider || provider, model: message.model || input.model, thinking_level: input.effort || null,
+    stop_reason: message.stopReason, provider: message.provider || provider, model: message.model || input.model, thinking_level: level,
     billing: auth.type === 'oauth' ? 'subscription' : auth.type === 'api_key' ? 'api' : 'unknown', occurred_at: new Date().toISOString()};
-}
-
-function levels(model: any) {
-  if (!model.reasoning) return ['off'];
-  const map = model.thinkingLevelMap;
-  const all = ['off', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max'];
-  return map ? ['off', ...all.slice(1).filter(level => map[level] !== undefined && map[level] !== null)] : all;
 }
 
 export async function authStatus(authPath: string) {
@@ -156,12 +168,14 @@ export async function authStatus(authPath: string) {
     const auth = await runtime.checkAuth(id).catch(() => undefined);
     if (auth) providers[id] = {auth: auth.type, billing: auth.type === 'oauth' ? 'subscription' : 'api'};
   }
+  // The levels Pi's /thinking offers for each model, and the one a session runs at when none is chosen.
+  const settings = settingsFor();
   const models = Object.keys(providers).flatMap(id => runtime.getModels(id).map((m: any) => ({
-    provider: id, id: m.id, name: m.name, reasoning: Boolean(m.reasoning), thinking_levels: levels(m),
+    provider: id, id: m.id, name: m.name, reasoning: Boolean(m.reasoning), thinking_levels: getSupportedThinkingLevels(m),
+    thinking_default: thinkingFor(settings, m),
     context_window: m.contextWindow, max_tokens: m.maxTokens, cost: m.cost})));
   let defaults: any = {provider: LOCKED_PROVIDER, model: null, effort: null};
   if (profile) {
-    const settings = SettingsManager.create(profile, profile);
     defaults = {provider: settings.getDefaultProvider() || null, model: settings.getDefaultModel() || null,
       effort: settings.getDefaultThinkingLevel() || null};
   }

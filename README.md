@@ -230,6 +230,10 @@ paid fallback.
    labels strategies for the lineage graph and writes branch summaries on the lightest tier) is assigned a tier. Saving applies to running
    agents within their campaign's model family; others switch at their next campaign. The page also says which
    providers are signed in; "… is not available from a signed-in Pi provider" means step 1 is missing.
+   The thinking levels are the ones Pi's `/thinking` offers for the model (its `reasoning` and `thinkingLevelMap` in
+   `models.json`: a level mapped to `null` is not offered). "default" runs at the level Pi gives a new session (the profile's
+   `defaultThinkingLevel`, else `medium`), for new and resumed sessions alike; the level an agent's latest call ran at is
+   on Monitor → Model usage.
 
 Model spend per call, agent and model is on **Monitor → Model usage**; API-billed calls count against the campaign's
 model budget, subscription calls do not. Details: [docs/pi-agent-harness.md](docs/pi-agent-harness.md).

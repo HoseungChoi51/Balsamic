@@ -182,8 +182,10 @@ def install(app, workspace):
         summary["budget"] = {"cap_usd": campaign.get("llm_budget_usd"), "agent_charged_usd": agent_charged,
             "implementation_committed_usd": implementation, "spent_usd": agent_charged + implementation}
         summary["family"] = config.get("llm_family")
+        ran = usage.last_thinking_levels(workspace.store, campaign_id)
         summary["agents"] = {a["id"]: {"role": a["role"], "status": a["status"], "provider": a.get("provider"),
-            "model": a["model"], "effort": a.get("reasoning_effort")} for a in workspace.store.list("agent_session", campaign_id)}
+            "model": a["model"], "effort": a.get("reasoning_effort"), "last_thinking": ran.get(a["id"])}
+            for a in workspace.store.list("agent_session", campaign_id)}
         return summary
 
     @app.get("/api/v1/campaigns/{campaign_id}/agents/records/{record_id}")

@@ -29,7 +29,7 @@ const ROLE_INFO: Record<string, { label: string; does: string; direct?: boolean 
 };
 const info = (role: string) => ROLE_INFO[role] || { label: role.replaceAll('_', ' '), does: '' };
 interface View { mode: 'dev' | 'locked'; revision: number; saved: boolean; tiers: Tier[]; roles: Record<string, string>; assignable: string[]; providers: Record<string, { auth?: string; billing?: string }>; housekeeping?: { enabled: boolean; model: { provider: string; model: string } | null; waiting: number; last_error: { text: string | null; at: string | null } };
-  models: { provider: string; id: string; name?: string; reasoning?: boolean; thinking_levels?: string[]; family?: string }[]; updated_at?: string | null }
+  models: { provider: string; id: string; name?: string; reasoning?: boolean; thinking_levels?: string[]; thinking_default?: string; family?: string }[]; updated_at?: string | null }
 
 export function ModelTiers() {
   const view = useRead<View>(['model-tiers'], '/api/v1/model-tiers', { staleTime: 5000 });
@@ -46,7 +46,9 @@ export function ModelTiers() {
   const models = data.models;
   const signedIn = Object.keys(data.providers);
   const key = (m: ModelChoice) => `${m.provider || ''}/${m.model || ''}`;
-  const levels = (m: ModelChoice) => models.find(x => x.provider === m.provider && x.id === m.model)?.thinking_levels || ['off', 'low', 'medium', 'high'];
+  const find = (m: ModelChoice) => models.find(x => x.provider === m.provider && x.id === m.model);
+  // The levels Pi's /thinking offers for the model; "default" is the level a session runs at when none is chosen.
+  const levels = (m: ModelChoice) => find(m)?.thinking_levels || ['off', 'low', 'medium', 'high'];
   const setTier = (i: number, patch: Partial<Tier> | { model: ModelChoice }) => { setTiers(ts => ts.map((t, j) => j === i ? { ...t, ...patch } : t)); setDirty(true); };
   const save = async () => {
     setError(null); setSaved(null);
@@ -69,10 +71,10 @@ export function ModelTiers() {
           <table><thead><tr><th>Tier</th><th>Model</th><th>Thinking</th><th></th></tr></thead><tbody>
             {tiers.map((tier, i) => <tr key={tier.id} data-testid="tier-row">
               <td><input value={tier.label} onChange={e => setTier(i, { label: e.target.value })} aria-label={`label of ${tier.id}`} style={{ width: 140 }} /><div className="faint mono small">{tier.id}</div></td>
-              <td><select value={key(tier.model)} aria-label={`model of ${tier.id}`} onChange={e => { const [provider, ...rest] = e.target.value.split('/'); const chosen = models.find(m => m.provider === provider && m.id === rest.join('/')); setTier(i, { model: { provider: provider || null, model: rest.join('/') || null, effort: chosen?.reasoning ? (tier.model.effort && chosen.thinking_levels?.includes(tier.model.effort) ? tier.model.effort : chosen.thinking_levels?.[1] || null) : null } }); }}>
+              <td><select value={key(tier.model)} aria-label={`model of ${tier.id}`} onChange={e => { const [provider, ...rest] = e.target.value.split('/'); const chosen = models.find(m => m.provider === provider && m.id === rest.join('/')); setTier(i, { model: { provider: provider || null, model: rest.join('/') || null, effort: tier.model.effort && chosen?.thinking_levels?.includes(tier.model.effort) ? tier.model.effort : null } }); }}>
                 <option value="/">— no model —</option>{models.map(m => <option key={`${m.provider}/${m.id}`} value={`${m.provider}/${m.id}`}>{m.provider} / {m.id}</option>)}
                 {tier.model.model && !models.some(m => m.provider === tier.model.provider && m.id === tier.model.model) ? <option value={key(tier.model)}>{key(tier.model)} (not available now)</option> : null}</select></td>
-              <td><select value={tier.model.effort || ''} aria-label={`thinking of ${tier.id}`} onChange={e => setTier(i, { model: { ...tier.model, effort: e.target.value || null } })}><option value="">default</option>{levels(tier.model).map(l => <option key={l} value={l}>{l}</option>)}</select></td>
+              <td><select value={tier.model.effort || ''} aria-label={`thinking of ${tier.id}`} onChange={e => setTier(i, { model: { ...tier.model, effort: e.target.value || null } })}><option value="">{find(tier.model)?.thinking_default ? `default (${find(tier.model)?.thinking_default})` : 'default'}</option>{levels(tier.model).map(l => <option key={l} value={l}>{l}</option>)}</select></td>
               <td>{tiers.length > 1 ? <button className="btn quiet small" onClick={() => { setTiers(ts => ts.filter((_, j) => j !== i)); setRoles(r => Object.fromEntries(Object.entries(r).filter(([, t]) => t !== tier.id))); setDirty(true); }}>remove</button> : null}</td>
             </tr>)}</tbody></table>
           <button className="btn small" style={{ marginTop: 6 }} onClick={() => { const id = `tier-${tiers.length + 1}`; setTiers(ts => [...ts, { id, label: 'New tier', model: { provider: models[0]?.provider || null, model: models[0]?.id || null, effort: null } }]); setDirty(true); }}>Add a tier</button>
@@ -87,7 +89,7 @@ export function ModelTiers() {
                   <option value="">(default tier)</option>{tiers.map(t => <option key={t.id} value={t.id}>{t.label} · {key(t.model)}</option>)}</select></td></tr>)}</tbody></table>
           </div>)}
           {error ? <div className="pill bad">{error}</div> : null}{saved ? <div className="pill clear">{saved}</div> : null}
-          <p className="why">A running agent switches only within its campaign's model family; others keep their model until their campaign ends. The formulator keeps its model for the lifetime of a charter: a change here reaches the next charter, not the one being written. The setup assistant uses the lead's tier. The housekeeper is not an agent: it names branches, labels strategies and writes branch summaries in one-shot calls.</p>
+          <p className="why">Thinking is the reasoning effort, as Pi's <code>/thinking</code> offers it for the model; a level the model refuses can be marked <code>null</code> in its <code>thinkingLevelMap</code> in <code>models.json</code>. A running agent switches only within its campaign's model family; others keep their model until their campaign ends. The formulator keeps its model for the lifetime of a charter: a change here reaches the next charter, not the one being written. The setup assistant uses the lead's tier. The housekeeper is not an agent: it names branches, labels strategies and writes branch summaries in one-shot calls.</p>
           {data.housekeeping ? <div className="row wrap small" data-testid="housekeeping-status">
             <Pill tone={data.housekeeping.last_error?.text ? 'bad' : data.housekeeping.enabled ? 'clear' : ''}>housekeeper {data.housekeeping.model ? key(data.housekeeping.model) : 'no model'}</Pill>
             <span className="faint">{data.housekeeping.waiting} job{data.housekeeping.waiting === 1 ? '' : 's'} waiting</span>

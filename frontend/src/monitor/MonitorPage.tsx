@@ -105,7 +105,8 @@ function Usage({ campaignId }: { campaignId: string }) {
         <div className="grow"><Section title="By agent"><Bars rows={byAgent} format={fmt} label="spend by agent" /></Section></div>
         <div className="grow"><Section title="By model"><Bars rows={byModel} format={fmt} tone="accent" label="spend by model" /></Section></div>
       </div>
-      {Object.keys(agents).length ? <Section title="Agents"><table><thead><tr><th>Agent</th><th>Role</th><th>Status</th><th>Model</th></tr></thead><tbody>{Object.entries(agents).map(([id, a]) => <tr key={id}><td className="mono small">{id}</td><td>{String(a.role)}</td><td><Pill tone={statusTone(String(a.status))}>{String(a.status)}</Pill></td><td>{String(a.provider || '')}/{String(a.model)} {a.effort ? `(${a.effort})` : ''}</td></tr>)}</tbody></table></Section> : null}
+      {Object.keys(agents).length ? <Section title="Agents"><table><thead><tr><th>Agent</th><th>Role</th><th>Status</th><th>Model</th><th>Thinking</th></tr></thead><tbody>{Object.entries(agents).map(([id, a]) => <tr key={id} data-testid="usage-agent"><td className="mono small">{id}</td><td>{String(a.role)}</td><td><Pill tone={statusTone(String(a.status))}>{String(a.status)}</Pill></td><td>{String(a.provider || '')}/{String(a.model)}</td>
+        <td>{a.effort ? String(a.effort) : 'default'}{a.last_thinking ? <span className="faint"> · last call {String(a.last_thinking)}</span> : null}</td></tr>)}</tbody></table></Section> : null}
       <details className="card"><summary>Raw usage</summary><pre>{JSON.stringify(usage.data, null, 1).slice(0, 6000)}</pre></details>
     </>
   );

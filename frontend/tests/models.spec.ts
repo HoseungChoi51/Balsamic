@@ -13,6 +13,9 @@ test('the Models page assigns a tier per role and a model per tier, saved with t
   await expect(page.getByTestId('roles-behind').locator('[data-role="proposal_reviewer"]')).toContainText('Proposal reviewer');
   await page.getByLabel('tier of proposal_reviewer').selectOption('fast');
   await page.getByLabel('model of fast').selectOption('deepseek/deepseek-v4-pro');
+  // The thinking levels are the model's, as Pi's /thinking offers them; "default" names the level it comes to.
+  await expect(page.getByLabel('thinking of fast')).toHaveValue('');
+  await expect(page.getByLabel('thinking of fast').locator('option')).toHaveText(['default (medium)', 'off', 'low', 'medium', 'high']);
   await page.getByLabel('thinking of fast').selectOption('low');
   await page.getByTestId('save-tiers').click();
   await expect.poll(() => recorded.commands.length).toBe(1);

@@ -104,6 +104,7 @@ def test_calls_are_recorded_once_and_only_api_billing_is_charged(tmp_path, monke
     assert summary["totals"]["cost_usd"] == pytest.approx(0.75) and summary["totals"]["charged_usd"] == pytest.approx(0.25)
     assert {row["billing"] for row in summary["by_model"]} == {"api", "subscription"}
     assert summary["by_agent"][0]["agent_id"] == lead["id"] and len(summary["series"]) == 1
+    assert usage.last_thinking_levels(workspace.store, record["id"]) == {lead["id"]: "high"}   # the level the latest call ran at
     saved = workspace.store.get(lead["id"], "agent_session")["usage"]
     assert saved["calls"] == 2 and saved["charged_usd"] == pytest.approx(0.25)
 
