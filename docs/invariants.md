@@ -6,7 +6,7 @@ of `docs/lead-agent-readiness.md`. `tests/test_invariants.py` reads the table be
 
 | Column | Meaning |
 |---|---|
-| ID | `INV-` and a number. Numbers are not reused; a guarantee that no longer applies is removed, its number kept free |
+| ID | `INV-` and a number (`INV-01` to `INV-32`), or `INV-<part>-<n>` for a row added from 27 October 2026. Ids are not reused; a guarantee that no longer applies is removed, its id kept free |
 | Guarantee | What holds, in one sentence |
 | State | `code`: enforced by code and pinned by a test. `prompt`: rests on instructions and the model following them, pinned by an eval scenario. `none`: nothing holds it |
 | Where | The function or file that enforces it (`campaigns/compute_consent.py` `register()`). A path without a top folder is under `src/optimization_framework/`, as in the roadmap |
@@ -18,6 +18,9 @@ A row is `code` only when a test fails if the guarantee breaks. Code that enforc
 same PR, with the test that now pins it (roadmap README §0.11).
 
 ## Register
+
+Rows added from 27 October 2026 take an id keyed by the part that adds them, `INV-<part>-<n>` (e.g. `INV-B3-1`), so
+parallel parts never take the same id. INV-01 to INV-32 keep their numbers.
 
 | ID | Guarantee | State | Where | Pinned by | Closed by |
 |---|---|---|---|---|---|
