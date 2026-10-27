@@ -31,6 +31,7 @@ export function HypothesisCard({ id, thread, back, onDiscuss }: { id: string; th
         ['Parents', parents.length ? parents.map(p => <a key={p.id} href={formatHash({ page: 'hypotheses', id: p.id, sel: p.id }, thread)}>{p.title} </a>) : 'root'],
         ['Children', children.length ? children.map(c => <a key={c.id} href={formatHash({ page: 'hypotheses', id: c.id, sel: c.id }, thread)}>{c.title} </a>) : 'none'],
         ['Best (measured)', row ? num(row.best.score, 5) : 'unknown'], ['Worker time', row ? <>{duration(row.worker_seconds)} of {duration(row.allotted_seconds)}</> : 'unknown'],
+        ['Review', <Approval h={h} thread={thread} review={row?.review} />],
         ['Implementation', implementation.runnable ? 'runnable' : `not runnable: ${implementation.reason || implementation.state || 'unknown'}`],
         ['Race', race_cells ? `${race_cells.race_id} · ${race_cells.configuration_id} · ${race_cells.status}${race_cells.latest_decision ? ` · last: ${race_cells.latest_decision.action}` : ''}` : 'not in a race'],
         ['Confirmation', row?.confirmation ? `${row.confirmation.status}${row.confirmation.promising != null ? (row.confirmation.promising ? ', promising' : ', not promising') : ''}` : 'none']]} />
@@ -49,3 +50,14 @@ export function HypothesisCard({ id, thread, back, onDiscuss }: { id: string; th
 }
 
 export function Section_({ title, children }: { title: string; children: React.ReactNode }) { return <Section title={title}>{children}</Section>; }
+
+/** Why the proposal needs no concept review: the researcher's message that asked for it, the go-ahead of a plan that named it, or both. */
+function Approval({ h, thread, review }: { h: Record<string, unknown>; thread: string | null; review?: { readiness: { state: string } } }) {
+  const asked = h.requested_by as { thread_id: string; message_id: string } | undefined;
+  const approved = h.approved_by as { decision_id: string } | undefined;
+  if (!asked && !approved) return <>{review ? review.readiness.state.replaceAll('_', ' ') : 'not required'}</>;
+  return <span className="row wrap" style={{ gap: 6 }}>
+    {asked ? <span data-testid="asked-for"><Pill tone="clear">asked for</Pill> <a href={formatHash({ page: 'chat', sel: asked.message_id }, asked.thread_id)}>your message</a></span> : null}
+    {approved ? <span data-testid="approved"><Pill tone="clear">approved</Pill> <a href={formatHash({ page: 'inbox', id: approved.decision_id }, thread)}>your go-ahead</a></span> : null}
+    <span className="faint small">no concept review needed</span></span>;
+}

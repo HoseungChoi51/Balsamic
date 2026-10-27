@@ -12,6 +12,9 @@ REGISTER = ROOT / "docs" / "invariants.md"
 SCENARIOS = ROOT / "evals" / "lead" / "scenarios"
 COLUMNS = ["ID", "Guarantee", "State", "Where", "Pinned by", "Closed by"]
 STATES = {"code", "prompt", "none"}
+# INV-01 to INV-32 keep their numbers; a row added later is keyed by its part (INV-B3-1), so parallel parts never collide.
+ID = re.compile(r"INV-(\d{2,}|[A-Z]\d+-\d+)")
+LAST_NUMBERED = 32
 
 
 def cells(line):
@@ -61,6 +64,11 @@ def problems(text, root=ROOT, scenarios=SCENARIOS):
         if identity in seen:
             found.append(f"{identity}: the id repeats")
         seen.add(identity)
+        form = ID.fullmatch(identity)
+        if not form:
+            found.append(f"{identity}: an id is INV-<number> or INV-<part>-<n>")
+        elif form.group(1).isdigit() and int(form.group(1)) > LAST_NUMBERED:
+            found.append(f"{identity}: a new row takes an id keyed by its part, INV-<part>-<n>")
         state = row["State"]
         if state not in STATES:
             found.append(f"{identity}: state {state!r} is not one of code, prompt, none")
@@ -107,23 +115,26 @@ def test_the_register_holds_the_seeded_guarantees():
 
 HEADER = "| ID | Guarantee | State | Where | Pinned by | Closed by |\n|---|---|---|---|---|---|\n"
 GOOD = {
-    "code": "| X-1 | Holds | code | `a.py` `f()` | `tests/test_invariants.py::test_the_register_holds` | |",
-    "method": "| X-2 | Holds | code | `a.py` | `tests/fixture_pins.py::TestHeld::test_method` | |",
-    "prompt": "| X-3 | Asked | prompt | instructions | `S3-narrow-request` | R3 |",
-    "none": "| X-4 | Hoped | none | | | V1 |",
+    "code": "| INV-X1-1 | Holds | code | `a.py` `f()` | `tests/test_invariants.py::test_the_register_holds` | |",
+    "method": "| INV-X1-2 | Holds | code | `a.py` | `tests/fixture_pins.py::TestHeld::test_method` | |",
+    "prompt": "| INV-X1-3 | Asked | prompt | instructions | `S3-narrow-request` | R3 |",
+    "none": "| INV-X1-4 | Hoped | none | | | V1 |",
+    "numbered": "| INV-05 | Held before the keyed ids | none | | | |",
 }
 BROKEN = {
-    "a code row without a test": ("| Y-1 | Holds | code | `a.py` | | |", "names no pinning test"),
-    "a code row pinned only by a scenario": ("| Y-1 | Holds | code | `a.py` | `S3-narrow-request` | |", "names no pinning test"),
-    "a test file that does not exist": ("| Y-1 | Holds | code | `a.py` | `tests/test_gone.py::test_x` | |", "tests/test_gone.py does not exist"),
-    "a test the file does not define": ("| Y-1 | Holds | code | `a.py` | `tests/test_invariants.py::test_gone` | |", "defines no test_gone"),
-    "a method its class does not define": ("| Y-1 | Holds | code | `a.py` | `tests/fixture_pins.py::TestHeld::test_gone` | |", "defines no TestHeld::test_gone"),
-    "a method named as a function": ("| Y-1 | Holds | code | `a.py` | `tests/fixture_pins.py::test_method` | |", "defines no test_method"),
-    "a prompt row without a scenario": ("| Y-1 | Asked | prompt | instructions | | |", "names no eval scenario"),
-    "a scenario that does not exist": ("| Y-1 | Asked | prompt | instructions | `S99-gone` | |", "no eval scenario S99-gone"),
-    "a repeated id": ("| X-1 | Again | none | | | |", "X-1: the id repeats"),
-    "an unknown state": ("| Y-1 | Holds | enforced | `a.py` | `tests/test_invariants.py::test_the_register_holds` | |", "state 'enforced'"),
-    "a row with a missing cell": ("| Y-1 | Holds | code | `tests/test_invariants.py::test_the_register_holds` | |", "5 cells"),
+    "a code row without a test": ("| INV-Y1-1 | Holds | code | `a.py` | | |", "names no pinning test"),
+    "a code row pinned only by a scenario": ("| INV-Y1-1 | Holds | code | `a.py` | `S3-narrow-request` | |", "names no pinning test"),
+    "a test file that does not exist": ("| INV-Y1-1 | Holds | code | `a.py` | `tests/test_gone.py::test_x` | |", "tests/test_gone.py does not exist"),
+    "a test the file does not define": ("| INV-Y1-1 | Holds | code | `a.py` | `tests/test_invariants.py::test_gone` | |", "defines no test_gone"),
+    "a method its class does not define": ("| INV-Y1-1 | Holds | code | `a.py` | `tests/fixture_pins.py::TestHeld::test_gone` | |", "defines no TestHeld::test_gone"),
+    "a method named as a function": ("| INV-Y1-1 | Holds | code | `a.py` | `tests/fixture_pins.py::test_method` | |", "defines no test_method"),
+    "a prompt row without a scenario": ("| INV-Y1-1 | Asked | prompt | instructions | | |", "names no eval scenario"),
+    "a scenario that does not exist": ("| INV-Y1-1 | Asked | prompt | instructions | `S99-gone` | |", "no eval scenario S99-gone"),
+    "a repeated id": ("| INV-X1-1 | Again | none | | | |", "INV-X1-1: the id repeats"),
+    "an unknown state": ("| INV-Y1-1 | Holds | enforced | `a.py` | `tests/test_invariants.py::test_the_register_holds` | |", "state 'enforced'"),
+    "a numbered id past the last numbered row": ("| INV-33 | Holds | none | | | |", "INV-33: a new row takes an id keyed by its part"),
+    "an id of another form": ("| B3-1 | Holds | none | | | |", "B3-1: an id is INV-<number> or INV-<part>-<n>"),
+    "a row with a missing cell": ("| INV-Y1-1 | Holds | code | `tests/test_invariants.py::test_the_register_holds` | |", "5 cells"),
 }
 
 
@@ -148,5 +159,5 @@ def test_each_broken_fixture_table_fails(fixture_root, case):
 
 def test_a_page_without_the_register_table_fails():
     with pytest.raises(ValueError, match="No table"):
-        problems("| ID | Guarantee |\n|---|---|\n| X-1 | Holds |\n")
+        problems("| ID | Guarantee |\n|---|---|\n| INV-X1-1 | Holds |\n")
     assert problems(HEADER) == ["The register has no rows"]
