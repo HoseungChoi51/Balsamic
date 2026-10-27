@@ -667,7 +667,7 @@ class DevelopmentWorkspaces:
                 saved = self.store.put("development_submission", submission, "development.submitted")
                 verdict = f" The coding agent's verdict: {report['verdict'].replace('_', ' ')}; next: " + ("; ".join(
                     f"{a['owner']}: {a['action']}" for a in report["next_actions"]) or "nothing named") + "." if report else " It sent no delivery report."
-                self.notify(record, identity, f"Commit {submission['commit']} submitted as {identity}.{verdict} Review its manifest and commission independent validation using implementation_workspace_validate within the remaining implementation allocation.", "submissions")
+                self.notify(record, identity, f"Commit {submission['commit']} submitted as {identity}.{verdict} Review its manifest and commission independent validation using implementation_workspace_validate under the compute go-ahead.", "submissions")
             self.event(record, key, "submission", {"submission_id": identity, "commit": payload["commit"]})
         atomic_json(self.driver.root(record) / "incoming/results" / (key + ".json"), {"submission_id": saved["id"], "status": saved["status"]})
 

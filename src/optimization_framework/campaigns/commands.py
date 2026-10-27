@@ -697,6 +697,9 @@ class CommandService:
             request, planned, root = {"kind": values.kind}, None, None
             if values.kind == "campaign_limits":
                 CampaignUpdate(**values.limits)
+                ceiling, asked = campaign.get("implementation_compute_budget_seconds") or 0, values.limits.get("implementation_compute_budget_seconds")
+                if asked is not None and asked != ceiling and not 0 < asked < ceiling:
+                    raise ValueError("Ask for a compute go-ahead (kind compute) instead; the implementation allocation is only an optional ceiling")
                 changes = {key: value for key, value in values.limits.items() if campaign.get(key) != value}
                 if not changes:
                     raise ValueError("The campaign already has these limits")
