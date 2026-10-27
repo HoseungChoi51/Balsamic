@@ -4,6 +4,7 @@ Stages: proposed → reviewed → screening (short runs) → extended (long runs
 Stopped is a decision with a reason, never a failure. Unknown values stay None.
 """
 from optimization_framework.campaigns.experiment_rules import check_trial_ids, classify, current as experiment_rules
+from optimization_framework.campaigns.hypotheses import stop_of
 from optimization_framework.campaigns.proposals import readiness
 
 RACE_ACTIVE = {"preflight", "running", "paused"}
@@ -125,7 +126,8 @@ def rows(workspace, campaign_id, *, with_curves=False):
                "race": race, "review": review, "implementation_readiness": workspace.implementations.readiness(hypothesis),
                "trial_ids": [t["id"] for t in own], "live_trials": sum(1 for t in own if t.get("status") in {"queued", "running", "pausing", "stopping"}),
                "finalist": finalist or hypothesis.get("status") == "finalist", "confirmation": confirmation,
-               "stop_reason": hypothesis.get("stop_reason"), "stopped_at": hypothesis.get("stopped_at"), "created_at": hypothesis.get("created_at")}
+               "stop_reason": hypothesis.get("stop_reason"), "stopped_at": hypothesis.get("stopped_at"), "stop": stop_of(hypothesis),
+               "created_at": hypothesis.get("created_at")}
         row["stage"] = stage_of(hypothesis, own, kinds, race, finalist, confirmation, review)
         if with_curves and best_trial:
             row["curve"] = curve(workspace, best_trial["id"])

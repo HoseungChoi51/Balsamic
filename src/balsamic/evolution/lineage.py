@@ -52,4 +52,5 @@ def layout(rows):
     for root in sorted(roots, key=lambda r: (by_id[r].get("created_at") or "", r)):
         visit(root)
     return [{"id": row["id"], "round": rounds[row["id"]], "lane": lane.get(row["id"], 0), "stage": row["stage"], "label": row.get("label"), "title": row["title"], "short_title": row.get("short_title"),
-             "autonomous": row.get("autonomous", False), "stop_reason": row.get("stop_reason")} for row in rows], max(rounds.values(), default=0)
+             "autonomous": row.get("autonomous", False), "stop_reason": row.get("stop_reason"),
+             "stop_label": (row.get("stop") or {}).get("label")} for row in rows], max(rounds.values(), default=0)

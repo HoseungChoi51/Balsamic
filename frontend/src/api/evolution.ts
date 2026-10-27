@@ -1,11 +1,12 @@
+export interface StopRecord { outcome: string; words: string; label: string; evidence_ids: string[]; reason: string | null; by: string | null; at: string | null }
 export interface ParentLink { id: string; kind: 'revision' | 'variant' | 'hybrid' | 'inspired_by' }
 export interface LedgerRow { id: string; label: string | null; title: string; short_title?: string | null; status: string; origin?: string; actor?: string | null; autonomous: boolean; round: number | null; parent_links: ParentLink[];
   algorithm?: string; worker_seconds: number; allotted_seconds: number; evaluations: number | null; best: { score: number | null; basis: string | null; source: string | null; trial_id: string | null; interval: unknown };
   highest_rung_seconds: number | null; race: { race_id: string; configuration_id: string; status: string; race_status: string; highest_rung_seconds?: number | null; mean_score?: number | null; seeds?: number; latest_decision: { action: string; rationale: string; at: string } | null } | null;
   review: { verdict: string | null; count: number; readiness: { state: string; eligible: boolean; reason?: string } }; implementation_readiness: { state?: string; runnable: boolean; reason?: string };
-  trial_ids: string[]; live_trials: number; finalist: boolean; confirmation: { protocol_id: string; status: string; promising: boolean | null; seeds_won?: number } | null; stop_reason: string | null; stopped_at?: string | null;
+  trial_ids: string[]; live_trials: number; finalist: boolean; confirmation: { protocol_id: string; status: string; promising: boolean | null; seeds_won?: number } | null; stop_reason: string | null; stopped_at?: string | null; stop?: StopRecord | null;
   created_at?: string; stage: 'proposed' | 'reviewed' | 'screening' | 'extended' | 'finalist' | 'confirmed' | 'stopped'; curve?: { x: number; y: number; t?: number }[] }
-export interface LayoutNode { id: string; round: number; lane: number; stage: LedgerRow['stage']; label: string | null; title: string; short_title?: string | null; autonomous: boolean; stop_reason: string | null }
+export interface LayoutNode { id: string; round: number; lane: number; stage: LedgerRow['stage']; label: string | null; title: string; short_title?: string | null; autonomous: boolean; stop_reason: string | null; stop_label?: string | null }
 export interface Edge { from: string; to: string; kind: ParentLink['kind']; external: boolean }
 export interface RaceView { id: string; study_id: string; status: string; stage?: string; started_at?: number; deadline_at?: number; elapsed_seconds?: number; total_seconds?: number; running_workers?: number;
   worker_seconds_spent?: number; worker_seconds_cap?: number; configurations: { id: string; algorithm: string; status: string; mean_score: number | null; sample_standard_deviation?: number | null; seeds: number; rung_seconds: number; maturity: { eligible: boolean; reasons: string[] }; trial_ids: string[] }[];

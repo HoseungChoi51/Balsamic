@@ -9,6 +9,9 @@ test('the frontier table shows stages honestly and sends a batched stop with its
   await expect(table.locator('tr[data-record-id="hypothesis_c"]')).toContainText('stopped');
   await expect(table.locator('tr[data-record-id="hypothesis_c"]')).toHaveAttribute('data-stage', 'stopped');
   await expect(table.locator('tr[data-record-id="hypothesis_c"]')).toContainText('autopilot');
+  // The stop's outcome reads in words, before its free-text reason.
+  await expect(table.locator('tr[data-record-id="hypothesis_c"]').getByTestId('stop-outcome')).toHaveText('adequately assessed, deprioritized');
+  await expect(table.locator('tr[data-record-id="hypothesis_c"] [title^="stopped: adequately assessed, deprioritized"]')).toHaveCount(1);
   await expect(page.getByTestId('page-evolution')).toContainText('best so far 0.5200');
   await table.locator('tr[data-record-id="hypothesis_a"] input[type=checkbox]').check();
   await table.locator('tr[data-record-id="hypothesis_b"] input[type=checkbox]').check();
@@ -35,6 +38,7 @@ test('the lineage tree draws rounds as columns with typed edges; a node opens it
   await expect(legend.locator('svg path')).toHaveCount(4);
   await expect(legend).not.toContainText('Solid:');
   await expect(lineage.locator('g[data-record-id="hypothesis_c"]')).toHaveAttribute('data-stage', 'stopped');
+  await expect(lineage.locator('g[data-record-id="hypothesis_c"] title')).toContainText('stopped: adequately assessed, deprioritized: worse than the baseline');
   await lineage.locator('g[data-record-id="hypothesis_b"]').dblclick();
   await expect(page).toHaveURL(new RegExp(`#t/${THREAD_ID}/hypotheses/hypothesis_b`));
   const card = page.getByTestId('hypothesis-card');

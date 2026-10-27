@@ -163,12 +163,32 @@ class HypothesisReviewInput(ReviewInput):
     hypothesis_id: str
 
 
+StopOutcome = Literal["implementation_invalid", "assumptions_incompatible", "configuration_unpromising", "under_evaluated",
+                      "unaffordable_within_allocation", "adequately_assessed_deprioritized"]
+STOP_OUTCOMES = StopOutcome.__args__
+# The words a page shows for a stop. researcher_decision: the researcher stopped without an outcome; unspecified: stopped before outcomes existed.
+STOP_WORDS = {"implementation_invalid": "implementation invalid", "assumptions_incompatible": "assumptions incompatible",
+              "configuration_unpromising": "configuration unpromising", "under_evaluated": "under-evaluated",
+              "unaffordable_within_allocation": "unaffordable within the allocation",
+              "adequately_assessed_deprioritized": "adequately assessed, deprioritized",
+              "researcher_decision": "researcher's decision", "unspecified": "no outcome recorded"}
+
+
 class HypothesisStatusInput(Contract):
     hypothesis_id: str
     status: Literal["proposed", "investigating", "archived", "finalist"]
     expected_status_revision: int = Field(ge=0)
     # Why a strategy is stopped (archived): shown on the graph; stopped never reads as failed.
     stop_reason: str | None = Field(default=None, max_length=2000)
+    outcome: StopOutcome | None = Field(default=None, description="archived: what the stop concludes. An agent's stop needs one, with evidence_ids")
+    evidence_ids: list[str] = Field(default_factory=list, max_length=50, description="archived: the campaign's records the stop rests on "
+        "(trials, comparisons, validation results, reviews)")
+
+    @model_validator(mode="after")
+    def stop_fields_only_on_stop(self):
+        if self.status != "archived" and (self.outcome or self.evidence_ids):
+            raise ValueError("A stop outcome and its evidence go with status archived only")
+        return self
 
 
 class HypothesisNominateInput(Contract):

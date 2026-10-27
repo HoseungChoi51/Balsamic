@@ -47,7 +47,7 @@ export default function HypothesesPage({ campaignId, route, threadId }: PageProp
           <article key={h.id} className={'card' + (selection.id === h.id ? ' selected' : '')} data-record-id={h.id} data-testid="hypothesis" style={{ cursor: 'pointer' }}
             onClick={() => { selection.select(h.id); navigate(formatHash({ page: 'hypotheses', id: h.id, sel: h.id }, route.thread)); }}>
             <div className="row wrap"><Pill>{labels[h.id] || h.id.slice(0, 14)}</Pill><strong className="grow">{h.title}{h.short_title ? <span className="faint small" style={{ marginLeft: 8, fontWeight: 400 }}>{h.short_title}</span> : null}</strong>
-              {node ? <Pill tone={STAGE_TONE[node.stage]} title={node.stop_reason || node.stage}>{node.stage}</Pill> : <Pill tone={statusTone(h.status)}>{h.status}</Pill>}
+              {node ? <Pill tone={STAGE_TONE[node.stage]} title={node.stop ? `${node.stop.label}${node.stop_reason ? ': ' + node.stop_reason : ''}` : node.stage}>{node.stage}</Pill> : <Pill tone={statusTone(h.status)}>{h.status}</Pill>}
               {h.readiness ? <Pill tone={h.readiness.eligible ? 'clear' : 'attention'} title={h.readiness.reason}>{h.requested_by ? 'asked for' : h.approved_by ? 'approved' : h.readiness.state.replaceAll('_', ' ')}</Pill> : null}
               {node?.autonomous ? <Pill tone="agent">autopilot</Pill> : null}</div>
             <Markdown text={clip(dollarMath(h.mechanism || ''))} thread={route.thread} className="md small muted" />

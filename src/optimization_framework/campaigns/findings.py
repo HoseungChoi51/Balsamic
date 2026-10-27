@@ -6,18 +6,25 @@ from optimization_framework.storage.sqlite import now
 MEASUREMENT_KINDS = ("runtime_profile", "evaluator_equivalence", "fixed_mask_job", "fixed_mask_report", "agent_artifact")
 
 
+def visible_evidence(workspace, campaign_id):
+    """The ids an agent may cite as evidence: the campaign's visible records, its measurements and declared references."""
+    store = workspace.store
+    campaign = store.get(campaign_id, "campaign")
+    visible = {item["id"] for _, item in workspace.memory._records(campaign_id)}
+    # Measurements of the evaluator and the agents' saved analyses are this campaign's evidence too:
+    # what a campaign learned about speed or numerical agreement is citable like an experiment.
+    for kind in MEASUREMENT_KINDS:
+        visible.update(item["id"] for item in store.list(kind, campaign_id))
+    visible.update(item["asset_id"] for item in workspace.assets.manager_references(campaign_id, campaign.get("active_study_id")) if "payload" in item)
+    return visible
+
+
 def record(workspace, command, actor):
     store = workspace.store
     values = FindingInput(**command.payload)
     if actor == "manager" and values.interpretation == "researcher_endorsed":
         raise ValueError("Only the researcher can endorse a conclusion")
-    campaign = store.get(command.campaign_id, "campaign")
-    visible = {item["id"] for _, item in workspace.memory._records(command.campaign_id)}
-    # Measurements of the evaluator and the agents' saved analyses are this campaign's evidence too:
-    # what a campaign learned about speed or numerical agreement is citable like an experiment.
-    for kind in MEASUREMENT_KINDS:
-        visible.update(item["id"] for item in store.list(kind, command.campaign_id))
-    visible.update(item["asset_id"] for item in workspace.assets.manager_references(command.campaign_id, campaign.get("active_study_id")) if "payload" in item)
+    visible = visible_evidence(workspace, command.campaign_id)
     if set([*values.source_ids, *values.counterevidence_for]) - visible:
         raise ValueError("Finding cites evidence outside the visible context; declare historical reference access first")
     sources = [store.get(identity) for identity in dict.fromkeys([*values.source_ids, *values.counterevidence_for])]

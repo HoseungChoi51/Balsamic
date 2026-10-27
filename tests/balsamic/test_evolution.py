@@ -147,9 +147,10 @@ def test_stop_records_a_reason_and_holds_the_race_configuration(client, workspac
     calls = []
     monkeypatch.setattr(workspace.racing, "decide", lambda campaign_id, request, authority: calls.append((request.action, request.configuration_ids, request.rationale, authority)) or {"id": "race_1"})
     command(client, "hypothesis.status", campaign["id"], {"hypothesis_id": h["id"], "status": "archived", "expected_status_revision": 0, "stop_reason": "worse than the baseline at every rung"}, campaign["version"])
-    assert calls == [("hold", ["cfg_h"], f"Strategy {h['id']} was stopped: worse than the baseline at every rung", "researcher")]
+    assert calls == [("hold", ["cfg_h"], f"Strategy {h['id']} was stopped: researcher's decision; worse than the baseline at every rung", "researcher")]
     stopped = workspace.store.get(h["id"], "hypothesis")
     assert stopped["stop_reason"] == "worse than the baseline at every rung" and stopped["stopped_at"]
+    assert stopped["stop"]["outcome"] == "researcher_decision"
     command(client, "hypothesis.allocate", campaign["id"], {"hypothesis_id": h["id"], "worker_seconds": 10, "rationale": "x"}, campaign["version"], expect=409)
 
 
