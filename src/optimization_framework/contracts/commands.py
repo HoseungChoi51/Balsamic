@@ -319,6 +319,8 @@ class ApprovalRequestInput(Contract):
     rationale: str = Field(min_length=1, max_length=5000, description="What the change makes possible and the measurement behind it")
     limits: dict[str, float] = Field(default_factory=dict, description="campaign_limits: the new value of each limit to change, among " + ", ".join(LIMITS))
     requirement_id: str | None = Field(default=None, description="waiver: the validation requirement to waive")
+    tuning_hypothesis_id: str | None = Field(default=None, description="waiver: instead of requirement_id, the proposal whose assessment "
+        "minimums (decision 14) the researcher may waive, so that it can be stopped as inferior on fewer runs; cite its runs as evidence_ids")
     evidence_ids: list[str] = Field(default_factory=list, max_length=50, description="waiver: the measurements the researcher should judge it by")
     workers: int | None = Field(default=None, ge=1, le=64, description="worker_ceiling: experiments that may run at once on this server")
     gpu_workers: int | None = Field(default=None, ge=0, le=63, description="worker_ceiling: how many of them run on the GPU (unchanged when omitted)")
@@ -341,7 +343,10 @@ class ApprovalRequestInput(Contract):
 
     @model_validator(mode="after")
     def one_request(self):
-        given = {"campaign_limits": bool(self.limits), "waiver": self.requirement_id is not None, "worker_ceiling": self.workers is not None,
+        if self.requirement_id is not None and self.tuning_hypothesis_id is not None:
+            raise ValueError("A waiver names a requirement_id or a tuning_hypothesis_id, not both")
+        given = {"campaign_limits": bool(self.limits), "waiver": self.requirement_id is not None or self.tuning_hypothesis_id is not None,
+                 "worker_ceiling": self.workers is not None,
                  "compute": self.plan is not None and self.template is None, "mandate": self.template is not None}
         if not given[self.kind] or sum(given.values()) != 1:
             raise ValueError("Give exactly the fields of the chosen kind: limits, requirement_id with evidence_ids, workers, a compute plan, "

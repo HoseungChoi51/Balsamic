@@ -35,7 +35,8 @@ def deflector():
 
 def test_every_method_listed_before_the_move_is_listed_with_the_same_descriptor():
     before = json.loads((FIXTURES / "optimizer-methods-before-n8.json").read_text())
-    now = {method["id"]: method for method in methods()}
+    # Less what came after the move: whether a bundled method draws from its seed (V2).
+    now = {method["id"]: {key: value for key, value in method.items() if key != "stochastic"} for method in methods()}
     assert {name: now.get(name) for name in before} == before
     listed = [method["id"] for method in methods()]
     assert listed.index("surrogate") < listed.index("flrl_lsf_random") < listed.index("motif_surgery")   # the order too

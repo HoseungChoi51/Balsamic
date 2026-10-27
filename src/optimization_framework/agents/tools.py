@@ -891,7 +891,8 @@ class PiTools:
                 "read": "evidence_read with record_id=asset_id returns the whole finding"} for item in self.references(campaign_id)],
             "pages": [{"link": link, "name": name, "shows": shows} for link, name, shows in PAGES],
             # How runs are named, where short runs end, how many may go at once, and how runs are chosen: the experiment operator's rules.
-            "experiment_rules": {key: rules.get(key) for key in ("revision", "naming", "short_run_seconds", "max_concurrent", "strategy")},
+            # The assessment minimums (decision 14) are what a stop as inferior needs first; only the researcher changes them.
+            "experiment_rules": {key: rules.get(key) for key in ("revision", "naming", "short_run_seconds", "max_concurrent", "strategy", "assessment")},
             "hypothesis_count": len(hypotheses), "retrieval": "Use evidence_search to page through further tasks, hypotheses or sessions.",
             "hypotheses": [{"id": h["id"], "candidate_id": h.get("candidate_id"), "title": h["title"],
                 "hypothesis_hash": hypothesis_revision(h), "concept_review": readiness(self.store, h),

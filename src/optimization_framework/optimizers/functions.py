@@ -221,22 +221,32 @@ def listed_methods(module):
     return methods
 
 
+def marked_deterministic(module):
+    """The functions of a module marked ``@deterministic`` (the scaffold's harness decorator), read from its source."""
+    spec = find_spec(module)
+    tree = ast.parse(Path(spec.origin).read_text(encoding="utf-8"), filename=spec.origin)
+    named = lambda node: node.id if isinstance(node, ast.Name) else node.attr if isinstance(node, ast.Attribute) else None
+    return {node.name for node in tree.body if isinstance(node, ast.FunctionDef)
+            and any(named(decorator) == "deterministic" for decorator in node.decorator_list)}
+
+
 class FunctionPlugin:
     """A library's plain-function methods: set ``MODULE = "<pkg>.methods"`` and ``REPRESENTATIONS``.
 
     The module defines ``METHODS = {id: {name, description, hypothesis_id?, parameters?, parameter_properties?, ...}}``
     and one function ``def <id>(problem, evaluate, rng)`` for each id. ``parameters`` are the defaults and
     ``parameter_properties`` their JSON Schema; a method may also give its own ``representations``, ``problem_ids`` and
-    ``completion_units``. A library that provides its own problem object overrides ``problem(instance)``."""
+    ``completion_units``, and ``stochastic: False`` (or the function marked ``@deterministic``) when its runs do not depend
+    on the seed. A library that provides its own problem object overrides ``problem(instance)``."""
 
     MODULE: str = ""
     REPRESENTATIONS: list | None = None
 
     def methods(self):
-        listed = []
+        listed, marked = [], marked_deterministic(self.MODULE)
         for name, method in listed_methods(self.MODULE).items():
             declared = method.get("representations") or self.REPRESENTATIONS
-            listed.append({"constraints": False, "parameters": {}, "parameter_properties": {}, **method,
+            listed.append({"constraints": False, "parameters": {}, "parameter_properties": {}, "stochastic": name not in marked, **method,
                            "representations": list(declared or ["binary"]), **({} if declared else {"representations_defaulted": True}),
                            "id": name})
         return listed

@@ -757,14 +757,30 @@ class CommandService:
                 title, approve = f"Change campaign limits ({shown})?", "Change the limits"
                 proposal = f"{asker} asks to change this campaign's limits: {shown}. The change is recorded as a budget amendment under your authority."
             elif values.kind == "waiver":
-                requirement = self._target(command, "requirement_id", "validation_requirement")
+                if values.tuning_hypothesis_id is not None:
+                    # The proposal's tuning requirement is created here, since a refused stop records nothing (V2).
+                    from .assessment import adequacy, require
+                    hypothesis = self._target(command, "tuning_hypothesis_id", "hypothesis")
+                    state = adequacy(self.workspace, hypothesis)
+                    if state["adequate"]:
+                        raise ValueError(f"{hypothesis['title']} already meets the assessment minimums ({state['words']}); no waiver is needed")
+                    requirement = require(self.workspace, hypothesis)
+                else:
+                    requirement = self._target(command, "requirement_id", "validation_requirement")
                 for identity in values.evidence_ids:
                     if self.store.get(identity).get("campaign_id") != command.campaign_id:
                         raise ValueError("A waiver request cites this campaign's own measurements")
                 results = [row for row in self.store.list("validation_result", command.campaign_id) if row["requirement_id"] == requirement["id"]]
                 request.update(requirement_id=requirement["id"], evidence_ids=values.evidence_ids)
                 title, approve = f"Waive the {requirement['kind'].replace('_', ' ')} check ({requirement['id']})?", "Waive the check"
-                proposal = (f"{asker} asks you to waive a check that now blocks work. " +
+                if values.tuning_hypothesis_id is not None:
+                    title, approve = f"Let {hypothesis['title']} be stopped as inferior on fewer runs?", "Accept the stop"
+                    proposal = (f"{asker} asks to stop {hypothesis['title']} as inferior although it was tried less than the experiment "
+                        f"rules ask ({'; '.join(state['missing'])}). Without your waiver it can only be stopped as under-evaluated. "
+                        "A waiver is yours alone, is recorded with this reason, and can be revoked.")
+                else:
+                    proposal = None
+                proposal = proposal or (f"{asker} asks you to waive a check that now blocks work. " +
                     (f"Its last result: {results[-1]['verdict']}. {results[-1].get('rationale', '')} " if results else "It has no result yet. ") +
                     "A waiver is yours alone, is recorded with this reason, and can be revoked.")
             elif values.kind in {"compute", "mandate"}:
@@ -883,6 +899,9 @@ class CommandService:
             requirement = self._target(command, "requirement_id", "validation_requirement")
             if actor != "researcher":
                 from .promotion import promotion_recipe
+                if requirement["kind"] == "tuning":
+                    raise ValueError("Only the researcher waives the assessment minimums before a stop (decision 16); "
+                                     "ask with approval.request kind waiver and tuning_hypothesis_id")
                 if promotion_recipe(self.workspace, requirement):
                     raise ValueError("Only the researcher waives a fidelity check that guards promotion (decision 16); "
                                      "ask with approval.request kind waiver and this requirement_id")
