@@ -68,7 +68,7 @@ def publish(workspace, campaign_id, values, *, command_id, actor):
     trials = [t for t in store.list("trial", campaign_id) if t.get("hypothesis_id") == values.hypothesis_id]
     finalist = next((s for s in store.list("finalist_selection", campaign_id) if set(s.get("trial_ids", [])) & {t["id"] for t in trials}), None)
     record = {"id": "library_" + content_hash(command_id)[:20], "origin_campaign_id": campaign_id, "hypothesis_id": values.hypothesis_id,
-              "strategy": {key: hypothesis.get(key) for key in ("title", "mechanism", "rationale", "algorithm", "algorithm_config", "implementation_version_id")},
+              "strategy": {key: hypothesis.get(key) for key in ("title", "mechanism", "rationale", "family", "algorithm", "algorithm_config", "implementation_version_id")},
               "signature": {key: signature.get(key) for key in ("problem_id", "evaluator_version", "objective", "representation", "dimensions", "constraint_digest", "instance_digest", "charter_id")},
               "evidence": {"confirmation_protocol_id": (row.get("confirmation") or {}).get("protocol_id"), "race_id": (row.get("race") or {}).get("race_id"),
                            "finalist_selection_id": finalist["id"] if finalist else None, "best_score": row["best"]["score"], "best_basis": row["best"]["basis"], "interval": None,
@@ -93,7 +93,7 @@ def apply(workspace, campaign_id, values, *, command, actor):
                                 rationale=((strategy.get("rationale") or "") + f"\n\nApplied from library entry {entry['id']} (campaign {entry['origin_campaign_id']}; "
                                            f"best measured {entry['evidence'].get('best_score')}). Fit here: {', '.join(reasons) or 'no shared signature'} (score {score})."
                                            + (f"\nResearcher's note: {values.note}" if values.note else "")).strip(),
-                                algorithm=strategy.get("algorithm") or "", algorithm_config=strategy.get("algorithm_config") or {},
+                                family=strategy.get("family"), algorithm=strategy.get("algorithm") or "", algorithm_config=strategy.get("algorithm_config") or {},
                                 implementation_version_id=None, library_entry_id=entry["id"])
     bundle = None
     if strategy.get("implementation_version_id"):
