@@ -1,0 +1,1492 @@
+{
+ "annealing": {
+  "batch_size": 1,
+  "constraints": false,
+  "contract": "optimizer_v1",
+  "contract_version": 1,
+  "description": "Temperature-controlled acceptance of downhill moves.",
+  "execution_capabilities": {
+   "completion_units": [
+    "evaluation_requests"
+   ],
+   "exports": [],
+   "schema_version": 1
+  },
+  "id": "annealing",
+  "name": "Simulated annealing",
+  "parameter_schema": {
+   "additionalProperties": false,
+   "properties": {
+    "initial_design": {
+     "description": "A candidate in this instance's declared schema",
+     "type": "array"
+    },
+    "max_block_size": {
+     "minimum": 1,
+     "type": "integer"
+    },
+    "min_temperature": {
+     "exclusiveMinimum": 0,
+     "type": "number"
+    },
+    "temperature": {
+     "exclusiveMinimum": 0,
+     "type": "number"
+    }
+   },
+   "type": "object"
+  },
+  "parameters": {},
+  "representations": [
+   "binary"
+  ],
+  "supports_failure_observations": false
+ },
+ "artifact_inference": {
+  "batch_size": 1,
+  "constraints": true,
+  "contract": "optimizer_v1",
+  "contract_version": 1,
+  "description": "Evaluate a versioned artifact with its registered inference adapter.",
+  "execution_capabilities": {
+   "completion_units": [
+    "evaluation_requests"
+   ],
+   "exports": [],
+   "schema_version": 1
+  },
+  "id": "artifact_inference",
+  "name": "Declared artifact inference",
+  "parameter_schema": {
+   "additionalProperties": false,
+   "properties": {
+    "adapter_id": {
+     "type": "string"
+    },
+    "parameters": {
+     "type": "object"
+    }
+   },
+   "type": "object"
+  },
+  "parameters": {},
+  "purpose": "artifact_inference",
+  "representations": [
+   "binary",
+   "discrete",
+   "continuous"
+  ],
+  "supports_failure_observations": false
+ },
+ "block_tabu": {
+  "batch_size": 1,
+  "constraints": false,
+  "contract": "optimizer_v1",
+  "contract_version": 1,
+  "description": "Coordinated moves with recent-candidate memory.",
+  "execution_capabilities": {
+   "completion_units": [
+    "evaluation_requests"
+   ],
+   "exports": [],
+   "schema_version": 1
+  },
+  "id": "block_tabu",
+  "name": "Adaptive block tabu",
+  "parameter_schema": {
+   "additionalProperties": false,
+   "properties": {
+    "initial_design": {
+     "description": "A candidate in this instance's declared schema",
+     "type": "array"
+    },
+    "max_block_size": {
+     "minimum": 1,
+     "type": "integer"
+    },
+    "restart_patience": {
+     "minimum": 1,
+     "type": "integer"
+    },
+    "tabu_tenure": {
+     "minimum": 1,
+     "type": "integer"
+    }
+   },
+   "type": "object"
+  },
+  "parameters": {},
+  "representations": [
+   "binary"
+  ],
+  "supports_failure_observations": false
+ },
+ "coordinate": {
+  "batch_size": 1,
+  "constraints": true,
+  "contract": "optimizer_v1",
+  "contract_version": 1,
+  "description": "Bounded coordinate improvement with global restarts.",
+  "execution_capabilities": {
+   "completion_units": [
+    "evaluation_requests",
+    "optimizer_decisions"
+   ],
+   "exports": [],
+   "schema_version": 1
+  },
+  "id": "coordinate",
+  "name": "Coordinate search",
+  "parameter_schema": {
+   "additionalProperties": false,
+   "properties": {
+    "radius": {
+     "default": 0.2,
+     "exclusiveMinimum": 0,
+     "maximum": 1,
+     "type": "number"
+    }
+   },
+   "type": "object"
+  },
+  "parameters": {
+   "radius": 0.2
+  },
+  "representations": [
+   "continuous"
+  ],
+  "supports_failure_observations": false
+ },
+ "dqn": {
+  "batch_size": 1,
+  "constraints": false,
+  "contract": "optimizer_v1",
+  "contract_version": 1,
+  "description": "Learn discrete actions with experience replay.",
+  "execution_capabilities": {
+   "completion_units": [
+    "evaluation_requests",
+    "optimizer_decisions"
+   ],
+   "exports": [
+    {
+     "format": "numpy-state-dict-v1",
+     "kind": "policy",
+     "metadata": {
+      "implementation": "dqn"
+     },
+     "schema_version": 1
+    }
+   ],
+   "schema_version": 1
+  },
+  "id": "dqn",
+  "name": "Double DQN",
+  "parameter_schema": {
+   "additionalProperties": false,
+   "properties": {
+    "activation": {
+     "default": "relu",
+     "title": "Activation",
+     "type": "string"
+    },
+    "batch_size": {
+     "default": 64,
+     "title": "Batch Size",
+     "type": "integer"
+    },
+    "buffer_size": {
+     "default": 100000,
+     "title": "Buffer Size",
+     "type": "integer"
+    },
+    "checkpoint_interval": {
+     "default": 2000,
+     "title": "Checkpoint Interval",
+     "type": "integer"
+    },
+    "device": {
+     "default": "cpu",
+     "title": "Device",
+     "type": "string"
+    },
+    "double_dqn": {
+     "default": true,
+     "title": "Double Dqn",
+     "type": "boolean"
+    },
+    "episode_mode": {
+     "default": "finite",
+     "title": "Episode Mode",
+     "type": "string"
+    },
+    "epsilon_end": {
+     "default": 0.01,
+     "title": "Epsilon End",
+     "type": "number"
+    },
+    "epsilon_schedule": {
+     "default": "linear",
+     "title": "Epsilon Schedule",
+     "type": "string"
+    },
+    "epsilon_start": {
+     "default": 0.9,
+     "title": "Epsilon Start",
+     "type": "number"
+    },
+    "exploration_fraction": {
+     "default": 0.8,
+     "title": "Exploration Fraction",
+     "type": "number"
+    },
+    "gamma": {
+     "default": 0.99,
+     "title": "Gamma",
+     "type": "number"
+    },
+    "gradient_clip_norm": {
+     "anyOf": [
+      {
+       "type": "number"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": 10.0,
+     "title": "Gradient Clip Norm"
+    },
+    "greedy_tie_break": {
+     "default": "random",
+     "title": "Greedy Tie Break",
+     "type": "string"
+    },
+    "hidden_sizes": {
+     "default": [
+      128,
+      128
+     ],
+     "items": {
+      "type": "integer"
+     },
+     "title": "Hidden Sizes",
+     "type": "array"
+    },
+    "horizon": {
+     "default": 128,
+     "title": "Horizon",
+     "type": "integer"
+    },
+    "initial_design": {
+     "description": "A candidate in this instance's declared schema",
+     "type": "array"
+    },
+    "initialization": {
+     "default": "default",
+     "title": "Initialization",
+     "type": "string"
+    },
+    "learning_rate": {
+     "default": 0.0001,
+     "title": "Learning Rate",
+     "type": "number"
+    },
+    "learning_starts": {
+     "default": 512,
+     "title": "Learning Starts",
+     "type": "integer"
+    },
+    "learning_starts_strict": {
+     "default": false,
+     "title": "Learning Starts Strict",
+     "type": "boolean"
+    },
+    "random_streams": {
+     "default": "numpy",
+     "title": "Random Streams",
+     "type": "string"
+    },
+    "reward_mode": {
+     "default": "paper",
+     "title": "Reward Mode",
+     "type": "string"
+    },
+    "target_update_interval": {
+     "default": 250,
+     "title": "Target Update Interval",
+     "type": "integer"
+    },
+    "target_update_tau": {
+     "default": 1.0,
+     "title": "Target Update Tau",
+     "type": "number"
+    },
+    "torch_threads": {
+     "default": 1,
+     "title": "Torch Threads",
+     "type": "integer"
+    },
+    "train_frequency": {
+     "default": 1,
+     "title": "Train Frequency",
+     "type": "integer"
+    }
+   },
+   "type": "object"
+  },
+  "parameters": {},
+  "representations": [
+   "binary"
+  ],
+  "supports_failure_observations": false
+ },
+ "evaluate_asset": {
+  "batch_size": 1,
+  "constraints": true,
+  "contract": "optimizer_v1",
+  "contract_version": 1,
+  "description": "One evaluation of an explicitly declared solution asset; no search move.",
+  "execution_capabilities": {
+   "completion_units": [
+    "evaluation_requests"
+   ],
+   "exports": [],
+   "schema_version": 1
+  },
+  "id": "evaluate_asset",
+  "name": "Evaluate a reference solution",
+  "parameter_schema": {
+   "additionalProperties": false,
+   "properties": {},
+   "type": "object"
+  },
+  "parameters": {},
+  "purpose": "reference_evaluation",
+  "representations": [
+   "binary",
+   "discrete",
+   "continuous",
+   "permutation"
+  ],
+  "supports_failure_observations": false
+ },
+ "flrl_autograd_adam": {
+  "batch_size": 1,
+  "constraints": false,
+  "contract": "optimizer_v1",
+  "contract_version": 1,
+  "description": "Fourier coefficients map to y-symmetric binary 2D gratings. Physical scores and optional autograd requests use the campaign MEENT evaluator; all solver calls are counted.",
+  "execution_capabilities": {
+   "completion_units": [
+    "evaluation_requests",
+    "optimizer_decisions"
+   ],
+   "exports": [],
+   "schema_version": 1
+  },
+  "id": "flrl_autograd_adam",
+  "name": "FLRL autograd Adam campaign adaptation",
+  "parameter_schema": {
+   "additionalProperties": false,
+   "properties": {
+    "comparison_cost_axis": {
+     "enum": [
+      "full_worker_seconds"
+     ]
+    },
+    "final_beta": {
+     "exclusiveMinimum": 0,
+     "maximum": 100,
+     "type": "number"
+    },
+    "final_lr": {
+     "exclusiveMinimum": 0,
+     "type": "number"
+    },
+    "initial_beta": {
+     "exclusiveMinimum": 0,
+     "maximum": 100,
+     "type": "number"
+    },
+    "initial_lr": {
+     "exclusiveMinimum": 0,
+     "type": "number"
+    },
+    "level_set_modes_x": {
+     "default": 8,
+     "maximum": 16,
+     "minimum": 1,
+     "type": "integer"
+    },
+    "level_set_modes_y": {
+     "default": 4,
+     "maximum": 8,
+     "minimum": 0,
+     "type": "integer"
+    },
+    "optimizer": {
+     "enum": [
+      "Adam"
+     ]
+    },
+    "reference_epochs": {
+     "minimum": 1,
+     "type": "integer"
+    },
+    "reference_samples": {
+     "minimum": 1,
+     "type": "integer"
+    },
+    "warm_start_state": {
+     "description": "Path of an optimizer state saved by an earlier run of the same method, problem and settings. The search and its learner continue from it in a new trial.",
+     "type": "string"
+    }
+   },
+   "type": "object"
+  },
+  "parameters": {},
+  "problem_ids": [
+   "meent_2d_dual_polarization_deflector"
+  ],
+  "representations": [
+   "binary"
+  ],
+  "supports_failure_observations": false
+ },
+ "flrl_lsf_es": {
+  "batch_size": 1,
+  "constraints": false,
+  "contract": "optimizer_v1",
+  "contract_version": 1,
+  "description": "Fourier coefficients map to y-symmetric binary 2D gratings. Physical scores and optional autograd requests use the campaign MEENT evaluator; all solver calls are counted.",
+  "execution_capabilities": {
+   "completion_units": [
+    "evaluation_requests"
+   ],
+   "exports": [],
+   "schema_version": 1
+  },
+  "id": "flrl_lsf_es",
+  "name": "Fourier level-set Gaussian evolution strategy",
+  "parameter_schema": {
+   "additionalProperties": false,
+   "properties": {
+    "coefficient_dimensions": {
+     "minimum": 1,
+     "type": "integer"
+    },
+    "comparison_cost_axis": {
+     "enum": [
+      "full_worker_seconds"
+     ]
+    },
+    "elite_count": {
+     "minimum": 2,
+     "type": "integer"
+    },
+    "level_set_modes_x": {
+     "default": 8,
+     "maximum": 16,
+     "minimum": 1,
+     "type": "integer"
+    },
+    "level_set_modes_y": {
+     "default": 4,
+     "maximum": 8,
+     "minimum": 0,
+     "type": "integer"
+    },
+    "population_size": {
+     "maximum": 256,
+     "minimum": 2,
+     "type": "integer"
+    },
+    "search_family": {
+     "enum": [
+      "evolution_strategy"
+     ]
+    },
+    "sigma": {
+     "exclusiveMinimum": 0,
+     "type": "number"
+    },
+    "warm_start_state": {
+     "description": "Path of an optimizer state saved by an earlier run of the same method, problem and settings. The search and its learner continue from it in a new trial.",
+     "type": "string"
+    }
+   },
+   "type": "object"
+  },
+  "parameters": {},
+  "problem_ids": [
+   "meent_2d_dual_polarization_deflector"
+  ],
+  "representations": [
+   "binary"
+  ],
+  "supports_failure_observations": false
+ },
+ "flrl_lsf_random": {
+  "batch_size": 1,
+  "constraints": false,
+  "contract": "optimizer_v1",
+  "contract_version": 1,
+  "description": "Fourier coefficients map to y-symmetric binary 2D gratings. Physical scores and optional autograd requests use the campaign MEENT evaluator; all solver calls are counted.",
+  "execution_capabilities": {
+   "completion_units": [
+    "evaluation_requests"
+   ],
+   "exports": [],
+   "schema_version": 1
+  },
+  "id": "flrl_lsf_random",
+  "name": "Fourier level-set random search",
+  "parameter_schema": {
+   "additionalProperties": false,
+   "properties": {
+    "comparison_cost_axis": {
+     "enum": [
+      "full_worker_seconds"
+     ]
+    },
+    "level_set_modes_x": {
+     "default": 8,
+     "maximum": 16,
+     "minimum": 1,
+     "type": "integer"
+    },
+    "level_set_modes_y": {
+     "default": 4,
+     "maximum": 8,
+     "minimum": 0,
+     "type": "integer"
+    },
+    "sampling": {
+     "enum": [
+      "seeded_gaussian_normalized"
+     ]
+    },
+    "warm_start_state": {
+     "description": "Path of an optimizer state saved by an earlier run of the same method, problem and settings. The search and its learner continue from it in a new trial.",
+     "type": "string"
+    }
+   },
+   "type": "object"
+  },
+  "parameters": {},
+  "problem_ids": [
+   "meent_2d_dual_polarization_deflector"
+  ],
+  "representations": [
+   "binary"
+  ],
+  "supports_failure_observations": false
+ },
+ "flrl_ppo": {
+  "batch_size": 1,
+  "constraints": false,
+  "contract": "optimizer_v1",
+  "contract_version": 1,
+  "description": "Fourier coefficients map to y-symmetric binary 2D gratings. Physical scores and optional autograd requests use the campaign MEENT evaluator; all solver calls are counted.",
+  "execution_capabilities": {
+   "completion_units": [
+    "evaluation_requests"
+   ],
+   "exports": [],
+   "schema_version": 1
+  },
+  "id": "flrl_ppo",
+  "name": "FLRL PPO campaign adaptation",
+  "parameter_schema": {
+   "additionalProperties": false,
+   "properties": {
+    "action_scaling": {
+     "exclusiveMinimum": 0,
+     "type": "number"
+    },
+    "batch_size": {
+     "maximum": 4096,
+     "minimum": 2,
+     "type": "integer"
+    },
+    "comparison_cost_axis": {
+     "enum": [
+      "full_worker_seconds"
+     ]
+    },
+    "episode_length": {
+     "maximum": 4096,
+     "minimum": 1,
+     "type": "integer"
+    },
+    "level_set_modes_x": {
+     "default": 8,
+     "maximum": 16,
+     "minimum": 1,
+     "type": "integer"
+    },
+    "level_set_modes_y": {
+     "default": 4,
+     "maximum": 8,
+     "minimum": 0,
+     "type": "integer"
+    },
+    "parallel_environments": {
+     "enum": [
+      1
+     ]
+    },
+    "policy_network": {
+     "default": "cnn",
+     "enum": [
+      "cnn",
+      "transformer"
+     ]
+    },
+    "ppo_clip_range": {
+     "exclusiveMinimum": 0,
+     "maximum": 1,
+     "type": "number"
+    },
+    "ppo_gae_lambda": {
+     "maximum": 1,
+     "minimum": 0,
+     "type": "number"
+    },
+    "ppo_gamma": {
+     "maximum": 1,
+     "minimum": 0,
+     "type": "number"
+    },
+    "ppo_learning_rate": {
+     "exclusiveMinimum": 0,
+     "type": "number"
+    },
+    "ppo_n_epochs": {
+     "maximum": 20,
+     "minimum": 1,
+     "type": "integer"
+    },
+    "rcwa_order_x": {
+     "minimum": 1,
+     "type": "integer"
+    },
+    "rcwa_order_y": {
+     "minimum": 1,
+     "type": "integer"
+    },
+    "reference_total_timesteps": {
+     "minimum": 1,
+     "type": "integer"
+    },
+    "reward_scaling": {
+     "exclusiveMinimum": 0,
+     "type": "number"
+    },
+    "rollout_steps": {
+     "maximum": 4096,
+     "minimum": 2,
+     "type": "integer"
+    },
+    "stacked_observations": {
+     "maximum": 16,
+     "minimum": 1,
+     "type": "integer"
+    },
+    "transformer_feedforward": {
+     "default": 2,
+     "description": "Feedforward width as a multiple of transformer_width.",
+     "maximum": 8,
+     "minimum": 1,
+     "type": "integer"
+    },
+    "transformer_heads": {
+     "default": 4,
+     "maximum": 16,
+     "minimum": 1,
+     "type": "integer"
+    },
+    "transformer_layers": {
+     "default": 2,
+     "maximum": 12,
+     "minimum": 1,
+     "type": "integer"
+    },
+    "transformer_pooling": {
+     "default": "mean",
+     "enum": [
+      "mean",
+      "cls"
+     ]
+    },
+    "transformer_positions": {
+     "default": "learned",
+     "enum": [
+      "learned",
+      "fourier_mode"
+     ]
+    },
+    "transformer_tokens": {
+     "default": "coefficient",
+     "enum": [
+      "coefficient",
+      "frame",
+      "coefficient_frame"
+     ]
+    },
+    "transformer_width": {
+     "default": 64,
+     "maximum": 512,
+     "minimum": 8,
+     "type": "integer"
+    },
+    "warm_start_state": {
+     "description": "Path of an optimizer state saved by an earlier run of the same method, problem and settings. The search and its learner continue from it in a new trial.",
+     "type": "string"
+    }
+   },
+   "type": "object"
+  },
+  "parameters": {},
+  "problem_ids": [
+   "meent_2d_dual_polarization_deflector"
+  ],
+  "representations": [
+   "binary"
+  ],
+  "supports_failure_observations": false
+ },
+ "flrl_ppo_polish": {
+  "batch_size": 1,
+  "constraints": false,
+  "contract": "optimizer_v1",
+  "contract_version": 1,
+  "description": "Fourier coefficients map to y-symmetric binary 2D gratings. Physical scores and optional autograd requests use the campaign MEENT evaluator; all solver calls are counted.",
+  "execution_capabilities": {
+   "completion_units": [
+    "evaluation_requests"
+   ],
+   "exports": [],
+   "schema_version": 1
+  },
+  "id": "flrl_ppo_polish",
+  "name": "PPO with two-step Adam polishing",
+  "parameter_schema": {
+   "additionalProperties": false,
+   "properties": {
+    "action_radius": {
+     "exclusiveMinimum": 0,
+     "type": "number"
+    },
+    "batch_size": {
+     "maximum": 4096,
+     "minimum": 2,
+     "type": "integer"
+    },
+    "comparison_cost_axis": {
+     "enum": [
+      "full_worker_seconds"
+     ]
+    },
+    "episode_length": {
+     "maximum": 4096,
+     "minimum": 1,
+     "type": "integer"
+    },
+    "level_set_mode_pairs": {
+     "description": "Planned comparison grid; level_set_modes_x/y select one fixed basis for this run.",
+     "enum": [
+      [
+       [
+        2,
+        1
+       ],
+       [
+        4,
+        2
+       ],
+       [
+        6,
+        3
+       ],
+       [
+        8,
+        4
+       ]
+      ]
+     ]
+    },
+    "level_set_modes_x": {
+     "default": 8,
+     "maximum": 16,
+     "minimum": 1,
+     "type": "integer"
+    },
+    "level_set_modes_y": {
+     "default": 4,
+     "maximum": 8,
+     "minimum": 0,
+     "type": "integer"
+    },
+    "local_kernel_stationarity": {
+     "type": "string"
+    },
+    "policy_action_likelihood": {
+     "type": "string"
+    },
+    "ppo_clip_range": {
+     "exclusiveMinimum": 0,
+     "maximum": 1,
+     "type": "number"
+    },
+    "ppo_gae_lambda": {
+     "maximum": 1,
+     "minimum": 0,
+     "type": "number"
+    },
+    "ppo_gamma": {
+     "maximum": 1,
+     "minimum": 0,
+     "type": "number"
+    },
+    "ppo_learning_rate": {
+     "exclusiveMinimum": 0,
+     "type": "number"
+    },
+    "ppo_n_epochs": {
+     "maximum": 20,
+     "minimum": 1,
+     "type": "integer"
+    },
+    "reward": {
+     "type": "string"
+    },
+    "reward_scaling": {
+     "exclusiveMinimum": 0,
+     "type": "number"
+    },
+    "rollout_steps": {
+     "maximum": 4096,
+     "minimum": 2,
+     "type": "integer"
+    },
+    "selection": {
+     "type": "string"
+    },
+    "warm_start_state": {
+     "description": "Path of an optimizer state saved by an earlier run of the same method, problem and settings. The search and its learner continue from it in a new trial.",
+     "type": "string"
+    }
+   },
+   "type": "object"
+  },
+  "parameters": {},
+  "problem_ids": [
+   "meent_2d_dual_polarization_deflector"
+  ],
+  "representations": [
+   "binary"
+  ],
+  "supports_failure_observations": false
+ },
+ "flrl_ppo_residual": {
+  "batch_size": 1,
+  "constraints": false,
+  "contract": "optimizer_v1",
+  "contract_version": 1,
+  "description": "Fourier coefficients map to y-symmetric binary 2D gratings. Physical scores and optional autograd requests use the campaign MEENT evaluator; all solver calls are counted.",
+  "execution_capabilities": {
+   "completion_units": [
+    "evaluation_requests"
+   ],
+   "exports": [],
+   "schema_version": 1
+  },
+  "id": "flrl_ppo_residual",
+  "name": "PPO residual control of bounded Adam",
+  "parameter_schema": {
+   "additionalProperties": false,
+   "properties": {
+    "adam_learning_rate": {
+     "exclusiveMinimum": 0,
+     "type": "number"
+    },
+    "archive": {
+     "type": "string"
+    },
+    "batch_size": {
+     "maximum": 4096,
+     "minimum": 2,
+     "type": "integer"
+    },
+    "comparison_cost_axis": {
+     "enum": [
+      "full_worker_seconds"
+     ]
+    },
+    "episode_length": {
+     "maximum": 4096,
+     "minimum": 1,
+     "type": "integer"
+    },
+    "final_beta": {
+     "exclusiveMinimum": 0,
+     "maximum": 100,
+     "type": "number"
+    },
+    "gradient_radius": {
+     "minimum": 0,
+     "type": "number"
+    },
+    "gradient_separation": {
+     "type": "string"
+    },
+    "initial_beta": {
+     "exclusiveMinimum": 0,
+     "maximum": 100,
+     "type": "number"
+    },
+    "level_set_modes_x": {
+     "default": 8,
+     "maximum": 16,
+     "minimum": 1,
+     "type": "integer"
+    },
+    "level_set_modes_y": {
+     "default": 4,
+     "maximum": 8,
+     "minimum": 0,
+     "type": "integer"
+    },
+    "policy_action": {
+     "type": "string"
+    },
+    "policy_training": {
+     "type": "string"
+    },
+    "ppo_clip_range": {
+     "exclusiveMinimum": 0,
+     "maximum": 1,
+     "type": "number"
+    },
+    "ppo_gae_lambda": {
+     "maximum": 1,
+     "minimum": 0,
+     "type": "number"
+    },
+    "ppo_gamma": {
+     "maximum": 1,
+     "minimum": 0,
+     "type": "number"
+    },
+    "ppo_learning_rate": {
+     "exclusiveMinimum": 0,
+     "type": "number"
+    },
+    "ppo_n_epochs": {
+     "maximum": 20,
+     "minimum": 1,
+     "type": "integer"
+    },
+    "relaxation_stage_steps": {
+     "minimum": 1,
+     "type": "integer"
+    },
+    "relaxed_update": {
+     "type": "string"
+    },
+    "residual_radius": {
+     "minimum": 0,
+     "type": "number"
+    },
+    "restart_patience": {
+     "minimum": 1,
+     "type": "integer"
+    },
+    "reward_scaling": {
+     "exclusiveMinimum": 0,
+     "type": "number"
+    },
+    "rollout_steps": {
+     "maximum": 4096,
+     "minimum": 2,
+     "type": "integer"
+    },
+    "search_representation": {
+     "type": "string"
+    },
+    "tangent_dimensions": {
+     "maximum": 32,
+     "minimum": 2,
+     "type": "integer"
+    },
+    "warm_start_state": {
+     "description": "Path of an optimizer state saved by an earlier run of the same method, problem and settings. The search and its learner continue from it in a new trial.",
+     "type": "string"
+    }
+   },
+   "type": "object"
+  },
+  "parameters": {},
+  "problem_ids": [
+   "meent_2d_dual_polarization_deflector"
+  ],
+  "representations": [
+   "binary"
+  ],
+  "supports_failure_observations": false
+ },
+ "frozen_policy": {
+  "batch_size": 1,
+  "constraints": false,
+  "contract": "optimizer_v1",
+  "contract_version": 1,
+  "description": "Evaluate a declared learned policy with no weight updates.",
+  "execution_capabilities": {
+   "completion_units": [
+    "evaluation_requests",
+    "optimizer_decisions"
+   ],
+   "exports": [],
+   "schema_version": 1
+  },
+  "id": "frozen_policy",
+  "name": "Frozen policy evaluation",
+  "parameter_schema": {
+   "additionalProperties": false,
+   "properties": {
+    "epsilon": {
+     "maximum": 1,
+     "minimum": 0,
+     "type": "number"
+    },
+    "horizon": {
+     "minimum": 1,
+     "type": "integer"
+    },
+    "tie_break": {
+     "enum": [
+      "first",
+      "random"
+     ],
+     "type": "string"
+    }
+   },
+   "type": "object"
+  },
+  "parameters": {},
+  "representations": [
+   "binary"
+  ],
+  "supports_failure_observations": false
+ },
+ "hillclimb": {
+  "batch_size": 1,
+  "constraints": false,
+  "contract": "optimizer_v1",
+  "contract_version": 1,
+  "description": "Single-coordinate improvement with restarts.",
+  "execution_capabilities": {
+   "completion_units": [
+    "evaluation_requests"
+   ],
+   "exports": [],
+   "schema_version": 1
+  },
+  "id": "hillclimb",
+  "name": "Restart hill climbing",
+  "parameter_schema": {
+   "additionalProperties": false,
+   "properties": {
+    "accept_equal": {
+     "type": "boolean"
+    },
+    "initial_design": {
+     "description": "A candidate in this instance's declared schema",
+     "type": "array"
+    },
+    "initialization": {
+     "enum": [
+      "random",
+      "ones"
+     ],
+     "type": "string"
+    },
+    "neighborhood": {
+     "enum": [
+      "permuted",
+      "random"
+     ],
+     "type": "string"
+    },
+    "restart_patience": {
+     "minimum": 1,
+     "type": "integer"
+    }
+   },
+   "type": "object"
+  },
+  "parameters": {},
+  "representations": [
+   "binary"
+  ],
+  "supports_failure_observations": false
+ },
+ "motif_surgery": {
+  "batch_size": 1,
+  "constraints": false,
+  "contract": "optimizer_v1",
+  "contract_version": 1,
+  "description": "Standalone mask-optimizers method on the 2D MEENT grid.",
+  "execution_capabilities": {
+   "completion_units": [
+    "evaluation_requests"
+   ],
+   "exports": [],
+   "schema_version": 1
+  },
+  "id": "motif_surgery",
+  "name": "Mirror-paired motif surgery",
+  "parameter_schema": {
+   "additionalProperties": false,
+   "properties": {
+    "initial_count": {
+     "minimum": 1,
+     "type": "integer"
+    },
+    "radius": {
+     "minimum": 1,
+     "type": "integer"
+    }
+   },
+   "type": "object"
+  },
+  "parameters": {},
+  "problem_ids": [
+   "meent_2d_dual_polarization_deflector"
+  ],
+  "representations": [
+   "binary"
+  ],
+  "supports_failure_observations": false
+ },
+ "nested_fourier": {
+  "batch_size": 1,
+  "constraints": false,
+  "contract": "optimizer_v1",
+  "contract_version": 1,
+  "description": "Standalone mask-optimizers method on the 2D MEENT grid.",
+  "execution_capabilities": {
+   "completion_units": [
+    "evaluation_requests"
+   ],
+   "exports": [],
+   "schema_version": 1
+  },
+  "id": "nested_fourier",
+  "name": "Nested Fourier-band continuation",
+  "parameter_schema": {
+   "additionalProperties": false,
+   "properties": {
+    "stage_patience": {
+     "minimum": 1,
+     "type": "integer"
+    }
+   },
+   "type": "object"
+  },
+  "parameters": {},
+  "problem_ids": [
+   "meent_2d_dual_polarization_deflector"
+  ],
+  "representations": [
+   "binary"
+  ],
+  "supports_failure_observations": false
+ },
+ "phenotype_de": {
+  "batch_size": 1,
+  "constraints": false,
+  "contract": "optimizer_v1",
+  "contract_version": 1,
+  "description": "Standalone mask-optimizers method on the 2D MEENT grid.",
+  "execution_capabilities": {
+   "completion_units": [
+    "evaluation_requests"
+   ],
+   "exports": [],
+   "schema_version": 1
+  },
+  "id": "phenotype_de",
+  "name": "Phenotype-archive differential evolution",
+  "parameter_schema": {
+   "additionalProperties": false,
+   "properties": {
+    "bins": {
+     "minimum": 2,
+     "type": "integer"
+    },
+    "crossover_rate": {
+     "exclusiveMinimum": 0,
+     "maximum": 1,
+     "type": "number"
+    },
+    "differential_weight": {
+     "exclusiveMinimum": 0,
+     "maximum": 2,
+     "type": "number"
+    },
+    "modes_x": {
+     "minimum": 1,
+     "type": "integer"
+    },
+    "modes_y": {
+     "minimum": 0,
+     "type": "integer"
+    },
+    "population_size": {
+     "minimum": 4,
+     "type": "integer"
+    }
+   },
+   "type": "object"
+  },
+  "parameters": {},
+  "problem_ids": [
+   "meent_2d_dual_polarization_deflector"
+  ],
+  "representations": [
+   "binary"
+  ],
+  "supports_failure_observations": false
+ },
+ "population": {
+  "batch_size": 1,
+  "constraints": false,
+  "contract": "optimizer_v1",
+  "contract_version": 1,
+  "description": "Recombination and mutation of a binary population.",
+  "execution_capabilities": {
+   "completion_units": [
+    "evaluation_requests"
+   ],
+   "exports": [],
+   "schema_version": 1
+  },
+  "id": "population",
+  "name": "Population search",
+  "parameter_schema": {
+   "additionalProperties": false,
+   "properties": {
+    "initial_design": {
+     "description": "A candidate in this instance's declared schema",
+     "type": "array"
+    },
+    "mutation_rate": {
+     "exclusiveMinimum": 0,
+     "maximum": 1,
+     "type": "number"
+    },
+    "population_size": {
+     "minimum": 2,
+     "type": "integer"
+    }
+   },
+   "type": "object"
+  },
+  "parameters": {},
+  "representations": [
+   "binary"
+  ],
+  "supports_failure_observations": false
+ },
+ "random": {
+  "batch_size": 1,
+  "constraints": true,
+  "contract": "optimizer_v1",
+  "contract_version": 1,
+  "description": "Independent feasible samples; reference baseline.",
+  "execution_capabilities": {
+   "completion_units": [
+    "evaluation_requests"
+   ],
+   "exports": [],
+   "schema_version": 1
+  },
+  "id": "random",
+  "name": "Uniform random",
+  "parameter_schema": {
+   "additionalProperties": false,
+   "properties": {
+    "initial_design": {
+     "description": "A candidate in this instance's declared schema",
+     "type": "array"
+    }
+   },
+   "type": "object"
+  },
+  "parameters": {},
+  "representations": [
+   "binary",
+   "discrete",
+   "continuous",
+   "permutation"
+  ],
+  "supports_failure_observations": false
+ },
+ "refinement": {
+  "batch_size": 1,
+  "constraints": false,
+  "contract": "optimizer_v1",
+  "contract_version": 1,
+  "description": "Best improvement around a declared starting design with upstream provenance.",
+  "execution_capabilities": {
+   "completion_units": [
+    "evaluation_requests"
+   ],
+   "exports": [],
+   "schema_version": 1
+  },
+  "id": "refinement",
+  "name": "One/two-cell refinement",
+  "parameter_schema": {
+   "additionalProperties": false,
+   "properties": {
+    "improvement_tolerance": {
+     "exclusiveMaximum": 1,
+     "minimum": 0,
+     "type": "number"
+    },
+    "initial_design": {
+     "description": "A candidate in this instance's declared schema",
+     "type": "array"
+    }
+   },
+   "type": "object"
+  },
+  "parameters": {},
+  "representations": [
+   "binary"
+  ],
+  "supports_failure_observations": false
+ },
+ "replay": {
+  "batch_size": 1,
+  "constraints": true,
+  "contract": "optimizer_v1",
+  "contract_version": 1,
+  "description": "One evaluation of each listed candidate, in order; no search move.",
+  "execution_capabilities": {
+   "completion_units": [
+    "evaluation_requests"
+   ],
+   "exports": [],
+   "schema_version": 1
+  },
+  "id": "replay",
+  "name": "Evaluate listed candidates",
+  "parameter_schema": {
+   "additionalProperties": false,
+   "properties": {
+    "candidates": {
+     "description": "Candidates in this instance's declared schema",
+     "type": "array"
+    }
+   },
+   "type": "object"
+  },
+  "parameters": {},
+  "purpose": "reference_evaluation",
+  "representations": [
+   "binary",
+   "discrete",
+   "continuous",
+   "permutation"
+  ],
+  "supports_failure_observations": false
+ },
+ "surrogate": {
+  "batch_size": 1,
+  "constraints": false,
+  "contract": "optimizer_v1",
+  "contract_version": 1,
+  "description": "Fit observations to select prospective candidates.",
+  "execution_capabilities": {
+   "completion_units": [
+    "evaluation_requests"
+   ],
+   "exports": [],
+   "schema_version": 1
+  },
+  "id": "surrogate",
+  "name": "Surrogate-guided search",
+  "parameter_schema": {
+   "additionalProperties": false,
+   "properties": {
+    "candidate_pool": {
+     "minimum": 1,
+     "type": "integer"
+    },
+    "exploration": {
+     "exclusiveMinimum": 0,
+     "type": "number"
+    },
+    "initial_design": {
+     "description": "A candidate in this instance's declared schema",
+     "type": "array"
+    },
+    "max_samples": {
+     "minimum": 1,
+     "type": "integer"
+    },
+    "ridge": {
+     "exclusiveMinimum": 0,
+     "type": "number"
+    },
+    "warmup": {
+     "minimum": 1,
+     "type": "integer"
+    }
+   },
+   "type": "object"
+  },
+  "parameters": {},
+  "representations": [
+   "binary"
+  ],
+  "supports_failure_observations": false
+ },
+ "swap_search": {
+  "batch_size": 1,
+  "constraints": false,
+  "contract": "optimizer_v1",
+  "contract_version": 1,
+  "description": "Swap and insertion moves on an order, first improvement, random restarts after a plateau.",
+  "execution_capabilities": {
+   "completion_units": [
+    "evaluation_requests"
+   ],
+   "exports": [],
+   "schema_version": 1
+  },
+  "id": "swap_search",
+  "name": "Swap search",
+  "parameter_schema": {
+   "additionalProperties": false,
+   "properties": {
+    "restarts_after": {
+     "description": "Evaluations without improving the current order before a random restart; default a whole neighbourhood",
+     "minimum": 1,
+     "type": "integer"
+    }
+   },
+   "type": "object"
+  },
+  "parameters": {},
+  "representations": [
+   "permutation"
+  ],
+  "supports_failure_observations": false
+ }
+}

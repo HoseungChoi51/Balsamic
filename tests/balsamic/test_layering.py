@@ -60,7 +60,7 @@ NAMES_A_DOMAIN = {
     "execution/runtime_profile.py", "execution/service.py", "execution/source.py", "execution/worker.py",
     "implementations/api.py", "implementations/bridge.py", "implementations/client.py", "implementations/models.py",
     "implementations/protected_diagnostics.py", "implementations/runtime.py", "installed.py", "optimizers/binary.py",
-    "optimizers/fourier_specs.py", "optimizers/registry.py", "problem_import/guideline.md", "reports/evidence.py",
+    "problem_import/guideline.md", "reports/evidence.py",
 }
 
 
