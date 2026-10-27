@@ -71,6 +71,11 @@ def test_the_coding_box_rejects_private_networks_and_drops_its_capabilities_befo
     *_, last = [line for line in script.splitlines() if line.strip() and not line.lstrip().startswith("#")]
     assert "start.sh" in last
     assert "exec setpriv" in script and "--bounding-set=-all" in script and "--ambient-caps=-all" in script
+    # The harness (H2) is chosen and started by start.sh, after the rules and without capabilities: its setting never reaches
+    # network.sh, and nothing in start.sh changes the rules.
+    start = (folder / "start.sh").read_text()
+    assert "BALSAMIC_HARNESS" in start and "harness.mjs" in start
+    assert not any(word in start for word in ("iptables", "setpriv", "sudo")) and "BALSAMIC_HARNESS" not in script
 
 
 def egress_rules(tmp_path, hosts, resolved):

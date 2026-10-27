@@ -1,7 +1,8 @@
 /** One native Pi TUI owns this implementation session. The host only exchanges
  * immutable command and event files across the workspace boundary. Other harnesses write the same events with
  * balsamic-workspace (deploy/implementation-workspace/balsamic-workspace.mjs); keep the two in step
- * (agent-harness/test/workspace-cli.test.mjs). */
+ * (agent-harness/test/workspace-cli.test.mjs). Headless, the harness adapter (harness.mjs beside it) maps Pi's events as
+ * this file does (agent-harness/test/harness.test.mjs). */
 import {StringEnum, Type} from '@earendil-works/pi-ai';
 import {defineTool, type ExtensionAPI} from '@earendil-works/pi-coding-agent';
 import fs from 'node:fs';
@@ -136,6 +137,9 @@ const submit = defineTool({
 export default function(pi: ExtensionAPI) {
   pi.registerTool(checkpoint);
   pi.registerTool(submit);
+  // Headless (roadmap H2): the harness adapter delivers the host's commands and maps Pi's JSON stream to these same events
+  // (deploy/implementation-workspace/harness.mjs), so the extension gives only its tools.
+  if (process.env.BALSAMIC_HARNESS_MODE === 'headless') return;
   pi.registerCommand('campaign-status', {
     description: 'Show campaign bridge state and latest command receipt',
     handler: async (_args, ctx) => {

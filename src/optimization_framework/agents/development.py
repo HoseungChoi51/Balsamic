@@ -12,7 +12,7 @@ from pydantic import Field, model_validator
 from optimization_framework.contracts.base import Contract, content_hash, field_names, lenient
 from optimization_framework.contracts.commands import HOSTNAME
 from optimization_framework.storage.sqlite import atomic_json, now
-from .development_runtime import IMAGE, LEGACY_MODEL, LIMITS, DockerWorkspace, ceilings, egress
+from .development_runtime import HARNESSES, IMAGE, LEGACY_MODEL, LIMITS, DockerWorkspace, ceilings, egress, harness, harness_refusal
 from .development_ticket import TicketInput
 from .models import LEAD, NOTICE
 
@@ -37,6 +37,10 @@ class WorkspaceCreate(Contract):
     wall_seconds: float | None = Field(default=None, gt=0, le=604800)
     limits: WorkspaceLimits | None = None
     egress_hosts: list[str] = Field(default_factory=list, max_length=20)
+    # Its coding harness (H2): only pi has an adapter; in its terminal UI unless this or the lab (GRATING_DEVELOPMENT_HARNESS_MODE)
+    # says headless.
+    harness: str = Field(default="pi", max_length=100)
+    harness_mode: Literal["tui", "headless"] | None = None
     # The implementation lead's part of the work ticket (H4): acceptance tests the coding agent sees, protected ones it never does.
     ticket: TicketInput | None = None
 
@@ -46,6 +50,8 @@ class WorkspaceCreate(Contract):
         bad = [host for host in self.egress_hosts if not re.fullmatch(HOSTNAME, host)]
         if bad:
             raise ValueError("egress_hosts: name each host by its lowercase DNS name, without scheme, port or path: " + ", ".join(bad))
+        if self.harness not in HARNESSES:
+            raise ValueError(harness_refusal(self.harness))
         return self
 
 
@@ -243,17 +249,20 @@ class WorkspaceEnvelope(Contract):
 def request_hash(values):
     """The create request's identity; a request without other proposals hashes as it did before they could be named."""
     dump = values.model_dump()
-    for key in ("hypothesis_ids", "wall_seconds", "limits", "egress_hosts", "ticket"):
+    for key in ("hypothesis_ids", "wall_seconds", "limits", "egress_hosts", "harness_mode", "ticket"):
         if not dump.get(key):
             dump.pop(key, None)
+    if dump.get("harness") == "pi":   # the one harness: naming it changes nothing
+        dump.pop("harness")
     return content_hash(dump)
 
 
 # Workspace events by the store event they put the workspace with: the pages that show a workspace refresh on them.
 PUT_EVENTS = {"ready": "development.progress", "agent_start": "development.progress", "agent_settled": "development.progress",
-              "message": "development.progress", "tool": "development.progress", "checkpoint": "development.checkpoint"}
+              "message": "development.progress", "tool": "development.progress", "checkpoint": "development.checkpoint",
+              "harness_error": "development.progress"}
 # Events that are errors in their own right; a failed tool call is one when the event says so.
-ERROR_EVENTS = {"bridge_error", "host_blocked", "budget_reached", "deadline_reached"}
+ERROR_EVENTS = {"bridge_error", "host_blocked", "budget_reached", "deadline_reached", "harness_error"}
 
 
 class DevelopmentWorkspaces:
@@ -390,6 +399,7 @@ class DevelopmentWorkspaces:
             default = (config.get("models") or {}).get("default") or LEGACY_MODEL
             model = {key: default.get(key) for key in ("provider", "model", "effort")}
             walls = self.walls(values, consent, model)
+            setting = harness({"name": values.harness, "mode": values.harness_mode or os.environ.get("GRATING_DEVELOPMENT_HARNESS_MODE") or "tui"})
             record = {"id": identity, "campaign_id": campaign_id, "hypothesis_id": values.hypothesis_id, "hypothesis_ids": served,
                 "title": hypothesis["title"], "parent_agent_id": config["lead_id"], "created_at": now(),
                 "opened_by": {"actor": actor, **(opener or {})}, "request_root": root,
@@ -398,7 +408,7 @@ class DevelopmentWorkspaces:
                 "objective": values.objective, "evidence_ids": values.evidence_ids,
                 "request_key": values.request_key, "request_hash": request_hash(values),
                 "status": "queued", "desired_status": "running", "control_revision": 0,
-                "guidance_revision": 0, "cpu_budget_seconds": values.cpu_budget_seconds, "model": model, **walls,
+                "guidance_revision": 0, "cpu_budget_seconds": values.cpu_budget_seconds, "model": model, **walls, "harness": setting,
                 "usage": {"container_cpu_seconds": 0, "wall_seconds": 0, "subscription_calls": 0, "input": 0, "output": 0,
                           "billing_mode": "subscription", "api_cost_usd": 0}, "event_files": [], "cursor": 0}
             # The work ticket (H4), checked as a commission's specification is when an agent writes it; its protected tests stay here.
