@@ -413,12 +413,11 @@ my-toolbox = { git = "https://github.com/kc-ml2/my-toolbox", tag = "v1.0.0" }
 
 - `registry.methods()` caches each plug-in registry's methods until the plug-ins reload: installing, upgrading or
   removing a plug-in is noticed at the next listing (within `RECHECK_SECONDS`), so the services need no restart.
-- The six FLRL methods are still bundled. They are defined in `optimizers/fourier_specs.py` and created through a
-  hard-coded `from dqn_meent.flrl_optimizers import FourierOptimizer`, the same smell this document removes.
-  **Exercise:** move their descriptors and parameter properties next to `FourierOptimizer`, add a
-  `FourierPlugin` with the four contract methods, register it in `pyproject.toml`, and delete the special cases
-  from `registry.py`. `tests/test_flrl_optimizers.py` and an unchanged `registry.methods()` listing tell you when you are
-  done. The same comparison verified this change: the method list was byte-identical before and after.
+- The six FLRL methods were bundled until roadmap N8, defined in `optimizers/fourier_specs.py` and created through a
+  hard-coded `from dqn_meent.flrl_optimizers import FourierOptimizer`. They are now the lab's own `flrl` plug-in,
+  `dqn_meent/flrl_methods.py` `FourierPlugin`, beside `MaskLibraryPlugin`. The descriptors `registry.methods()` lists
+  are unchanged (`tests/fixtures/optimizer-methods-before-n8.json` pins them), and the method catalog still shows them as
+  bundled because the plug-in is in the lab's own package.
 
 ## Glossary
 
