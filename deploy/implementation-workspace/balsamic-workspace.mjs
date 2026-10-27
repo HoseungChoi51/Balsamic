@@ -55,7 +55,7 @@ const REPORT = {type: 'object', required: ['verdict', 'summary', 'methods', 'tes
     tests: tests(),
     conformance: {type: 'string', enum: ['passed', 'failed', 'not_run'], description: "Balsamic's contract check (tests/test_contract.py)"},
     note: {type: 'string', maxLength: 1000},
-  }}, minItems: 1, maxItems: 30},
+  }}, maxItems: 30, description: 'Each method the library registers; none only when it provides an evaluator alone'},
   tests: {type: 'object', required: ['passed', 'failed'], properties: {...tests().properties,
     command: {type: 'string', maxLength: 1000, description: 'The command that ran them'}}},
   limitations: {type: 'array', items: {type: 'string', maxLength: 1000}, maxItems: 30},

@@ -546,9 +546,18 @@ class CommandService:
             self._target(command, "hypothesis_id", "hypothesis")
             from optimization_framework.implementations.references import capture
             return capture(self.workspace, command.campaign_id, payload, command.id)
+        if command.operation in {"implementation.commission", "evaluator.commission"}:
+            from optimization_framework.agents.development_commission import commission, opens_box
+            self._target(command, "hypothesis_id" if command.operation == "implementation.commission" else "task_id",
+                         "hypothesis" if command.operation == "implementation.commission" else "task")
+            if opens_box(self.workspace, command.operation, payload):   # a headless coding box on a ticket (roadmap H7)
+                return commission(self.workspace, command, actor)
+            if payload.get("ticket") is not None:
+                raise ValueError("A ticket goes with a commission that opens a coding box, and this one runs as an implementation "
+                                 "service job (coding workspaces are off, it imports a package, or no charter declares its evaluator): "
+                                 "send it without ticket")
         if command.operation == "implementation.commission":
-            self._target(command, "hypothesis_id", "hypothesis")
-            values = CommissionInput(**payload).model_dump(exclude={"schema_version"})
+            values = CommissionInput(**payload).model_dump(exclude={"schema_version", "ticket"})
             service_key = values.pop("service_idempotency_key") or command.id
             grant = self.workspace.implementations.reserve_commission(**values, idempotency_key=service_key)
             return {"grant_id": grant["id"]}
@@ -584,8 +593,7 @@ class CommandService:
             self.store.put("outbox", effect, "effect.queued")
             return {"effect_id": effect["id"], "reuse_decision_id": effect["identity"], "version_id": values["version_id"]}
         if command.operation == "evaluator.commission":
-            self._target(command, "task_id", "task")
-            values = EvaluatorCommissionInput(**payload).model_dump(exclude={"schema_version"})
+            values = EvaluatorCommissionInput(**payload).model_dump(exclude={"schema_version", "ticket"})
             grant = self.workspace.implementations.reserve_commission(hypothesis_id=None, **values, idempotency_key=command.id)
             return {"grant_id": grant["id"]}
         if command.operation in {"evaluator.attach", "implementation.control"}:

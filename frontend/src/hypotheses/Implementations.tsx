@@ -56,7 +56,8 @@ function WorkspaceCard({ workspace: w, thread, labels, focused }: { workspace: W
   const [label, tone] = STATUS[w.status] || [w.status, ''];
   const live = LIVE.has(w.status);
   const used = w.usage?.container_cpu_seconds ?? 0;
-  const proposals = w.hypothesis_ids?.length ? w.hypothesis_ids : [w.hypothesis_id];
+  // A commission's box that builds a task's evaluator serves no proposal (roadmap H7).
+  const proposals = (w.hypothesis_ids?.length ? w.hypothesis_ids : [w.hypothesis_id]).filter((id): id is string => Boolean(id));
   const latest = w.checkpoints?.at(-1);
   const opened = Date.now() - new Date(w.created_at).getTime();
   return (
@@ -69,7 +70,10 @@ function WorkspaceCard({ workspace: w, thread, labels, focused }: { workspace: W
         {w.ide_url ? <a className="btn small quiet" href={w.ide_url} target="_blank" rel="noreferrer" title="The workspace's editor and terminal">Open the editor</a> : null}
       </div>
       <Kv rows={[
-        ['For', <span className="row wrap" style={{ gap: 4 }}>{proposals.map(id => <a key={id} className="chip" href={formatHash({ page: 'hypotheses', id, sel: id }, thread)}>{labels[id] || id.slice(0, 18)}</a>)}</span>],
+        ['For', proposals.length ? <span className="row wrap" style={{ gap: 4 }}>{proposals.map(id => <a key={id} className="chip" href={formatHash({ page: 'hypotheses', id, sel: id }, thread)}>{labels[id] || id.slice(0, 18)}</a>)}</span>
+          : <span className="small">{w.commission?.kind === 'evaluator' ? `the evaluator of task ${w.task_id || w.commission.task_id || ''}`.trim() : 'no proposal'}</span>],
+        ...(w.commission ? [['Commission', <span className="small" data-testid="workspace-commission">{w.commission.kind === 'evaluator' ? 'an evaluator' : 'an implementation'} job of {minutes(w.commission.compute_seconds * 1000)}: {w.commission.name}
+          {w.commission.protected_tests?.length ? <span className="faint"> · protected tests outside the box: {w.commission.protected_tests.join(', ')}</span> : null}</span>] as [string, React.ReactNode]] : []),
         ['Opened', `${new Date(w.created_at).toLocaleString()}${w.opened_by?.role ? ` by the ${w.opened_by.role.replaceAll('_', ' ')}` : ''}${w.desired_status === 'running' ? ` · open for ${minutes(opened)}` : ''}`],
         ['Last activity', w.last_activity_at ? when(w.last_activity_at) : <span className="faint">none yet</span>],
         ...(estimate(w) ? [['Estimate', estimate(w)] as [string, React.ReactNode]] : []),

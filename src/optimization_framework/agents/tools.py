@@ -1191,7 +1191,9 @@ class PiTools:
                 return self.receipt(accepted)
             except KeyError:
                 pass
-            if args["operation"] in {"implementation.commission", "evaluator.commission", "implementation.revalidate"}:
+            from .development_commission import opens_box   # a commission in a coding box needs no service sandbox (roadmap H7)
+            if args["operation"] in {"implementation.commission", "evaluator.commission", "implementation.revalidate"} and \
+                    not opens_box(self.workspace, args["operation"], payload):
                 execution = implementation_execution()
                 if not execution["available"]:
                     raise ValueError("Isolated implementation execution is unavailable; no grant was reserved. " + execution["reason"])

@@ -120,6 +120,13 @@ class EvaluatorService:
             return readiness(task, wait=wait, devices=self.workspace.devices.reachable(task))
         binding = self.binding(task)
         if not binding:
+            # A commission's coding box building its evaluator (roadmap H7): the task adopts the problem once the library is installed.
+            box = next((row for row in self.store.list("development_workspace", task["campaign_id"]) if row.get("desired_status") == "running"
+                        and (row.get("commission") or {}).get("task_id") == task["id"]), None)
+            if box:
+                return {"state": "building", "runnable": False, "requirement_id": task["evaluator_requirement_id"], "workspace_id": box["id"],
+                        "reason": "Its evaluator is being built in a coding workspace, commissioned; the task takes the problem once the "
+                                  "library is installed."}
             grants = [grant for grant in self.store.list("implementation_grant", task["campaign_id"]) if grant.get("task_id") == task["id"]]
             grant = grants[-1] if grants else None
             return {"state": (grant or {}).get("status", "missing"), "runnable": False,

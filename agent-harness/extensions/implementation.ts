@@ -99,7 +99,7 @@ const Report = Type.Object({
     tests: Type.Optional(Tests()),
     conformance: StringEnum(['passed', 'failed', 'not_run'], {description: "Balsamic's contract check (tests/test_contract.py)"}),
     note: Type.Optional(Type.String({maxLength: 1000})),
-  }), {minItems: 1, maxItems: 30}),
+  }), {maxItems: 30, description: 'Each method the library registers; none only when it provides an evaluator alone'}),
   tests: Type.Object({...Tests().properties, command: Type.Optional(Type.String({maxLength: 1000, description: 'The command that ran them'}))}),
   limitations: Type.Array(Type.String({maxLength: 1000}), {maxItems: 30}),
   next_actions: Type.Array(Type.Object({owner: StringEnum(['researcher', 'lead', 'validator']), action: Type.String({minLength: 1, maxLength: 1000})}),

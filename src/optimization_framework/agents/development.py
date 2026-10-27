@@ -131,7 +131,8 @@ class DeliveryReport(Contract):
     """What the coding agent delivers, in its own judgement; its verdict has to agree with what it reports."""
     verdict: Literal["ready", "ready_with_limits", "not_ready"]
     summary: str = Field(min_length=1, max_length=2000)
-    methods: list[MethodReport] = Field(min_length=1, max_length=30)
+    # None only from a commission's box that builds an evaluator alone (roadmap H7): delivery_report() refuses an empty list elsewhere.
+    methods: list[MethodReport] = Field(max_length=30)
     tests: ReportTests
     limitations: list[str] = Field(default_factory=list, max_length=30)
     next_actions: list[NextAction] = Field(default_factory=list, max_length=20)
@@ -314,7 +315,7 @@ class DevelopmentWorkspaces:
         events = self.workspace_events(record) if events is None else events
         errors = [e["occurred_at"] for e in events if e["type"] in ERROR_EVENTS or (e["type"] == "tool" and e["payload"].get("error"))]
         return {**{k: v for k, v in record.items() if k not in {"runtime", "cpu_last", "wall_last", "event_files", "request_hash"}},
-            "hypothesis_ids": record.get("hypothesis_ids") or [record["hypothesis_id"]],
+            "hypothesis_ids": proposals_of(record),
             # Every checkpoint, not only the latest: what the coding agent said it had done, and when.
             "checkpoints": [{"at": e["occurred_at"], **e["payload"]} for e in events if e["type"] == "checkpoint"][-20:],
             "last_error_at": errors[-1] if errors else None,
@@ -428,6 +429,73 @@ class DevelopmentWorkspaces:
                 "\nYour work ticket is TASK.md and the house rules are in AGENTS.md: read them, .campaign/assignment.md and "
                 ".campaign/evidence.json first. Continue until you submit, or a genuine blocker stops you.",
                 "request_key": "initial-" + values.request_key, "mode": "follow_up"}, actor=actor)
+            return self.public(self.get(campaign_id, identity))
+
+    def open_commission(self, campaign_id, commission, given, protected, *, actor="lead", opener=None, asked=None):
+        """A commission's headless coding box (roadmap H7, agents/development_commission.py): opened by Balsamic for the command bus
+        once the bus has checked the commission against its request's go-ahead and mandate. ``commission`` is its entry on the
+        record (kind, the command, its key, the proposal or the task, the frozen specification as the coding agent may read it, its
+        compute time); ``given`` the ticket's acceptance tests (a TicketInput); ``protected`` {name: source} of its protected tests,
+        kept here and never written into the box. Pi runs headless; the deadline is the commission's compute time, within the
+        go-ahead's wall time. The bus charges that compute time to the go-ahead once: opening the box takes no coding workspace of
+        it, and the box's wall time and its validation are counted against the commission, not charged again."""
+        from types import SimpleNamespace
+        from .library_validation import protect
+        if not self.enabled():
+            raise ValueError(self.disabled())
+        hypothesis = self.store.get(commission["hypothesis_id"], "hypothesis") if commission.get("hypothesis_id") else None
+        task = self.store.get(commission["task_id"], "task") if commission.get("task_id") else None
+        served = [hypothesis["id"]] if hypothesis else []
+        identity = "development_" + content_hash([campaign_id, "commission", commission["key"]])[:24]
+        with self.workspace.lock, self.store.transaction():
+            try:
+                saved = self.get(campaign_id, identity)
+                if (saved.get("commission") or {}).get("spec_digest") != commission["spec_digest"]:
+                    raise ValueError("This commission's key already opened a coding box for other work")
+                return self.public(saved)
+            except KeyError:
+                pass
+            from optimization_framework.campaigns import compute_consent, mandates
+            consent = mandate = None
+            if actor != "researcher":
+                # The go-ahead the bus checked the commission against, and charges its compute time to once (compute_consent.register).
+                consent = compute_consent.covering(self.workspace, campaign_id, commission["compute_seconds"], hypothesis_ids=served, root=asked)
+                mandate = mandates.require(self.workspace, campaign_id, asked, {"implement"}, what="A commission", hypothesis_ids=served)
+            config = self.controller.configuration(campaign_id)
+            if not config or not config["enabled"]:
+                raise ValueError("Activate the campaign lead agent before commissioning work in a coding box")
+            default = (config.get("models") or {}).get("default") or LEGACY_MODEL
+            model = {key: default.get(key) for key in ("provider", "model", "effort")}
+            wall = commission["compute_seconds"] if consent is None else min(commission["compute_seconds"], consent["wall_seconds"])
+            walls = self.walls(SimpleNamespace(limits=None, wall_seconds=wall, egress_hosts=[]), consent, model)
+            title = hypothesis["title"] if hypothesis else f"Evaluator: {commission['name']}"
+            objective = (f"Build {commission['name']}, the {commission['kind']} this commission names: its frozen specification is in "
+                         "TASK.md. Implement it as written.")
+            key = "commission-" + commission["key"]
+            record = {"id": identity, "campaign_id": campaign_id, "hypothesis_id": hypothesis["id"] if hypothesis else None, "hypothesis_ids": served,
+                **({"task_id": task["id"]} if task else {}), "title": title, "parent_agent_id": config["lead_id"], "created_at": now(),
+                "opened_by": {"actor": actor, **(opener or {})}, "request_root": asked,
+                "consent": {"id": consent["id"], "decision_id": consent.get("decision_id"), "plan": (consent.get("plan") or "")[:2000]} if consent else None,
+                "objective": objective, "evidence_ids": [], "request_key": key, "request_hash": content_hash([commission["spec_digest"], key]),
+                "status": "queued", "desired_status": "running", "control_revision": 0,
+                "guidance_revision": 0, "cpu_budget_seconds": None, "model": model, **walls, "harness": harness({"name": "pi", "mode": "headless"}),
+                "commission": {**commission, "usage": {"validation_seconds": 0.0}},
+                "usage": {"container_cpu_seconds": 0, "wall_seconds": 0, "subscription_calls": 0, "input": 0, "output": 0,
+                          "billing_mode": "subscription", "api_cost_usd": 0}, "event_files": [], "cursor": 0}
+            ticket = self.ticket(record, given, consent=consent, mandate=mandate)
+            self.workspace.implementations.check_self_contained(ticket)
+            record["ticket_id"] = ticket["id"]
+            self.store.put("development_workspace", record, "development.created")
+            self.store.put_immutable("development_ticket", ticket, "development.ticket_written")
+            for name, content in protected.items():   # the test designer's job, done outside the box (H6 runs them on every delivery)
+                protect(self.store, record, name, content)
+            if consent is not None:   # the go-ahead stays in force while the box runs, as for a workspace it opened; no workspace is charged
+                current = self.store.get(consent["id"], "compute_consent")
+                current["workspace_ids"] = list(dict.fromkeys([*current.get("workspace_ids", []), identity]))
+                self.store.put("compute_consent", current)
+            self.message(campaign_id, identity, {"message": objective + "\nYour work ticket is TASK.md and the house rules are in AGENTS.md: "
+                "read them and .campaign/assignment.md first. Nobody watches this session: continue until you submit, or a genuine "
+                "blocker stops you (ask with campaign_checkpoint).", "request_key": "initial-" + key, "mode": "follow_up"}, actor=actor)
             return self.public(self.get(campaign_id, identity))
 
     def walls(self, values, consent, model):
@@ -760,7 +828,8 @@ class DevelopmentWorkspaces:
     def charge_wall(self, record):
         """Count the wall time the box has been running since the last sync, on the workspace and on the go-ahead it opened
         under: the consent that is its request's mandate's compute part (campaigns/mandates.py). A paused, stopped or blocked box
-        is not charged."""
+        is not charged. A commission's box (roadmap H7) is counted on itself only: the bus charged the commission's compute time to
+        the go-ahead when it opened, and its wall time is part of that."""
         at = datetime.now(timezone.utc)
         running = record["desired_status"] == "running" and record["status"] not in {"queued", "blocked"}
         last = record.get("wall_last")
@@ -768,7 +837,7 @@ class DevelopmentWorkspaces:
             spent = max(0.0, (at - datetime.fromisoformat(last)).total_seconds())
             record["usage"]["wall_seconds"] = record["usage"].get("wall_seconds", 0) + spent
             consent_id = (record.get("consent") or {}).get("id")
-            if consent_id and spent:
+            if consent_id and spent and not record.get("commission"):
                 consent = self.store.get(consent_id, "compute_consent")
                 consent["used_wall_seconds"] = consent.get("used_wall_seconds", 0) + spent
                 self.store.put("compute_consent", consent)
@@ -819,7 +888,7 @@ class DevelopmentWorkspaces:
         and the walls on its record (H5)."""
         from .development_ticket import build, problem_of
         served = []
-        for hypothesis_id in record.get("hypothesis_ids") or [record["hypothesis_id"]]:
+        for hypothesis_id in proposals_of(record):
             try:
                 served.append(self.store.get(hypothesis_id, "hypothesis"))
             except KeyError:
@@ -909,6 +978,9 @@ class DevelopmentWorkspaces:
                             "implementation_workspace_message and that question_id.", "questions")
             elif (payload.get("blocker") and payload["blocker"] != before.get("blocker")) or (found.get("phase") == "blocked" and phase != "blocked"):
                 self.notify(record, key, "The coding agent is blocked: " + excerpt(payload.get("blocker") or payload.get("summary")), "checkpoints")
+        elif kind == "harness_error" and record.get("commission"):
+            # Nobody attaches to a commission's headless box (roadmap H7): whoever commissioned it hears that a run failed.
+            self.notify(record, key, "The coding agent's headless run failed: " + excerpt(payload.get("error")), "its status")
         elif kind == "message" and payload.get("role") == "assistant":
             usage = payload.get("usage")
             if usage:
@@ -927,6 +999,8 @@ class DevelopmentWorkspaces:
         if raw is None:
             return None
         report = plain(DeliveryReport.model_validate(raw).model_dump(mode="json"))
+        if not report["methods"] and (record.get("commission") or {}).get("kind") != "evaluator":
+            raise ValueError("report.methods: name each method the library registers (only a commissioned evaluator's library names none)")
         for index, method in enumerate(report["methods"]):
             if method.get("hypothesis_id"):
                 try:
@@ -944,7 +1018,7 @@ class DevelopmentWorkspaces:
         report = self.delivery_report(record, payload.get("report"))
         package, manifest, ignored = (snapshot or self.driver.snapshot)(record, payload["commit"], payload.get("manifest_path", "implementation-manifest.json"))
         submission = {"campaign_id": record["campaign_id"], "workspace_id": record["id"],
-            "hypothesis_id": record["hypothesis_id"], "hypothesis_ids": record.get("hypothesis_ids") or [record["hypothesis_id"]],
+            "hypothesis_id": record["hypothesis_id"], "hypothesis_ids": proposals_of(record),
             "commit": payload["commit"], "package": package, "manifest": manifest, "notes": payload.get("notes", ""),
             "report": report, "status": "submitted", "created_at": now(), **({"source": source} if source else {})}
         diff = self.diff(record, submission)   # read from the store the commit is in (the source's), outside the transaction
@@ -990,7 +1064,7 @@ class DevelopmentWorkspaces:
         if not capability["available"]:
             raise ValueError("Protected validation is unavailable: " + capability["reason"])
         from optimization_framework.campaigns import compute_consent, mandates
-        served = record.get("hypothesis_ids") or [record["hypothesis_id"]]   # a go-ahead covers the validation of what it opened
+        served = proposals_of(record)   # a go-ahead covers the validation of what it opened
         # Checked against the request the agent works for (asked), else the one the workspace was opened for.
         request = asked if asked is not None else record.get("request_root")
         if actor != "researcher":
@@ -1071,6 +1145,11 @@ def changed(diff):
     touched = list(dict.fromkeys(diff["generated_files_touched"] + diff["acceptance_tests_touched"]))
     return (f"It changes {diff['files_changed']} files of {diff['library'] or 'its package'} (+{diff['lines_added']} −{diff['lines_removed']} lines)"
             + (f"; generated files and acceptance tests it touched: {', '.join(touched)}." if touched else "."))
+
+
+def proposals_of(record):
+    """The proposals a workspace serves; none for a commission's box that builds a task's evaluator (roadmap H7)."""
+    return [value for value in record.get("hypothesis_ids") or [record.get("hypothesis_id")] if value]
 
 
 def method_keys(proposals):

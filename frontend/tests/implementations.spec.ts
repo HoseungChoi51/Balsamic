@@ -73,6 +73,22 @@ test('the card shows the workspace\'s walls: its deadline, its limits and the on
   await expect.poll(() => sent).toMatchObject({ action: 'resume', wall_seconds: 7200 });
 });
 
+test('a commission is a headless workspace card that names its job and its protected tests; an evaluator\'s serves its task (roadmap H7)', async ({ page }) => {
+  await mockWorkspace(page, { [`/api/campaigns/${CAMPAIGN_ID}/implementation-workspaces`]: { enabled: true, workspaces: [
+    { ...workspace, id: 'development_commission', hypothesis_ids: ['hypothesis_a'], harness: { name: 'pi', mode: 'headless' },
+      commission: { kind: 'implementation', name: 'Oven tray search', compute_seconds: 900, protected_tests: ['test_heater.py'] } },
+    { ...workspace, id: 'development_evaluator', title: 'Evaluator: Oven tray gap', hypothesis_id: null, hypothesis_ids: [], task_id: 'task_four_trays',
+      commission: { kind: 'evaluator', name: 'Oven tray gap', compute_seconds: 600, protected_tests: ['test_commission_fixtures.py'], task_id: 'task_four_trays' } }] } });
+  await page.goto(`/#t/${THREAD_ID}/hypotheses/implementations`);
+  const job = page.locator('[data-workspace="development_commission"]');
+  await expect(job.getByTestId('workspace-commission')).toHaveText('an implementation job of 15 min: Oven tray search · protected tests outside the box: test_heater.py');
+  await expect(job.locator('a.chip')).toHaveCount(1);
+  const evaluator = page.locator('[data-workspace="development_evaluator"]');
+  await expect(evaluator.getByTestId('workspace-commission')).toContainText('an evaluator job of 10 min: Oven tray gap');
+  await expect(evaluator).toContainText('the evaluator of task task_four_trays');
+  await expect(evaluator.locator('a.chip')).toHaveCount(0);
+});
+
 test('a link to a workspace opens its card with its history', async ({ page }) => {
   await mockWorkspace(page, { [`/api/campaigns/${CAMPAIGN_ID}/implementation-workspaces`]: { enabled: true, workspaces: [workspace] } });
   await page.route(`**/api/campaigns/${CAMPAIGN_ID}/implementation-workspaces/${WID}/timeline**`, route => route.fulfill({ json: { entries, next_before: null } }));

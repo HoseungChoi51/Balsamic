@@ -241,7 +241,7 @@ def spend(workspace, consent, seconds=0.0, *, coding=0, subjects=(), trial_ids=(
 def _subjects(outcome):
     """The records a started command names, for the notice's links."""
     outcome = outcome if isinstance(outcome, dict) else {}
-    found = [outcome[key] for key in ("trial_id", "draft_id", "validation_id", "profile_id", "grant_id") if isinstance(outcome.get(key), str)]
+    found = [outcome[key] for key in ("trial_id", "draft_id", "validation_id", "profile_id", "grant_id", "workspace_id") if isinstance(outcome.get(key), str)]
     return found + [value for value in outcome.get("trial_ids") or [] if isinstance(value, str)]
 
 
