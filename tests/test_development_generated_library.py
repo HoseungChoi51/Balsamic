@@ -8,7 +8,7 @@ import json
 import pytest
 
 from optimization_framework.agents.development import DEVELOPMENT_INSTRUCTIONS, DevelopmentWorkspaces, method_keys
-from optimization_framework.agents.development_runtime import references_note, write_library
+from optimization_framework.agents.development_runtime import references_note, write_library, write_ticket
 from optimization_framework.agents.library_install import Installer
 from optimization_framework.problem_charter.scaffold import scaffold
 from test_library_install import PYPROJECT, Plugins, Problems, git
@@ -27,13 +27,12 @@ class LibraryDriver(Driver):
         super().__init__(root)
         self.libraries = []
 
-    def repo(self, record):
-        return self.root(record) / "work" / "repo"
-
-    def prepare(self, record, brief, evidence, library=None):
+    def prepare(self, record, brief, evidence, library=None, ticket=None):
         super().prepare(record, brief, evidence)
         self.libraries.append(library)
-        return write_library(self.repo(record), library) if library else None
+        hashes = write_library(self.repo(record), library) if library else None
+        write_ticket(self.repo(record), ticket)
+        return hashes
 
 
 @pytest.fixture
@@ -82,18 +81,20 @@ def test_the_workspace_starts_from_the_generated_library_and_a_recovery_keeps_wh
 
 
 def test_the_brief_lists_every_served_proposal_with_its_methods_key_and_the_charters_summary(charter_lab):
+    # Since H4 the brief is the work ticket's TASK.md and its house rules (AGENTS.md); .campaign/assignment.md keeps the session's rules.
     workspace, cid, development, driver, _ = charter_lab
     record = opened(development, cid, hypothesis_ids=["hypothesis_greedy"])
     development.sync(cid)
-    brief = (driver.root(record) / "brief.md").read_text()
-    assert "Oven tray temperatures. Set each of 4 trays to a listed temperature, as close to 180 C as the heater allows." in brief
-    assert "Objective: minimize squared_gap (C^2)." in brief and "`libraries/oven_trays/`" in brief
-    assert '- **Test method** (`hypothesis_dev`); its METHODS key: `test_method` with `"hypothesis_id": "hypothesis_dev"`. ' \
-           "A test implementation" in brief
-    assert '- **Greedy trays** (`hypothesis_greedy`); its METHODS key: `greedy_trays` with `"hypothesis_id": "hypothesis_greedy"`. ' \
-           "Each tray takes the setting nearest the target" in brief
-    assert "uv run pytest libraries/oven_trays" in brief and "libraries/<name>" not in brief
+    task, rules = ((driver.repo(record) / name).read_text() for name in ("TASK.md", "AGENTS.md"))
+    assert "Oven tray temperatures. Set each of 4 trays to a listed temperature, as close to 180 C as the heater allows." in task
+    assert "Objective: minimize squared_gap (C^2)." in task and "`libraries/oven_trays/`" in task
+    assert '### Test method (`hypothesis_dev`)\n\nIts METHODS key: `test_method` with `"hypothesis_id": "hypothesis_dev"`.\n\n' \
+           "A test implementation" in task
+    assert '### Greedy trays (`hypothesis_greedy`)\n\nIts METHODS key: `greedy_trays` with `"hypothesis_id": "hypothesis_greedy"`.\n\n' \
+           "Each tray takes the setting nearest the target" in task
+    assert "uv run pytest libraries/oven_trays" in task + rules and "libraries/<name>" not in task + rules
     # The generic brief names no grating library, reference repository or paper.
+    brief = task + rules + (driver.root(record) / "brief.md").read_text()
     assert not {"grating", "flrl", "paper"} & set(brief.lower().replace("`", " ").replace("/", " ").split())
 
 
@@ -103,14 +104,15 @@ def test_a_campaign_without_a_charter_gets_no_library_and_a_charter_without_an_e
     record = opened(development, cid)
     development.sync(cid)
     assert driver.libraries == [None] and "library" not in development.get(cid, record["id"])
-    brief = (driver.root(record) / "brief.md").read_text()
-    assert "## The problem" not in brief and "its METHODS key" not in brief and "**Test method** (`hypothesis_dev`)" in brief
+    brief = (driver.repo(record) / "TASK.md").read_text()
+    assert "## The problem" not in brief and "METHODS key" not in brief and "### Test method (`hypothesis_dev`)" in brief
 
     revised = workspace.charters.create(ovens(evaluator=None), source={"kind": "test"})
     workspace.store.put("campaign", {**workspace.store.get(cid, "campaign"), "charter": {"id": revised["id"], "revision": revised["revision"]}})
     library, _, why = development.generated_library(record)
     assert library is None and "names no evaluator" in why
-    assert "No library could be generated from the charter (The charter names no evaluator" in development.brief(record, library, _, why)
+    from optimization_framework.agents.development_ticket import task
+    assert "No library could be generated from it (The charter names no evaluator" in task(development.ticket(record))
 
 
 def test_method_keys_are_method_ids_unique_among_the_proposals():
@@ -128,12 +130,11 @@ def test_references_are_named_only_when_the_workspace_holds_them(tmp_path):
 
 
 def test_the_instructions_are_shorter_than_before_and_name_no_grating_library():
+    # The steps (objective.py, methods.py, the tests, campaign_submit, the version) moved to the work ticket's house rules in H4;
+    # tests/test_development_ticket.py checks them there.
     assert len(DEVELOPMENT_INSTRUCTIONS.split()) < BEFORE_WORDS and len(DEVELOPMENT_INSTRUCTIONS) < BEFORE_CHARACTERS
     for gone in ("grating-mask-search", "/references/flrl", "paper.pdf"):
         assert gone not in DEVELOPMENT_INSTRUCTIONS
-    for step in ("objective.py", "methods.py", "uv run pytest libraries/<name>", "campaign_submit",
-                 "Raise the version", "docs/optimizer-plugins.md", "optimizer_v1"):
-        assert step in DEVELOPMENT_INSTRUCTIONS
 
 
 # The install (decision 9) ------------------------------------------------------------------------------------------------

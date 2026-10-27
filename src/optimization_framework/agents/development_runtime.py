@@ -137,6 +137,17 @@ def write_library(repo, library):
     return hashes
 
 
+def write_ticket(repo, files):
+    """The work ticket's files ({repository path: bytes}: TASK.md, AGENTS.md, CLAUDE.md, .balsamic/spec.json and the
+    implementation lead's new acceptance tests, agents/development_ticket.py files()), each written only when absent, so a
+    recovered workspace keeps what its coding agent changed."""
+    for path, content in sorted((files or {}).items()):
+        target = Path(repo) / path
+        if not target.exists():
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_bytes(content)
+
+
 def references_note(directory):
     """The brief's line on the references this workspace holds; nothing when it holds none."""
     found = sorted(path.name for path in Path(directory).iterdir() if not path.name.endswith(".commit")) if Path(directory).is_dir() else []
@@ -205,9 +216,10 @@ class DockerWorkspace:
                 target.write_text(json.dumps({provider: auth[provider]}))
                 target.chmod(0o600)
 
-    def prepare(self, record, brief, evidence, library=None):
+    def prepare(self, record, brief, evidence, library=None, ticket=None):
         """The workspace's directories, worktree, references and `.campaign/` brief; with ``library`` ({name, files}), the
-        library generated from the campaign's charter under `libraries/<name>/` (write_library). Returns its hashes."""
+        library generated from the campaign's charter under `libraries/<name>/` (write_library); with ``ticket``, the work
+        ticket's files beside it (write_ticket). Returns the library's hashes."""
         root = self.root(record)
         for name in ("work", "home", "incoming/commands", "incoming/results", "outgoing/events", "references"):
             (root / name).mkdir(parents=True, exist_ok=True, mode=0o700)
@@ -246,7 +258,9 @@ class DockerWorkspace:
         }
         if not (vscode / "settings.json").exists():
             (vscode / "settings.json").write_text(json.dumps(settings, indent=2))
-        return write_library(repo, library) if library else None
+        hashes = write_library(repo, library) if library else None
+        write_ticket(repo, ticket)
+        return hashes
 
     def references(self, root):
         """Reference code only: no host working files, credentials, or campaign databases."""

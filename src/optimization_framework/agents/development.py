@@ -13,6 +13,7 @@ from optimization_framework.contracts.base import Contract, content_hash, field_
 from optimization_framework.contracts.commands import HOSTNAME
 from optimization_framework.storage.sqlite import atomic_json, now
 from .development_runtime import IMAGE, LEGACY_MODEL, LIMITS, DockerWorkspace, ceilings, egress
+from .development_ticket import TicketInput
 from .models import LEAD, NOTICE
 
 
@@ -36,6 +37,8 @@ class WorkspaceCreate(Contract):
     wall_seconds: float | None = Field(default=None, gt=0, le=604800)
     limits: WorkspaceLimits | None = None
     egress_hosts: list[str] = Field(default_factory=list, max_length=20)
+    # The implementation lead's part of the work ticket (H4): acceptance tests the coding agent sees, protected ones it never does.
+    ticket: TicketInput | None = None
 
     @model_validator(mode="after")
     def hostnames(self):
@@ -240,7 +243,7 @@ class WorkspaceEnvelope(Contract):
 def request_hash(values):
     """The create request's identity; a request without other proposals hashes as it did before they could be named."""
     dump = values.model_dump()
-    for key in ("hypothesis_ids", "wall_seconds", "limits", "egress_hosts"):
+    for key in ("hypothesis_ids", "wall_seconds", "limits", "egress_hosts", "ticket"):
         if not dump.get(key):
             dump.pop(key, None)
     return content_hash(dump)
@@ -369,12 +372,12 @@ class DevelopmentWorkspaces:
             except KeyError:
                 pass
             from optimization_framework.campaigns import compute_consent, mandates
-            consent = None
+            consent = mandate = None
             # The request the agent works for: its mandate must allow the workspace, and a request-only go-ahead (R7) covers it there.
             request = asked if asked is not None else root
             if actor != "researcher":
                 consent = compute_consent.require(self.workspace, campaign_id, "Opening a coding workspace", coding=1, hypothesis_ids=served, root=request)
-                mandates.require(self.workspace, campaign_id, request, {"implement"}, what="Opening a coding workspace", hypothesis_ids=served)
+                mandate = mandates.require(self.workspace, campaign_id, request, {"implement"}, what="Opening a coding workspace", hypothesis_ids=served)
             for evidence_id in values.evidence_ids:
                 self.evidence(campaign_id, evidence_id)
             config = self.controller.configuration(campaign_id)
@@ -395,14 +398,22 @@ class DevelopmentWorkspaces:
                 "guidance_revision": 0, "cpu_budget_seconds": values.cpu_budget_seconds, "model": model, **walls,
                 "usage": {"container_cpu_seconds": 0, "wall_seconds": 0, "subscription_calls": 0, "input": 0, "output": 0,
                           "billing_mode": "subscription", "api_cost_usd": 0}, "event_files": [], "cursor": 0}
+            # The work ticket (H4), checked as a commission's specification is when an agent writes it; its protected tests stay here.
+            ticket = self.ticket(record, values.ticket, consent=consent, mandate=mandate)
+            if actor != "researcher":
+                self.workspace.implementations.check_self_contained(ticket)
+            record["ticket_id"] = ticket["id"]
             self.store.put("development_workspace", record, "development.created")
+            self.store.put_immutable("development_ticket", ticket, "development.ticket_written")
+            from .development_ticket import protect
+            for test in values.ticket.protected_tests if values.ticket else ():
+                protect(self.store, record, test)
             if actor != "researcher":
                 compute_consent.charge(self.workspace, campaign_id, coding=1, what="a coding workspace", subjects=[identity], hypothesis_ids=served,
                                        root=request)
             self.message(campaign_id, identity, {"message": values.objective +
-                "\nRead .campaign/assignment.md and .campaign/evidence.json first. Save checkpoints in .campaign/checkpoint.md. "
-                "Use the normal Pi coding tools to implement, debug, and test. Submit a committed package with campaign_submit. "
-                "Use campaign_checkpoint for progress, questions, and blockers. Continue authorized development until a concrete submission or genuine blocker.",
+                "\nYour work ticket is TASK.md and the house rules are in AGENTS.md: read them, .campaign/assignment.md and "
+                ".campaign/evidence.json first. Continue until you submit, or a genuine blocker stops you.",
                 "request_key": "initial-" + values.request_key, "mode": "follow_up"}, actor=actor)
             return self.public(self.get(campaign_id, identity))
 
@@ -416,8 +427,9 @@ class DevelopmentWorkspaces:
         if over:
             raise ValueError("The workspace's limits are above the researcher's ceilings: " + ", ".join(over) + ". Ask for less, or ask "
                              "the researcher to raise the ceilings (development_max_cpus, development_max_memory_gb, development_max_gpus)")
-        wall = values.wall_seconds
+        wall, hosts = values.wall_seconds, list(values.egress_hosts)
         if consent is not None:
+            hosts = hosts or list(consent.get("egress_hosts") or [])   # none named: the hosts its go-ahead approved (H4's ticket carries them)
             wall = wall or consent["wall_seconds"]
             if wall > consent["wall_seconds"]:
                 raise ValueError(f"The workspace's deadline ({wall:.0f} s) is past the go-ahead's wall time ({consent['wall_seconds']:.0f} s)")
@@ -425,7 +437,7 @@ class DevelopmentWorkspaces:
             if unapproved:
                 raise ValueError("The go-ahead did not approve these hosts for the workspace: " + ", ".join(unapproved) + ". Name them in "
                                  "egress_hosts of the request's mandate (mandate_propose, template screen), so the researcher approves them with it")
-        return {"limits": limits, "wall_seconds": wall, "deadline_at": None, "egress": egress(model, values.egress_hosts)}
+        return {"limits": limits, "wall_seconds": wall, "deadline_at": None, "egress": egress(model, hosts)}
 
     def evidence(self, campaign_id, identity):
         entry = self.store.get_entry(identity)
@@ -548,7 +560,68 @@ class DevelopmentWorkspaces:
                          if e["workspace_id"] == identity and e["seq"] > after), key=lambda e: e["seq"])
         events = events[:100] if after else events[-100:]
         commands = [c for c in self.store.list("development_command", campaign_id) if c["workspace_id"] == identity]
-        return {"workspace": self.public(record), "events": events, "cursor": events[-1]["seq"] if events else after, "commands": commands[-100:]}
+        public = self.public(record)
+        return {"workspace": public, "events": events, "cursor": events[-1]["seq"] if events else after, "commands": commands[-100:],
+                "ticket": self.ticket_summary(record), "review": self.review(record, public["submissions"])}
+
+    def ticket_summary(self, record):
+        """The ticket as the implementation lead reviews against it: what it asks for, without the texts it holds."""
+        ticket = self.ticket_of(record)
+        return {"id": ticket["id"], "proposals": [{key: row[key] for key in ("hypothesis_id", "title", "method_key")} for row in ticket["proposals"]],
+                "library": (ticket.get("library") or {}).get("path"), "test_command": ticket.get("test_command"),
+                "acceptance_tests": [{key: row[key] for key in ("path", "source")} for row in ticket["acceptance_tests"]],
+                "protected_tests": ticket["protected_tests"], "budget": ticket.get("budget"), "deadline": ticket.get("deadline")}
+
+    def diff(self, record, submission):
+        """A submission's diff summary against the base its ticket wrote (development_ticket.diff_summary): the commit's library,
+        read from the workspace's Git store as the install reads it (the submitted package's files where the store cannot be
+        read), against the generated library and the implementation lead's tests."""
+        from optimization_framework.campaigns.method_catalog import library_of
+        from .development_ticket import diff_summary, sha256
+        try:
+            ticket, library = self.ticket_of(record), record.get("library") or {}
+            name = library_of(submission) or library.get("name")
+            prefix = f"libraries/{name}/" if name else ""
+            delivered, source = None, "commit"
+            if name:
+                from .development_runtime import ROOT
+                from .library_install import Installer
+                try:
+                    delivered = Installer(self.workspace, self, ROOT).files(record, submission, name)
+                except (ValueError, OSError):
+                    delivered = None
+            if delivered is None:
+                source = "package"
+                delivered = {row["path"]: str(row["content"]).encode() for row in (submission.get("package") or {}).get("files", [])
+                             if row["path"].startswith(prefix)}
+            hashes = (library.get("files") or {}) if library.get("name") == name else {}
+            base = {}
+            if hashes:   # the generated library, made again from its charter revision: kept where it has the recorded bytes
+                generated = self.generated_library(record)[0] or {}
+                for path, content in (generated.get("files") or {}).items():
+                    if hashes.get(prefix + path) == sha256(content):
+                        base[prefix + path] = content
+            base |= {row["path"]: row["content"].encode() for row in ticket["acceptance_tests"]
+                     if row.get("content") is not None and row["path"].startswith(prefix)}
+            return {"library": name, "source": source, **diff_summary(base, delivered, hashes=hashes, ticket=ticket)}
+        except Exception as exc:   # a review that cannot be made never stops a delivery
+            return {"error": f"The diff could not be made: {exc}"[:500]}
+
+    def review(self, record, submissions):
+        """What the implementation lead reviews of the latest delivery: the coding agent's verdict, the diff against the ticket's
+        base, and the host's validation outside the box (H6 records it on the install, as host_validation and refused_methods;
+        None until an install has)."""
+        if not submissions:
+            return None
+        latest = submissions[-1]
+        installs = sorted((row for row in self.store.list("library_install", record["campaign_id"]) if row.get("submission_id") == latest["id"]),
+                          key=lambda row: row["requested_at"])
+        install = installs[-1] if installs else {}
+        return {"submission_id": latest["id"], "commit": latest["commit"], "verdict": (latest.get("report") or {}).get("verdict"),
+                "diff": latest.get("diff") or self.diff(record, latest),
+                "install": {key: install.get(key) for key in ("id", "status", "methods_added", "error")} if install else None,
+                "host_validation": install.get("host_validation"), "refused_methods": install.get("refused_methods"),
+                "protected_tests": self.ticket_of(record)["protected_tests"]}
 
     def sync(self, campaign_id):
         try:
@@ -593,15 +666,17 @@ class DevelopmentWorkspaces:
                 if not capability["available"]:
                     raise ValueError(capability["reason"])
                 evidence = [self.evidence(cid, ref) for ref in record["evidence_ids"]]
-                library, charter, why = self.generated_library(record)
-                brief = self.brief(record, library, charter, why)
+                library, charter, why = generated = self.generated_library(record)
+                # The ticket's four files (H4) go in beside the library; nothing protected is among them.
+                from .development_ticket import files
+                ticket = files(self.ticket_of(record, generated))
                 if library:
-                    hashes = self.driver.prepare(record, brief, evidence, library=library)
+                    hashes = self.driver.prepare(record, self.brief(record), evidence, library=library, ticket=ticket)
                     library = {key: value for key, value in library.items() if key != "files"} | {"files": hashes}
                     with self.workspace.lock:
                         self.store.put("development_workspace", {**self.get(cid, identity), "library": library})
                 else:
-                    self.driver.prepare(record, brief, evidence)
+                    self.driver.prepare(record, self.brief(record), evidence, ticket=ticket)
                 atomic_json(root / "prepared.json", {"workspace_id": identity, **({"library": library} if library else {})})
             runtime = self.driver.start(record)
             with self.workspace.lock:
@@ -724,39 +799,34 @@ class DevelopmentWorkspaces:
         return {"name": name, "package": package, "charter_id": reference["id"], "revision": reference["revision"],
                 "fixed": [f"libraries/{name}/charter.json", f"libraries/{name}/{package}/data.py"], "files": files}, charter, None
 
-    def brief(self, record, library, charter, why=None):
-        """`.campaign/assignment.md`: the request, every proposal the workspace serves (with the METHODS key for each, when
-        it starts from a generated library), the charter's summary, then DEVELOPMENT_INSTRUCTIONS."""
+    def ticket(self, record, given=None, *, consent=None, mandate=None, generated=None):
+        """The work ticket of a workspace record (H4, agents/development_ticket.py): the proposals it serves with their METHODS
+        keys, the campaign's charter revision and the library generated from it (``generated``: generated_library()'s result
+        when it is at hand), the implementation lead's tests (``given``), the budget of the go-ahead and mandate it opens under,
+        and the walls on its record (H5)."""
+        from .development_ticket import build, problem_of
         served = []
         for hypothesis_id in record.get("hypothesis_ids") or [record["hypothesis_id"]]:
             try:
                 served.append(self.store.get(hypothesis_id, "hypothesis"))
             except KeyError:
                 continue
-        keys = method_keys(served)
-        lines = [f"# {record['title']}", "", record["objective"], ""]
-        if charter:
-            from optimization_framework.problem_charter.charter import parse, render, resolve
-            parsed = parse(charter)
-            values = resolve(parsed)["values"]
-            objective = parsed.objective
-            lines += ["## The problem", "", f"{parsed.title}. " + render(parsed.summary, values, parsed).strip(), ""]
-            if objective:
-                lines += [f"Objective: {objective.direction} {objective.name}" + (f" ({objective.units})" if objective.units.strip() else "") + ".", ""]
-            if library:
-                lines += [f"The library generated from charter revision {library['revision']} is in `libraries/{library['name']}/`; "
-                          f"its README says what to write.", ""]
-            else:
-                lines += [f"No library could be generated from the charter ({why}): build one as "
-                          "docs/optimizer-plugins.md describes.", ""]
-        lines += ["## Proposals", ""]
-        for hypothesis in served:
-            key = f"; its METHODS key: `{keys[hypothesis['id']]}` with `\"hypothesis_id\": \"{hypothesis['id']}\"`" if library else ""
-            lines += [f"- **{hypothesis.get('title') or hypothesis['id']}** (`{hypothesis['id']}`){key}. "
-                      + " ".join(str(hypothesis.get("mechanism") or "").split())]
-        lines += ["", "Each proposal's full record:", "", "```json", json.dumps(served, indent=2), "```", ""]
-        instructions = DEVELOPMENT_INSTRUCTIONS.replace("libraries/<name>", f"libraries/{library['name']}" if library else "libraries/<name>")
-        return "\n".join(lines) + "\n" + instructions
+        library, charter, why = generated or self.generated_library(record)
+        reference = self.store.get(record["campaign_id"], "campaign").get("charter")
+        return build(record, served, method_keys(served), library=library, problem=problem_of(charter, reference) if charter else None,
+                     why=why, given=given, consent=consent, mandate=mandate)
+
+    def ticket_of(self, record, generated=None):
+        """The ticket the workspace opened with; one built from its record for a workspace opened before tickets."""
+        try:
+            return self.store.get(record["ticket_id"], "development_ticket")
+        except KeyError:
+            return self.ticket(record, generated=generated)
+
+    def brief(self, record):
+        """`.campaign/assignment.md`: DEVELOPMENT_INSTRUCTIONS, what the house rules (AGENTS.md) do not say about this Pi session.
+        The work itself is the ticket's (TASK.md)."""
+        return f"# {record['title']}\n\n" + DEVELOPMENT_INSTRUCTIONS
 
     def receive(self, record):
         root = self.driver.root(record)
@@ -857,12 +927,14 @@ class DevelopmentWorkspaces:
     def capture_submission(self, record, key, payload):
         report = self.delivery_report(record, payload.get("report"))
         package, manifest, ignored = self.driver.snapshot(record, payload["commit"], payload.get("manifest_path", "implementation-manifest.json"))
+        submission = {"campaign_id": record["campaign_id"], "workspace_id": record["id"],
+            "hypothesis_id": record["hypothesis_id"], "hypothesis_ids": record.get("hypothesis_ids") or [record["hypothesis_id"]],
+            "commit": payload["commit"], "package": package, "manifest": manifest, "notes": payload.get("notes", ""),
+            "report": report, "status": "submitted", "created_at": now()}
+        diff = self.diff(record, submission)   # read from the workspace's Git store, outside the transaction
         with self.workspace.lock, self.store.transaction():
             identity = "development_submission_" + content_hash([record["id"], payload["commit"], package, manifest])[:24]
-            submission = {"id": identity, "campaign_id": record["campaign_id"], "workspace_id": record["id"],
-                "hypothesis_id": record["hypothesis_id"], "hypothesis_ids": record.get("hypothesis_ids") or [record["hypothesis_id"]],
-                "commit": payload["commit"], "package": package, "manifest": manifest, "notes": payload.get("notes", ""),
-                "report": report, "status": "submitted", "created_at": now()}
+            submission = {"id": identity, **submission, "diff": diff}
             try:
                 saved = self.store.get(identity, "development_submission")
                 if report and saved.get("report") != report:   # the same commit again: its latest report stands
@@ -872,7 +944,8 @@ class DevelopmentWorkspaces:
                 saved = self.store.put("development_submission", submission, "development.submitted")
                 verdict = f" The coding agent's verdict: {report['verdict'].replace('_', ' ')}; next: " + ("; ".join(
                     f"{a['owner']}: {a['action']}" for a in report["next_actions"]) or "nothing named") + "." if report else " It sent no delivery report."
-                self.notify(record, identity, f"Commit {submission['commit']} submitted as {identity}.{verdict} Review its manifest and commission independent validation using implementation_workspace_validate under the compute go-ahead.", "submissions")
+                self.notify(record, identity, f"Commit {submission['commit']} submitted as {identity}.{verdict} {changed(diff)} Review it against "
+                            "its ticket (review in implementation_workspace_inspect).", "submissions")
             self.event(record, key, "submission", {"submission_id": identity, "commit": payload["commit"]})
         atomic_json(self.driver.root(record) / "incoming/results" / (key + ".json"), {"submission_id": saved["id"], "status": saved["status"],
             **({"ignored_fields": ignored} if ignored else {})})
@@ -972,6 +1045,15 @@ class DevelopmentWorkspaces:
             self.store.put("development_submission", submission)
 
 
+def changed(diff):
+    """A delivery's diff summary as a line of a notice."""
+    if not diff or diff.get("error"):
+        return (diff or {}).get("error") or ""
+    touched = list(dict.fromkeys(diff["generated_files_touched"] + diff["acceptance_tests_touched"]))
+    return (f"It changes {diff['files_changed']} files of {diff['library'] or 'its package'} (+{diff['lines_added']} −{diff['lines_removed']} lines)"
+            + (f"; generated files and acceptance tests it touched: {', '.join(touched)}." if touched else "."))
+
+
 def method_keys(proposals):
     """{proposal id: a method id for it}: its title as an identifier (a method id's pattern), unique among the proposals."""
     keys, used = {}, set()
@@ -988,40 +1070,21 @@ def method_keys(proposals):
 
 DEVELOPMENT_INSTRUCTIONS = """## Development workflow
 
+Your work ticket is TASK.md: the proposals, the acceptance tests, the budget, the deadline and
+the network. AGENTS.md holds the house rules: what to build, how to run the tests, how to
+submit and what not to touch. Read both first.
+
 This is a complete Pi coding workspace: read, edit, write, bash, Git, tests and skills;
 `python -m pip install --user ...` installs packages. The host campaign database, private
-files, protected validation fixtures and Docker socket are outside it. The network reaches
-only your model's endpoint, the package index and the hosts your workspace names.
+files, protected validation fixtures and Docker socket are outside it.
 
-The developer and the campaign lead agent can steer this session; explicit developer
-direction wins. Reread files the developer changed before editing them. Keep decisions
+The developer can steer this session, and their direction wins; the campaign lead agent
+answers your questions. Reread files the developer changed before editing them. Keep decisions
 and continuation notes in `.campaign/checkpoint.md`: it survives compaction and reconnects.
-
-The library is `libraries/<name>/`:
-1. Write the objective in `objective.py`.
-2. Write one function per proposal in `methods.py`, under the METHODS key the brief gives it.
-3. Make `uv run pytest libraries/<name>` pass; `tests/test_contract.py` runs Balsamic's
-   contract checks. `charter.json` and `data.py` stay as generated: Balsamic refuses a
-   library whose data no longer matches the charter revision.
-4. Commit it with an `implementation-manifest.json` holding `files` (the library's
-   repository-relative paths), exact `dependencies` and a `test_summary`.
-5. Submit the full commit hash with `campaign_submit` and your delivery report.
-6. Raise the version in its `pyproject.toml` with every new delivery: the lab loads new
-   code only when the version changes.
-A method that needs its own state, batches or checkpoints, or a library the brief names
-none for, follows the optimizer_v1 package contract instead: see docs/optimizer-plugins.md.
-
-The delivery report: your verdict (ready only when every method is implemented, its
-conformance check passed, no test fails and nothing is limited; ready_with_limits with the
-limitations; not_ready with what must happen next), each method's id, proposal, state,
-tests and conformance, the totals of your test run with its command, and the next actions
-with who does each. The researcher reads it as the outcome of your work. Balsamic installs
-the library when you deliver it (unless you report it not ready), so installing is nobody's
-next action.
 
 At each `campaign_checkpoint`, give your phase, what is done and what remains, the latest
 test counts and the minutes left until you submit; use it for questions and blockers too.
 Use a new commit for each repair. Whether a method performs well is for the campaign's
-experiments, not the implementation. At its deadline, if it has one, the workspace pauses with
-your session saved; container CPU is measured against an optional allowance.
+experiments, not the implementation. At its deadline the workspace pauses with your session
+saved.
 """

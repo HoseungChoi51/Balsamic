@@ -245,6 +245,8 @@ class Run:
         submissions = self.submissions()
         workspace = workspaces[0] if workspaces else {}
         usage = workspace.get("usage") or {}
+        # The work ticket the workspace opened on (roadmap H4): the route the run took.
+        ticket = self.store.get(workspace["ticket_id"], "development_ticket") if workspace.get("ticket_id") else {}
         return {
             "seconds_to_workspace": seconds_between(asked_at, workspace.get("created_at")),
             "seconds_to_submission": seconds_between(asked_at, submissions[0]["created_at"] if submissions else None),
@@ -255,6 +257,7 @@ class Run:
             "notices_from_workspace": sum(r["id"].startswith("pi_development_") for r in runs),
             "researcher_approvals": len(self.approved), "researcher_answers": len(self.answered),
             "submissions": len(submissions), "workspace_status": workspace.get("status"),
+            "ticket": {key: len(ticket.get(key) or []) for key in ("acceptance_tests", "protected_tests")} if ticket else None,
             "coding_agent": {key: usage.get(key, 0) for key in ("subscription_calls", "input", "output", "cacheRead", "cacheWrite",
                                                                  "api_cost_usd", "container_cpu_seconds")},
             **lead_evals.Context.usage(self)}

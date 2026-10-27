@@ -318,12 +318,25 @@ rate) must agree with what the charter computes; a configuration that is none of
 
 A coding workspace of a campaign made from a charter starts from this library (`agents/development.py`
 `generated_library()`): the workspace's first preparation writes it into `libraries/<problem-id>/` of the worktree, never
-over a file that is already there, and records the hash of each generated file. Its brief gives each proposal it serves
-the `METHODS` key to write it under, with its `hypothesis_id`. Under decision 9, `charter.json` and `data.py` are fixed:
+over a file that is already there, and records the hash of each generated file. Its work ticket (`TASK.md`, below) gives
+each proposal it serves the `METHODS` key to write it under, with its `hypothesis_id`, and lists the library's generated
+tests as its acceptance tests. Under decision 9, `charter.json` and `data.py` are fixed:
 the install refuses a delivery whose copies differ from the generated ones ("the library's data no longer matches the
 charter revision"), and lists the other generated files the coding agent changed (`changed_generated_files`; the
-objective and the methods, which it writes, are not listed). A charter with no evaluator gives no library, and the brief
+objective and the methods, which it writes, are not listed). A charter with no evaluator gives no library, and the ticket
 says why; the coding agent then builds one as this page describes.
+
+The work ticket (`agents/development_ticket.py`, a `development_ticket` recorded when the workspace opens) is what the
+coding agent is asked to do, written into the worktree beside the library as four files: `TASK.md` (the proposals with
+their mechanisms and `METHODS` keys, the charter revision, the acceptance tests, the budget of the request's mandate, the
+deadline, limits and network of the box), `AGENTS.md` and `CLAUDE.md` (the same house rules for any harness: what to
+build, how to run the tests, how to submit, what not to touch) and `.balsamic/spec.json` (the ticket as JSON). Like the
+library, each file is written only where it is absent. The implementation lead adds acceptance tests (a pytest file by its
+path, with its content when it is new; a campaign without a charter needs at least one) and protected tests, which stay on
+the host (`development_protected_test`) and are never written into the box. An agent's ticket is checked as a commission's
+specification is (`check_self_contained()`): it needs acceptance tests and may name only records the coding agent can read.
+Each delivery is reviewed by its diff against the generated base (files and lines changed, the generated files and
+acceptance tests it touched), on the submission and in `implementation_workspace_inspect`.
 
 ### Failure policy
 
