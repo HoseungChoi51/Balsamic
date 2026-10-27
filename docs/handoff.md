@@ -77,8 +77,8 @@ All 28 Phase 1 parts and all 7 Phase 2 parts are merged and released.
 | `phase-2` | `975e935` | `docs/releases/phase-2.md` (PR #61) |
 | `baseline` | `61538de` | the eval baseline |
 
-**Open for Hoseung:** create these three tags by hand (none exists yet), and G2's live run of lead scenario S19 on
-Centinels (`docs/readiness/G2.md`; run it from a separate worktree, because a live S19 run installs into its checkout).
+All three tags exist on GitHub (Hoseung created them by hand; cloud sessions cannot push tags). **Open for
+Hoseung:** G2's live run of lead scenario S19 on Centinels (`docs/readiness/G2.md`; run it from a separate worktree, because a live S19 run installs into its checkout).
 Their UAT of both releases is also theirs.
 
 ### Phase 3: in progress, the only active phase
@@ -191,8 +191,7 @@ uv run python scripts/run_lead_evals.py --fake                 # eval plumbing, 
    is under the size ratchet in `tests/test_harness_contract.py`; Hoseung runs the live baseline before and after.
 4. When R1–R7 have all merged: full suite on `main`, `docs/releases/phase-3.md` in its own PR, update the phase table of
    `docs/status.md`, and give Hoseung the commit to tag `phase-3`.
-5. Remind Hoseung of the tags still to create (`phase-1` `334cea8`, `phase-2` `975e935`, `baseline` `61538de`) and of
-   G2's live run.
+5. Remind Hoseung of G2's live run and the UAT of Phases 1 and 2 if they have not reported on them.
 6. Only when Hoseung resumes them: Phase 4 (H5 #41 up to date, finish H6 #67, then H2/H3/H4, H7, H8), and Phases 5–7
    (the conflict-hotspots PR from §4 first, then each open PR merged with `main` and retested, then the parts not
    started).
