@@ -29,7 +29,7 @@ CLASSES = {
     **dict.fromkeys(("hypothesis.review",), "review"),
     **dict.fromkeys(("implementation.commission", "implementation.attach", "implementation.revalidate", "implementation.bind_builtin",
                      "implementation.resolve_runtime", "implementation.reuse", "implementation.reference", "implementation.control",
-                     "evaluator.commission", "evaluator.attach", "library.apply", "asset.reuse", "asset.import_reference_set"), "implement"),
+                     "evaluator.commission", "evaluator.attach", "library.apply", "campaign.adopt_problem", "asset.reuse", "asset.import_reference_set"), "implement"),
     # A batch of interventions is checked by its items' classes (classes_of).
     **dict.fromkeys(("trial.create", "trial.continue", "trial.control", "draft.launch", "fixed_mask.run", "inference.run",
                      "runtime.profile", "hypothesis.allocate", "intervention.batch", "study.create", "study.activate",

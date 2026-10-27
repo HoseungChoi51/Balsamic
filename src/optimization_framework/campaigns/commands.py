@@ -12,7 +12,7 @@ from optimization_framework.contracts.templates import TemplateFreezeInput, Exec
 from optimization_framework.contracts.references import ReferenceImportInput
 from optimization_framework.contracts.bundles import BundleExportInput, BundleInspectInput, BundlePublishInput
 from optimization_framework.contracts.commands import EvaluatorCommissionInput, EvaluatorAttachInput, ImplementationControlInput, WaiverRevocationInput, RevalidationInput, ExecutableReuseInput, RuntimeResolutionInput
-from optimization_framework.contracts.commands import CampaignUpdateInput, ContextEditInput, IssueResolveInput, TrialControlInput, TrialValidationInput
+from optimization_framework.contracts.commands import CampaignUpdateInput, ContextEditInput, ProblemAdoptionInput, IssueResolveInput, TrialControlInput, TrialValidationInput
 from optimization_framework.contracts.commands import TrialExtensionRequestInput, JournalCompactInput, JournalCompactionRequestInput
 from optimization_framework.contracts.commands import ApprovalRequestInput, WorkerCeilingInput
 from optimization_framework.contracts.commands import HypothesisReviewInput, HypothesisStatusInput, HypothesisNominateInput
@@ -49,6 +49,8 @@ DELEGATED.update({"hypothesis.allocate", "intervention.batch", "research.generat
 # Balsamic's own system actor (decision 6) runs only these, each citing what it acts under: binding a proposal to a method an
 # install delivered (B4). Its receipts name it as their origin.
 SYSTEM_OPERATIONS = frozenset({"implementation.bind_builtin"})
+# The lead may have the campaign's tasks adopt an installed library's problem (roadmap E4): it starts no compute.
+DELEGATED.add("campaign.adopt_problem")
 
 
 class CommandService:
@@ -150,7 +152,7 @@ class CommandService:
         models = {"agent.activate": Activate, "agent.message": Message, "agent.control": Control, "agent.rollback": Rollback,
             "agent.configure": Configure, "agent.question_dismiss": QuestionDismiss, "agent.ui_respond": UiRespond,
             "fixed_mask.run": FixedMaskInput, "comparison.report": ComparisonReportInput, "campaign.create": CampaignInput, "campaign.update": CampaignUpdateInput,
-            "context.edit": ContextEditInput, "issue.resolve": IssueResolveInput,
+            "campaign.adopt_problem": ProblemAdoptionInput, "context.edit": ContextEditInput, "issue.resolve": IssueResolveInput,
             "hypothesis.create": HypothesisInput, "hypothesis.review": HypothesisReviewInput,
             "hypothesis.status": HypothesisStatusInput, "hypothesis.nominate": HypothesisNominateInput,
             "trial.create": TrialInput, "trial.control": TrialControlInput, "trial.extension_request": TrialExtensionRequestInput, "trial.validate": TrialValidationInput, "inference.run": InferenceRunInput,
@@ -508,6 +510,9 @@ class CommandService:
             self._target(command, "draft_id", "experiment_draft")
             launched = self.workspace.drafts.launch(command.campaign_id, DraftLaunchInput(**payload), authority=actor)
             return {"draft_id": launched["draft_id"], "trial_id": launched["trial_id"]}
+        if command.operation == "campaign.adopt_problem":
+            values = ProblemAdoptionInput(**payload)
+            return self.workspace.adopt_library_problem(command.campaign_id, values.install_id, authority=actor)
         if command.operation == "implementation.bind_builtin":
             from optimization_framework.implementations.builtin import bind
             return bind(self.workspace, command.campaign_id, payload, command.id, actor=actor)
