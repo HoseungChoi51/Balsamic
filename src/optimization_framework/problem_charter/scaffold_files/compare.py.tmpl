@@ -10,8 +10,7 @@ from __future__ import annotations
 import argparse
 import sys
 
-from .harness import run
-from .methods import METHODS
+from .harness import methods as listed, run
 from .problem import PROBLEMS
 
 DEFAULT_SECONDS = 10.0
@@ -20,8 +19,9 @@ DEFAULT_SEEDS = 2
 
 def compare(methods=None, problems=None, *, seeds: int = DEFAULT_SEEDS, seconds: float | None = None,
             evaluations: int | None = None) -> list[dict]:
-    """One row per run: instance, method, seed, best value, evaluations, seconds, how it stopped, and any error."""
-    methods = METHODS if methods is None else methods
+    """One row per run: instance, method, seed, best value, evaluations, seconds, how it stopped, and any error.
+    `methods` maps ids to functions; by default every method in METHODS."""
+    methods = listed() if methods is None else methods
     problems = list(PROBLEMS.values()) if problems is None else problems
     if seconds is None and evaluations is None:
         seconds = DEFAULT_SECONDS
@@ -72,7 +72,8 @@ def main(argv=None) -> int:
     parser.add_argument("--instance", action="append", help="only this instance (repeatable)")
     parser.add_argument("--method", action="append", help="only this method (repeatable)")
     args = parser.parse_args(argv)
-    methods = {name: METHODS[name] for name in (args.method or METHODS)}
+    available = listed()
+    methods = {name: available[name] for name in (args.method or available)}
     if not methods:
         print("No methods: add them to METHODS in methods.py.", file=sys.stderr)
         return 1

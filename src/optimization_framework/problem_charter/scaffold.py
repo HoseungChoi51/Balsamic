@@ -3,6 +3,11 @@
 ``scaffold()`` is pure: the same charter revision always gives the same bytes. No generated file imports Balsamic, so the
 project runs with numpy and pytest alone. The coding agent (or the researcher, with their own tools) writes the
 objective in ``<pkg>/objective.py`` and the methods in ``<pkg>/methods.py``; the rest is generated.
+
+``scaffold(..., balsamic=True)`` also makes the project an installable Balsamic library (roadmap F3): ``<pkg>/adapter.py``
+offers its problem and its methods through the two entry points, importing Balsamic only inside its functions, and
+``tests/test_contract.py`` checks the library against Balsamic's contract where Balsamic is installed. The Balsamic side
+of the glue is ``problem_charter/library.py``.
 """
 from __future__ import annotations
 
@@ -14,6 +19,7 @@ import re
 import zipfile
 from importlib import resources
 from io import BytesIO
+from types import SimpleNamespace
 
 from optimization_framework.contracts.base import content_hash
 from optimization_framework.contracts.problem_charter import ProblemCharter
@@ -21,7 +27,7 @@ from optimization_framework.contracts.problem_charter import ProblemCharter
 from .charter import DIMENSIONLESS, bound, parse, render, resolve, size
 from .expressions import ExpressionError
 
-REPRESENTATIONS = ("binary", "discrete", "continuous")
+REPRESENTATIONS = ("binary", "discrete", "continuous", "permutation")
 TYPES = {"number": "float", "integer": "int", "text": "str", "boolean": "bool", "data": "list | dict"}
 
 
@@ -34,8 +40,12 @@ def package_name(charter: ProblemCharter, name: str | None = None) -> str:
     return text[:64] + ("_" if keyword.iskeyword(text[:64]) else "")
 
 
-def scaffold(charter, revision: int, *, name: str | None = None, charter_id: str | None = None) -> dict[str, bytes]:
-    """The project's files by relative path. Raises ValueError for a charter that cannot give a runnable problem."""
+def scaffold(charter, revision: int, *, name: str | None = None, charter_id: str | None = None,
+             balsamic: bool = False) -> dict[str, bytes]:
+    """The project's files by relative path. Raises ValueError for a charter that cannot give a runnable problem.
+
+    With ``balsamic``, the project is also a Balsamic library: an adapter, both entry points and a contract test. The
+    charter must then name its evaluator, whose problem id the library's problem takes."""
     charter = parse(charter)
     document = charter.model_dump(mode="json")
     if charter.objective is None:
@@ -45,6 +55,8 @@ def scaffold(charter, revision: int, *, name: str | None = None, charter_id: str
     unsupported = sorted({v.representation for v in charter.variables} - set(REPRESENTATIONS))
     if unsupported:
         raise ValueError(f"The project generator does not support the {', '.join(unsupported)} representation yet")
+    if balsamic and charter.evaluator is None:
+        raise ValueError("The charter names no evaluator, so a Balsamic library has no problem id to provide")
     pkg = package_name(charter, name)
     project = pkg.replace("_", "-")
     tables = {key: [list(point) for point in table.points] for key, table in charter.tables.items()}
@@ -61,10 +73,11 @@ def scaffold(charter, revision: int, *, name: str | None = None, charter_id: str
         "INSTANCES": {(instance.name if instance else "default"): _instance(charter, instance, tables) for instance in instances},
         "REFERENCES": [{"statement": r.statement, "value": r.value, "units": r.units, "holds_at": r.holds_at}
                        for r in charter.references],
+        **({"CHARTER": document} if balsamic else {}),
     }
     values = resolve(charter)["values"]
     files = {
-        "pyproject.toml": _pyproject(project, pkg, charter.title),
+        "pyproject.toml": _pyproject(project, pkg, charter.title, charter if balsamic else None),
         "charter.json": json.dumps({"charter_id": charter_id, "revision": revision, "content_hash": data["CONTENT_HASH"],
                                     "charter": document}, indent=2, ensure_ascii=False) + "\n",
         "README.md": _readme(charter, values, pkg, data),
@@ -78,6 +91,9 @@ def scaffold(charter, revision: int, *, name: str | None = None, charter_id: str
         "tests/test_problem.py": _template("test_problem.py", pkg),
         "tests/test_methods.py": _template("test_methods.py", pkg),
     }
+    if balsamic:
+        files[f"{pkg}/adapter.py"] = _template("adapter.py", pkg)
+        files["tests/test_contract.py"] = _template("test_contract.py", pkg)
     return {path: text.encode() for path, text in files.items()}
 
 
@@ -93,6 +109,14 @@ def archive(charter, revision: int, *, name: str | None = None, charter_id: str 
             entry.external_attr = 0o644 << 16
             bundle.writestr(entry, files[path], compress_type=zipfile.ZIP_DEFLATED)
     return f"{project}-r{revision}.zip", buffer.getvalue()
+
+
+def instance_data(charter, overrides: dict | None = None, *, name: str = "configuration") -> dict:
+    """One problem's data as ``data.py`` holds an instance: its resolved values and candidate schema, for these input
+    values. A Balsamic library uses it for a configuration that is none of the charter's instances."""
+    charter = parse(charter)
+    tables = {key: [list(point) for point in table.points] for key, table in charter.tables.items()}
+    return _instance(charter, SimpleNamespace(name=name, values=overrides or {}, split="development"), tables)
 
 
 # The data -----------------------------------------------------------------------------------------------
@@ -114,6 +138,8 @@ def _instance(charter: ProblemCharter, instance, tables) -> dict:
         try:
             count = size(variable, values)
             shape = [part if isinstance(part, int) else values[part] for part in variable.shape]
+            if variable.representation == "permutation" and len(shape) != 1:
+                raise ValueError(f"the order {variable.name} needs a one-entry shape, the number of items")
             continuous = variable.representation == "continuous"
             lower = _number(bound(variable.lower, values, tables), f"the lower bound of {variable.name}") if continuous else None
             upper = _number(bound(variable.upper, values, tables), f"the upper bound of {variable.name}") if continuous else None
@@ -232,7 +258,19 @@ def _template(name: str, pkg: str) -> str:
 
 
 # The project files --------------------------------------------------------------------------------------
-def _pyproject(project: str, pkg: str, title: str) -> str:
+def _pyproject(project: str, pkg: str, title: str, charter: ProblemCharter | None = None) -> str:
+    """The project; with ``charter``, a Balsamic library: its problem (a declared evaluator's) and its methods."""
+    entry_points = ""
+    if charter is not None:
+        if charter.evaluator.kind == "declared":
+            entry_points += f"""
+[project.entry-points."optimization_framework.problems"]
+{charter.evaluator.problem_id} = "{pkg}.adapter:problem_adapter"
+"""
+        entry_points += f"""
+[project.entry-points."optimization_framework.optimizers"]
+{pkg} = "{pkg}.adapter:method_plugin"
+"""
     return f"""[project]
 name = "{project}"
 version = "0.1.0"
@@ -242,7 +280,7 @@ dependencies = ["numpy"]
 
 [project.optional-dependencies]
 test = ["pytest"]
-
+{entry_points}
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"
@@ -278,7 +316,8 @@ edited by hand.
 ## What to write
 
 1. `{pkg}/objective.py`: `objective(problem, candidate)`. Its docstring states the charter's definition and constraints.
-2. `{pkg}/methods.py`: one function per method in `METHODS`. Its comment shows the signature and an example.
+2. `{pkg}/methods.py`: one function per method, each listed in `METHODS` with its name and description. Its comment
+   shows the signature and an example.
 
 ## Running
 
