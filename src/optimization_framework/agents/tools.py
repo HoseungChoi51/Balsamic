@@ -510,7 +510,7 @@ class PiTools:
     def packages(self, agent):
         """The packages of the problem packs of the agent's campaign (evaluation/packs.py)."""
         packs = getattr(self.workspace, "packs", None)
-        return packs.packages(agent["campaign_id"]) if packs is not None else set()
+        return packs.packages(agent["campaign_id"]) if packs is not None and agent.get("campaign_id") else set()
 
     def pack_operations(self, agent):
         """The commands this campaign's packs add, by operation: the page agent that runs each, and its capability."""
