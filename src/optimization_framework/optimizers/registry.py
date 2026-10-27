@@ -6,7 +6,6 @@ from optimization_framework.contracts.capabilities import OptimizerCapabilities
 from .lifecycle import AskTellAdapter, BoundedSearch
 from .config import TrainConfig
 from pydantic import TypeAdapter
-from .fourier_specs import METHODS as FOURIER_METHODS, PROPERTIES as FOURIER_PROPERTIES
 from . import plugins
 
 
@@ -30,14 +29,12 @@ BUILTINS = [
         ("block_tabu", "Adaptive block tabu", "Coordinated moves with recent-candidate memory."),
         ("population", "Population search", "Recombination and mutation of a binary population."),
         ("surrogate", "Surrogate-guided search", "Fit observations to select prospective candidates."))],
-    *FOURIER_METHODS,
 ]
 
 
 INTEGER = {"type": "integer", "minimum": 1}
 POSITIVE = {"type": "number", "exclusiveMinimum": 0}
 PROPERTIES = {
-    **FOURIER_PROPERTIES,
     "artifact_inference": {"adapter_id": {"type": "string"}, "parameters": {"type": "object"}},
     "random": {}, "evaluate_asset": {}, "replay": {"candidates": {"type": "array", "description": "Candidates in this instance's declared schema"}},
     "swap_search": {"restarts_after": {**INTEGER, "description": "Evaluations without improving the current order before a random restart; default a whole neighbourhood"}},
@@ -67,10 +64,10 @@ def _declare(method, properties, completion_units):
 for method in BUILTINS:
     name = method["id"]
     properties = dict(TypeAdapter(TrainConfig).json_schema()["properties"]) if name == "dqn" else dict(PROPERTIES[name])
-    if name not in FOURIER_PROPERTIES and name not in {"coordinate", "frozen_policy", "evaluate_asset", "artifact_inference", "replay", "swap_search"}:
+    if name not in {"coordinate", "frozen_policy", "evaluate_asset", "artifact_inference", "replay", "swap_search"}:
         properties["initial_design"] = {"type": "array", "description": "A candidate in this instance's declared schema"}
     _declare(method, properties, ["evaluation_requests", "optimizer_decisions"]
-        if name in {"dqn", "frozen_policy", "coordinate", "flrl_autograd_adam"} else ["evaluation_requests"])
+        if name in {"dqn", "frozen_policy", "coordinate"} else ["evaluation_requests"])
     if name == "dqn":
         from .policy import POLICY_FORMAT
         method["execution_capabilities"] = OptimizerCapabilities(completion_units=["evaluation_requests", "optimizer_decisions"],
@@ -135,9 +132,6 @@ def validate_parameters(name, instance, parameters, training=None, inference_reg
         TrainConfig(**{**(training or {}), **{key: value for key, value in parameters.items() if key != "initial_design"}})
     else:
         check_parameters(parameters, method["parameter_schema"])
-    if name in FOURIER_PROPERTIES:
-        from .fourier_specs import validate
-        validate(name, instance, parameters)
     if plugin:
         plugin.validate(name, instance, parameters)
     if name == "artifact_inference":
@@ -205,9 +199,6 @@ def create(name, instance, parameters, seed, schedule_steps, training=None, asse
     if reason:
         raise ValueError(reason)
     validate_parameters(name, instance, parameters, training, inference_registry, optimizer_plugins)
-    if name in FOURIER_PROPERTIES:
-        from dqn_meent.flrl_optimizers import FourierOptimizer
-        return FourierOptimizer(name, instance, parameters, seed)
     plugin, _ = _describe(name, optimizer_plugins)
     if plugin:
         return plugin.create(name, instance, parameters, seed)

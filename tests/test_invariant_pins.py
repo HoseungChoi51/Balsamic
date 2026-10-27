@@ -51,7 +51,7 @@ def test_only_the_researcher_endorses_a_finding_and_a_finding_cites_only_visible
     cid = campaign["id"]
     send(workspace, cid, "probe", "trial.create", run(task))
     [trial] = workspace.store.list("trial", cid)
-    finding = {"content": "Coordinate search reached its best design early.", "source_ids": [trial["id"]]}
+    finding = {"content": "Coordinate search reached its best design early.", "source_ids": [trial["id"]], "statement": "evidence"}
     with pytest.raises(ValueError, match="Only the researcher can endorse"):
         send(workspace, cid, "endorsed", "finding.record", {**finding, "interpretation": "researcher_endorsed"})
     with pytest.raises(ValueError, match="outside the visible context"):

@@ -811,7 +811,8 @@ class PiController:
                 if run["agent_id"] != agent_id or run["status"] in TERMINAL:
                     continue
                 previous = run["status"]
-                run.update(status=result["status"], result=result.get("result"), error=result.get("error"))
+                run.update(status=result["status"], result=result.get("result"), error=result.get("error"),
+                           **({"finished_at": now()} if result["status"] in TERMINAL else {}))
                 self.store.put("agent_run", run, "agent.run_updated" if previous != run["status"] else None)
                 if run["status"] in TERMINAL and previous not in TERMINAL:
                     text = (run.get("result") or {}).get("text")

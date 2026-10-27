@@ -61,15 +61,15 @@ Stages (a runtime profile, hypotheses, a review, experiments, a validation, a co
 start one only when a request covers it; a request may cover several. Read a request narrowly and say in one line what the
 broad reading would add. A question gets an answer, not actions. A turn that begins with [Platform notice ...] is not a request: it reports an
 outcome of work a request started; carry that request on and start nothing it did not ask for.
-Examples: asked "What would you try next?", say it and start nothing. A notice that one of two runs finished, the other still
-running: write no message; yield_work(waiting), the status as summary. Asked for two hypotheses: record two and report;
-running them is one line of the report.
+Examples: a notice that one of two runs finished, the other still running: write no message; yield_work(waiting), the status
+as summary. Asked for two hypotheses: record two and report; running them is one line of the report.
 End every turn with yield_work: waiting while jobs or assistants you started, or a question you asked, are open (their end wakes
 you); complete when the request is fulfilled. Your reply is its report: the answer itself with the numbers that answer it, in a
 few lines. Do not repeat what a page shows: link the page instead, as a Markdown link to a target in campaign_inspect.pages,
 such as [Experiments](#experiments). The summary is a plain status line without record ids.
 The campaign database is authoritative: read campaign_inspect first and after the researcher acts, read evidence on demand,
-keep exact record ids and cite them. Only a tool result is a receipt.
+keep exact record ids and cite them. Only a tool result is a receipt. Derive a number with compute or a script, never mental
+arithmetic.
 Compute is the researcher's to start, at every step: before a coding workspace, or anything longer than their go-ahead threshold
 (runs, profiles, validations, jobs, analyses), file approval.request kind compute saying what runs, why, how long, and what
 they can do meanwhile; start it once approved, never silently. Limits, budgets, waivers and the worker ceiling are theirs too: file
@@ -81,7 +81,7 @@ LEAD_CONTRACT = """You are the lead agent. Three agents are in charge of a page 
 over proposals; #hypotheses), the experiment operator (runs: designing, starting, watching, extending, stopping; #experiments)
 and the implementation lead (building and checking implementations; #hypotheses/implementations); the resource planner says how
 many runs go at once and why runs wait. Hand page work to them with page_agent_message, link the page, and call
-yield_work(waiting): the result comes back to you. campaign_command refuses you the pages' own operations and names whom to ask.
+yield_work(waiting). campaign_command refuses you the pages' own operations and names whom to ask.
 Reads are yours: experiment_progress, resource_inspect, campaign_inspect.page_agents. Delegate to a specialist only for work that
 needs its own context. You may pause, stop or resume a run (trial.control), never enlarge one.
 Availability, soundness and performance are separate questions: is a method installed or implementable, does it implement its
@@ -245,7 +245,8 @@ STEPS = {"campaign_inspect": "Reading the campaign's state", "resource_inspect":
     "implementation_workspace_create": "Opening a coding workspace", "implementation_workspace_inspect": "Checking a coding workspace",
     "implementation_workspace_message": "Writing to the coding agent", "implementation_workspace_validate": "Asking for a validation of submitted code",
     "report_write": "Starting the report writer", "report_answer": "Answering the report writer",
-    "experiment_progress": "Checking how the runs are going", "config_suggest": "Choosing the next settings to try", "lead_ask": "Asking the lead agent"}
+    "experiment_progress": "Checking how the runs are going", "config_suggest": "Choosing the next settings to try", "lead_ask": "Asking the lead agent",
+    "compute": "Computing a number"}
 PAGE_AGENT_NAMES = {"discussion_moderator": "the discussion moderator", "experiment_operator": "the experiment operator", "implementation_lead": "the implementation lead",
                     "resource_planner": "the resource planner"}
 # Record identities begin with their kind; the first matching prefix names what is being read.
@@ -332,6 +333,10 @@ def comparison_brief(report):
             for group in report.get("groups", [])]
 
 
+# The most inputs one compute call takes (roadmap K1).
+COMPUTE_VALUES = 50
+
+
 def obj(properties=None, required=None):
     return {"type": "object", "properties": properties or {}, "required": required or [], "additionalProperties": False}
 
@@ -390,6 +395,12 @@ TOOLS = {
              "observations": {"type": "array", "maxItems": 300, "items": obj({"config": {"type": "object"}, "score": {"type": "number"}}, ["config", "score"])},
              "count": {"type": "integer", "minimum": 1, "maximum": 12}, "direction": {"enum": ["maximize", "minimize"]},
              "seed": {"type": "integer", "minimum": 0}}, ["space"])),
+    "compute": ("Compute a number with the charter's expression evaluator: arithmetic, comparisons and sqrt, exp, log, min, max and the like. "
+        "values: each name the expression reads, as a number or as {record_id, pointer}, a number read from a record of this campaign at a JSON "
+        "pointer. Returns the value and each input with its source; the receipt is the computation, cite it.",
+        obj({"expression": S, "values": {"type": "object", "maxProperties": COMPUTE_VALUES, "propertyNames": {"pattern": "^[A-Za-z_][A-Za-z0-9_]*$"},
+             "additionalProperties": {"oneOf": [{"type": "number"}, obj({"record_id": S, "pointer": S}, ["record_id", "pointer"])]}}},
+            ["expression"])),
     "lead_ask": ("Ask the lead agent something your work needs and the records do not answer, such as the reasoning behind a proposal or "
         "what the researcher meant. Its answer comes back to you as a notice; call yield_work(waiting) until then.",
         obj({"question": S}, ["question"])),
@@ -453,7 +464,7 @@ class PiTools:
 
     def names(self, agent):
         names = {"campaign_inspect", "resource_inspect", "evidence_search", "evidence_read", "source_search", "source_ingest", "source_read", "artifact_save", "mask_create", "yield_work",
-                 "file_list", "file_read", "file_search", "workspace_list", "workspace_read", "workspace_write", "analysis_run"}
+                 "file_list", "file_read", "file_search", "workspace_list", "workspace_read", "workspace_write", "analysis_run", "compute"}
         implementation = {"implementation_workspace_create", "implementation_workspace_inspect", "implementation_workspace_message",
                           "implementation_workspace_validate"}
         if agent["role"] == LEAD:
@@ -893,6 +904,27 @@ class PiTools:
             raise ValueError("Evidence is not readable within this campaign")
         return entry["data"]
 
+    def compute(self, agent, expression, values, identity):
+        """An expression over literals and numbers read from this campaign's records, evaluated by the charter's whitelisted
+        evaluator (nothing reaches eval). The result is the receipt K2 reads: the expression, each input with its source, the value."""
+        from optimization_framework.problem_charter.expressions import evaluate, names as expression_names
+        from optimization_framework.campaigns.record_view import _select
+        unused = sorted(set(values) - expression_names(expression))
+        if unused:
+            raise ValueError(f"The expression does not read {', '.join(unused)}; pass only the values it uses")
+        inputs = []
+        for name, value in values.items():
+            source = value if isinstance(value, dict) else None
+            if source:
+                value = _select(self.record(agent, source["record_id"]), source["pointer"])
+                if isinstance(value, bool) or not isinstance(value, (int, float)):
+                    raise ValueError(f"{name}: {source['record_id']} at {source['pointer']} is not a number")
+            inputs.append({"name": name, "value": value, "record_id": source and source["record_id"], "pointer": source and source["pointer"]})
+        result = evaluate(expression, {item["name"]: item["value"] for item in inputs})
+        if isinstance(result, str):
+            raise ValueError("The expression gives text, not a number")
+        return {"expression": expression, "value": result, "inputs": inputs, "receipt_id": identity}
+
     def methods(self, tasks):
         """Installed optimizers that can run on these tasks, with the parameters algorithm_config accepts."""
         from optimization_framework.optimizers.registry import capability_reason, methods
@@ -1134,6 +1166,8 @@ class PiTools:
         if name == "experiment_progress":
             from .experiments import progress
             return progress(self.workspace, cid, args.get("finished", 8))
+        if name == "compute":
+            return self.compute(agent, args["expression"], args.get("values", {}), identity)
         if name == "config_suggest":
             from .experiments import suggest
             return suggest(args["space"], args.get("observations", []), count=args.get("count", 4),

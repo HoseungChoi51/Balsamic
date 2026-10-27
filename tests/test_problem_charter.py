@@ -511,3 +511,110 @@ def test_a_table_or_a_clock_in_charter_prose_reads_as_what_it_is():
     from optimization_framework.problem_charter.charter import show
     assert show([{"name": "식빵", "duration_min": 40}, {"name": "타르트", "duration_min": 35}]) == "a table of 2 rows (name, duration_min)"
     assert show({"hour": 6, "minute": 0}) == '{"hour": 6, "minute": 0}' and show(["식빵"]) == '["식빵"]'   # never \uXXXX escapes
+
+
+class Library:
+    """An installed problem library, as the registry holds it: built from a manifest, so a test can make it differ."""
+
+    def __init__(self, manifest):
+        self.manifest = manifest
+
+    def describe(self):
+        return self.manifest.describe("1")
+
+    def resolve(self, configuration, fidelity=None):
+        return self.manifest.resolve("1", configuration, fidelity)
+
+
+def installed(charter, change=None, *, distribution=None):
+    """A registry in which the charter's declared problem is installed, changed as the library would compute it."""
+    from optimization_framework.evaluation.registry import ProblemRegistry
+    parsed = C.parse(charter)
+    manifest = C.manifest(parsed, C.resolve(parsed)["values"])
+    if change:
+        manifest = manifest.model_validate({**manifest.model_dump(mode="json"), **change(manifest.model_dump(mode="json"))})
+    registry = ProblemRegistry()
+    registry.register(manifest.id, lambda: lambda: Library(manifest))
+    if distribution:
+        registry.source = lambda name: {"distribution": distribution, "version": "0.2.0"} if name == manifest.id else None
+    return registry
+
+
+def test_a_declared_problem_that_a_matching_library_provides_compiles_to_the_installed_problem(monkeypatch):
+    registry = installed(reactor(), distribution="reactor-lab")
+    rows = C.findings(reactor(), registry)
+    assert not C.blocking(rows)
+    provided = next(row for row in rows if row["code"] == "evaluator.provided")
+    assert provided["severity"] == "info" and "reactor-lab 0.2.0" in provided["message"]
+    assert provided["provided_by"] == {"distribution": "reactor-lab", "version": "0.2.0", "text": "reactor-lab 0.2.0"}
+    view = C.describe(reactor(), registry)
+    assert view["evaluator"]["kind"] == "provided" and view["evaluator"]["provided_by"]["distribution"] == "reactor-lab"
+    # Without a distribution on record, the problem's own version names it.
+    assert "the installed problem flow_reactor_yield" in next(
+        row for row in C.findings(reactor(), installed(reactor())) if row["code"] == "evaluator.provided")["message"]
+    # Compiled against the lab's own registry, with the library installed in it, as a task would be.
+    monkeypatch.setitem(problems._loaders, "flow_reactor_yield", registry._loaders["flow_reactor_yield"])
+    monkeypatch.delitem(problems._adapters, "flow_reactor_yield", raising=False)
+    setup = ProblemSetup.model_validate(C.compile_setups(reactor())[0])
+    assert setup.problem_id == "flow_reactor_yield" and setup.evaluator_manifest is None
+    assert setup.configuration == {"residence_time_s": 300.0, "temperature_c": 80.0, "pressure_bar": 5.0}
+    assert setup.fidelity == {"repeats": 3}
+    assert setup.task_input().problem.primary_objective.name == "isolated_yield"
+
+
+def test_a_library_that_computes_another_problem_is_blocking_with_each_difference_listed():
+    def flipped(data):
+        return {"primary_objective": {**data["primary_objective"], "direction": "minimize"},
+                "candidate_schema": {**data["candidate_schema"], "dimensions": 4, "bounds": [[0.0, 2.0]] * 4, "constraints": []}}
+    registry = installed(reactor(), flipped)
+    rows = C.findings(reactor(), registry)
+    row = next(row for row in rows if row["code"] == "evaluator.provided_mismatch")
+    assert row["severity"] == "blocking" and not row["waivable"] and "evaluator.provided" not in codes(rows)
+    differences = {d["what"]: d for d in row["differences"]}
+    assert set(differences) == {"objective direction", "dimensions", "bounds", "constraints"}
+    assert differences["objective direction"] == {"what": "objective direction", "charter": "maximize", "library": "minimize"}
+    assert differences["bounds"]["charter"] == "0 to 1 for each of 3 values"
+    assert "the charter says maximize, the library computes minimize" in row["message"]
+    assert row["suggestions"]
+    with pytest.raises(ValueError, match="blocking"):
+        C.compile_setups(reactor(), registry)
+    assert C.describe(reactor(), registry)["evaluator"]["kind"] == "declared"
+
+
+def test_compare_provided_reads_units_metrics_and_fields_and_a_library_that_refuses_the_values_is_a_difference():
+    parsed = C.parse(reactor())
+    declared = C.manifest(parsed, C.resolve(parsed)["values"])
+    data = declared.model_dump(mode="json")
+    assert C.compare_provided(declared, declared.resolve("1")) == []
+    other = declared.model_validate({**data, "primary_objective": {**data["primary_objective"], "units": "percent"}, "extra_metrics": [],
+                                     "candidate_schema": {**data["candidate_schema"], "representation": "discrete", "bounds": [], "values": [0.0, 1.0]}})
+    found = {d["what"] for d in C.compare_provided(declared, other.resolve("1"))}
+    assert found == {"objective units", "metrics", "representation", "bounds", "values"}
+    unit_free = declared.model_validate({**data, "primary_objective": {**data["primary_objective"], "units": "1"}})
+    dimensionless = unit_free.model_validate({**unit_free.model_dump(mode="json"), "primary_objective": {**data["primary_objective"], "units": "dimensionless"}})
+    assert C.compare_provided(unit_free, dimensionless.resolve("1")) == []
+    # A library without one of the charter's configuration fields refuses its values: the field names are the difference.
+    def narrower(data):
+        schema = deepcopy(data["configuration_schema"])
+        del schema["properties"]["pressure_bar"]
+        schema["required"].remove("pressure_bar")
+        configuration = {k: v for k, v in data["configuration"].items() if k != "pressure_bar"}
+        public = [key for key in data.get("public_configuration_keys", []) if key != "pressure_bar"]
+        return {"configuration_schema": schema, "configuration": configuration, "public_configuration_keys": public}
+    row = next(row for row in C.findings(reactor(), installed(reactor(), narrower)) if row["code"] == "evaluator.provided_mismatch")
+    assert {d["what"] for d in row["differences"]} == {"configuration fields", "values"}
+
+
+def test_a_declared_problem_that_is_not_installed_keeps_the_declared_path():
+    from optimization_framework.evaluation.registry import ProblemRegistry
+    rows = C.findings(reactor(), ProblemRegistry())
+    assert not codes(rows) & {"evaluator.provided", "evaluator.provided_mismatch"}
+    setup = ProblemSetup.model_validate(C.compile_setups(reactor(), ProblemRegistry())[0])
+    assert setup.evaluator_manifest.id == "flow_reactor_yield" and setup.problem_id is None
+    assert C.describe(reactor(), ProblemRegistry())["evaluator"] == {"kind": "declared", "problem_id": "flow_reactor_yield"}
+    assert C.describe(flrl()["charter"])["evaluator"]["kind"] == "installed"
+
+
+def test_installed_problems_name_the_distribution_they_come_from():
+    for name in problems.ids():
+        assert problems.source(name)["distribution"]

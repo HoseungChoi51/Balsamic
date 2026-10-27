@@ -374,3 +374,44 @@ test('an order of items reads as an order, with no bound inputs', async ({ page 
   await expect(row.getByTestId('upper-bake_order')).toHaveCount(0);
   await expect(panel.locator('[data-code="variable.shape"]').getByTestId('meaning')).toContainText('an order of n_seats items (n_seats = 12)');
 });
+
+test('a declared problem an installed library provides says so above the checks, and one that differs is a check', async ({ page }) => {
+  await mockWorkspace(page, { [`/api/v1/campaigns/${CAMPAIGN_ID}/problem-note`]: f.adoptedNoteView });
+  const provided = { key: 'evaluator.provided:token_sharing', code: 'evaluator.provided', severity: 'info', about: [], waivable: false,
+    message: 'token_sharing is provided by token-lab 0.2.0: its schema, objective, metrics and fields match the charter, so the tasks use the installed problem.' };
+  let view = { ...f.charterView, findings: [...f.charterView.findings, provided] };
+  await page.route('**/api/v1/problem-charters/charter_1', route => route.fulfill({ json: view }));
+  await page.goto(`/#t/${THREAD_ID}/note/charter`);
+  const note = page.getByTestId('charter-note');
+  await expect(note).toContainText('provided by token-lab 0.2.0');
+  await expect(note).toContainText('provided by a library');
+  await expect(page.getByTestId('warning')).toHaveCount(1);
+  const mismatch = { key: 'evaluator.provided_mismatch:token_sharing', code: 'evaluator.provided_mismatch', severity: 'blocking', about: [], waivable: false, suggestions: [],
+    message: 'token_sharing is installed from token-lab 0.2.0, but it is not the problem the charter describes. objective direction: the charter says minimize, the library computes maximize.' };
+  view = { ...f.charterView, findings: [mismatch], blocking: 1 };
+  await page.reload();
+  await expect(page.getByTestId('charter-note')).toHaveCount(0);
+  await expect(page.locator('[data-code="evaluator.provided_mismatch"]')).toContainText('the charter says minimize, the library computes maximize');
+});
+
+test('Export as Python project downloads the revision on screen as a zip, and says why when it cannot', async ({ page }) => {
+  await mockWorkspace(page, { [`/api/v1/campaigns/${CAMPAIGN_ID}/problem-note`]: f.adoptedNoteView });
+  await charterRoutes(page);
+  const asked: string[] = [];
+  let refuse = false;
+  await page.route('**/api/v1/problem-charters/charter_1/revisions/*/export.zip', route => {
+    asked.push(new URL(route.request().url()).pathname);
+    if (refuse) return route.fulfill({ status: 409, json: { detail: 'The charter has no objective' } });
+    return route.fulfill({ body: Buffer.from('PK\u0005\u0006' + '\u0000'.repeat(18), 'binary'), contentType: 'application/zip',
+      headers: { 'Content-Disposition': 'attachment; filename="token-sharing-r2.zip"' } });
+  });
+  await page.goto(`/#t/${THREAD_ID}/note/charter`);
+  const panel = page.getByTestId('charter-panel');
+  const [download] = await Promise.all([page.waitForEvent('download'), panel.getByTestId('export-charter').click()]);
+  expect(download.suggestedFilename()).toBe('token-sharing-r2.zip');
+  expect(asked).toEqual(['/api/v1/problem-charters/charter_1/revisions/2/export.zip']);
+  await expect(panel.getByTestId('charter-error')).toHaveCount(0);
+  refuse = true;
+  await panel.getByTestId('export-charter').click();
+  await expect(panel.getByTestId('charter-error')).toHaveText('Could not export the charter: The charter has no objective');
+});

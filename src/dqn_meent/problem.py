@@ -26,6 +26,10 @@ def physical_identity(physics):
 
 
 class MeentProblem:
+    def pack(self):
+        from .pack import pack
+        return pack()
+
     def reference_sets(self):
         from .study_templates import reference_sets
         return reference_sets()
