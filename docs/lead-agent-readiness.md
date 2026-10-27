@@ -1102,6 +1102,7 @@ The lead acts on the researcher's requests and starts nothing by itself. Autopil
 only the researcher turns it on (`autopilot.set`, with a compute cap and an optional report date). While on, the
 workspace gives the lead rounds in a system thread: review the frontier, stop, promote, allocate and generate within the
 cap, a rationale on every command, `yield_work(complete)` at the end. Researcher messages still come first (no round
-starts while a request is open), limits stay the researcher's (the cap guard refuses what would exceed it; raising
-limits still goes through approval), and every record the lead touches under autopilot says so (actor `autopilot`, the
-badge on the pages, the away digest). See [ui-workspace.md](ui-workspace.md#m3-merge-monitor-autopilot).
+starts while a request is open), limits stay the researcher's (the switch grants a standing Run-the-campaign mandate
+with the cap and the report date, and the bus refuses what would exceed it, roadmap R4; raising limits still goes through
+approval), and every record the lead touches under autopilot says so (actor `autopilot`, the badge on the pages, the away
+digest). See [ui-workspace.md](ui-workspace.md#m3-merge-monitor-autopilot).

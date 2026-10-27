@@ -33,3 +33,17 @@ def test_a_failed_turn_ends_with_an_error_and_open_steps_are_closed():
     events, _ = stream_events(previous, {**state, "status": "failed", "summary": "Provider refused"}, None, [])
     assert types(events) == ["TOOL_CALL_END", "RUN_ERROR", "STATE_DELTA"]
     assert events[1]["message"] == "Provider refused" and events[1]["runId"] == "r1"
+    # The turn's own error comes first: a model the harness cannot reach says so, not only that the turn failed (issue #70).
+    error = "Model unavailable: centinels/gpt-6.1-sol. The dev profile defines centinels from CENTINELS_BASE_URL, which is not set"
+    events, _ = stream_events(previous, {**state, "status": "failed", "summary": "Provider refused", "error": error}, None, [])
+    assert events[1]["message"] == error
+
+
+def test_the_state_of_a_failed_agent_carries_its_turns_error(workspace, campaign):
+    from balsamic.threads.stream import agent_state
+    workspace.store.put("agent_session", {"id": "agent_lead_failed", "campaign_id": campaign["id"], "role": "lead", "status": "failed",
+                                          "activity": "Model unavailable: centinels/gpt-6.1-sol"})
+    assert agent_state(workspace, campaign["id"], "agent_lead_failed", "thread_main_demo")["error"] == "Model unavailable: centinels/gpt-6.1-sol"
+    workspace.store.put("agent_session", {"id": "agent_lead_failed", "campaign_id": campaign["id"], "role": "lead", "status": "waiting",
+                                          "activity": "Reading the campaign"})
+    assert agent_state(workspace, campaign["id"], "agent_lead_failed", "thread_main_demo")["error"] is None

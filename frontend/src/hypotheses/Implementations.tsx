@@ -1,5 +1,5 @@
 /** The Implementations tab: each coding workspace as a card (what it is for, how it is going, and its history), and the
- *  library versions validated through commissions. Everything here comes from what the workspace recorded; nothing is guessed. */
+ *  validated versions of the implementation library. Everything here comes from what the workspace recorded; nothing is guessed. */
 import { useEffect, useRef, useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { api } from '../api/client';
@@ -8,7 +8,7 @@ import { Markdown } from '../chat/render/Markdown';
 import { Empty, Failed, Kv, Loading, Pill, Section, when } from '../primitives/ui';
 import { Meter } from '../primitives/charts';
 import { formatHash } from '../router/routes';
-import { LIVE, VERDICT, clock, type Submission, type Tests, type Workspace } from './workspace';
+import { LIVE, VERDICT, clock, type Install, type Submission, type Tests, type Workspace } from './workspace';
 
 interface Entry { at: string; kind: string; title: string; detail: string; tone: string; ref: string | null; items: string[] }
 interface Timeline { entries: Entry[]; next_before: string | null }
@@ -56,7 +56,8 @@ function WorkspaceCard({ workspace: w, thread, labels, focused }: { workspace: W
   const [label, tone] = STATUS[w.status] || [w.status, ''];
   const live = LIVE.has(w.status);
   const used = w.usage?.container_cpu_seconds ?? 0;
-  const proposals = w.hypothesis_ids?.length ? w.hypothesis_ids : [w.hypothesis_id];
+  // A commission's box that builds a task's evaluator serves no proposal (roadmap H7).
+  const proposals = (w.hypothesis_ids?.length ? w.hypothesis_ids : [w.hypothesis_id]).filter((id): id is string => Boolean(id));
   const latest = w.checkpoints?.at(-1);
   const opened = Date.now() - new Date(w.created_at).getTime();
   return (
@@ -69,15 +70,20 @@ function WorkspaceCard({ workspace: w, thread, labels, focused }: { workspace: W
         {w.ide_url ? <a className="btn small quiet" href={w.ide_url} target="_blank" rel="noreferrer" title="The workspace's editor and terminal">Open the editor</a> : null}
       </div>
       <Kv rows={[
-        ['For', <span className="row wrap" style={{ gap: 4 }}>{proposals.map(id => <a key={id} className="chip" href={formatHash({ page: 'hypotheses', id, sel: id }, thread)}>{labels[id] || id.slice(0, 18)}</a>)}</span>],
+        ['For', proposals.length ? <span className="row wrap" style={{ gap: 4 }}>{proposals.map(id => <a key={id} className="chip" href={formatHash({ page: 'hypotheses', id, sel: id }, thread)}>{labels[id] || id.slice(0, 18)}</a>)}</span>
+          : <span className="small">{w.commission?.kind === 'evaluator' ? `the evaluator of task ${w.task_id || w.commission.task_id || ''}`.trim() : 'no proposal'}</span>],
+        ...(w.commission ? [['Commission', <span className="small" data-testid="workspace-commission">{w.commission.kind === 'evaluator' ? 'an evaluator' : 'an implementation'} job of {minutes(w.commission.compute_seconds * 1000)}: {w.commission.name}
+          {w.commission.protected_tests?.length ? <span className="faint"> · protected tests outside the box: {w.commission.protected_tests.join(', ')}</span> : null}</span>] as [string, React.ReactNode]] : []),
         ['Opened', `${new Date(w.created_at).toLocaleString()}${w.opened_by?.role ? ` by the ${w.opened_by.role.replaceAll('_', ' ')}` : ''}${w.desired_status === 'running' ? ` · open for ${minutes(opened)}` : ''}`],
         ['Last activity', w.last_activity_at ? when(w.last_activity_at) : <span className="faint">none yet</span>],
         ...(estimate(w) ? [['Estimate', estimate(w)] as [string, React.ReactNode]] : []),
         ...(w.tests ? [['Tests', <span>{testsText(w.tests)} <span className="faint small">at the latest checkpoint</span></span>] as [string, React.ReactNode]] : []),
         ['CPU', w.cpu_budget_seconds ? <div style={{ maxWidth: 260 }}><Meter total={w.cpu_budget_seconds} segments={[{ value: used, tone: used >= w.cpu_budget_seconds ? 'bad' : 'info', title: `${used.toFixed(0)} s used` }]} label="CPU used of the allowance" />
           <span className="small faint">{used.toFixed(0)} of {w.cpu_budget_seconds.toFixed(0)} s</span></div> : <span className="small">{used.toFixed(0)} s, no allowance set</span>],
+        ...walls(w),
       ]} />
       {w.error ? <div className="callout attention small" role="alert" data-testid="workspace-error">{w.error}</div> : null}
+      {w.desired_status === 'paused' && w.deadline_at && new Date(w.deadline_at).getTime() <= Date.now() ? <GoOn workspace={w} /> : null}
       {w.questions?.length ? <div className="callout attention small" data-testid="workspace-question"><strong>The coding agent asks:</strong> {w.questions[0].question}</div> : null}
       {w.outcome ? <OutcomeBox workspace={w} labels={labels} thread={thread} /> : null}
       {latest ? <div className="small" data-testid="workspace-checkpoint" style={{ marginTop: 6 }}>
@@ -88,9 +94,22 @@ function WorkspaceCard({ workspace: w, thread, labels, focused }: { workspace: W
         {latest.remaining?.length ? <div className="faint">Remaining: {latest.remaining.join('; ')}</div> : null}
       </div> : null}
       <MessageAgent workspace={w} />
+      <OwnSession workspace={w} />
       <History workspace={w} live={live} open={focused} />
     </article>
   );
+}
+
+/** The box's walls: when it pauses, what it may use, and the only hosts it can reach. */
+function walls(w: Workspace): [string, React.ReactNode][] {
+  const rows: [string, React.ReactNode][] = [];
+  if (w.deadline_at) rows.push(['Deadline', <span data-testid="workspace-deadline">{new Date(w.deadline_at).toLocaleString()}
+    {new Date(w.deadline_at).getTime() > Date.now() ? <span className="faint small"> · pauses then, in {minutes(new Date(w.deadline_at).getTime() - Date.now())}</span> : <span className="faint small"> · passed</span>}</span>]);
+  else rows.push(['Deadline', <span className="small" data-testid="workspace-deadline">{w.wall_seconds ? `${minutes(w.wall_seconds * 1000)} from its first start` : 'none'}</span>]);
+  if (w.limits) rows.push(['Limits', <span className="small" data-testid="workspace-limits">{w.limits.cpus} CPUs · {w.limits.memory_gb} GB memory · {w.limits.gpus ? `${w.limits.gpus} GPU${w.limits.gpus > 1 ? 's' : ''}` : 'no GPU'}</span>]);
+  if (w.egress) rows.push(['Network', <span className="small" data-testid="workspace-egress" title="The only hosts the workspace can reach; every other host is refused">
+    only {[...w.egress.model.map(h => `${h} (model)`), ...w.egress.package_index.map(h => `${h} (packages)`), ...w.egress.named.map(h => `${h} (approved)`)].join(', ')}</span>]);
+  return rows;
 }
 
 function History({ workspace: w, live, open: initial }: { workspace: Workspace; live: boolean; open: boolean }) {
@@ -143,7 +162,8 @@ function OutcomeBox({ workspace: w, labels, thread }: { workspace: Workspace; la
   return (
     <div className="outcome" data-testid="workspace-outcome" data-state={o.state} data-verdict={o.verdict || ''}>
       <div className="row wrap">
-        <strong className="grow">{o.state === 'failed' ? 'Failed' : o.state === 'stopped' ? 'Stopped' : `Delivered commit ${o.commit?.slice(0, 7)}`}
+        <strong className="grow">{o.state === 'failed' ? 'Failed' : o.state === 'stopped' ? 'Stopped'
+          : `Delivered commit ${o.commit?.slice(0, 7)}${submission?.source === 'own_session' ? ' from your own session' : ''}`}
           <span className="faint small"> · {new Date(o.at).toLocaleString()}</span></strong>
         {o.commit ? <Pill tone={tone} title="The coding agent's own judgement of what it delivered">{verdict}</Pill> : null}
       </div>
@@ -170,8 +190,25 @@ function OutcomeBox({ workspace: w, labels, thread }: { workspace: Workspace; la
   );
 }
 
-const INSTALL: Record<string, [string, string]> = { queued: ['install queued', 'agent'], installing: ['installing', 'agent'], installed: ['installed', 'clear'],
-  failed: ['install failed', 'bad'], needs_confirmation: ['waits for your confirmation', 'attention'] };
+const INSTALL: Record<string, [string, string]> = { queued: ['install queued', 'agent'], validating: ['checking outside the box', 'agent'],
+  installing: ['installing', 'agent'], installed: ['installed', 'clear'], failed: ['install failed', 'bad'], needs_confirmation: ['waits for your confirmation', 'attention'] };
+const BUSY = new Set(['queued', 'validating', 'installing']);
+
+/** What Balsamic found when it ran the library's tests and each method's checks outside the coding box (roadmap H6). */
+function HostValidation({ install }: { install: Install }) {
+  const host = install.host_validation;
+  if (!host) return null;
+  const tests = host.tests || { passed: 0, failed: 0 };
+  const passed = host.methods.filter(m => m.host === 'passed').length;
+  return <div className="small" data-testid="install-host">
+    <span className={tests.failed || install.refused_methods?.length ? 'pill bad' : 'pill good'}>checked outside the box</span>
+    {` ${tests.passed} test${tests.passed === 1 ? '' : 's'} passed${tests.failed ? `, ${tests.failed} failed` : ''}`}
+    {host.methods.length ? ` · conformance passed for ${passed} of ${host.methods.length} method${host.methods.length === 1 ? '' : 's'}` : null}
+    {host.protected ? ` · protected tests: ${host.protected.passed} passed${host.protected.failed ? `, ${host.protected.failed} failed` : ''}` : null}
+    {install.refused_methods?.map(r => <div key={r.method_id} data-testid="install-refused"><span className="pill bad">not installed</span> <code>{r.method_id}</code>
+      {` failed outside the box (the coding agent reported ${r.reported.replace('_', ' ')}): ${r.failing.join('; ')}`}</div>)}
+  </div>;
+}
 export const libraryOf = (s: Submission) => { const names = new Set((s.manifest?.files || []).map(f => /^libraries\/([^/]+)\//.exec(f)?.[1]).filter(Boolean)); return names.size === 1 ? [...names][0] as string : null; };
 
 /** Installing the delivered library: the researcher's step. It runs the library's code in the lab's workers, edits
@@ -199,16 +236,19 @@ function InstallBox({ workspace: w, submission }: { workspace: Workspace; submis
   return (
     <div className="install" data-testid="install-box">
       <div className="row wrap">
-        {latest ? <Pill tone={tone} live={latest.status === 'installing'}>{label}</Pill> : null}
+        {latest ? <Pill tone={tone} live={latest.status === 'installing' || latest.status === 'validating'}>{label}</Pill> : null}
         {latest ? <span className="faint small">{latest.actor === 'researcher' ? 'by you' : 'by Balsamic'}</span> : null}
         {latest?.status === 'installed' ? <span className="small" data-testid="install-added">{latest.package} {latest.version}
           {latest.methods_added.length || !latest.problems_added?.length ? ` · methods ${latest.methods_added.join(', ') || 'none new'}` : null}
           {latest.problems_added?.length ? ` · problems ${latest.problems_added.join(', ')}` : null}
           {[...latest.missing_methods, ...(latest.missing_problems || [])].length
             ? <span className="pill bad"> not found: {[...latest.missing_methods, ...(latest.missing_problems || [])].join(', ')}</span> : null}</span> : null}
-        {!open && latest?.status !== 'installing' && latest?.status !== 'queued' ? <button className="btn small primary" onClick={() => setOpen(true)} data-testid="install-open">
+        {latest?.changed_generated_files?.length ? <span className="small faint" data-testid="install-changed-generated">
+          changed from the generated library: {latest.changed_generated_files.map(path => path.split('/').slice(2).join('/')).join(', ')}</span> : null}
+        {!open && !BUSY.has(latest?.status || '') ? <button className="btn small primary" onClick={() => setOpen(true)} data-testid="install-open">
           {latest?.status === 'installed' ? 'Install again…' : 'Install…'}</button> : null}
       </div>
+      {latest ? <HostValidation install={latest} /> : null}
       {latest?.status === 'installed' && (latest.bindings?.length || latest.skipped?.length || latest.launched?.length) ? <div className="small" data-testid="install-bindings">
         {latest.bindings?.map(b => <div key={b.binding_id}><span className="pill good">bound</span> {b.title || b.hypothesis_id} → <code>{b.method}</code> by Balsamic</div>)}
         {latest.skipped?.map(s => <div key={s.hypothesis_id} className="faint"><span className="pill">not bound</span> {s.hypothesis_id}: {s.reason}</div>)}
@@ -237,6 +277,32 @@ function InstallBox({ workspace: w, submission }: { workspace: Workspace; submis
 }
 
 /** A word to the coding agent: the researcher's instruction takes precedence over the lead's. */
+/** Past its deadline a workspace goes on only with the researcher's new go-ahead: how long it may run from now. */
+function GoOn({ workspace: w }: { workspace: Workspace }) {
+  const [hours, setHours] = useState(1);
+  const [state, setState] = useState<string | null>(null);
+  const queryClient = useQueryClient();
+  const resume = async () => {
+    setState('sending');
+    try {
+      await api(`/api/campaigns/${w.campaign_id}/implementation-workspaces/${w.id}/controls`, { method: 'POST',
+        body: JSON.stringify({ action: 'resume', wall_seconds: hours * 3600, expected_revision: w.control_revision ?? 0, request_key: `researcher-resume-${Date.now()}` }) });
+      setState('resuming');
+      await queryClient.invalidateQueries();
+    } catch (e) { setState(String((e as Error).message || e)); }
+  };
+  return (
+    <div className="row" style={{ marginTop: 6 }} data-testid="workspace-go-on">
+      <span className="small">Let it go on for</span>
+      <select value={hours} onChange={e => setHours(Number(e.target.value))} aria-label="Hours it may run from now">
+        {[1, 2, 4, 8].map(h => <option key={h} value={h}>{h} h</option>)}
+      </select>
+      <button className="btn small" disabled={state === 'sending'} onClick={() => void resume()}>Resume</button>
+      {state && state !== 'sending' ? <span className="small faint">{state}</span> : null}
+    </div>
+  );
+}
+
 function MessageAgent({ workspace: w }: { workspace: Workspace }) {
   const [text, setText] = useState('');
   const [state, setState] = useState<string | null>(null);
@@ -258,6 +324,55 @@ function MessageAgent({ workspace: w }: { workspace: Workspace }) {
       <button className="btn small" disabled={!text.trim() || state === 'sending'} onClick={() => void send()}>Send</button>
       {state && state !== 'sending' ? <span className="small faint">{state}</span> : null}
     </div>
+  );
+}
+
+interface SessionToken { issued_at: string | null; last_used_at: string | null; active: boolean; revoked: string | null; stopped: boolean }
+interface MadeToken { token: string; issued_at: string; cli: string }
+
+/** Deliver from your own coding agent (roadmap H3): a token for this workspace, shown here once (Balsamic keeps only its
+ *  fingerprint), and the commands that clone its library and send a commit back from the researcher's own machine. */
+function OwnSession({ workspace: w }: { workspace: Workspace }) {
+  const [open, setOpen] = useState(false);
+  const [made, setMade] = useState<MadeToken | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const stopped = w.desired_status === 'stopped';
+  const base = `/api/campaigns/${encodeURIComponent(w.campaign_id)}/implementation-workspaces/${w.id}`;
+  const state = useRead<SessionToken>(['session-token', w.id], open && !stopped ? `${base}/session-token` : null);
+  const make = async () => {
+    setError(null);
+    try {
+      setMade(await api<MadeToken>(`${base}/session-token`, { method: 'POST' }));
+      await state.refetch();
+    } catch (e) { setError(String((e as Error).message || e)); }
+  };
+  const s = state.data;
+  const cli = made ? `node ${made.cli}` : 'balsamic-workspace';
+  const folder = w.library?.name || 'my-library';
+  return (
+    <details className="small" open={open} onToggle={e => setOpen((e.target as HTMLDetailsElement).open)} data-testid="own-session" style={{ marginTop: 6 }}>
+      <summary>Deliver from your own coding agent</summary>
+      <p>Work on this library with your own coding agent, on your machine, and deliver a commit: Balsamic installs it and binds its
+        proposals as it does the coding agent's delivery.</p>
+      {stopped ? <p className="faint" data-testid="own-session-stopped">The workspace is stopped, so no token opens it. Resume it to deliver from your own session.</p> : <>
+        <div className="row wrap">
+          <span className="grow" data-testid="own-token-state">{made ? 'Your new token is in the commands below. Copy it now: it is shown only this once, and Balsamic keeps only its fingerprint.'
+            : s?.active ? `A token made ${when(s.issued_at)} opens this workspace${s.last_used_at ? `; it last delivered ${when(s.last_used_at)}` : ''}. It is not shown again: make a new one, and the old one stops working.`
+            : s?.revoked ? `The last token no longer works: ${s.revoked}.` : s ? 'No token yet.' : ''}</span>
+          <button className="btn small" onClick={() => void make()} data-testid="own-token-make">{s?.issued_at || made ? 'Make a new token' : 'Make a token'}</button>
+        </div>
+        {made ? <pre className="small" data-testid="own-commands" style={{ whiteSpace: 'pre-wrap', wordBreak: 'break-all' }}>{[
+          `export BALSAMIC_WORKSPACE_URL=${window.location.origin}${base}`,
+          `export BALSAMIC_WORKSPACE_TOKEN=${made.token}`,
+          `${cli} clone ${folder}    # the library as this workspace started from it`,
+          `cd ${folder}              # work there with your own coding agent, and commit`,
+          `${cli} check libraries/${folder}    # the tests and contract checks, for report.json`,
+          `${cli} submit HEAD --report report.json    # report.json: your delivery report, as the coding agent writes one`,
+        ].join('\n')}</pre> : null}
+        {w.desired_status === 'paused' ? <p className="faint" data-testid="own-session-paused">While the workspace is paused it takes no delivery: resume it first.</p> : null}
+      </>}
+      {error ? <div className="pill bad" role="alert">{error}</div> : null}
+    </details>
   );
 }
 

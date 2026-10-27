@@ -124,8 +124,15 @@ specification. A coding workspace builds it under `libraries/<name>/` (`librarie
 The library is done when `uv run pytest libraries/<name>` passes. Installing it runs its code in the lab's workers, as
 `mask-optimizers` does. Balsamic installs a delivered library by itself (not one its coding agent reports not ready; set
 `GRATING_AUTO_INSTALL=false` to stop it), and the researcher can install again with Install on the coding workspace's card
-(Hypotheses → Implementations). Either way it copies the exact submitted commit's `libraries/<name>/` from the workspace,
-pins it in the root `pyproject.toml` as an
+(Hypotheses → Implementations). Either way Balsamic first validates the exact submitted commit outside the coding box
+(roadmap H6, `agents/library_validation.py`): in a bubblewrap sandbox with no network and none of the lab's data, it runs
+the library's own tests, each method's conformance (`check_function` for a plain-function method, `check` for any other, on
+the library's own problem or a task of the campaign it runs on) and the workspace's protected acceptance tests, which the
+box never sees. A failure no method owns installs nothing; a method that fails is not installed, bound or run
+(`refused_methods`), while the methods that pass are installed; the install records the host's results beside the coding
+agent's report (`host_validation`, protected tests by name and outcome only), and the coding agent gets them in a result
+file (`/bridge/in/results/` in the box) with one message. pytest must be in the lab's environment (`uv sync --extra dev`). Then it copies the
+exact submitted commit's `libraries/<name>/` from the workspace, pins it in the root `pyproject.toml` as an
 editable path dependency in the `libraries` extra, and runs `uv lock` and `uv sync --inexact --extra libraries`. A dry run
 comes first: a change to a package the lab already has waits for the researcher's confirmation, and a failure puts
 `pyproject.toml`, `uv.lock` and `libraries/` back as they were. A library provides methods (`optimization_framework.optimizers`
@@ -141,7 +148,7 @@ its `bindings` and the proposals it `skipped` with why (a proposal someone bound
 proposal's concept review: the review's revision counts the configuration the first binding replaced (`pre_binding_config`). Then
 Balsamic starts the runs an approved compute plan lists for the proposals that can now run, one per planned seed, under that
 go-ahead (`campaigns/plan_runs.py`; the install lists them as `launched`), and wakes the lead once when all of a plan's runs have
-ended. Frozen runs
+ended. When a library provides the problem a campaign's charter declares, `campaign.adopt_problem` (the researcher or the lead; it starts no compute) has the campaign adopt it: its tasks are compiled again from the charter, each declared task is replaced by a new one naming what provides it (`provided_by`: package, version, commit, submission, install), the old one is kept, never rebound, with `superseded_by_task_id`, and an `evaluator_requirement_satisfaction` record links its evaluator requirement to the install; one campaign version and one new study for the adoption, and adopting again changes nothing. Balsamic adopts by itself, first after an install and before binding, when none of the declared tasks has a bound evaluator or live runs; otherwise the install records `adoption_skipped` with the reason, and its notice tells the lead to use `campaign.adopt_problem`. The install lists what it `adopted`. Frozen runs
 snapshot the library's source and record its version like any other plug-in. When a second project needs a library, it
 moves to its own repository, as `mask-optimizers` did.
 
@@ -293,6 +300,52 @@ class Plugin(FunctionPlugin):
   the same candidates for the same seed, a checkpoint at half the run continuing to the same run, and a clean end, by
   returning or at the cap. Each distinct candidate is evaluated once, so the replays compare what the method proposes,
   not the evaluator's noise.
+
+### A library generated from a charter
+
+`scaffold(charter, revision, balsamic=True)` (`problem_charter/scaffold.py`) generates a project that is already such a
+library. Besides the standalone project (the data, the harness, `objective.py` and `methods.py` to fill), it writes:
+
+- `<pkg>/adapter.py`, with two factories named by the entry points in `pyproject.toml`. `problem_adapter()`
+  (`optimization_framework.problems`, under the charter's problem id; only when the charter's evaluator is `declared`) is
+  `problem_charter/library.py` `CharterProblem`: its definition and instances are what `charter.manifest()` gives for the
+  same values, from the charter the library holds in `data.CHARTER`, and its evaluator calls
+  `objective.objective(problem, candidate)` on the library's own `Problem`. `method_plugin()`
+  (`optimization_framework.optimizers`, under the package name) is a `FunctionPlugin` with `MODULE = "<pkg>.methods"`,
+  the charter's representation, and `problem(instance)` giving each method the library's `Problem`. Balsamic is imported
+  only inside these functions, so the project runs without it.
+- `tests/test_contract.py`: `compare_provided()` finds no difference between the library's problem and the charter's,
+  and `check_function` passes for every method. It skips where Balsamic is not installed.
+
+Describing and resolving the problem read only `data.py`; the library's objective and problem are imported when a worker
+evaluates. The evaluator's version is the charter revision and a hash of the package's code other than `methods.py`, so a
+changed objective is another evaluator. A field mapped to a derived quantity (the residence time from a volume and a flow
+rate) must agree with what the charter computes; a configuration that is none of the charter's instances gets a
+`Problem` of its own, resolved from the charter.
+
+A coding workspace of a campaign made from a charter starts from this library (`agents/development.py`
+`generated_library()`): the workspace's first preparation writes it into `libraries/<problem-id>/` of the worktree, never
+over a file that is already there, and records the hash of each generated file. Its work ticket (`TASK.md`, below) gives
+each proposal it serves the `METHODS` key to write it under, with its `hypothesis_id`, and lists the library's generated
+tests as its acceptance tests. Under decision 9, `charter.json` and `data.py` are fixed:
+the install refuses a delivery whose copies differ from the generated ones ("the library's data no longer matches the
+charter revision"), and lists the other generated files the coding agent changed (`changed_generated_files`; the
+objective and the methods, which it writes, are not listed). A charter with no evaluator gives no library, and the ticket
+says why; the coding agent then builds one as this page describes.
+
+The work ticket (`agents/development_ticket.py`, a `development_ticket` recorded when the workspace opens) is what the
+coding agent is asked to do, written into the worktree beside the library as four files: `TASK.md` (the proposals with
+their mechanisms and `METHODS` keys, the charter revision, the acceptance tests, the budget of the request's mandate, the
+deadline, limits and network of the box), `AGENTS.md` and `CLAUDE.md` (the same house rules for any harness: what to
+build, how to run the tests, how to submit, what not to touch) and `.balsamic/spec.json` (the ticket as JSON). Like the
+library, each file is written only where it is absent. The implementation lead adds acceptance tests (a pytest file by its
+path, with its content when it is new; a campaign without a charter needs at least one) and protected tests, which stay on
+the host (`development_protected_test`), are never written into the box, and run in the validation outside the box above
+on every delivery. An agent's ticket is checked as a commission's
+specification is (`check_self_contained()`): it needs acceptance tests and may name only records the coding agent can read.
+Each delivery is reviewed by its diff against the generated base (files and lines changed, the generated files and
+acceptance tests it touched), on the submission and in `implementation_workspace_inspect`, beside the host's validation of
+it (`host_validation`, `refused_methods`).
 
 ### Failure policy
 

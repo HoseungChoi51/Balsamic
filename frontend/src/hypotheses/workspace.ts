@@ -9,19 +9,36 @@ export interface Report {
 }
 export interface Install { id: string; submission_id: string; status: string; actor?: string; package: string; version: string; path: string; requested_at: string;
   finished_at?: string; methods_added: string[]; missing_methods: string[]; problems_added?: string[]; missing_problems?: string[]; problem_entry_points?: Record<string, string>; changes: { name: string; from: string; to: string | null }[]; error?: string; log_tail?: string;
+  /** Files generated from the charter that the coding agent changed (its objective and methods aside). */
+  changed_generated_files?: string[];
+  /** What the host found outside the box before installing (roadmap H6): the library's tests, each method's conformance beside
+   *  what the coding agent reported, and the protected tests by name and outcome; the methods it did not install, with why. */
+  host_validation?: { tests: Tests; protected?: Tests | null; seconds?: number;
+    methods: { method_id: string; reported: string; host: string; check?: string; problem_id?: string; failed_tests: string[]; reason?: string }[] };
+  refused_methods?: { method_id: string; reported: string; failing: string[] }[];
   /** What Balsamic bound after the install, and the proposals it left with why. */
   bindings?: { hypothesis_id: string; title?: string; method: string; task_id: string; binding_id: string }[]; skipped?: { hypothesis_id: string; reason: string }[];
   launched?: { hypothesis_id: string; seed: number; trial_id: string; task_id: string; consent_id: string }[] }
 export interface Submission { id: string; commit: string; status: string; notes?: string; report?: Report | null; created_at: string; manifest?: { files?: string[] };
+  /** own_session: the researcher delivered it from their own coding agent (roadmap H3); absent for the coding agent's. */
+  source?: string;
   validation_outcome?: { status?: string; error?: string | null; findings?: Record<string, string>[] } }
 export interface Outcome { state: string; verdict?: string; submission_id?: string; commit?: string; at: string; reason?: string }
 export interface Workspace {
-  id: string; campaign_id: string; title: string; hypothesis_id: string; hypothesis_ids?: string[]; status: string; desired_status: string; created_at: string;
+  id: string; campaign_id: string; title: string; hypothesis_id: string | null; hypothesis_ids?: string[]; status: string; desired_status: string; created_at: string;
   started_at?: string; last_activity_at?: string; cpu_budget_seconds?: number | null; usage?: { container_cpu_seconds?: number };
   error?: string; activity?: string; checkpoints?: Checkpoint[]; last_error_at?: string | null; ide_url?: string;
   opened_by?: { actor?: string; role?: string }; questions?: { id: string; question: string }[];
   phase?: string; tests?: Tests; estimate?: { remaining_minutes: number; given_at: string; source: string };
   outcome?: Outcome | null; finished_at?: string | null; submissions?: Submission[]; installs?: Install[];
+  control_revision?: number; wall_seconds?: number | null; deadline_at?: string | null; limits?: { cpus: number; memory_gb: number; gpus: number };
+  egress?: { model: string[]; package_index: string[]; named: string[] };
+  /** The library generated from the charter it started from (roadmap F4). */
+  library?: { name: string; package?: string; revision?: number } | null;
+  /** The commission this box runs headless for (roadmap H7): its kind, its specification's name, its compute time and the
+   *  protected tests kept outside the box. A box for a task's evaluator has a task_id and serves no proposal. */
+  commission?: { kind: 'implementation' | 'evaluator'; name: string; compute_seconds: number; protected_tests?: string[]; task_id?: string | null } | null;
+  task_id?: string | null;
 }
 export const LIVE = new Set(['queued', 'starting', 'resuming', 'running', 'pausing', 'stopping']);
 export const VERDICT: Record<string, [string, string]> = { ready: ['ready', 'clear'], ready_with_limits: ['ready, with limits', 'attention'],

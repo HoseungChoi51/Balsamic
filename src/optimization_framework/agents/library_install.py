@@ -2,18 +2,23 @@
 its coding agent reports not ready); the researcher can install again from the Implementations page.
 
 The exact submitted commit's `libraries/<name>/` is read from the workspace's own Git store (listed and read as blobs: no
-filter, hook or attribute of a repository the coding agent could write runs on the host), checked against what was
+filter, hook or attribute of a repository the coding agent could write runs on the host), or, for a commit the researcher
+delivered from their own session, from the host's store of those (agents/own_session.py), checked against what was
 submitted, and copied into the lab's `libraries/<name>/`. The root pyproject.toml pins it in the `libraries` extra as an
 editable path dependency, `uv lock` and `uv sync --inexact --extra libraries` install it, and the running lab picks its
 methods and problems up at the next listing. A library provides methods (`optimization_framework.optimizers` entry points),
 problems (`optimization_framework.problems`), or both; a method or problem id another installed package provides is refused
 before uv runs. A dry run first: a change to any package already installed waits for the researcher's
 confirmation (it could affect their other campaigns); a reinstall and the lab's own projects are no change. Every file this
-touched is put back when it stops or fails. Each install is a `library_install` record: who (balsamic or the researcher),
+touched is put back when it stops or fails. Before any of that, the host validates the exact commit's files outside the
+box (library_validation, roadmap H6): the library's tests, each method's conformance and the protected acceptance tests. A
+method that fails there is not installed, and a failure no method owns stops the install. Each install is a `library_install` record: who (balsamic or the researcher),
 when, what (package, version, commit, workspace, submission), the methods and problems it added, and how it ended.
 """
 from __future__ import annotations
 
+import hashlib
+import logging
 import os
 import re
 import shutil
@@ -25,7 +30,7 @@ from pathlib import Path, PurePosixPath
 from importlib import metadata
 
 from optimization_framework.contracts.base import content_hash
-from optimization_framework.storage.sqlite import now
+from optimization_framework.storage.sqlite import atomic_json, now
 
 GROUP = "optimization_framework.optimizers"
 PROBLEMS = "optimization_framework.problems"
@@ -57,9 +62,12 @@ def run(args, cwd, timeout=TIMEOUT_SECONDS):
 
 
 class Installer:
-    def __init__(self, workspace, development, root, runner=run, uv=None, plugins=None, problems=None, providers=providers):
+    def __init__(self, workspace, development, root, runner=run, uv=None, plugins=None, problems=None, providers=providers,
+                 validator=None):
         """runner runs uv (tests give their own); Git always runs directly, read-only. providers(group) names the installed
-        distribution of each entry point of a group."""
+        distribution of each entry point of a group. validator(files, name, instances=, protected=) validates the library
+        outside the box (library_validation.run)."""
+        from . import library_validation
         from optimization_framework.evaluation.registry import problems as registry
         from optimization_framework.optimizers import plugins as installed
         self.workspace, self.store, self.development = workspace, workspace.store, development
@@ -69,10 +77,13 @@ class Installer:
         self.plugins = plugins or installed.installed
         self.problems = problems or registry
         self.providers = providers
+        self.validator = validator or library_validation.run
 
     # Checks -----------------------------------------------------------------------------------------------------------
-    def _git(self, record, *args):
-        git = self.development.driver.root(record) / "work" / "git"
+    def _git(self, record, *args, submission=None):
+        """Git on the store the submission's commit is in: the box's, or the host's own for the researcher's (roadmap H3)."""
+        from .own_session import git_dir
+        git = git_dir(self.development.driver, record, submission)
         done = subprocess.run(["git", "--no-replace-objects", f"--git-dir={git}", *args], cwd=self.root, capture_output=True, timeout=60, env=GIT_ENV)
         if done.returncode:
             raise ValueError("Reading the submitted commit failed: " + done.stderr.decode(errors="replace").strip()[:500])
@@ -80,7 +91,8 @@ class Installer:
 
     def files(self, record, submission, name):
         """{path: bytes} of libraries/<name>/ at the submitted commit."""
-        listing = self._git(record, "ls-tree", "-r", "-z", "--full-tree", submission["commit"], "--", f"libraries/{name}").decode()
+        listing = self._git(record, "ls-tree", "-r", "-z", "--full-tree", submission["commit"], "--", f"libraries/{name}",
+                            submission=submission).decode()
         found, total = {}, 0
         for item in filter(None, listing.split("\0")):
             meta, path = item.split("\t", 1)
@@ -90,7 +102,7 @@ class Installer:
             pure = PurePosixPath(path)
             if pure.is_absolute() or ".." in pure.parts or pure.parts[:2] != ("libraries", name):
                 raise ValueError(f"{path} leaves libraries/{name}/")
-            found[path] = content = self._git(record, "cat-file", "blob", f"{submission['commit']}:{path}")
+            found[path] = content = self._git(record, "cat-file", "blob", f"{submission['commit']}:{path}", submission=submission)
             total += len(content)
             if len(content) > MAX_FILE_BYTES or total > MAX_TOTAL_BYTES:
                 raise ValueError(f"libraries/{name} is larger than an installable library ({MAX_FILE_BYTES >> 20} MB a file, {MAX_TOTAL_BYTES >> 20} MB in all)")
@@ -116,6 +128,7 @@ class Installer:
         for item in (submission.get("package") or {}).get("files", []):
             if item["path"] in files and files[item["path"]] != str(item["content"]).encode():
                 raise ValueError(f"{item['path']} at the commit differs from what was submitted")
+        changed = generated_changes(record, name, files)
         pyproject = files.get(f"libraries/{name}/pyproject.toml")
         if pyproject is None:
             raise ValueError(f"libraries/{name} has no pyproject.toml")
@@ -138,7 +151,7 @@ class Installer:
             if str(current.get("version")) == version and existing != files:
                 raise ValueError(f"{package} {version} is installed with other code; the coding agent has to raise the version for the lab to load the new code")
         return {"name": name, "package": package, "version": version, "entry_points": entries, "problem_entry_points": problems,
-                "files": files, "report": report, "record": record, "submission": submission}
+                "files": files, "report": report, "record": record, "submission": submission, "changed_generated_files": changed}
 
     def _refuse_clashes(self, package, entries, problems, report):
         """A problem id, plug-in name or method id that another installed distribution (the lab's own included) provides is
@@ -177,7 +190,8 @@ class Installer:
                 "submission_id": submission["id"], "commit": submission["commit"], "package": None, "version": None,
                 "path": f"libraries/{library_of(submission)}", "entry_points": {}, "problem_entry_points": {}, "actor": "balsamic",
                 "status": "failed", "requested_at": now(), "finished_at": now(), "error": str(exc)[:2000], "methods_added": [],
-                "missing_methods": [], "problems_added": [], "missing_problems": [], "changes": [], "log_tail": ""}, "library.install_failed")
+                "missing_methods": [], "problems_added": [], "missing_problems": [], "changes": [], "log_tail": "",
+                "changed_generated_files": []}, "library.install_failed")
             self.development.notify(self.development.get(campaign_id, workspace_id), identity, f"Balsamic could not install the library "
                 f"from commit {submission['commit'][:7]}: {exc} Have the coding agent fix it and deliver again.", "installs")
             return record
@@ -215,7 +229,7 @@ class Installer:
                    "commit": plan["submission"]["commit"], "package": plan["package"], "version": plan["version"], "path": f"libraries/{plan['name']}",
                    "entry_points": plan["entry_points"], "problem_entry_points": plan["problem_entry_points"], "actor": actor, "status": "queued",
                    "requested_at": now(), "confirm_changes": confirm_changes, "methods_added": [], "missing_methods": [], "problems_added": [],
-                   "missing_problems": [], "changes": [], "log_tail": "",
+                   "missing_problems": [], "changes": [], "log_tail": "", "changed_generated_files": plan["changed_generated_files"],
                    **({"retry_of": retry_of} if retry_of else {})}
         self.store.put("library_install", install, "library.install_requested")
         if background:
@@ -229,7 +243,83 @@ class Installer:
         self.store.put("library_install", record, event)
         return record
 
+    def _validate(self, identity, plan):
+        """Validate the exact commit's files outside the box and record it on the install: its verdict, or ValueError naming
+        what failed when nothing of it may be installed. Its compute is charged to the go-ahead the workspace opened under."""
+        from . import library_validation as validation
+        record = plan["record"]
+        self._update(identity, status="validating")
+        try:
+            result = self.validator(plan["files"], plan["name"], instances=validation.instances_of(self.workspace, record["campaign_id"]),
+                                    protected=validation.protected_tests(self.store, record))
+        except ValueError as exc:
+            raise ValueError(f"Balsamic could not validate the library outside the box: {exc}") from None
+        self._charge(record, identity, result.get("seconds") or 0.0)
+        judged = validation.verdict(result, plan["report"])
+        host = {**validation.public(result), **judged, "at": now()}
+        self._update(identity, host_validation=host, refused_methods=judged["refused_methods"])
+        listed = [row["method_id"] for row in judged["methods"]]
+        if judged["library_failures"]:
+            raise ValueError("Validation outside the box failed, in tests no method owns: " + "; ".join(judged["library_failures"][:10]))
+        if listed and not plan["problem_entry_points"] and len(judged["refused_methods"]) == len(listed):
+            raise ValueError("Validation outside the box failed for every method: " + refused_text(judged["refused_methods"]))
+        return judged
+
+    def _charge(self, record, identity, seconds):
+        """Validation's time, charged to the go-ahead the workspace opened under; for a commission's box (roadmap H7), counted on the
+        commission instead, whose compute time the bus charged to the go-ahead once when it opened."""
+        from optimization_framework.campaigns import compute_consent
+        if record.get("commission"):
+            with self.workspace.lock:
+                current = self.store.get(record["id"], "development_workspace")
+                usage = current["commission"].setdefault("usage", {})
+                usage["validation_seconds"] = usage.get("validation_seconds", 0.0) + (seconds or 0.0)
+                self.store.put("development_workspace", current)
+            return
+        consent_id = (record.get("consent") or {}).get("id")
+        if not consent_id or not seconds:
+            return
+        with self.workspace.lock:
+            try:
+                consent = self.store.get(consent_id, "compute_consent")
+            except KeyError:
+                return
+            compute_consent.spend(self.workspace, consent, seconds, subjects=[identity])
+
+    def _feedback(self, identity, plan):
+        """The host's results to the coder, once per install, when something failed: a result file in the box (the workspace's
+        incoming/results, which the box reads at /bridge/in/results; protected tests by name and outcome only) and one message
+        pointing at it. Whether it was sent; failing to send it never stops the
+        install or what follows it."""
+        install, record = self.store.get(identity, "library_install"), plan["record"]
+        host = install.get("host_validation")
+        if not host or (not install.get("refused_methods") and install["status"] != "failed"):
+            return False
+        name = f"host-validation-{identity}.json"
+        what = (f"Nothing was installed: {install.get('error')}" if install["status"] == "failed"
+                else f"Methods not installed: {refused_text(install['refused_methods'])}")
+        try:
+            atomic_json(self.development.driver.root(record) / "incoming/results" / name, {"install_id": identity,
+                "commit": plan["submission"]["commit"], "status": install["status"], "error": install.get("error"), **host})
+            self.development.message(record["campaign_id"], record["id"], {"message": f"Balsamic validated commit "
+                f"{plan['submission']['commit'][:7]} outside the box. {what} The results are in /bridge/in/results/{name}. Fix them in a "
+                "new commit, raise the version, and deliver again.", "request_key": "host-validation-" + identity, "mode": "follow_up"},
+                actor="system")
+        except Exception as exc:
+            logging.getLogger(__name__).warning("Telling the coding agent what failed outside the box failed: %s", exc)
+            return False
+        return True
+
     def install(self, identity, plan, confirm_changes):
+        try:
+            judged = self._validate(identity, plan)
+        except Exception as exc:   # nothing of it is installed; the coder and the lead are told what failed
+            record = self._update(identity, "library.install_failed", status="failed", finished_at=now(), error=str(exc)[:2000])
+            told = self._feedback(identity, plan)
+            self.development.notify(plan["record"], identity, f"Balsamic did not install the library from commit "
+                f"{plan['submission']['commit'][:7]}: {exc}" + (" The coding agent has the results." if told else ""), "installs")
+            return record
+        refused = {row["method_id"] for row in judged["refused_methods"]}
         with _lock:
             name, root = plan["name"], self.root
             target, staging = root / "libraries" / name, root / "libraries" / f".staging-{identity}"
@@ -270,7 +360,7 @@ class Installer:
                 if backup.exists():
                     shutil.rmtree(backup)
                 record = self._update(identity, "library.installed", status="installed", finished_at=now(), changes=changes,
-                                      methods_added=sorted(after - before), missing_methods=sorted(set(reported) - after),
+                                      methods_added=sorted(after - before - refused), missing_methods=sorted(set(reported) - after - refused),
                                       problems_added=sorted(problems_after - problems_before),
                                       missing_problems=sorted(set(plan["problem_entry_points"]) - problems_after),
                                       log_tail="\n".join(log)[-4000:])
@@ -282,13 +372,19 @@ class Installer:
                 if staging.exists():
                     shutil.rmtree(staging)
         # The library is in: what Balsamic does next never undoes the install.
+        self._feedback(identity, plan)
         try:
             record = self._update(identity, **after_install(self.workspace, record))
         except Exception as exc:
-            record = self._update(identity, bindings=[], skipped=[], after_install_error=f"{type(exc).__name__}: {exc}"[:500])
+            record = self._update(identity, adopted=[], adoption_skipped=None, bindings=[], skipped=[],
+                                  after_install_error=f"{type(exc).__name__}: {exc}"[:500])
         who = "The researcher" if record["actor"] == "researcher" else "Balsamic"
+        adoption = adoption_text(record)
         self.development.notify(plan["record"], identity, f"{who} installed {plan['package']} {plan['version']} from commit "
             f"{plan['submission']['commit'][:7]}: {added(record)}."
+            + (f" Not installed, failed outside the box: {refused_text(record['refused_methods'])}." if record.get("refused_methods") else "")
+            + (f" Generated files it changed: {', '.join(plan['changed_generated_files'])}." if plan["changed_generated_files"] else "")
+            + (" " + adoption if adoption else "")
             + (" " + bound_text(record) + " Tell the researcher which proposals can run now." if plan["entry_points"] else ""), "installs")
         return record
 
@@ -323,6 +419,30 @@ class Installer:
         path.write_text(text)
 
 
+def generated_changes(record, name, files):
+    """The generated files of libraries/<name>/ the coding agent changed or removed, when the workspace started from a library
+    generated from the charter (its record's `library`, roadmap F4); [] for any other library. Under decision 9 the
+    charter's data is fixed: a changed or missing `charter.json` or `data.py` is refused. The two files the agent writes,
+    `objective.py` and `methods.py`, are not listed."""
+    generated = record.get("library") or {}
+    if generated.get("name") != name:
+        return []
+    digest = lambda path: hashlib.sha256(files[path]).hexdigest() if path in files else None
+    for path in generated["fixed"]:
+        if digest(path) != generated["files"].get(path):
+            raise ValueError(f"The library's data no longer matches the charter revision: {path} differs from the one generated "
+                             f"from revision {generated['revision']}; restore it, or regenerate the library from the charter")
+    filled = {f"libraries/{name}/{generated['package']}/{file}" for file in ("objective.py", "methods.py")}
+    return sorted(path for path, sha in generated["files"].items()
+                  if path not in generated["fixed"] and path not in filled and digest(path) != sha)
+
+
+def refused_text(refused):
+    """Methods that failed validation outside the box, each with what failed."""
+    return "; ".join(f"{row['method_id']} (reported {row['reported'].replace('_', ' ')}; failed: {', '.join(row['failing'])[:300]})"
+                     for row in refused)
+
+
 def added(record):
     """What an install added, as its notice and the monitor name it: methods, problems (when it provides any), and what was
     not found."""
@@ -334,15 +454,63 @@ def added(record):
 
 
 def after_install(workspace, install):
-    """What Balsamic does by itself once a library is installed, always in this order: adopt its problem (E5), bind the
-    proposals it serves (bind_served), start the approved runs (plan_runs.launch_ready). {bindings, skipped, launched} for the
-    install record."""
+    """What Balsamic does by itself once a library is installed, always in this order: adopt its problem (adopt_provided), bind
+    the proposals it serves (bind_served), start the approved runs (plan_runs.launch_ready). {adopted, adoption_skipped,
+    bindings, skipped, launched} for the install record."""
     from optimization_framework.campaigns.plan_runs import launch_ready
-    bound = bind_served(workspace, install)
+    adopted = adopt_provided(workspace, install)
+    bound = {**adopted, **bind_served(workspace, install)}
     try:
         return {**bound, "launched": launch_ready(workspace, install["campaign_id"])["launched"]}
     except Exception as exc:   # the bindings stand; the next sync tries the runs again
         return {**bound, "launched": [], "launch_error": f"{type(exc).__name__}: {exc}"[:500]}
+
+
+def adopt_provided(workspace, install):
+    """When the install provides the problem its campaign's charter declares, the campaign's declared tasks adopt it (E4),
+    through the bus as Balsamic's system actor, citing the install: only when no such task has a bound evaluator or live runs.
+    Otherwise it is skipped with the reason, for the lead to adopt with campaign.adopt_problem. Replaying adopts nothing more.
+    {adopted: [{old_task_id, new_task_id}], adoption_skipped: {problem_id, reason} or None}."""
+    from optimization_framework.contracts.commands import Command, CommandOrigin
+    store, campaign_id = workspace.store, install["campaign_id"]
+    nothing = {"adopted": [], "adoption_skipped": None}
+    provided = (set(install.get("problems_added") or []) | set(install.get("problem_entry_points") or {})) - set(install.get("missing_problems") or [])
+    campaign = store.get(campaign_id, "campaign")
+    if not provided or not campaign.get("charter"):
+        return nothing
+    binding = workspace.charters.revision(campaign["charter"]["id"], campaign["charter"]["revision"])["charter"].get("evaluator") or {}
+    problem_id = binding.get("problem_id")
+    if binding.get("kind") != "declared" or problem_id not in provided:
+        return nothing
+    old = [task for task in workspace.current_tasks(campaign_id) if (task.get("evaluator_manifest") or {}).get("id") == problem_id]
+    if not old:
+        return nothing
+    reason = workspace.unused(old)
+    if not reason:
+        command = Command(id="balsamic_adopt_" + content_hash([install["id"], campaign_id])[:24], campaign_id=campaign_id,
+            operation="campaign.adopt_problem", expected_revision=campaign["version"],
+            origin=CommandOrigin(actor="balsamic", rationale=f"After installing {install['package']} {install['version']} ({install['id']})"),
+            payload={"install_id": install["id"], "rationale": f"{install['package']} {install['version']}, installed from commit "
+                     f"{install['commit'][:7]}, provides {problem_id}, the problem the charter declares, and nothing ran on its tasks yet."})
+        try:
+            receipt = workspace.commands.execute(command, actor="balsamic")
+        except ValueError as exc:
+            reason = str(exc)[:300]
+        else:
+            return {"adopted": [{"old_task_id": row["old_task_id"], "new_task_id": row["new_task_id"]} for row in receipt["outcome"]["adopted"]],
+                    "adoption_skipped": None}
+    return {"adopted": [], "adoption_skipped": {"problem_id": problem_id, "reason": reason}}
+
+
+def adoption_text(install):
+    """The install notice's line on the campaign's tasks adopting its problem, or why Balsamic left that to the lead."""
+    if install.get("adopted"):
+        return f"Balsamic had {len(install['adopted'])} task{'s' if len(install['adopted']) > 1 else ''} adopt its problem."
+    skipped = install.get("adoption_skipped")
+    if skipped:
+        return (f"Balsamic did not adopt {skipped['problem_id']} for the campaign's tasks: {skipped['reason']}. Adopt it when that is "
+                f"settled with campaign.adopt_problem (install_id {install['id']}).")
+    return ""
 
 
 def bind_served(workspace, install):
@@ -357,6 +525,7 @@ def bind_served(workspace, install):
     store, campaign_id = workspace.store, install["campaign_id"]
     submission = store.get(install["submission_id"], "development_submission")
     installed = {method["id"] for method in algorithms()}
+    refused = {row["method_id"] for row in install.get("refused_methods") or []}
     tasks = [task for task in workspace.current_tasks(campaign_id) if task.get("problem")]
     bindings, skipped = [], []
     for hypothesis_id in served(submission):
@@ -368,6 +537,9 @@ def bind_served(workspace, install):
         methods = methods_for(submission, hypothesis_id)
         runnable, reasons = {}, []
         for method in methods:
+            if method in refused:
+                reasons.append(f"{method} failed validation outside the box")
+                continue
             if method not in installed:
                 reasons.append(f"{method} is not installed")
                 continue

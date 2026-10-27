@@ -4,16 +4,19 @@ threshold starts too, with a notice to the researcher that stays in the inbox un
 covers it. Anything longer, and any coding workspace, waits for the researcher's go-ahead, knowing what will run, why, how long
 it takes and what they can do meanwhile.
 
-The agent asks with approval.request (kind compute); the researcher's approval records a compute consent for that plan's
-worker time (and the coding workspaces it opens). The command bus refuses an agent's work-starting command that is not
+The agent proposes a mandate (mandate_propose; approval.request kind mandate, which replaces kind compute for agents); the
+researcher's approval records a compute consent for that plan's worker time (and the coding workspaces it opens) as the mandate's
+compute part. The command bus refuses an agent's work-starting command that is not
 covered (guard) and charges what it starts to the consent, or records the notice (listener); coding workspaces, their
 validations and analysis scripts are checked where they start. The researcher's own commands are never checked, and autopilot's
-compute cap, which the researcher set when switching it on, is autopilot's go-ahead. A request to do some work is not a go-ahead
-for its compute.
+go-ahead is the standing mandate its switch granted, with the cap the researcher set (mandates.py, R4). A request to do some work
+is not a go-ahead for its compute.
 
 A consent covers only the work its plan names (decision 4): a coding workspace for a proposal it names, a run or commission of
 such a proposal, and work for no proposal (a runtime profile, a validation) asked in the same researcher request. A plan that
-names no proposals, as every consent recorded before plans named them, covers any work in the campaign. A consent stays in force
+names no proposals, as every consent recorded before plans named them, covers any work in the campaign. A go-ahead the
+researcher gives with a chat message (R7) is request-only: it covers the work of that request alone, with or without proposals
+(Hoseung, 27 October 2026). A consent stays in force
 while a coding workspace it opened runs, and for three times its wall time after the last one stops. The runs a plan lists
 start by themselves once their proposals can run (plan_runs.py), each charged to the consent it ran under.
 
@@ -93,15 +96,15 @@ def proposals(workspace, operation, payload):
 
 
 def request_root(workspace, origin):
-    """The researcher's request an agent's command descends from: the lead turn's request root, or the one an assistant or page
-    agent was given with its assignment. None when it cannot be told."""
+    """The researcher's request an agent's command descends from: the lead turn's request root, the one an assistant or page
+    agent was given with its assignment, or the researcher's own request on a page agent's page. None when it cannot be told."""
     origin = origin if isinstance(origin, dict) else origin.model_dump() if origin is not None else {}
     run = _record(workspace, origin.get("run_id"), "agent_run")
     if run is None:
         return None
     from optimization_framework.agents.models import LEAD
     agent = _record(workspace, run.get("agent_id"), "agent_session") or {}
-    return workspace.pi.request_root(run) if agent.get("role") == LEAD else agent.get("assignment_origin") or None
+    return workspace.pi.request_root(run) if agent.get("role") == LEAD else agent.get("assignment_origin") or agent.get("desk_root") or None
 
 
 def _record(workspace, identity, kind):
@@ -116,7 +119,10 @@ def _clock(at):
 
 
 def _in_force(workspace, row, current):
-    """Until its expiry, while a coding workspace it opened runs, and for 3 x its wall time after the last one stops."""
+    """Until its expiry, while a coding workspace it opened runs, and for 3 x its wall time after the last one stops; never once
+    closed with its mandate (R3)."""
+    if row.get("closed_at"):
+        return False
     if _clock(row["expires_at"]) > current:
         return True
     opened = [found for found in (_record(workspace, identity, "development_workspace") for identity in row.get("workspace_ids") or []) if found]
@@ -134,7 +140,13 @@ def consents(workspace, campaign_id):
 
 
 def covers(row, hypothesis_ids=(), root=None):
-    """Whether a consent's plan names this work: every proposal it is for, or for no proposal, the same researcher request."""
+    """Whether a consent's plan names this work: every proposal it is for, or for no proposal, the same researcher request. A
+    request-only consent (the researcher's go-ahead given with a chat message, R7) covers work in its own request and nothing else,
+    whether or not it names proposals."""
+    if row.get("request_only"):
+        from .mandates import same_root
+        if not same_root(row.get("request_root"), root):
+            return False
     named = row.get("hypothesis_ids")
     if not named:
         return True
@@ -162,7 +174,9 @@ def _left(row):
 
 def refusal(workspace, campaign_id, what, seconds=None, *, hypothesis_ids=(), root=None):
     gate = _minutes(thresholds(workspace, campaign_id)[1])
-    rows = consents(workspace, campaign_id)
+    from .mandates import same_root
+    # Another request's request-only go-ahead (R7) is not this work's to use, so it is not offered.
+    rows = [row for row in consents(workspace, campaign_id) if not row.get("request_only") or same_root(row.get("request_root"), root)]
     named = [row for row in rows if covers(row, hypothesis_ids, root)]
     work = f"work for {', '.join(hypothesis_ids)}" if hypothesis_ids else "this work"
     if named:
@@ -174,9 +188,9 @@ def refusal(workspace, campaign_id, what, seconds=None, *, hypothesis_ids=(), ro
         state = "No approved plan has time left."
     return (f"{what} would compute for {'about ' + _minutes(seconds) if seconds is not None else 'an unknown time'}, and the researcher "
             f"has not given the go-ahead for it. Nothing that computes for more than {gate} (the researcher's go-ahead threshold), and no "
-            "coding workspace, starts without it, even when a request implies the work. File approval.request with kind compute: plan "
-            "(what will run and why), wall_seconds (how long until results), worker_seconds, coding_workspaces, hypothesis_ids (the proposals it is for), "
-            "meanwhile (what the researcher can do while it runs), and for experiments "
+            "coding workspace, starts without it, even when a request implies the work. Propose the request's mandate with mandate_propose, "
+            "template screen: plan (what will run and why), wall_seconds (how long until results), worker_seconds, coding_workspaces, hypothesis_ids "
+            "(the proposals it is for), meanwhile (what the researcher can do while it runs), and for experiments "
             "runs (each: task_id, hypothesis_id or algorithm, seeds, wall_seconds, max_evaluations, device), so the researcher reads "
             "their measured speed, outputs and disk use; start once they approve. " + state)
 
@@ -227,7 +241,7 @@ def spend(workspace, consent, seconds=0.0, *, coding=0, subjects=(), trial_ids=(
 def _subjects(outcome):
     """The records a started command names, for the notice's links."""
     outcome = outcome if isinstance(outcome, dict) else {}
-    found = [outcome[key] for key in ("trial_id", "draft_id", "validation_id", "profile_id", "grant_id") if isinstance(outcome.get(key), str)]
+    found = [outcome[key] for key in ("trial_id", "draft_id", "validation_id", "profile_id", "grant_id", "workspace_id") if isinstance(outcome.get(key), str)]
     return found + [value for value in outcome.get("trial_ids") or [] if isinstance(value, str)]
 
 
@@ -245,9 +259,12 @@ def grant(workspace, decision, request):
     return workspace.store.put("compute_consent", {"id": identifier("compute_consent"), "campaign_id": decision["campaign_id"],
         "decision_id": decision["id"], "plan": request["plan"], "worker_seconds": request["worker_seconds"],
         "wall_seconds": request["wall_seconds"], "coding_workspaces": request.get("coding_workspaces", 0), "used_seconds": 0.0,
+        "egress_hosts": list(request.get("egress_hosts") or []), "used_wall_seconds": 0.0,
         "used_workspaces": 0, "hypothesis_ids": list(dict.fromkeys(value for value in named if value)), "runs": list(request.get("runs") or []),
         "request_root": decision.get("request_root"), "workspace_ids": [], "launched": [], "granted_at": now(),
-        "expires_at": (granted + timedelta(seconds=max(3600, 3 * request["wall_seconds"]))).isoformat()}, "compute.consent_granted")
+        "expires_at": (granted + timedelta(seconds=max(3600, 3 * request["wall_seconds"]))).isoformat(),
+        # Given with the researcher's chat message (R7): it pays for the work of that request only (covers()).
+        **({"request_only": True} if decision.get("request_only") else {})}, "compute.consent_granted")
 
 
 def register(bus):

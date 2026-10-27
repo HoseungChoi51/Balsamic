@@ -68,8 +68,7 @@ class CampaignPacks:
             for reference in pack.references:
                 source = reference_source(pack, reference)
                 if source is not None and reference.name not in result:
-                    result[reference.name] = {"name": reference.name, "source": str(source), "package": pack.package,
-                                              "description": reference.description}
+                    result[reference.name] = {"name": reference.name, "source": str(source), "package": pack.package}
         return list(result.values())
 
     def packages(self, campaign_id) -> set[str]:

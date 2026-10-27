@@ -1,11 +1,11 @@
 """Pack references for coding workspaces (roadmap N6): a workspace gets the reference material of its campaign's packs
-only, and its brief names only what it got."""
+only, and its brief (references_note) names only what it got."""
 import json
 import subprocess
 
 import pytest
 
-from optimization_framework.agents.development import DevelopmentWorkspaces, references_brief
+from optimization_framework.agents.development import DevelopmentWorkspaces
 from optimization_framework.agents.development_runtime import DockerWorkspace
 from optimization_framework.contracts.commands import Command
 from optimization_framework.contracts.packs import PackReference, ProblemPack
@@ -14,7 +14,7 @@ from optimization_framework.evaluation.packs import reference_source
 from optimization_framework.evaluation.registry import problems
 from optimization_framework.execution.service import Workspace
 
-from test_pi_development_workspaces import Driver
+from test_pi_development_workspaces import TICKET, Driver
 
 
 @pytest.fixture
@@ -54,7 +54,7 @@ def opened(tmp_path, monkeypatch, task):
     development = DevelopmentWorkspaces(workspace.pi, driver=driver)
     workspace.pi.development = development
     record = development.create(created["id"], {"hypothesis_id": "hypothesis_" + created["id"], "objective": "Implement",
-                                                "request_key": "open"})
+                                                "request_key": "open", "ticket": TICKET})
     development.sync(created["id"])
     return driver.references, (driver.root(record) / "brief.md").read_text()
 
@@ -70,15 +70,24 @@ def test_meent_s_pack_names_the_flrl_reference_and_the_benchmarks_name_none():
 
 
 def test_a_meent_workspace_gets_references_flrl_and_its_brief_names_it(tmp_path, monkeypatch, flrl):
-    references, brief = opened(tmp_path, monkeypatch, MEENT)
+    references, _ = opened(tmp_path, monkeypatch, MEENT)
     assert [(r["name"], r["source"], r["package"]) for r in references] == [("flrl", str(flrl), "dqn_meent.pack")]
-    assert "## References" in brief and "`/references/flrl`: the FLRL authors' reference code" in brief
+    record = {"id": "development_meent"}
+    driver, root = prepared_root(tmp_path, record)
+    driver.prepare(record, "# Brief", [], references=references)
+    assert (root / "references/flrl/flrl/agent.py").exists()
+    assert "## References\n\n- `/references/flrl`\n" in (root / "work/repo/.campaign/assignment.md").read_text()
 
 
 def test_a_bounded_continuous_workspace_gets_no_references_and_its_brief_names_none(tmp_path, monkeypatch, flrl):
     references, brief = opened(tmp_path, monkeypatch, PLAIN)
     assert references == []
-    assert "/references" not in brief and "flrl" not in brief.lower()
+    record = {"id": "development_plain"}
+    driver, root = prepared_root(tmp_path, record)
+    driver.prepare(record, brief, [], references=references)
+    assert list((root / "references").iterdir()) == []
+    assignment = (root / "work/repo/.campaign/assignment.md").read_text()
+    assert "/references" not in assignment and "flrl" not in assignment.lower()
 
 
 def test_a_meent_workspace_without_the_flrl_checkout_gets_none_and_its_brief_names_none(tmp_path, monkeypatch):
@@ -86,13 +95,6 @@ def test_a_meent_workspace_without_the_flrl_checkout_gets_none_and_its_brief_nam
     monkeypatch.delenv("GRATING_PAPER_REFERENCE", raising=False)
     references, brief = opened(tmp_path, monkeypatch, MEENT)
     assert references == [] and "/references" not in brief
-
-
-def test_the_supplied_paper_is_named_only_when_there_is_one():
-    assert references_brief([]) == ""
-    assert "`/references/paper.txt` and `/references/paper.pdf`" in references_brief([], paper=True)
-    unnamed = references_brief([{"name": "tables", "package": "pack_fixture", "description": ""}])
-    assert "`/references/tables`: reference material from the pack_fixture problem pack" in unnamed
 
 
 def prepared_root(tmp_path, record):

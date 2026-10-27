@@ -47,6 +47,48 @@ test('a coding workspace is a card with what it is for, how it is going and its 
   await expect(card.getByTestId('history-older')).toHaveCount(0);
 });
 
+test('the card shows the workspace\'s walls: its deadline, its limits and the only hosts it can reach', async ({ page }) => {
+  const deadline = new Date(Date.now() + 50 * 60_000).toISOString();
+  await mockWorkspace(page, { [`/api/campaigns/${CAMPAIGN_ID}/implementation-workspaces`]: { enabled: true, workspaces: [
+    { ...workspace, wall_seconds: 3600, deadline_at: deadline, limits: { cpus: 4, memory_gb: 8, gpus: 0 },
+      egress: { model: ['chatgpt.com'], package_index: ['pypi.org', 'files.pythonhosted.org'], named: ['github.com'] } },
+    { ...workspace, id: 'development_paused', title: 'Paused one', status: 'paused', desired_status: 'paused', deadline_at: '2026-10-27T04:10:40Z',
+      error: 'The workspace reached its deadline (2026-10-27 04:10 UTC) and is paused. Its session and work are saved; going on is a new go-ahead.' }] } });
+  await page.goto(`/#t/${THREAD_ID}/hypotheses/implementations`);
+  const card = page.locator(`[data-workspace="${WID}"]`);
+  await expect(card.getByTestId('workspace-deadline')).toContainText(/pauses then, in (49|50) min/);
+  await expect(card.getByTestId('workspace-limits')).toHaveText('4 CPUs · 8 GB memory · no GPU');
+  await expect(card.getByTestId('workspace-egress')).toHaveText('only chatgpt.com (model), pypi.org (packages), files.pythonhosted.org (packages), github.com (approved)');
+  const paused = page.locator('[data-workspace="development_paused"]');
+  await expect(paused.getByTestId('workspace-deadline')).toContainText('passed');
+  await expect(paused.getByTestId('workspace-error')).toContainText('reached its deadline');
+  await expect(card.getByTestId('workspace-go-on')).toHaveCount(0);
+  // Going on is the researcher's new go-ahead: how long it may run from now.
+  let sent: Record<string, unknown> | null = null;
+  await page.route(`**/api/campaigns/${CAMPAIGN_ID}/implementation-workspaces/development_paused/controls`, route => {
+    sent = route.request().postDataJSON(); return route.fulfill({ json: {} });
+  });
+  await paused.getByTestId('workspace-go-on').locator('select').selectOption('2');
+  await paused.getByTestId('workspace-go-on').getByRole('button', { name: 'Resume' }).click();
+  await expect.poll(() => sent).toMatchObject({ action: 'resume', wall_seconds: 7200 });
+});
+
+test('a commission is a headless workspace card that names its job and its protected tests; an evaluator\'s serves its task (roadmap H7)', async ({ page }) => {
+  await mockWorkspace(page, { [`/api/campaigns/${CAMPAIGN_ID}/implementation-workspaces`]: { enabled: true, workspaces: [
+    { ...workspace, id: 'development_commission', hypothesis_ids: ['hypothesis_a'], harness: { name: 'pi', mode: 'headless' },
+      commission: { kind: 'implementation', name: 'Oven tray search', compute_seconds: 900, protected_tests: ['test_heater.py'] } },
+    { ...workspace, id: 'development_evaluator', title: 'Evaluator: Oven tray gap', hypothesis_id: null, hypothesis_ids: [], task_id: 'task_four_trays',
+      commission: { kind: 'evaluator', name: 'Oven tray gap', compute_seconds: 600, protected_tests: ['test_commission_fixtures.py'], task_id: 'task_four_trays' } }] } });
+  await page.goto(`/#t/${THREAD_ID}/hypotheses/implementations`);
+  const job = page.locator('[data-workspace="development_commission"]');
+  await expect(job.getByTestId('workspace-commission')).toHaveText('an implementation job of 15 min: Oven tray search · protected tests outside the box: test_heater.py');
+  await expect(job.locator('a.chip')).toHaveCount(1);
+  const evaluator = page.locator('[data-workspace="development_evaluator"]');
+  await expect(evaluator.getByTestId('workspace-commission')).toContainText('an evaluator job of 10 min: Oven tray gap');
+  await expect(evaluator).toContainText('the evaluator of task task_four_trays');
+  await expect(evaluator.locator('a.chip')).toHaveCount(0);
+});
+
 test('a link to a workspace opens its card with its history', async ({ page }) => {
   await mockWorkspace(page, { [`/api/campaigns/${CAMPAIGN_ID}/implementation-workspaces`]: { enabled: true, workspaces: [workspace] } });
   await page.route(`**/api/campaigns/${CAMPAIGN_ID}/implementation-workspaces/${WID}/timeline**`, route => route.fulfill({ json: { entries, next_before: null } }));
@@ -208,6 +250,43 @@ test('an installed library that provides a problem names the problem it added', 
   await expect(added).not.toContainText('methods');
 });
 
+test('an install from the library generated from the charter names the generated files the coding agent changed', async ({ page }) => {
+  const submission = { id: 's1', commit: '2a3eb0899a', status: 'submitted', created_at: '2026-10-27T03:22:04Z', report,
+    manifest: { files: ['libraries/baking_order/pyproject.toml'] } };
+  const install = { id: 'library_install_1', submission_id: 's1', requested_at: '2026-10-27T04:00:00Z', finished_at: '2026-10-27T04:01:00Z',
+    status: 'installed', actor: 'balsamic', package: 'baking-order', version: '0.1.1', path: 'libraries/baking_order', changes: [],
+    entry_points: { baking_order: 'baking_order.adapter:method_plugin' }, methods_added: ['shuffle'], missing_methods: [],
+    changed_generated_files: ['libraries/baking_order/pyproject.toml', 'libraries/baking_order/baking_order/harness.py'] };
+  await mockWorkspace(page);
+  await page.route(`**/api/campaigns/${CAMPAIGN_ID}/implementation-workspaces`, route => route.fulfill({ json: { enabled: true, workspaces: [
+    { ...workspace, status: 'idle', outcome: { state: 'delivered', verdict: 'ready', submission_id: 's1', commit: '2a3eb0899a', at: '2026-10-27T03:22:04Z' },
+      submissions: [submission], installs: [install] }] } }));
+  await page.goto(`/#t/${THREAD_ID}/hypotheses/implementations`);
+  await expect(page.getByTestId('install-box').getByTestId('install-changed-generated'))
+    .toHaveText('changed from the generated library: pyproject.toml, baking_order/harness.py');
+});
+
+test('an install says what Balsamic checked outside the box and names the method it did not install, with what failed', async ({ page }) => {
+  const submission = { id: 's1', commit: '2a3eb0899a', status: 'submitted', created_at: '2026-10-27T03:22:04Z', report,
+    manifest: { files: ['libraries/baking_order/pyproject.toml'] } };
+  const failing = ['conformance (check_function on baking_order): seed 0, evaluation 1: an invalid candidate', 'test_hidden.py::test_on_time[late_first]'];
+  const install = { id: 'library_install_1', submission_id: 's1', requested_at: '2026-10-27T04:00:00Z', finished_at: '2026-10-27T04:01:00Z',
+    status: 'installed', actor: 'balsamic', package: 'baking-order', version: '0.1.1', path: 'libraries/baking_order', changes: [],
+    methods_added: ['shuffle'], missing_methods: [], refused_methods: [{ method_id: 'late_first', reported: 'passed', failing }],
+    host_validation: { tests: { passed: 21, failed: 3 }, protected: { passed: 1, failed: 1 }, methods: [
+      { method_id: 'shuffle', reported: 'passed', host: 'passed', failed_tests: [] },
+      { method_id: 'late_first', reported: 'passed', host: 'failed', failed_tests: [] }] } };
+  await mockWorkspace(page);
+  await page.route(`**/api/campaigns/${CAMPAIGN_ID}/implementation-workspaces`, route => route.fulfill({ json: { enabled: true, workspaces: [
+    { ...workspace, status: 'idle', outcome: { state: 'delivered', verdict: 'ready', submission_id: 's1', commit: '2a3eb0899a', at: '2026-10-27T03:22:04Z' },
+      submissions: [submission], installs: [install] }] } }));
+  await page.goto(`/#t/${THREAD_ID}/hypotheses/implementations`);
+  const host = page.getByTestId('install-box').getByTestId('install-host');
+  await expect(host).toContainText('checked outside the box 21 tests passed, 3 failed · conformance passed for 1 of 2 methods · protected tests: 1 passed, 1 failed');
+  await expect(host.getByTestId('install-refused')).toHaveText(
+    `not installed late_first failed outside the box (the coding agent reported passed): ${failing.join('; ')}`);
+});
+
 test('a library the coding agent reported not ready installs only once the researcher says so; loose files cannot be installed', async ({ page }) => {
   const notReady = { ...report, verdict: 'not_ready', limitations: [], next_actions: [{ owner: 'lead', action: 'Fix the seed replay' }] };
   await mockWorkspace(page, { [`/api/campaigns/${CAMPAIGN_ID}/implementation-workspaces`]: { enabled: true, workspaces: [
@@ -252,4 +331,77 @@ test('a side conversation with implementation work opens on the Implementations 
       link_page: 'hypotheses/implementations', content: 'Agents are working on this request in a side conversation: Build the library', created_at: '2026-10-27T03:07:19Z' }] } });
   await page.goto(`/#t/${THREAD_ID}/inbox`);
   await expect(page.getByTestId('open-agents-thread')).toHaveAttribute('href', `#t/${f.AGENTS_THREAD_ID}/hypotheses/implementations`);
+});
+
+test('the baking order (roadmap G1): Balsamic installs the library that provides the problem, binds the four proposals and starts the 8 approved runs', async ({ page }) => {
+  const methods = [['hypothesis_edd', 'Earliest due date', 'bakery_edd'], ['hypothesis_swap', 'Adjacent swap search', 'bakery_swap'],
+    ['hypothesis_restarts', 'Random restarts', 'bakery_restarts'], ['hypothesis_exact', 'Exact enumeration', 'bakery_exact']];
+  const submission = { id: 's1', commit: '2a3eb0899a', status: 'submitted', created_at: '2026-10-27T03:22:04Z', report,
+    manifest: { files: ['libraries/baking-order/pyproject.toml', 'libraries/baking-order/src/baking_order/problem.py'] } };
+  const install = { id: 'library_install_1', submission_id: 's1', requested_at: '2026-10-27T04:00:00Z', finished_at: '2026-10-27T04:01:00Z',
+    status: 'installed', actor: 'balsamic', package: 'baking-order', version: '0.1.0', path: 'libraries/baking-order', changes: [],
+    entry_points: Object.fromEntries(methods.map(([, , m]) => [m, `baking_order.methods:${m}`])), problem_entry_points: { baking_order: 'baking_order.problem:Problem' },
+    methods_added: methods.map(([, , m]) => m), missing_methods: [], problems_added: ['baking_order'], missing_problems: [],
+    bindings: methods.map(([h, title, m], i) => ({ hypothesis_id: h, title, method: m, task_id: 'task_1', binding_id: `builtin_binding_${i}` })), skipped: [],
+    launched: methods.flatMap(([h], i) => [0, 1].map(seed => ({ hypothesis_id: h, seed, trial_id: `trial_${i}_${seed}`, task_id: 'task_1', consent_id: 'compute_consent_1' }))) };
+  await mockWorkspace(page);
+  await page.route(`**/api/campaigns/${CAMPAIGN_ID}/implementation-workspaces`, route => route.fulfill({ json: { enabled: true, workspaces: [
+    { ...workspace, title: 'Baking order', hypothesis_ids: methods.map(([h]) => h), status: 'idle',
+      outcome: { state: 'delivered', verdict: 'ready', submission_id: 's1', commit: '2a3eb0899a', at: '2026-10-27T03:22:04Z' }, submissions: [submission], installs: [install] }] } }));
+  await page.goto(`/#t/${THREAD_ID}/hypotheses/implementations`);
+  const box = page.getByTestId('install-box');
+  await expect(box.getByTestId('install-added')).toContainText('problems baking_order');
+  const bindings = box.getByTestId('install-bindings');
+  for (const [h, title, m] of methods) {
+    await expect(bindings).toContainText(`bound ${title} → ${m} by Balsamic`);
+    for (const seed of [0, 1]) await expect(bindings).toContainText(`started ${h} seed ${seed}: an approved run, by Balsamic`);
+  }
+  await expect(bindings).not.toContainText('not bound');
+});
+
+test('the researcher makes a token on the card, sees it once with the commands to deliver from their own coding agent, and a stopped workspace offers none (roadmap H3)', async ({ page }) => {
+  let state: Record<string, unknown> = { issued_at: null, last_used_at: null, active: false, revoked: null, stopped: false };
+  const made: string[] = [];
+  const cli = '/srv/balsamic/deploy/implementation-workspace/balsamic-workspace.mjs';
+  const own = { id: 's9', commit: '9f8e7d6c5b', status: 'submitted', created_at: '2026-10-27T05:00:00Z', report, source: 'own_session',
+    manifest: { files: ['libraries/oven_trays/pyproject.toml'] } };
+  await mockWorkspace(page, { [`/api/campaigns/${CAMPAIGN_ID}/implementation-workspaces`]: { enabled: true, workspaces: [
+    { ...workspace, status: 'idle', library: { name: 'oven_trays' }, submissions: [own], installs: [],
+      outcome: { state: 'delivered', verdict: 'ready_with_limits', submission_id: 's9', commit: '9f8e7d6c5b', at: '2026-10-27T05:00:00Z' } },
+    { ...workspace, id: 'development_stopped', title: 'Stopped one', created_at: '2026-10-27T01:00:00Z', status: 'stopped', desired_status: 'stopped' }] } });
+  await page.route(`**/api/campaigns/${CAMPAIGN_ID}/implementation-workspaces/${WID}/session-token`, route => {
+    if (route.request().method() !== 'POST') return route.fulfill({ json: state });
+    made.push(route.request().method());
+    state = { issued_at: new Date().toISOString(), last_used_at: null, active: true, revoked: null, stopped: false };
+    return route.fulfill({ json: { token: 'bws_shown_once', issued_at: state.issued_at, workspace_id: WID, cli } });
+  });
+  await page.goto(`/#t/${THREAD_ID}/hypotheses/implementations`);
+  const card = page.locator(`[data-workspace="${WID}"]`);
+  // A delivery from the researcher's own session says so.
+  await expect(card.getByTestId('workspace-outcome')).toContainText('Delivered commit 9f8e7d6 from your own session');
+  const section = card.getByTestId('own-session');
+  await section.locator('summary').click();
+  await expect(section.getByTestId('own-token-state')).toHaveText('No token yet.');
+  await expect(section.getByTestId('own-token-make')).toHaveText('Make a token');
+  await section.getByTestId('own-token-make').click();
+  const commands = section.getByTestId('own-commands');
+  await expect(commands).toContainText('export BALSAMIC_WORKSPACE_TOKEN=bws_shown_once');
+  await expect(commands).toContainText(new RegExp(`export BALSAMIC_WORKSPACE_URL=http://[^\\s]+/api/campaigns/${CAMPAIGN_ID}/implementation-workspaces/${WID}\\n`));
+  await expect(commands).toContainText(`node ${cli} clone oven_trays`);
+  await expect(commands).toContainText(`node ${cli} submit HEAD --report report.json`);
+  await expect(section.getByTestId('own-token-state')).toContainText('it is shown only this once');
+  await expect(section.getByTestId('own-token-make')).toHaveText('Make a new token');
+  expect(made).toHaveLength(1);
+  // Opened again later, the card says a token is active and does not show it.
+  await page.reload();
+  const again = page.locator(`[data-workspace="${WID}"]`).getByTestId('own-session');
+  await again.locator('summary').click();
+  await expect(again.getByTestId('own-token-state')).toContainText('A token made just now opens this workspace. It is not shown again');
+  await expect(again.getByTestId('own-commands')).toHaveCount(0);
+  await expect(page.locator('body')).not.toContainText('bws_shown_once');
+  // A stopped workspace offers no token.
+  const stopped = page.locator('[data-workspace="development_stopped"]').getByTestId('own-session');
+  await stopped.locator('summary').click();
+  await expect(stopped.getByTestId('own-session-stopped')).toContainText('The workspace is stopped, so no token opens it');
+  await expect(stopped.getByTestId('own-token-make')).toHaveCount(0);
 });

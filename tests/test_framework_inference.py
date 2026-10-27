@@ -1,5 +1,5 @@
 """Independent formats, captured compilers, and recovery across child dispatch."""
-from framework_fixtures import researcher_idea
+from framework_fixtures import library_job, researcher_idea
 from copy import deepcopy
 from importlib import metadata
 import json
@@ -37,21 +37,10 @@ def extension(tmp_path, monkeypatch):
 
 
 def build_parent(directory):
-    from optimization_framework.implementations.models import ImplementationSpec, JobRequest, Package, ReviewResult
+    from optimization_framework.implementations.models import ImplementationSpec, JobRequest, Package
     from optimization_framework.implementations.service import ImplementationService
 
-    class MockReview:
-        """Labeled model fixture; package validation and worker execution are real."""
-        def __init__(self, **kwargs):
-            self.usage = {"calls": 0, "api_cost_usd": 0}
-            self.callback = kwargs["reservation_callback"]
-
-        def call(self, role, payload, *, result_type, instructions):
-            self.usage["calls"] += 1
-            self.callback({"type": "provider_call_reserved", "usage": self.usage})
-            return ReviewResult(passed=True, criteria=payload["spec"]["acceptance_criteria"], findings=["Fixture semantic review"])
-
-    library = ImplementationService(directory / "library", adapter_factory=MockReview)
+    library = ImplementationService(directory / "library")
     class Client:
         def submit(self, payload): return library.submit(JobRequest(**payload))
         def artifact(self, identity): return library.artifact(identity)
@@ -73,11 +62,10 @@ def build_parent(directory):
         '"metadata": {"dimensions": len(self.bounds)}, "data": {"point": self.incumbent}}]')
     package = Package(contract="optimizer_v1", files=[{"path": "optimizer.py", "content": source}])
     hypothesis = researcher_idea(workspace, campaign["id"])
-    grant = workspace.implementations.commission(hypothesis["id"], specification, package=package, compute_seconds=60,
-        max_calls=3, idempotency_key="point-policy")
-    result = library.run_job(grant["job_id"])
-    assert result["status"] == "completed", result
-    workspace.implementations.reconcile()
+    # Package validation and worker execution are real; the library checks the supplied package and the proposal attaches it.
+    result = library_job(library, specification, package, key="point-policy", campaign_id=campaign["id"],
+                         workspace_id=workspace.implementations.workspace_id, hypothesis_id=hypothesis["id"])
+    workspace.implementations.attach(hypothesis["id"], result["version_id"])
     task = workspace.current_tasks(campaign["id"])[0]
     return workspace, client, campaign, task, hypothesis
 
@@ -154,9 +142,10 @@ def test_non_dqn_export_uses_captured_adapter_and_recovers_partial_dispatch(tmp_
     result = finish_archived(restarted, child)
     assert result["evaluations"] == 3 and result["diagnostics"]["updates"] == 0
     output = restarted.store.get(child["id"], "trial")["latest_output_asset_ids"]
-    # The protected implementation fixture used four evaluator requests. Full
-    # lineage retains those, the exact two-request prefix, and child execution.
-    assert restarted.assets.attributed_costs(output)["quantities"]["evaluation_requests"]["total"] == 4 + 2 + 3
+    # The library's check of the implementation used four evaluator requests. Full lineage retains those, the exact
+    # two-request prefix, and child execution; the version was attached, not commissioned, so no total is claimed.
+    requests = restarted.assets.attributed_costs(output)["quantities"]["evaluation_requests"]
+    assert requests["known"] == 4 + 2 + 3 and requests["total"] is None
     reconcile(restarted)
     nested = [trial for trial in restarted.store.list("trial") if trial.get("parent_trial_id") == child["id"]]
     assert len(nested) == 1

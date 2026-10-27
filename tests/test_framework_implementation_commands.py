@@ -1,10 +1,12 @@
-"""Implementation commands on the bus are durable, reuse service keys and never duplicate grants."""
-from framework_fixtures import researcher_idea
+"""Implementation commands on the bus are durable and dispatch only after commit; a grant recorded before roadmap H8 stays
+controllable through them."""
+from framework_fixtures import grant_before_h8, researcher_idea
 from fastapi.testclient import TestClient
 
 from balsamic.app import create_app
 from optimization_framework.contracts.commands import Command
-from optimization_framework.contracts.requests import CampaignInput, CampaignUpdate, TaskInput
+from optimization_framework.contracts.requests import CampaignInput, TaskInput
+from optimization_framework.storage.sqlite import now
 from optimization_framework.execution.service import Workspace
 from optimization_framework.implementations.models import ImplementationSpec
 
@@ -50,25 +52,21 @@ def command(workspace, campaign, operation, payload, identity):
                    expected_revision=workspace.store.get(campaign["id"], "campaign")["version"]).model_dump(mode="json")
 
 
-def test_commission_reuses_preexisting_service_key_and_recovers_lost_control(tmp_path, monkeypatch):
-    app, workspace, library, campaign, hypothesis = prepare(tmp_path, monkeypatch)
+def running_grant(workspace, library, campaign, hypothesis, key):
+    """A grant a commission recorded before roadmap H8, its library job still running when the lab was upgraded."""
     spec = ImplementationSpec(name="Coordinate variant", mechanism="Bounded coordinate search", problem_id="bounded_continuous",
         capabilities=["continuous"], acceptance_criteria=["Feasible candidates"]).model_dump(mode="json")
-    original = workspace.implementations.commission(hypothesis["id"], spec, compute_seconds=10, idempotency_key="legacy_job")
-    body = {"hypothesis_id": hypothesis["id"], "spec": spec, "compute_seconds": 10, "service_idempotency_key": "legacy_job"}
+    job = library.jobs.setdefault(key, {"id": "job_" + key, "status": "running", "campaign_id": campaign["id"], "created_at": now(),
+        "request": {"grant_id": "grant_" + key, "idempotency_key": key, "hypothesis_id": hypothesis["id"], "spec": spec,
+                    "compute_seconds": 10, "api_budget_usd": 0}})
+    return grant_before_h8(workspace, job)
+
+
+def test_a_grant_recorded_before_h8_stays_controllable_and_recovers_a_lost_control(tmp_path, monkeypatch):
+    app, workspace, library, campaign, hypothesis = prepare(tmp_path, monkeypatch)
+    original = running_grant(workspace, library, campaign, hypothesis, "legacy_job")
     with TestClient(app) as client:
-        request = command(workspace, campaign, "implementation.commission", body, "commission_once")
-        first = client.post("/api/v1/commands", json=request)
-        assert first.status_code == 200, first.text
-        assert first.json()["outcome"]["grant_id"] == original["id"]
-        accepted = client.get("/api/v1/commands/commission_once").json()
-        assert accepted["request"]["payload"]["service_idempotency_key"] == "legacy_job"
-        assert len(library.jobs) == len(workspace.store.list("implementation_grant")) == 1
-        assert workspace.implementations.compute_committed(campaign["id"]) == 10
-        workspace.update_campaign(campaign["id"], CampaignUpdate(name="Renamed after acceptance"))
-        assert client.post("/api/v1/commands", json=request).json()["outcome"] == first.json()["outcome"]
-        assert client.get("/api/v1/commands/" + accepted["id"]).json() == accepted
-        assert client.post("/api/v1/commands", json={**request, "payload": {**body, "compute_seconds": 11}}).status_code == 409
+        assert workspace.implementations.compute_committed(campaign["id"]) == 10   # its reservation still counts
         library.lose_control_reply = True
         control = command(workspace, campaign, "implementation.control", {"grant_id": original["id"], "action": "cancel"}, "cancel_once")
         controlled = client.post("/api/v1/commands", json=control)
@@ -113,9 +111,7 @@ def test_attachment_returns_receipt_and_dispatches_only_after_commit(tmp_path, m
 
 def test_accepted_implementation_control_reconciles_before_new_guidance(tmp_path, monkeypatch):
     app, workspace, library, campaign, hypothesis = prepare(tmp_path, monkeypatch)
-    spec = ImplementationSpec(name="Coordinate", mechanism="Bounded coordinate search", problem_id="bounded_continuous",
-        capabilities=["continuous"], acceptance_criteria=["Feasible proposals"])
-    grant = workspace.implementations.commission(hypothesis["id"], spec, compute_seconds=10, idempotency_key="receipt_job")
+    grant = running_grant(workspace, library, campaign, hypothesis, "receipt_job")
     def lookup(identity, key):
         return {"id": "receipt_" + key, "job_id": identity, "action": "cancel"} if key in library.controls else None
     monkeypatch.setattr(library, "control_receipt", lookup, raising=False)

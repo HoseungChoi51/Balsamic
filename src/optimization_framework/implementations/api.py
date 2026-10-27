@@ -38,8 +38,8 @@ def service_token(directory):
     return token
 
 
-def create_app(directory, *, token=None, start_workers=True, adapter_factory=None, allow_download=False):
-    service = ImplementationService(directory, adapter_factory=adapter_factory, allow_download=allow_download)
+def create_app(directory, *, token=None, start_workers=True, allow_download=False):
+    service = ImplementationService(directory, allow_download=allow_download)
     token = token or service_token(directory)
 
     @asynccontextmanager

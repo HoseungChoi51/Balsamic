@@ -29,13 +29,18 @@ class Driver:
     def capability(self):
         return {'available': True}
 
-    def prepare(self, record, brief, evidence, references=()):
+    def repo(self, record):
+        return self.root(record) / 'work' / 'repo'
+
+    def prepare(self, record, brief, evidence, ticket=None, references=()):
+        from optimization_framework.agents.development_runtime import write_ticket
         self.prepared += 1
         self.references = list(references)
         root = self.root(record)
         for name in ('incoming/commands', 'incoming/results', 'outgoing/events'):
             (root / name).mkdir(parents=True, exist_ok=True)
         (root / 'brief.md').write_text(brief)
+        write_ticket(self.repo(record), ticket)   # as the Docker driver writes the work ticket into the worktree
 
     def start(self, record):
         self.started += 1
@@ -81,6 +86,10 @@ def setup(tmp_path, monkeypatch):
     return workspace, campaign, development, driver
 
 
+# An agent's work ticket needs an acceptance test (H4); these campaigns have no charter, so no generated library gives one.
+TICKET = {'acceptance_tests': [{'path': 'libraries/test-method/tests/test_contract.py'}]}
+
+
 def outgoing(driver, record, identity, kind, payload):
     path = driver.root(record) / 'outgoing/events' / (identity + '.json')
     path.write_text(json.dumps({'type': kind, 'payload': payload}))
@@ -120,7 +129,7 @@ def test_persistent_workspace_receipts_and_replay(setup):
     assert driver.prepared == 1
 
 
-def test_questions_submissions_and_independent_validation_grant(setup, monkeypatch):
+def test_questions_submissions_and_a_validation_grant_recorded_before_h8(setup, monkeypatch):
     workspace, campaign, development, driver = setup
     cid = campaign['id']
     record = development.create(cid, {'hypothesis_id': 'hypothesis_dev', 'objective': 'Implement',
@@ -143,33 +152,11 @@ def test_questions_submissions_and_independent_validation_grant(setup, monkeypat
     submission = development.public(development.get(cid, record['id']))['submissions'][0]
     assert submission['commit'] == commit
     assert 'package' not in submission
-    captured = {}
-    def reserve(hypothesis_id, spec, **options):
-        captured.update(hypothesis_id=hypothesis_id, spec=spec, **options)
-        grant = {'id': 'grant_dev', 'campaign_id': cid, 'status': 'dispatching', 'compute_seconds': 0,
-                 'request': {'compute_seconds': options['compute_seconds']}}
-        workspace.store.put('implementation_grant', grant)
-        return grant
-    monkeypatch.setattr(workspace.implementations, 'reserve_commission', reserve)
-    monkeypatch.setattr('optimization_framework.agents.capabilities.implementation_execution',
-                        lambda: {'available': True})
-    # The implementation module imports the capability function at invocation time.
-    frozen = development.freeze_envelope(cid, record['id'], {'request_key': 'freeze',
-        'spec': {'name': 'Test method', 'mechanism': 'Seeded search',
-                 'acceptance_criteria': ['Seeded replay'], 'dependencies': {}}})
-    assert frozen['checks'] == {'behavior': 0, 'mechanism': 0, 'diagnostic': 0}
-    assert development.freeze_envelope(cid, record['id'], {'request_key': 'freeze',
-        'spec': {'name': 'Test method', 'mechanism': 'Seeded search',
-                 'acceptance_criteria': ['Seeded replay'], 'dependencies': {}}})['id'] == frozen['id']
-    assert 'spec' not in development.public(development.get(cid, record['id']))['validation_envelopes'][0]
-    result = development.validate(cid, record['id'], {'submission_id': submission['id'],
-        'envelope_id': frozen['id'],
-        'compute_seconds': 20, 'request_key': 'validate'})
-    assert result['grant_id'] == 'grant_dev'
-    assert captured['accounting_mode'] == 'execution_v1'
-    assert captured['package']['files'][0]['content'].startswith('def create_optimizer')
-
-    grant = workspace.store.get('grant_dev', 'implementation_grant')
+    # A service validation of the submission requested before roadmap H8 retired it (implementation_workspace_validate): its
+    # grant still finishes, and its result is recorded on the submission and told to the coding agent, redacted.
+    saved = workspace.store.get(submission['id'], 'development_submission')
+    workspace.store.put('development_submission', {**saved, 'grant_id': 'grant_dev', 'status': 'validating', 'feedback_sent': False})
+    grant = {'id': 'grant_dev', 'campaign_id': cid, 'status': 'dispatching', 'compute_seconds': 0, 'request': {'compute_seconds': 20}}
     grant.update(status='failed', error='Independent check failed', attempts=[{'report': {'checks': [
         {'name': 'successful private reference', 'passed': True, 'detail': 'withheld expected design'},
         {'name': 'seed replay', 'passed': False, 'detail': 'replay diverged'}]},
@@ -218,8 +205,13 @@ def test_a_workspace_runs_on_the_campaigns_model(setup):
     config = workspace.pi.configuration(cid)
     config['models'] = {'default': {'provider': 'centinels', 'model': 'gpt-6.1-sol', 'effort': None}, 'roles': {}}
     workspace.store.put('agent_campaign', config)
-    record = development.create(cid, {'hypothesis_id': 'hypothesis_dev', 'objective': 'Implement', 'request_key': 'model'})
+    request = {'hypothesis_id': 'hypothesis_dev', 'objective': 'Implement', 'request_key': 'model'}
+    # A provider whose host Balsamic does not know: the box could not reach it, so it is refused unless its host is named.
+    with pytest.raises(ValueError, match='centinels is served from. Name its host in egress_hosts'):
+        development.create(cid, request)
+    record = development.create(cid, {**request, 'egress_hosts': ['router.example.com']})
     assert record['model'] == {'provider': 'centinels', 'model': 'gpt-6.1-sol', 'effort': None}
+    assert record['egress'] == {'model': [], 'package_index': ['pypi.org', 'files.pythonhosted.org'], 'named': ['router.example.com']}
 
 
 def test_the_container_gets_the_campaigns_provider_only(tmp_path, monkeypatch):
@@ -253,22 +245,37 @@ def test_the_container_gets_the_campaigns_provider_only(tmp_path, monkeypatch):
         driver.configure_pi(private, driver.root(private))
 
 
+def test_a_profiles_catalogue_is_read_as_the_harness_resolved_it(tmp_path, monkeypatch):
+    """The dev profile's Centinels catalogue (issue #70): the harness alone has the endpoint's variable and writes tmp/models.json."""
+    from optimization_framework.agents.development_runtime import custom_provider, models_file
+    profile, home = tmp_path / 'profile', tmp_path / 'home'
+    (profile / 'tmp').mkdir(parents=True)
+    (home / '.pi/agent').mkdir(parents=True)
+    monkeypatch.delenv('GRATING_PI_MODELS_FILE', raising=False)
+    monkeypatch.setenv('GRATING_PI_PROFILE', str(profile))
+    monkeypatch.setenv('HOME', str(home))
+    assert models_file() == home / '.pi/agent/models.json'                      # no catalogue: the researcher's own
+    (profile / 'models.template.json').write_text(json.dumps({'providers': {'centinels': {'baseUrl': '${CENTINELS_BASE_URL}'}}}))
+    assert models_file() == home / '.pi/agent/models.json'                      # not resolved yet
+    (profile / 'tmp/models.json').write_text(json.dumps({'providers': {'centinels': {'baseUrl': 'https://8.8.8.8/v1', 'api': 'openai-completions'}}}))
+    assert models_file() == profile / 'tmp/models.json' and custom_provider('centinels')['baseUrl'] == 'https://8.8.8.8/v1'
+    (profile / 'models.json').write_text(json.dumps({'providers': {}}))
+    assert models_file() == profile / 'models.json'                             # a profile's own file still wins
+
+
 def test_a_specification_must_state_what_it_cites(setup):
     workspace, campaign, development, driver = setup
     cid = campaign['id']
     artifact = 'artifact_pi_tool_86f8269f855f5ffdb0b6c927c295bc7c'
     workspace.store.put('agent_artifact', {'id': artifact, 'campaign_id': cid, 'content': 'R4-A: the normative mechanism'})
-    record = development.create(cid, {'hypothesis_id': 'hypothesis_dev', 'objective': 'Implement', 'request_key': 'cite'})
     spec = {'name': 'Test method', 'mechanism': f'Freeze {artifact} verbatim', 'acceptance_criteria': ['Seeded replay'],
-            'dependencies': {}, 'provenance': [{'id': artifact}]}
-    # The test designer sees the specification alone: an id it cannot read is refused before any model call.
+            'problem_id': 'bounded_continuous', 'dependencies': {}, 'provenance': [{'id': artifact}]}
+    # The coding agent sees the specification alone (a commission's ticket): an id it cannot read is refused.
     with pytest.raises(ValueError, match=f'campaign records \\({artifact}\\).*cannot read'):
-        development.freeze_envelope(cid, record['id'], {'request_key': 'cited', 'spec': spec})
-    with pytest.raises(ValueError, match='cannot read'):
-        workspace.implementations.reserve_commission('hypothesis_dev', spec, compute_seconds=10, idempotency_key='cited')
+        workspace.implementations.check_self_contained(spec)
     # Stated in full, with the record cited in provenance (and an id that names no record left alone), it is accepted.
     spec['mechanism'] = 'R4-A: the normative mechanism, written out; pi_tool_86f8269f855f5ffdb0b6c927c295bc7c'
-    assert development.freeze_envelope(cid, record['id'], {'request_key': 'stated', 'spec': spec})['id']
+    workspace.implementations.check_self_contained(spec)
 
 
 def test_an_agent_opens_a_coding_workspace_only_with_the_researchers_go_ahead(setup):
@@ -277,8 +284,8 @@ def test_an_agent_opens_a_coding_workspace_only_with_the_researchers_go_ahead(se
     cid = campaign['id']
     workspace.store.put('hypothesis', {'id': 'hypothesis_other', 'campaign_id': cid, 'title': 'Other method', 'status': 'proposed',
                                        'mechanism': 'Another', 'algorithm': 'custom', 'algorithm_config': {}})
-    request = {'hypothesis_id': 'hypothesis_dev', 'objective': 'Implement', 'request_key': 'agent'}
-    with pytest.raises(ValueError, match='approval.request with kind compute'):
+    request = {'hypothesis_id': 'hypothesis_dev', 'objective': 'Implement', 'request_key': 'agent', 'ticket': TICKET}
+    with pytest.raises(ValueError, match="mandate_propose"):
         development.create(cid, request, actor='lead')
     compute_consent.grant(workspace, {'id': 'decision_go', 'campaign_id': cid},
                           {'plan': 'Implement the method', 'wall_seconds': 3600, 'worker_seconds': 600, 'coding_workspaces': 1})
@@ -296,7 +303,7 @@ def test_a_go_ahead_for_named_proposals_opens_workspaces_only_for_them(setup):
                                        'mechanism': 'Another', 'algorithm': 'custom', 'algorithm_config': {}})
     consent = compute_consent.grant(workspace, {'id': 'decision_go', 'campaign_id': cid}, {'plan': 'Implement the first method',
         'wall_seconds': 3600, 'worker_seconds': 600, 'coding_workspaces': 2, 'hypothesis_ids': ['hypothesis_dev']})
-    request = {'hypothesis_id': 'hypothesis_other', 'objective': 'Implement', 'request_key': 'agent'}
+    request = {'hypothesis_id': 'hypothesis_other', 'objective': 'Implement', 'request_key': 'agent', 'ticket': TICKET}
     with pytest.raises(ValueError, match='No approved plan covers work for hypothesis_other'):
         development.create(cid, request, actor='lead')
     with pytest.raises(ValueError, match='No approved plan covers work for hypothesis_dev, hypothesis_other'):
@@ -317,7 +324,7 @@ def test_the_history_of_a_workspace_reads_newest_first_from_what_it_recorded(set
                           {'plan': 'Build both methods in one library', 'wall_seconds': 1200, 'worker_seconds': 300, 'coding_workspaces': 1})
     # Who opened it, under which go-ahead, for which proposals.
     record = development.create(cid, {'hypothesis_id': 'hypothesis_dev', 'hypothesis_ids': ['hypothesis_two'], 'objective': 'Implement both',
-                                       'request_key': 'history'}, actor='lead', opener={'agent_id': 'agent_impl', 'role': 'implementation_lead'})
+                                       'request_key': 'history', 'ticket': TICKET}, actor='lead', opener={'agent_id': 'agent_impl', 'role': 'implementation_lead'})
     assert record['hypothesis_ids'] == ['hypothesis_dev', 'hypothesis_two'] and record['consent']['decision_id'] == 'decision_go'
     assert record['opened_by'] == {'actor': 'lead', 'agent_id': 'agent_impl', 'role': 'implementation_lead'}
     with pytest.raises(ValueError, match='No proposal hypothesis_missing'):
@@ -437,21 +444,22 @@ def test_each_validation_of_a_submission_has_its_result_recorded(setup, monkeypa
     outgoing(driver, record, 's', 'submission', {'commit': 'd' * 40, 'manifest_path': 'implementation-manifest.json', 'report': REPORT})
     development.sync(cid)
     submission = workspace.store.list('development_submission', cid)[0]
-    grants = iter(['grant_one', 'grant_two'])
-    def reserve(hypothesis_id, spec, **options):
-        return workspace.store.put('implementation_grant', {'id': next(grants), 'campaign_id': cid, 'status': 'dispatching', 'compute_seconds': 0})
-    monkeypatch.setattr(workspace.implementations, 'reserve_commission', reserve)
-    monkeypatch.setattr('optimization_framework.agents.capabilities.implementation_execution', lambda: {'available': True})
-    request = {'submission_id': submission['id'], 'spec': {'name': 'Test method', 'mechanism': 'Seeded search', 'acceptance_criteria': ['Seeded replay'], 'dependencies': {}},
-               'compute_seconds': 20}
+
+    def validate(grant_id):
+        """A service validation of the submission as implementation_workspace_validate requested one before roadmap H8 retired it:
+        its grant, and the submission waiting for it."""
+        workspace.store.put('implementation_grant', {'id': grant_id, 'campaign_id': cid, 'status': 'dispatching', 'compute_seconds': 0})
+        current = workspace.store.get(submission['id'], 'development_submission')
+        workspace.store.put('development_submission', {**current, 'grant_id': grant_id, 'status': 'validating', 'feedback_sent': False})
+
     def finish(grant_id, status):
         workspace.store.put('implementation_grant', {**workspace.store.get(grant_id, 'implementation_grant'), 'status': status,
                                                     'finished_at': '2026-10-27T05:00:00+00:00', 'attempts': []})
         development.validation_feedback(development.get(cid, record['id']))
-    development.validate(cid, record['id'], {**request, 'request_key': 'first'})
+    validate('grant_one')
     finish('grant_one', 'failed')
     assert workspace.store.get(submission['id'], 'development_submission')['status'] == 'needs_revision'
-    development.validate(cid, record['id'], {**request, 'request_key': 'second'})
+    validate('grant_two')
     assert workspace.store.get(submission['id'], 'development_submission')['status'] == 'validating'
     finish('grant_two', 'completed')
     saved = workspace.store.get(submission['id'], 'development_submission')
@@ -481,7 +489,7 @@ def test_a_workspace_opened_by_the_implementation_lead_sends_its_notices_there_c
     root = {'thread_id': 'thread_main', 'message_id': 'message_ask', 'run_id': 'run_ask'}
     compute_consent.grant(workspace, {'id': 'decision_go', 'campaign_id': cid},
                           {'plan': 'Implement the method', 'wall_seconds': 3600, 'worker_seconds': 600, 'coding_workspaces': 1})
-    record = development.create(cid, {'hypothesis_id': 'hypothesis_dev', 'objective': 'Implement', 'request_key': 'opened'},
+    record = development.create(cid, {'hypothesis_id': 'hypothesis_dev', 'objective': 'Implement', 'request_key': 'opened', 'ticket': TICKET},
                                 actor='lead', opener={'agent_id': opener['id'], 'role': opener['role']}, root=root)
     assert record['request_root'] == root
     development.sync(cid)
@@ -543,3 +551,114 @@ def test_the_lead_opening_a_workspace_records_the_request_its_turn_works_on(setu
                                    'objective': 'Implement', 'request_key': 'tool'}, 'call_one')
     assert captured['root'] == {'thread_id': 'thread_main', 'message_id': 'message_ask', 'run_id': 'run_ask'}
     assert captured['opener'] == {'agent_id': lead['id'], 'role': 'lead'}
+
+
+def test_the_box_has_an_egress_allowlist_on_its_record_and_its_card(setup, tmp_path, monkeypatch):
+    from optimization_framework.agents import development_runtime
+    from optimization_framework.agents.development_runtime import DockerWorkspace
+    workspace, campaign, development, driver = setup
+    cid = campaign['id']
+    record = development.create(cid, {'hypothesis_id': 'hypothesis_dev', 'objective': 'Implement', 'request_key': 'walls',
+                                      'egress_hosts': ['github.com', 'codeload.github.com']})
+    assert record['egress'] == {'model': ['chatgpt.com', 'auth.openai.com'], 'package_index': ['pypi.org', 'files.pythonhosted.org'],
+                                'named': ['codeload.github.com', 'github.com']}
+    assert development.view(cid)['workspaces'][0]['egress'] == record['egress']
+    with pytest.raises(ValueError, match='lowercase DNS name'):
+        development.create(cid, {'hypothesis_id': 'hypothesis_dev', 'objective': 'Implement', 'request_key': 'url',
+                                 'egress_hosts': ['https://github.com']})
+    # A configured package mirror replaces PyPI; the container is started with every allowed host and its limits.
+    monkeypatch.setenv('GRATING_PACKAGE_INDEX_URL', 'https://mirror.example.org/simple')
+    commands = []
+    monkeypatch.setattr(development_runtime, 'run', lambda args, **kwargs: commands.append(args) or '')
+    monkeypatch.setattr(DockerWorkspace, 'inspect', lambda self, record: None)
+    DockerWorkspace(tmp_path / 'boxes').start({'id': 'development_old', 'model': None})   # recorded before the allowlist
+    assert 'EGRESS_HOSTS=chatgpt.com auth.openai.com mirror.example.org' in commands[0]
+    assert commands[0][commands[0].index('--cpus') + 1] == '4' and commands[0][commands[0].index('--memory') + 1] == '8192m'
+    assert '--gpus' not in commands[0]
+    DockerWorkspace(tmp_path / 'boxes').start({**record, 'limits': {'cpus': 2, 'memory_gb': 4, 'gpus': 1}})
+    assert 'EGRESS_HOSTS=chatgpt.com auth.openai.com pypi.org files.pythonhosted.org codeload.github.com github.com' in commands[1]
+    assert commands[1][commands[1].index('--cpus') + 1] == '2' and commands[1][commands[1].index('--gpus') + 1] == '1'
+
+
+def test_limits_above_the_researchers_ceiling_are_refused(setup, monkeypatch):
+    workspace, campaign, development, driver = setup
+    cid = campaign['id']
+    request = {'hypothesis_id': 'hypothesis_dev', 'objective': 'Implement', 'request_key': 'limits'}
+    with pytest.raises(ValueError, match=r'above the researcher\'s ceilings: cpus 8 \(ceiling 4\)'):
+        development.create(cid, {**request, 'limits': {'cpus': 8}})
+    with pytest.raises(ValueError, match=r'gpus 1 \(ceiling 0\)'):   # no GPU unless the researcher allows one
+        development.create(cid, {**request, 'limits': {'gpus': 1}})
+    assert workspace.store.list('development_workspace', cid) == []
+    monkeypatch.setenv('GRATING_DEVELOPMENT_MAX_CPUS', '2')
+    monkeypatch.setenv('GRATING_DEVELOPMENT_MAX_GPUS', '1')
+    assert development.create(cid, request)['limits'] == {'cpus': 2, 'memory_gb': 8, 'gpus': 0}   # the default, lowered to the ceiling
+
+
+def test_a_workspace_past_its_deadline_is_paused_its_last_state_kept_and_its_opener_told_once(setup, monkeypatch):
+    from datetime import datetime, timedelta, timezone
+    from optimization_framework.agents import development as module
+    from optimization_framework.campaigns import compute_consent
+    workspace, campaign, development, driver = setup
+    cid = campaign['id']
+    consent = compute_consent.grant(workspace, {'id': 'decision_go', 'campaign_id': cid}, {'plan': 'Implement the method',
+        'wall_seconds': 3600, 'worker_seconds': 600, 'coding_workspaces': 1, 'egress_hosts': ['github.com']})
+    request = {'hypothesis_id': 'hypothesis_dev', 'objective': 'Implement', 'request_key': 'deadline', 'ticket': TICKET}
+    with pytest.raises(ValueError, match=r'past the go-ahead\'s wall time \(3600 s\)'):
+        development.create(cid, {**request, 'wall_seconds': 7200}, actor='lead')
+    with pytest.raises(ValueError, match='did not approve these hosts for the workspace: gitlab.com'):
+        development.create(cid, {**request, 'egress_hosts': ['gitlab.com']}, actor='lead')
+    record = development.create(cid, {**request, 'egress_hosts': ['github.com']}, actor='lead')
+    assert record['wall_seconds'] == 3600 and record['deadline_at'] is None   # the go-ahead's wall time, from the first start
+    development.sync(cid)
+    started = development.get(cid, record['id'])
+    deadline = datetime.fromisoformat(started['deadline_at'])
+    assert timedelta(seconds=3590) < deadline - datetime.now(timezone.utc) <= timedelta(seconds=3600)
+    outgoing(driver, record, 'cp', 'checkpoint', {'summary': 'Seeded replay passes; checkpoint test left', 'phase': 'testing'})
+    development.sync(cid)
+
+    later = deadline + timedelta(seconds=1)
+    class Clock(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return later
+    monkeypatch.setattr(module, 'datetime', Clock)
+    development.sync(cid)
+    development.sync(cid)
+    saved = development.get(cid, record['id'])
+    assert (saved['status'], saved['desired_status'], driver.paused > 0) == ('paused', 'paused', True)   # paused, not removed
+    assert saved['deadline_reached']['phase'] == 'testing' and 'Seeded replay passes' in saved['deadline_reached']['checkpoint']
+    assert 'reached its deadline' in saved['error']
+    assert [e['type'] for e in development.workspace_events(saved)].count('deadline_reached') == 1
+    told = [run for run in notices(workspace, cid, workspace.pi.configuration(cid)['lead_id']) if 'reached its deadline' in json.dumps(run)]
+    assert len(told) == 1
+    # Its wall time was charged to the go-ahead it opened under.
+    used = workspace.store.get(consent['id'], 'compute_consent')['used_wall_seconds']
+    assert used >= 3600 and saved['usage']['wall_seconds'] == used
+    # Going on is a new go-ahead: a resume names how long.
+    with pytest.raises(ValueError, match='Going on is a new go-ahead'):
+        development.control(cid, record['id'], {'action': 'resume', 'request_key': 'go-on', 'expected_revision': saved['control_revision']})
+    resumed = development.control(cid, record['id'], {'action': 'resume', 'request_key': 'go-on-hour', 'wall_seconds': 1800,
+                                                      'expected_revision': saved['control_revision']})
+    assert resumed['desired_status'] == 'running' and resumed['wall_seconds'] == 1800 and not resumed.get('deadline_reached')
+
+
+def test_an_agents_workspace_takes_its_deadline_and_hosts_from_its_requests_mandate(setup):
+    # Since Phase 3 an agent's go-ahead is its request's Screen mandate, whose compute part is a consent: the box's deadline
+    # defaults to that wall time and it may reach only the hosts the researcher approved with it (H5).
+    from optimization_framework.campaigns import mandates
+    from optimization_framework.storage.sqlite import now
+    workspace, campaign, development, driver = setup
+    cid = campaign['id']
+    root = {'thread_id': 'thread_main', 'message_id': 'message_ask', 'run_id': 'run_ask'}
+    decision = workspace.store.put('decision', {'id': 'decision_screen', 'campaign_id': cid, 'title': 'Screen', 'question': 'Screen',
+        'status': 'resolved', 'requested_by': 'lead', 'audience': 'researcher', 'created_at': now(), 'request_root': root,
+        'approval_request': {'kind': 'mandate', 'template': 'screen', 'plan': 'Build the method from its reference code', 'wall_seconds': 5400,
+                             'worker_seconds': 600, 'coding_workspaces': 1, 'hypothesis_ids': ['hypothesis_dev'], 'egress_hosts': ['github.com']}})
+    outcome = mandates.approve(workspace, decision)
+    request = {'hypothesis_id': 'hypothesis_dev', 'objective': 'Implement', 'request_key': 'screen', 'ticket': TICKET}
+    with pytest.raises(ValueError, match='did not approve these hosts for the workspace: gitlab.com'):
+        development.create(cid, {**request, 'egress_hosts': ['gitlab.com']}, actor='lead', root=root, asked=root)
+    with pytest.raises(ValueError, match=r"past the go-ahead's wall time \(5400 s\)"):
+        development.create(cid, {**request, 'wall_seconds': 6000}, actor='lead', root=root, asked=root)
+    record = development.create(cid, {**request, 'egress_hosts': ['github.com']}, actor='lead', root=root, asked=root)
+    assert (record['wall_seconds'], record['egress']['named'], record['consent']['id']) == (5400, ['github.com'], outcome['consent_id'])

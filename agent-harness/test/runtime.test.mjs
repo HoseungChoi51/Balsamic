@@ -71,6 +71,38 @@ test('custom providers come from the profile\'s models.json, else the researcher
   } else assert.equal(modelsFile(), undefined);
 });
 
+test('the dev profile\'s catalogue defines centinels from the environment, under the researcher\'s own providers', async t => {
+  const {profileModels, unavailable} = await import('../dist/runtime.js');
+  const shipped = JSON.parse(fs.readFileSync(new URL('../profiles/dev/models.template.json', import.meta.url), 'utf8'));
+  const settings = JSON.parse(fs.readFileSync(new URL('../profiles/dev/settings.json', import.meta.url), 'utf8'));
+  assert.ok(shipped.providers[settings.defaultProvider].models.some(model => model.id === settings.defaultModel), 'the default model is in the catalogue');
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'pi-profile-')); t.after(() => fs.rmSync(directory, {recursive: true, force: true}));
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'pi-home-')); t.after(() => fs.rmSync(home, {recursive: true, force: true}));
+  fs.copyFileSync(new URL('../profiles/dev/models.template.json', import.meta.url), path.join(directory, 'models.template.json'));
+  fs.mkdirSync(path.join(home, '.pi', 'agent'), {recursive: true});
+  fs.writeFileSync(path.join(home, '.pi', 'agent', 'models.json'), JSON.stringify({providers: {strixhalo: {baseUrl: 'http://localhost:8084/v1', api: 'openai-completions'}}}));
+  const env = {CENTINELS_BASE_URL: 'https://centinels.example/v1', CENTINELS_API_KEY: 'k'};
+  const resolved = profileModels(directory, home, env);
+  const written = JSON.parse(fs.readFileSync(resolved.file, 'utf8'));
+  assert.equal(resolved.file, path.join(directory, 'tmp', 'models.json'));
+  assert.equal(written.providers.centinels.baseUrl, 'https://centinels.example/v1');
+  assert.equal(written.providers.centinels.apiKey, '$CENTINELS_API_KEY', 'the key stays a reference Pi resolves at request time');
+  assert.equal(written.providers.strixhalo.baseUrl, 'http://localhost:8084/v1', 'the researcher\'s own providers stay');
+  assert.deepEqual(resolved.unset, {});
+  // Unset: the provider is left out, and a turn on it says what to set.
+  const bare = profileModels(directory, home, {});
+  assert.equal(JSON.parse(fs.readFileSync(bare.file, 'utf8')).providers.centinels, undefined);
+  assert.deepEqual(bare.unset, {centinels: ['CENTINELS_BASE_URL', 'CENTINELS_API_KEY']});
+  const saved = process.env.HOME; process.env.HOME = home; t.after(() => { process.env.HOME = saved; });
+  assert.match(unavailable('centinels', 'gpt-6.1-sol', directory, {}), /^Model unavailable: centinels\/gpt-6\.1-sol\. The dev profile defines centinels from CENTINELS_BASE_URL and CENTINELS_API_KEY, which are not set: add them to ~\/\.config\/balsamic\/secrets\.env/);
+  assert.equal(unavailable('deepseek', 'v4', directory, {}), 'Model unavailable: deepseek/v4');
+  // A centinels the researcher defines themselves wins over the catalogue.
+  fs.writeFileSync(path.join(home, '.pi', 'agent', 'models.json'), JSON.stringify({providers: {centinels: {baseUrl: 'https://mine.example/v1', api: 'openai-responses'}}}));
+  const mine = profileModels(directory, home, {});
+  assert.equal(JSON.parse(fs.readFileSync(mine.file, 'utf8')).providers.centinels.baseUrl, 'https://mine.example/v1');
+  assert.deepEqual(mine.unset, {});
+});
+
 test('a session runs at the chosen thinking level, else at the level Pi gives a new session, within what the model offers', async () => {
   const {thinkingFor} = await import('../dist/runtime.js');
   const settings = (byModel, fallback) => ({getModelThinkingLevel: () => byModel, getDefaultThinkingLevel: () => fallback});

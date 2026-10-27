@@ -1,0 +1,3 @@
+#!/bin/sh
+# The fake pi binary of the harness adapter's tests: fake-pi.mjs beside it.
+exec node "$(dirname "$0")/fake-pi.mjs" "$@"

@@ -19,7 +19,7 @@ from optimization_framework.implementations.runtime import (
 from optimization_framework.implementations.runtime_resolution import ResolutionRequest, availability, receipt, resolve
 from optimization_framework.implementations.service import ImplementationService
 from optimization_framework.storage.sqlite import atomic_json
-from test_framework_evaluators import MockReviewer, specification
+from test_framework_evaluators import specification
 from test_framework_revalidation import campaign_fixture, no_model, publish
 
 
@@ -31,7 +31,7 @@ def resolution_request(version, key="resolve"):
 def test_identical_executables_in_different_libraries_have_the_same_identity(tmp_path):
     bundles = []
     for name in ("first", "second"):
-        service = ImplementationService(tmp_path / name, adapter_factory=MockReviewer)
+        service = ImplementationService(tmp_path / name)
         version = publish(service)
         bundles.append(service.artifact(version["id"]))
     first, second = bundles
@@ -46,13 +46,13 @@ def test_identical_executables_in_different_libraries_have_the_same_identity(tmp
 
 
 def test_relocated_library_is_inspectable_before_resolution_and_runs_afterward(tmp_path, monkeypatch):
-    original = ImplementationService(tmp_path / "original", adapter_factory=MockReviewer)
+    original = ImplementationService(tmp_path / "original")
     version = publish(original)
     source_bundle = original.artifact(version["id"])
     # This is a copied-library compatibility check, not the future bundle importer.
     shutil.copytree(original.directory, tmp_path / "relocated", ignore=shutil.ignore_patterns("runtimes"))
     original.directory.rename(tmp_path / "retained-original")
-    relocated = ImplementationService(tmp_path / "relocated", adapter_factory=no_model)
+    relocated = ImplementationService(tmp_path / "relocated")
     original_jobs = relocated.store.list("implementation_job")
     assert availability(relocated, version["id"])["status"] == "unavailable"
     assert relocated.version(version["id"]) == version
@@ -134,7 +134,7 @@ def test_legacy_relocation_cannot_infer_content_compatibility_from_dependency_na
 
 
 def test_mismatched_runtime_is_unavailable_without_changing_correctness_evidence(tmp_path, monkeypatch):
-    service = ImplementationService(tmp_path, adapter_factory=MockReviewer)
+    service = ImplementationService(tmp_path)
     version = publish(service)
     location = tmp_path / "artifacts" / version["artifact_digest"] / "runtime-location.json"
     location.unlink()
@@ -147,7 +147,7 @@ def test_mismatched_runtime_is_unavailable_without_changing_correctness_evidence
 
 
 def test_corrupt_local_binding_does_not_hide_history_or_prevent_explicit_repair(tmp_path):
-    service = ImplementationService(tmp_path, adapter_factory=MockReviewer)
+    service = ImplementationService(tmp_path)
     version = publish(service)
     artifact = service.artifact(version["id"])["artifact"]
     location = tmp_path / "artifacts" / version["artifact_digest"] / "runtime-location.json"
@@ -162,7 +162,7 @@ def test_corrupt_local_binding_does_not_hide_history_or_prevent_explicit_repair(
 
 
 def test_interrupted_resolution_recovers_an_immutable_receipt_with_unknown_elapsed_work(tmp_path, monkeypatch):
-    service = ImplementationService(tmp_path, adapter_factory=MockReviewer)
+    service = ImplementationService(tmp_path)
     version = publish(service)
     request = resolution_request(version)
     def interrupt_after_binding(path, value):
@@ -173,7 +173,7 @@ def test_interrupted_resolution_recovers_an_immutable_receipt_with_unknown_elaps
         with pytest.raises(SystemExit):
             resolve(service, version["id"], request)
     assert receipt(service, request.workspace_id, request.idempotency_key) is None
-    restarted = ImplementationService(tmp_path, adapter_factory=no_model)
+    restarted = ImplementationService(tmp_path)
     result = resolve(restarted, version["id"], request)
     assert result["status"] == "available" and result["recovered_after_interruption"]
     assert result["costs"]["elapsed_seconds"] is None
@@ -186,7 +186,7 @@ def test_interrupted_resolution_recovers_an_immutable_receipt_with_unknown_elaps
 
 
 def test_runtime_resolution_http_auth_and_receipt_replay(tmp_path):
-    app = create_app(tmp_path, token="test-secret", start_workers=False, adapter_factory=MockReviewer)
+    app = create_app(tmp_path, token="test-secret", start_workers=False)
     service = app.state.service
     version = publish(service)
     request = resolution_request(version).model_dump(mode="json")
