@@ -42,6 +42,9 @@ class PackTools(Contract):
 
 
 class PackEstimators(Contract):
+    """``memory`` names ``estimate(fidelity, samples, *, configuration, available_memory_bytes, memory_headroom_bytes)``,
+    returning at least ``predicted_peak_bytes`` for a worker on a task of that configuration at that fidelity, from the
+    completed validation samples given (dicts with ``fidelity`` and ``peak_rss_bytes``)."""
     memory: str | None = None
     time: str | None = None
 
@@ -51,11 +54,21 @@ class PackEstimators(Contract):
         return _hook(value)
 
 
+Fidelity = dict[str, int]
+
+
 class PackRacing(Contract):
-    """The race's fidelity ladder (cheapest first), the highest fidelity it may validate at, its cost model and the
-    methods it tries first."""
-    ladder: list[dict[str, Any]] = Field(default_factory=list)
-    limit: dict[str, Any] = Field(default_factory=dict)
+    """The race's fidelity ladder (cheapest first), the highest fidelity it may validate at (``limit``), how far above the
+    search fidelity it validates when the ladder has nothing higher (``step``), the fidelities the race's memory plan
+    forecasts besides its protocol's (``memory_checks``), its cost model and the methods it tries first.
+
+    ``cost_model`` names ``growth(target, reference) -> float``: how much a worker's peak memory grows from the
+    ``reference`` fidelity to the ``target``; it also orders fidelities. Every fidelity here names the same keys, and the
+    section applies only to tasks whose fidelity names exactly those (a pack may serve problems of several fidelities)."""
+    ladder: list[Fidelity] = Field(default_factory=list)
+    limit: Fidelity = Field(default_factory=dict)
+    step: Fidelity = Field(default_factory=dict)
+    memory_checks: list[Fidelity] = Field(default_factory=list)
     cost_model: str | None = None
     preferred_methods: list[str] = Field(default_factory=list)
 
@@ -63,6 +76,24 @@ class PackRacing(Contract):
     @classmethod
     def hooks(cls, value):
         return _hook(value)
+
+    @model_validator(mode="after")
+    def one_fidelity_shape(self):
+        shapes = {frozenset(item) for item in [*self.ladder, self.limit, self.step, *self.memory_checks] if item}
+        if len(shapes) > 1:
+            raise ValueError("The racing section's fidelities must all name the same keys")
+        if (self.ladder or self.limit) and not self.cost_model:
+            raise ValueError("A fidelity ladder needs a cost model to order and scale its fidelities")
+        return self
+
+    def keys(self) -> frozenset[str]:
+        return next((frozenset(item) for item in [*self.ladder, self.limit, self.step, *self.memory_checks] if item), frozenset())
+
+    def applies_to(self, fidelity: dict | None) -> bool:
+        """Whether a task at this fidelity races on this section: it names the section's fidelity keys, or the section
+        has no fidelities at all."""
+        keys = self.keys()
+        return not keys or frozenset(fidelity or {}) == keys
 
 
 class PackPresentation(Contract):
