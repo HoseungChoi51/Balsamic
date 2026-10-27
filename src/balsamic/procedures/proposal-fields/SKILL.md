@@ -18,7 +18,8 @@ specific.
 | `mechanism` | What is done and how, concretely enough to implement |
 | `rationale` | Why it should win on this problem, with the assumption it rests on |
 | Formulas | In `mechanism` and `rationale`, write each formula in LaTeX: inline as `$D(S)=\min_{j\in S}\,[D(S\setminus\{j\})+\max(0,P(S)-d_j)]$`, or as a display on a line of its own between `$$`. The card renders them; plain text such as `Σ_{i∈S}p_i` stays raw |
-| `algorithm` | The installed search procedure that will run its experiments, chosen on purpose from `campaign_inspect.methods` for the task's representation. Left out, the default (hillclimb) is recorded and the page marks it as not chosen: choose, or state `custom` when nothing installed fits and say so in the mechanism |
+| `family` | The algorithm family: `exact` (DP, enumeration, branch and bound), `solver` (MILP, CP, SAT through a library), `constructive` (greedy, problem-specific rules), `local_search` (metaheuristics), `learning` or `hybrid` |
+| `algorithm` | The installed method that will run its experiments, chosen on purpose from `campaign_inspect.methods` for the task's representation and the instance sizes. Left out, it is recorded as `unchosen`, the page marks it as not chosen and it cannot run: choose, or state `custom` when nothing installed fits and say so in the mechanism |
 | `algorithm_config` | The parameters that lane accepts, named |
 | `parent_links` | The parent and the kind (revision, variant, hybrid, inspired_by) when a proposal derives from another |
 | `round` | The generation round |

@@ -1,4 +1,10 @@
-"""Installed Fourier level-set methods and their explicit execution parameters (data only; the solvers live in dqn_meent)."""
+"""The FLRL Fourier level-set methods as an optimizer plug-in (roadmap N8).
+
+`FourierPlugin` is this project's `flrl` entry point in `optimization_framework.optimizers` (docs/optimizer-plugins.md),
+as `MaskLibraryPlugin` is for the mask library. It declares each method's parameters and completion units; the solver is
+`flrl_optimizers.FourierOptimizer`, imported only when a run creates one. The method ids are the ones the core registry
+used to list, so stored runs and proposals still name them.
+"""
 
 PROBLEM_ID = 'meent_2d_dual_polarization_deflector'
 NAMES = {
@@ -61,9 +67,12 @@ PROPERTIES = {
         **{name: {'type': 'string'} for name in ['search_representation', 'relaxed_update', 'policy_action',
             'policy_training', 'gradient_separation', 'archive']}},
 }
+# Adam's relaxed-gradient steps are decisions of their own, beside its evaluation requests.
+COMPLETION_UNITS = {'flrl_autograd_adam': ['evaluation_requests', 'optimizer_decisions']}
 METHODS = [{'id': key, 'name': value, 'description': 'Fourier coefficients map to y-symmetric binary 2D gratings. '
     'Physical scores and optional autograd requests use the campaign MEENT evaluator; all solver calls are counted.',
-    'problem_ids': [PROBLEM_ID], 'representations': ['binary'], 'constraints': False, 'parameters': {}}
+    'problem_ids': [PROBLEM_ID], 'representations': ['binary'], 'constraints': False, 'parameters': {},
+    'parameter_properties': PROPERTIES[key], 'completion_units': COMPLETION_UNITS.get(key, ['evaluation_requests'])}
     for key, value in NAMES.items()]
 
 
@@ -89,3 +98,20 @@ def validate(name, instance, parameters):
         key = 'rcwa_order_' + axis
         if key in parameters and parameters[key] != instance.fidelity[key]:
             raise ValueError('Optimizer RCWA settings disagree with the frozen evaluator fidelity')
+
+
+class FourierPlugin:
+    """Offer the FLRL methods on the 2D MEENT deflector through FourierOptimizer."""
+
+    def methods(self):
+        return [dict(method) for method in METHODS]
+
+    def unavailable_reason(self):
+        return None
+
+    def validate(self, name, instance, parameters):
+        validate(name, instance, parameters)
+
+    def create(self, name, instance, parameters, seed):
+        from dqn_meent.flrl_optimizers import FourierOptimizer
+        return FourierOptimizer(name, instance, parameters, seed)
