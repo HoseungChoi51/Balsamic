@@ -1,0 +1,51 @@
+# Invariant register
+
+Which of Balsamic's guarantees are held by code, which rest on the agents' instructions, and which nothing holds yet. It
+replaces the one place that said so before (`docs/pi-agent-harness.md`, "The lead acts on requests") and the per-Part prose
+of `docs/lead-agent-readiness.md`. `tests/test_invariants.py` reads the table below and fails when a row's pin is missing.
+
+| Column | Meaning |
+|---|---|
+| ID | `INV-` and a number. Numbers are not reused; a guarantee that no longer applies is removed, its number kept free |
+| Guarantee | What holds, in one sentence |
+| State | `code`: enforced by code and pinned by a test. `prompt`: rests on instructions and the model following them, pinned by an eval scenario. `none`: nothing holds it |
+| Where | The function or file that enforces it (`campaigns/compute_consent.py` `register()`). A path without a top folder is under `src/optimization_framework/`, as in the roadmap |
+| Pinned by | For `code`, one or more pytest node ids (`tests/test_x.py::test_y`, or `tests/test_x.py::TestZ::test_y`); a `code` row may name eval scenarios as well. For `prompt`, one or more scenario ids of `evals/lead/scenarios/` (`S3-narrow-request`). Empty for `none` |
+| Closed by | The roadmap part that moves a `prompt` or `none` row to `code` (`docs/roadmap/`), or empty |
+
+A row is `code` only when a test fails if the guarantee breaks. Code that enforces a guarantee no test pins makes the row
+`none` until a test is added, however sure the code looks. When a part changes a guarantee, it updates its row here in the
+same PR, with the test that now pins it (roadmap README §0.11).
+
+## Register
+
+| ID | Guarantee | State | Where | Pinned by | Closed by |
+|---|---|---|---|---|---|
+| INV-01 | Agent work above the researcher's go-ahead threshold waits for the researcher's go-ahead, at every step and not only for experiments; an approved plan covers its worker time and nothing beyond it | code | `campaigns/compute_consent.py` `register()` (the bus guard), `require()` | `tests/test_compute_consent.py::test_an_agent_starts_nothing_over_the_go_ahead_threshold_without_the_researchers_go_ahead`, `tests/test_compute_consent.py::test_work_an_approved_plan_covers_is_charged_to_it_without_a_notice`, `tests/test_pi_agents.py::test_an_analysis_is_compute_under_the_researchers_thresholds` | |
+| INV-02 | Only the researcher sets the go-ahead and notice thresholds; an agent asks with `approval.request` and cannot change them | code | `campaigns/commands.py` `CommandService.execute` (`campaign.update` is not delegated) | `tests/test_compute_consent.py::test_the_researcher_sets_the_two_thresholds_for_the_campaign`, `tests/test_framework_campaign_commands.py::test_researcher_controls_cannot_be_delegated_or_spoofed` | |
+| INV-03 | An agent runs only the operations delegated to agents; creating a campaign, changing its limits and editing its context are the researcher's | code | `campaigns/commands.py` `DELEGATED`, `CommandService.execute` | `tests/test_framework_campaign_commands.py::test_researcher_controls_cannot_be_delegated_or_spoofed`, `tests/test_pi_agents.py::test_specialists_cannot_grant_authority_and_answers_invalidate_stale_commands` | |
+| INV-04 | Starting the team starts no work: no model call is made until the researcher's first message | code | `agents/controller.py` `activate`, `_request` | `tests/test_pi_agents.py::test_starting_the_team_starts_no_work_until_the_researcher_asks`, `S1-idle-team` | |
+| INV-05 | A request is open from a researcher's message until the lead reports it fulfilled; outcomes wake the lead only while a request is open | code | `agents/controller.py` `_request`, `_campaign_events`, `_receive` | `tests/test_pi_agents.py::test_outcomes_wake_the_lead_only_for_an_open_request_and_a_profile_reports_once`, `tests/test_page_agents.py::test_a_request_is_not_called_complete_without_its_reply_and_the_reply_is_the_message` | |
+| INV-06 | Once a turn has started, the lead stays within the request: it does only the stages the request covers, and a question gets an answer, not actions | prompt | `agents/tools.py` `INSTRUCTIONS`; stated in `docs/pi-agent-harness.md` | `S3-narrow-request`, `S2-capabilities-question` | R3 |
+| INV-07 | The pages' operations are refused from the lead, with the page agent to ask and how (readiness Part P) | code | `agents/tools.py` `LEAD_PAGE_WORK`, `PiTools.page_work` | `tests/test_page_agents.py::test_each_page_agent_sees_only_the_commands_of_its_page_and_the_moderator_asks_only_reviewers`, `S11-experiments-through-the-operator` | |
+| INV-08 | Autopilot cannot pass the compute cap the researcher set, and its commands are refused while it is off | code | `src/balsamic/autopilot/rounds.py` `cap_guard()` | `tests/balsamic/test_autopilot.py::test_autopilot_rounds_run_only_while_enabled_and_within_the_cap`, `tests/test_compute_consent.py::test_autopilot_runs_within_the_cap_the_researcher_set` | |
+| INV-09 | The guidance revision a command is checked against is pinned on the server, never taken from the model (readiness Part N) | code | `agents/tools.py` `PiTools.guidance_pin` | `tests/balsamic/test_threads.py::test_lead_commands_pin_guidance_from_their_run_and_ignore_a_stated_revision`, `tests/test_pi_agents.py::test_a_notice_turn_command_stating_an_earlier_turns_revision_is_accepted`, `S4-guidance-after-page-command` | |
+| INV-10 | API-billed model spend stays within the campaign's LLM cap: at the cap, new agent turns are held and the researcher is told; subscription calls are not charged | code | `agents/controller.py` `_within_llm_budget()` | `tests/test_pi_models_usage.py::test_api_spending_at_the_cap_holds_new_turns`, `tests/test_pi_models_usage.py::test_calls_are_recorded_once_and_only_api_billing_is_charged` | |
+| INV-11 | A proposal an agent created runs only after an independent concept review of its exact revision; a reviewer may change its own verdict but not override another's | code | `campaigns/proposals.py` `readiness()`, checked at trial creation in `execution/service.py` | `tests/test_pi_agents.py::test_new_proposal_requires_a_separate_reviewer_of_its_exact_revision`, `tests/test_pi_agents.py::test_a_reviewer_can_change_its_own_verdict_but_not_override_another`, `tests/test_invariant_pins.py::test_an_agents_own_proposal_does_not_run_before_an_independent_concept_review` | |
+| INV-12 | A reviewer does not read the other reviewers' verdicts on the same revision before giving its own | none | | | T1 |
+| INV-13 | The moderator's synthesis of a review round agrees with the reviewers' verdicts | none | | | T2 |
+| INV-14 | A stop carries one of the typed stop outcomes and the evidence for it | none | | | V1 |
+| INV-15 | A stop for performance follows an adequate assessment (decision 14's minimums) or the researcher's waiver | none | | | V2 |
+| INV-16 | A finalist's or a library entry's score holds at higher fidelity | none | A draft procedure only: `src/balsamic/procedures/rcwa-convergence-check/SKILL.md` (readiness Part F) | | V3 |
+| INV-17 | Locked confirmation results stay out of the report writer's evidence until release | code | `reports/evidence.py` `freeze()` | `tests/test_report_pipeline.py::test_frozen_snapshot_excludes_holdout_and_records_comparison_confounders`, `tests/test_report_pipeline.py::test_indirect_withheld_references_and_cross_campaign_pins_are_excluded` | |
+| INV-18 | Locked confirmation results stay unreadable to the agents' read tools until release | none | | | V4 |
+| INV-19 | Numbers in findings and reports appear in the evidence they cite | none | | | K2 |
+| INV-20 | Only the researcher publishes to the library | code | `src/balsamic/library/service.py` `publish()` | `tests/balsamic/test_library.py::test_only_the_researcher_publishes_to_the_library` | |
+| INV-21 | Only the researcher endorses a finding, and a finding cites only evidence visible to its campaign | code | `campaigns/findings.py` `record()` | `tests/test_invariant_pins.py::test_only_the_researcher_endorses_a_finding_and_a_finding_cites_only_visible_evidence` | |
+| INV-22 | A library is installed from the exact commit the coding agent submitted | code | `agents/library_install.py` `Installer.prepare()` | `tests/test_library_install.py::test_the_researcher_installs_the_exact_submitted_library_and_its_methods_appear`, `tests/test_library_install.py::test_what_cannot_be_installed_is_refused_before_anything_changes` | |
+| INV-23 | A library's tests and conformance passed before it enters the lab | none | The coding agent reports them; nothing outside the box runs them, and no eval scenario checks the report | | H6 |
+| INV-24 | The coding box reaches no private network, and the agent in it runs without Linux capabilities | code | `deploy/implementation-workspace/network.sh` (the image's entrypoint) | `tests/test_invariant_pins.py::test_the_coding_box_rejects_private_networks_and_drops_its_capabilities_before_the_agent_starts` | |
+| INV-25 | The coding box has a deadline | none | | | H5 |
+| INV-26 | The core (`src/optimization_framework`) imports no service-layer module (`src/balsamic`) | code | `tests/balsamic/test_layering.py` | `tests/balsamic/test_layering.py::test_the_core_does_not_depend_on_the_service_layer` | |
+| INV-27 | The core names no domain (no grating names, defaults or references on the generic path) | none | | | N1 |
+| INV-28 | The agents' instruction text stays within the size ratchet | code | `tests/test_harness_contract.py` `LEAD_WORDS`, `SPECIALIST_WORDS` | `tests/test_harness_contract.py::test_instructions_do_not_grow_past_the_ratchet` | |

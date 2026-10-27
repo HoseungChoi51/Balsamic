@@ -99,8 +99,8 @@ scripted run, such as a reproduction used as a test, is driven the same way: by 
   runs, validation, comparison, findings, journal clean-up) and allow one only when a request covers
   it. A request may cover several stages or the whole workflow. A question gets an answer, not actions.
 
-The first two rules and the wake-up rule are enforced by the controller. That the lead stays within
-a request once a turn has started rests on its instructions and on the model following them.
+Which of these rules the controller enforces and which rest on the lead's instructions is kept in the
+[invariant register](invariants.md) (INV-04 to INV-06), with the test or eval scenario that pins each.
 
 ## The chat is the researcher's main interface
 
