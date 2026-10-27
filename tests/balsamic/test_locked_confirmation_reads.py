@@ -29,6 +29,7 @@ NO_RECORDS = {
     "implementation_workspace_create": "a coding workspace", "implementation_workspace_inspect": "a coding workspace's own events",
     "implementation_workspace_message": "a message to a coding workspace", "implementation_workspace_validate": "a validation job",
     "page_agent_message": "a request to a page agent; its evidence ids through record()", "config_suggest": "computed from its arguments",
+    "compute": "a number computed from literals and record values read through record()",
     "lead_ask": "a question", "researcher_ask": "a question", "report_write": "the writer's job; its evidence is frozen without locked results (INV-17)",
     "report_answer": "the writer's job", "yield_work": "ends the turn; its evidence ids through record()",
     "workspace_list": "the agent's own files", "workspace_read": "the agent's own files", "workspace_write": "the agent's own files",

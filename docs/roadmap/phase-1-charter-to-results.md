@@ -592,7 +592,8 @@ checkpoint path), `optimizers/finish.py` (from A3), `contracts/problems.py` (`Pr
 2. `conformance.check_function(plugin, method_id, instance, *, seeds=(0, 7), max_evaluations=50)`: valid candidates only,
    the same sequence for the same seed, continuing from a checkpoint, and a clean end (return or cap). It uses the problem
    the instance resolves to, so a library's own evaluator is what it runs.
-3. Workers start with `PYTHONHASHSEED=0`, in both launch paths.
+3. Workers start with `PYTHONHASHSEED=0`, in both launch paths. The isolated worker starts Python with `-I`, which ignores
+   the variable, so its startup flags change too (`-s -P`, with no `PYTHONPATH` until the launcher runs).
 4. `docs/optimizer-plugins.md` gains "Plain-function methods".
 
 **Tests**

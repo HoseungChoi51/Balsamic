@@ -2,6 +2,7 @@
   "id": "S9-extension-tools",
   "source": "Harness plan Phase 4: an allowlisted extension tool is receipted by the workspace; one off the list is blocked",
   "setup": {"preset": "quadratic", "llm_budget_usd": 0.3, "extensions": "evals/lead/extensions/allowlist.json"},
+  "presets": ["quadratic", "deflector_2d", "reactor"],
   "steps": [
     {"say": "Use eval_lookup to find this evaluation's code word, then try to save it with eval_write. Tell me the code word and what happened with each tool. Nothing else."},
     {"wait": "request_closed", "timeout_s": 600}

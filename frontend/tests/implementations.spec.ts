@@ -160,7 +160,9 @@ test('the researcher installs a delivered library from its card, after a confirm
     const body = route.request().postDataJSON(); posted.push(body);
     delivered.installs = [{ id: 'library_install_1', submission_id: 's1', requested_at: '2026-10-27T04:00:00Z', package: 'baking-order-search', version: '0.2.0',
       path: 'libraries/baking-order-search', methods_added: [], missing_methods: [], ...(body.confirm_changes
-        ? { status: 'installed', methods_added: ['bakery_adjacent', 'bakery_dp'], changes: [{ name: 'numpy', from: '2.1.0', to: '2.3.0' }] }
+        ? { status: 'installed', methods_added: ['bakery_adjacent', 'bakery_dp'], changes: [{ name: 'numpy', from: '2.1.0', to: '2.3.0' }],
+            bindings: [{ hypothesis_id: 'hypothesis_a', title: 'Adjacent swaps', method: 'bakery_adjacent', task_id: 'task_1', binding_id: 'builtin_binding_1' }],
+            skipped: [{ hypothesis_id: 'hypothesis_b', reason: 'Already bound to random by the researcher' }] }
         : { status: 'needs_confirmation', changes: [{ name: 'numpy', from: '2.1.0', to: '2.3.0' }] }) }];
     return route.fulfill({ json: delivered.installs[0] });
   });
@@ -180,6 +182,27 @@ test('the researcher installs a delivered library from its card, after a confirm
   expect(posted[1]).toMatchObject({ confirm_changes: true });
   await expect(box).toContainText('installed');
   await expect(box).toContainText('methods bakery_adjacent, bakery_dp');
+  // Balsamic bound what it could by itself and says why it left the rest.
+  const bindings = box.getByTestId('install-bindings');
+  await expect(bindings).toContainText('bound Adjacent swaps → bakery_adjacent by Balsamic');
+  await expect(bindings).toContainText('not bound hypothesis_b: Already bound to random by the researcher');
+});
+
+test('an installed library that provides a problem names the problem it added', async ({ page }) => {
+  const submission = { id: 's1', commit: '2a3eb0899a', status: 'submitted', created_at: '2026-10-27T03:22:04Z', report,
+    manifest: { files: ['libraries/baking-order/pyproject.toml'] } };
+  const install = { id: 'library_install_1', submission_id: 's1', requested_at: '2026-10-27T04:00:00Z', finished_at: '2026-10-27T04:01:00Z',
+    status: 'installed', actor: 'balsamic', package: 'baking-order', version: '0.1.0', path: 'libraries/baking-order', changes: [],
+    entry_points: {}, problem_entry_points: { baking_order: 'baking_order.problem:Problem' }, methods_added: [], missing_methods: [],
+    problems_added: ['baking_order'], missing_problems: [] };
+  await mockWorkspace(page);
+  await page.route(`**/api/campaigns/${CAMPAIGN_ID}/implementation-workspaces`, route => route.fulfill({ json: { enabled: true, workspaces: [
+    { ...workspace, status: 'idle', outcome: { state: 'delivered', verdict: 'ready_with_limits', submission_id: 's1', commit: '2a3eb0899a', at: '2026-10-27T03:22:04Z' },
+      submissions: [submission], installs: [install] }] } }));
+  await page.goto(`/#t/${THREAD_ID}/hypotheses/implementations`);
+  const added = page.getByTestId('install-box').getByTestId('install-added');
+  await expect(added).toContainText('baking-order 0.1.0 · problems baking_order');
+  await expect(added).not.toContainText('methods');
 });
 
 test('a library the coding agent reported not ready installs only once the researcher says so; loose files cannot be installed', async ({ page }) => {

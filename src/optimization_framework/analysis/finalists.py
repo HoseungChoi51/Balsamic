@@ -46,8 +46,10 @@ def summary(record):
             for item in record["entries"]]}
 
 
-def set_selection(workspace, campaign_id, values, *, command_id):
-    """Called inside the command transaction; history and current state commit together."""
+def set_selection(workspace, campaign_id, values, *, command_id, actor):
+    """Called inside the command transaction; history and current state commit together. Each selected run's best score
+    goes through the fidelity gate (V3): the researcher's choice passes with its warning recorded."""
+    from optimization_framework.campaigns import promotion
     from .general import method_identity
 
     store = workspace.store
@@ -69,7 +71,7 @@ def set_selection(workspace, campaign_id, values, *, command_id):
         raise ValueError("Procedure checks must refer to selected prototype trials")
     tasks = {item["id"]: item for item in store.list("task", campaign_id)}
     hypotheses = {item["id"]: item for item in store.list("hypothesis", campaign_id)}
-    grouped, sources = {}, []
+    grouped, sources, fidelity = {}, [], {}
     for trial_id in trial_ids:
         trial = store.get(trial_id, "trial")
         if trial["campaign_id"] != campaign_id or trial.get("study_id") != study["id"]:
@@ -77,6 +79,9 @@ def set_selection(workspace, campaign_id, values, *, command_id):
         details = prototype_details(trial, study, tasks.get(trial.get("task_id")), hypotheses.get(trial.get("hypothesis_id")))
         if not details["finalist_eligible"]:
             raise ValueError(details["finalist_ineligible_reason"])
+        state = promotion.trial_state(workspace, trial)
+        warning = promotion.gate(state, actor, action="A finalist")
+        fidelity[trial_id] = promotion.summary(state, actor=actor, warning=warning)
         procedure_id = details["procedure_id"]
         if trial_id in values.expected_procedure_ids and values.expected_procedure_ids[trial_id] != procedure_id:
             raise ValueError("The prototype procedure changed; refresh its parameters and allocation before selecting it")
@@ -95,7 +100,7 @@ def set_selection(workspace, campaign_id, values, *, command_id):
         "label": values.label if values.label is not None else (previous or {}).get("label", "Finalists"),
         "trial_ids": trial_ids, "prototype_trial_ids": [entry["trial_id"] for entry in entries],
         "selected_method_ids": list(dict.fromkeys(source["method_id"] for source in sources)),
-        "selected_procedure_ids": list(grouped), "entries": entries, "sources": sources,
+        "selected_procedure_ids": list(grouped), "entries": entries, "sources": sources, "fidelity": fidelity,
         "authority": "researcher", "claim_level": "manual_shortlist", "command_id": command_id,
         "created_at": (previous or {}).get("created_at", created_at), "updated_at": created_at}
     store.put_immutable("finalist_selection_revision", {**deepcopy(record),

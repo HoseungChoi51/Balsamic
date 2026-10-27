@@ -89,3 +89,23 @@ test('the resources, usage and agents tabs draw rings, slots, bars and cards fro
   await expect(page.getByTestId('agent-cards').locator('.agent-card')).toHaveCount(1);
   await expect(page.getByTestId('agent-cards')).toContainText('Waiting for your request');
 });
+
+test('the partnership tab shows one row per request: actions, times, cost and the best by then', async ({ page }) => {
+  const row = { run_id: 'pi_run_1', text: 'Screen two methods', asked_at: '2026-10-19T08:00:00Z', closed: true,
+    researcher_actions: { messages: 1, decisions: 1, commands: 1, total: 3 }, seconds_to_report: 600, seconds_to_first_ranked: 500,
+    runs: 2, worker_seconds: 65, model_calls: 3, model_usd: 0.17, model_charged_usd: 0.15, best: { value: 1.5, direction: 'minimize', trial_id: 'trial_3' } };
+  const open = { ...row, run_id: 'pi_run_2', text: 'Summarize the results', closed: false, seconds_to_report: null, seconds_to_first_ranked: null, runs: 0, worker_seconds: 0, model_usd: null, best: null,
+    researcher_actions: { messages: 1, decisions: 0, commands: 0, total: 1 } };
+  await mockWorkspace(page, { [`/api/v1/campaigns/${CAMPAIGN_ID}/partnership`]: { campaign_id: CAMPAIGN_ID, requests: [row, open], basis: { best: 'the best objective of any run that finished by the report' } } });
+  await page.goto(`/#t/${THREAD_ID}/monitor/partnership`);
+  const rows = page.getByTestId('partnership-row');
+  await expect(rows).toHaveCount(2);
+  await expect(rows.nth(0)).toContainText('Screen two methods');
+  await expect(rows.nth(0)).toContainText('10.0 min');
+  await expect(rows.nth(0)).toContainText('2 runs');
+  await expect(rows.nth(0)).toContainText('0.170 $');
+  await expect(rows.nth(0)).toContainText('lower is better');
+  await expect(rows.nth(1)).toContainText('open');
+  await expect(rows.nth(1)).toContainText('not reported');
+  await expect(rows.nth(1)).toContainText('unknown');
+});

@@ -37,7 +37,8 @@ const CHECKS: Record<string, string> = { 'assumption.unaccepted': 'assumption to
   'quantity.range': 'value outside its range', 'quantity.kind': 'value of the wrong kind', 'relation.error': 'relation does not compute',
   'variable.bounds': 'bounds missing', 'variable.values': 'values missing', 'variable.shape': 'size unknown', 'variable.missing': 'nothing to optimize',
   'constraint.qualitative': 'rule in words only', 'constraint.violated': 'rule broken', 'constraint.infeasible': 'rules conflict',
-  'objective.missing': 'no objective', 'text.reference': 'text', 'text.literal_mismatch': 'number in the text' };
+  'objective.missing': 'no objective', 'text.reference': 'text', 'text.literal_mismatch': 'number in the text',
+  'evaluator.provided': 'provided by a library', 'evaluator.provided_mismatch': 'library computes another problem' };
 const checkLabel = (code: string) => CHECKS[code] || (code.startsWith('evaluator.') ? 'evaluator' : code.startsWith('instance.') ? 'instance' : code);
 const inUnits = (units?: string) => units && units.trim() && units.trim() !== '1' ? `, in ${units.trim()}` : '';
 
@@ -74,6 +75,19 @@ export function CharterPanel({ charterId, campaignId, version, onChanged, formul
     finally { setBusy(false); }
   };
   const edit = (changes: Record<string, unknown>[], rationale: string) => post('edit', { changes, rationale });
+  // The revision on screen as a standalone Python project (numpy and pytest only), saved under the name the service gives it.
+  const exportProject = async () => {
+    setError(null);
+    try {
+      const response = await fetch(`/api/v1/problem-charters/${charterId}/revisions/${c.revision}/export.zip`, { cache: 'no-store' });
+      if (!response.ok) { const body = await response.json().catch(() => null); throw new Error(body?.detail || `HTTP ${response.status}`); }
+      const link = document.createElement('a');
+      link.href = URL.createObjectURL(await response.blob());
+      link.download = /filename="([^"]+)"/.exec(response.headers.get('Content-Disposition') || '')?.[1] || `charter-r${c.revision}.zip`;
+      link.click();
+      setTimeout(() => URL.revokeObjectURL(link.href), 1000);
+    } catch (e) { setError(`Could not export the charter: ${String((e as Error).message || e)}`); }
+  };
   const confirm = async () => {
     setError(null); setBusy(true);
     try {
@@ -103,7 +117,9 @@ export function CharterPanel({ charterId, campaignId, version, onChanged, formul
   // A request the formulator has answered with a proposal is shown with that proposal, not as "sent".
   const pending = asked.filter(a => a.revision === c.revision && !c.proposals.some(p => p.asked === a.text));
   const nextId = blocking.length ? blocking[0].key : openQuestions.length ? openQuestions[0].id : null;
-  const warnings = c.findings.filter(f => f.severity !== 'blocking');
+  const warnings = c.findings.filter(f => f.severity !== 'blocking' && f.severity !== 'info');
+  // Facts the checks found that need nothing from anyone, such as an installed library providing the declared problem.
+  const notes = c.findings.filter(f => f.severity === 'info');
   const confirmed = c.status === 'confirmed';
   const why = confirmed ? null : blocking.length ? `${blocking.length} check${blocking.length === 1 ? '' : 's'} to pass first` : openQuestions.length ? `${openQuestions.length} question${openQuestions.length === 1 ? '' : 's'} from the formulator to answer first` : null;
   const variableIndex = (name: string) => doc.variables.findIndex(v => v.name === name);
@@ -115,12 +131,14 @@ export function CharterPanel({ charterId, campaignId, version, onChanged, formul
       <Section title={String(doc.title || c.title || 'Charter')} right={<div className="row">
         {busy ? <span data-testid="charter-saving"><Pill live>saving your change…</Pill></span> : null}
         <Pill tone={confirmed ? 'clear' : blocking.length ? 'attention' : ''}>{confirmed ? 'confirmed' : blocking.length ? `${blocking.length} blocking` : 'ready to confirm'} · r{c.revision}</Pill>
+        <button className="btn small" onClick={exportProject} data-testid="export-charter" disabled={busy} title={`Downloads revision ${c.revision} as a Python project for your own tools: the data, the tests and a comparison script; you write the objective and the methods`}>Export as Python project</button>
         {!confirmed ? <button className="btn primary small" onClick={confirm} data-testid="confirm-charter" disabled={locked || !!why} title={working ? 'The formulator is revising the charter; confirm the revision it saves' : why || 'Compiles the tasks and sets the campaign\'s charter revision'}>Confirm and set the tasks</button> : null}</div>}>
         {working ? <div className="finding small" role="status" data-testid="formulator-busy"><span className="finding-code">formulator</span>
           <span className="grow">The formulator is revising the charter. What you see here may change, so answers, values and choices wait until it has saved its revision; this page updates by itself.</span><Pill tone="agent">working</Pill></div> : null}
         {error ? <div className="pill bad" role="alert" data-testid="charter-error">{error}</div> : null}
         {why && !confirmed ? <p className="small muted" data-testid="confirm-why">{why}. Settle each item below; nothing commits until you confirm.</p> : null}
         {doc.summary ? <p className="lede" data-testid="charter-summary">{c.rendered?.summary || doc.summary}</p> : null}
+        {notes.map(f => <div key={f.key} className="finding small" data-testid="charter-note" data-code={f.code}><span className="finding-code">{checkLabel(f.code)}</span> <span className="grow">{f.message}</span></div>)}
         {formulatorModel ? <div className="row small faint" data-testid="formulator-model" style={{ marginTop: 4 }}><span className="finding-code">formulator</span>
           <span>{working ? 'working on' : formulator === 'failed' ? 'failed on' : 'runs on'} <span className="mono">{formulatorModel.name}</span>{formulatorModel.tier ? <> (the "{formulatorModel.tier}" tier; the formulator row under Monitor → Models)</> : null}{formulatorModel.calls != null ? <>, {formulatorModel.calls} call{formulatorModel.calls === 1 ? '' : 's'} so far</> : null}. The model is fixed for this charter; a tier change applies to the next one.</span>
           {working ? <Pill tone="agent">working</Pill> : null}</div> : null}

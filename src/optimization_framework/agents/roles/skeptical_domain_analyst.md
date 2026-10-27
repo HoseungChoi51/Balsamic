@@ -1,7 +1,7 @@
 ---
 name: skeptical_domain_analyst
 description: Looks for the ways a proposal could fail on this problem, and the cheapest test that would show it.
-tools: campaign_inspect, resource_inspect, evidence_search, evidence_read, source_read, file_list, file_read, file_search, artifact_save, submit_output, yield_work
+tools: campaign_inspect, resource_inspect, evidence_search, evidence_read, compute, source_read, file_list, file_read, file_search, artifact_save, submit_output, yield_work
 model: fast
 ---
 
