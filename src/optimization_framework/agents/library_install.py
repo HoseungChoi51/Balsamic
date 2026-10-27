@@ -335,8 +335,14 @@ def added(record):
 
 def after_install(workspace, install):
     """What Balsamic does by itself once a library is installed, always in this order: adopt its problem (E5), bind the
-    proposals it serves (bind_served), start the approved runs (B5). {bindings, skipped} for the install record."""
-    return bind_served(workspace, install)
+    proposals it serves (bind_served), start the approved runs (plan_runs.launch_ready). {bindings, skipped, launched} for the
+    install record."""
+    from optimization_framework.campaigns.plan_runs import launch_ready
+    bound = bind_served(workspace, install)
+    try:
+        return {**bound, "launched": launch_ready(workspace, install["campaign_id"])["launched"]}
+    except Exception as exc:   # the bindings stand; the next sync tries the runs again
+        return {**bound, "launched": [], "launch_error": f"{type(exc).__name__}: {exc}"[:500]}
 
 
 def bind_served(workspace, install):
@@ -421,6 +427,9 @@ def bound_text(install):
     left = "; ".join(f"{row['hypothesis_id']} ({row['reason']})" for row in install.get("skipped") or [])
     return ((f"Balsamic bound {done}." if done else "Balsamic bound no proposal.")
             + (f" Not bound: {left}." if left else "")
+            + (f" Balsamic started {len(install['launched'])} approved run{'s' if len(install['launched']) != 1 else ''}: "
+               + "; ".join(f"{row['hypothesis_id']} seed {row['seed']} ({row['trial_id']})" for row in install["launched"]) + "."
+               if install.get("launched") else "")
             + (f" Binding stopped: {install['after_install_error']}." if install.get("after_install_error") else ""))
 
 

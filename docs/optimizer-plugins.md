@@ -138,7 +138,10 @@ same library needs a new version: the running lab loads a library's new code onl
 problems they name at the next listing, without a restart (see "Installed while the lab runs" below). A proposal runs a method once it is bound to it (`implementation.bind_builtin`). After an install Balsamic binds each proposal the delivery serves by itself, when exactly one of the methods
 the delivery reports for it is installed and runs on a current task: through the command bus as its system actor `balsamic`, citing the install, which lists
 its `bindings` and the proposals it `skipped` with why (a proposal someone bound, one using another method, one with several candidates). A binding keeps the
-proposal's concept review: the review's revision counts the configuration the first binding replaced (`pre_binding_config`). Frozen runs
+proposal's concept review: the review's revision counts the configuration the first binding replaced (`pre_binding_config`). Then
+Balsamic starts the runs an approved compute plan lists for the proposals that can now run, one per planned seed, under that
+go-ahead (`campaigns/plan_runs.py`; the install lists them as `launched`), and wakes the lead once when all of a plan's runs have
+ended. Frozen runs
 snapshot the library's source and record its version like any other plug-in. When a second project needs a library, it
 moves to its own repository, as `mask-optimizers` did.
 

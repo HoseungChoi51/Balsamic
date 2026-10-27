@@ -488,6 +488,12 @@ class DevelopmentWorkspaces:
         except Exception as exc:   # an install never stops the workspaces' own sync
             import logging
             logging.getLogger(__name__).warning("Installing a delivered library failed: %s", exc)
+        try:
+            from optimization_framework.campaigns.plan_runs import launch_ready
+            launch_ready(self.workspace, campaign_id)
+        except Exception as exc:   # nor does starting the approved runs
+            import logging
+            logging.getLogger(__name__).warning("Starting the approved runs failed: %s", exc)
         for saved in self.store.list("development_workspace", campaign_id):
             try:
                 self._sync_one(saved)
