@@ -69,9 +69,11 @@ of the roadmap has its own entry, `docs/readiness/<id>.md`.
       test, the steps a user of the app follows to check the part, which the phase's release checklist collects. Each part
       has a file of its own, so parts built in parallel never edit the same one. Do not add Parts or summary rows to
       `docs/lead-agent-readiness.md`;
-    - once I1 has landed, update the rows of `docs/invariants.md` the part changes, with the test that now pins each one.
-      Edit those rows in place, and put a new row next to the rows it relates to, not at the end of the table. A new
-      row's id is keyed by the part, `INV-<part>-<n>` (e.g. `INV-B3-1`), never the next number;
+    - once I1 has landed, update the rows of the invariant register the part changes, with the test that now pins each
+      one. Edit those rows in place. A new row's id is keyed by the part, `INV-<part>-<n>` (e.g. `INV-B3-1`), never the
+      next number, and it goes in the part's own file, `docs/invariants/<part>.md` (one table, the register's columns),
+      so parts built in parallel never edit the same file (changed on 27 October 2026; until then new rows went into
+      `docs/invariants.md`, next to the rows they related to);
     - once I3 has landed, `docs/status.md` gives each phase's state and is updated by the part that completes a phase, not
       by every part: a part's own state is the State line of its readiness file.
 12. Commit messages follow the log: `feat(scope): …`, `fix(scope): …`, `docs(scope): …`, `test(scope): …`.

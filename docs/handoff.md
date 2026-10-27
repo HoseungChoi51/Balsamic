@@ -137,16 +137,7 @@ the full suite rerun before it can merge.
 
 Not started: V2, V5; N9, N10, N12, N13, N14; T1, T3, T4; K4.
 
-**Do first when Phase 6 resumes:** most Phase 6 PRs conflict in the same two places, `docs/invariants.md` and
-`src/dqn_meent/pack/__init__.py`, because every part appends there. The agreed fix, one small PR merged before the
-others rebase: new invariant rows go in `docs/invariants/<part>.md` (one table per part, same columns, ids
-`INV-<part>-<n>`), read together with `docs/invariants.md` by `tests/test_invariants.py` (ids unique across all files, a
-part file holds only its own ids; move the keyed rows already on `main` out); MEENT's pack becomes one module per part,
-`src/dqn_meent/pack/<part>_<topic>.py`, each defining `CONTRIBUTION` (a mapping of `ProblemPack` fields), which
-`pack/__init__.py` assembles in name order via `pkgutil.iter_modules`, concatenating lists, merging mappings and raising
-on a key two modules both set; a test checks the assembled pack equals today's field by field. Update roadmap README
-§0.11 and N2's item 3 to say so. Then each open PR moves its rows and pack additions into its own files and merges
-`main`.
+**Done before the open Phase 6 PRs merge** (the conflict hotspots): keyed invariant rows live in `docs/invariants/<part>.md`, read with `docs/invariants.md` by `tests/test_invariants.py` (a keyed row in the numbered table fails it), and MEENT's pack is one module per part, `src/dqn_meent/pack/<part>_<topic>.py` with a `CONTRIBUTION`, assembled by `pack/__init__.py` (N4's is `n4_tools.py`). Roadmap README §0.11 and N2's item 3 say so. Each open PR moves its keyed rows and pack additions into its own files when it merges `main`.
 
 ## 5. Testing fast in a cloud container
 
