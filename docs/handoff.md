@@ -1,7 +1,7 @@
 # Handoff: the state of the roadmap work on this fork
 
-Written 2026-10-27 at about 15:30 UTC, for an agent taking over `HoseungChoi51/Balsamic` with none of the earlier context.
-Everything below was checked against GitHub and `main` (`f70090b`) at that time. PR states move: check them again
+Written 2026-10-27 at about 15:30 UTC and updated when Phase 3 completed (17:43 UTC), for an agent taking over `HoseungChoi51/Balsamic` with none of the earlier context.
+Everything below was checked against GitHub and `main` (`f70090b`; Phase 3's section and §6 against `3c42487`) at that time. PR states move: check them again
 before acting (`git fetch` and the PR list), and trust GitHub over this page.
 
 ## 1. What this is
@@ -81,26 +81,25 @@ All three tags exist on GitHub (Hoseung created them by hand; cloud sessions can
 Hoseung:** G2's live run of lead scenario S19 on Centinels (`docs/readiness/G2.md`; run it from a separate worktree, because a live S19 run installs into its checkout).
 Their UAT of both releases is also theirs.
 
-### Phase 3: in progress, the only active phase
+### Phase 3: complete (release `phase-3`, waiting for its tag)
 
-Hoseung, 15:07 UTC: "Complete phase 3. Phase 4 waits." Phases 4 to 7 are paused: their open PRs stay open and unmerged,
-and no new part of them starts until Hoseung says so.
+Hoseung, 15:07 UTC: "Complete phase 3. Phase 4 waits." All seven parts merged on 27 October; the release notes are
+`docs/releases/phase-3.md`. Phases 4 to 7 stay paused: their open PRs stay open and unmerged, and no new part of them starts
+until Hoseung says so.
 
 | Part | State |
 |---|---|
 | R1 mandate record and templates | merged (#33) |
 | R5 model-spend envelope | merged (#56) |
-| R2 `mandate_propose` | PR #60, merges cleanly, contains the latest `main`, tested (1198 passed, the one known flake). **Ready to merge** |
-| R3 the bus refuses work outside the mandate | not started; needs R1, R2 |
-| R7 the mandate dial in the chat | not started; needs R1, R2 |
-| R4 autopilot as a standing mandate | not started; needs R3 |
-| R6 from prose to code (who is woken, instructions) | not started; needs R3 |
+| R2 `mandate_propose` | merged (#60) |
+| R3 the bus refuses work outside the mandate | merged (#69) |
+| R6 who is woken; the instructions drop what the mandate enforces | merged (#72) |
+| R4 autopilot as a standing mandate | merged (#73) |
+| R7 the mandate dial in the chat | merged (#74) |
 
-Order: R2, then R3 and R7 (in parallel), then R4 and R6, then `docs/releases/phase-3.md`. Shared files, so these merge
-one after another: `agents/tools.py` and `agents/turn_state.py` (R2, R5, R6), `campaigns/compute_consent.py` (R1, R3),
-`campaigns/approvals.py` and `contracts/commands.py` (R1, R2). R4 alone touches `src/balsamic/autopilot/rounds.py`, R7
-alone `frontend/src/chat/Composer.tsx`. R2's "Not done" lists open questions for R3 (e.g. whether a smaller mandate
-proposed later may replace the active one).
+Hoseung decided on 27 October, for R7: the dial's default follows `autonomy` (delegated → Screen, so most campaigns start at
+Screen), and a Screen or Run the campaign granted with a chat message covers only its own request (`request_only` consents;
+agent cards keep decision 4). Issue #70 (the dev profile's Centinels provider) was fixed in #71.
 
 ### Phase 4: paused
 
@@ -169,7 +168,11 @@ runuser -u claude -- env HOME=/home/claude GRATING_LLM_DISABLED=true .venv/bin/p
 uv run python scripts/run_lead_evals.py --fake                 # eval plumbing, no model calls
 ```
 
-- Last full run on a recent `main` (R2's head): 1198 passed, 96 skipped.
+- Last full run on a recent `main` (R7's head, the tree of `phase-3`): 1298 passed, 96 skipped, the one known flake.
+- **Parallel parts in worktrees:** an agent in a git worktree can share the main checkout's `.venv` (pytest's `pythonpath` puts the
+  worktree's `src` first), but `tests/test_pi_agents.py::test_an_agent_analyses_its_experiments_with_its_own_script_in_a_sandbox`
+  then fails (the sandbox does not mount the venv's editable `src`); run it from the main checkout. Keep worktrees out of
+  commits (`.claude/worktrees/` in `.git/info/exclude`).
 - `scripts/test-changed` misses tests that reach a changed module only through another one; the full run catches them.
 - **Known flakes**, rerun before treating them as yours: `tests/test_tracking.py`, and
   `tests/test_framework_isolated_host.py::test_supervisor_death_retains_committed_evidence_and_reconciles_without_execution`
@@ -184,14 +187,10 @@ uv run python scripts/run_lead_evals.py --fake                 # eval plumbing, 
 
 ## 6. Next steps, in order
 
-1. Merge R2 (#60) after confirming it still merges cleanly and contains the latest `main`.
-2. Build R3 and R7 from the latest `main`, each in its own PR. R3 shares `compute_consent.py` with R1; merge them one at
-   a time.
-3. Build R4 and R6 after R3. R6 shares `agents/tools.py` and `turn_state.py` with R2 and R5. R6 cuts prompt text, which
-   is under the size ratchet in `tests/test_harness_contract.py`; Hoseung runs the live baseline before and after.
-4. When R1–R7 have all merged: full suite on `main`, `docs/releases/phase-3.md` in its own PR, update the phase table of
-   `docs/status.md`, and give Hoseung the commit to tag `phase-3`.
-5. Remind Hoseung of G2's live run and the UAT of Phases 1 and 2 if they have not reported on them.
-6. Only when Hoseung resumes them: Phase 4 (H5 #41 up to date, finish H6 #67, then H2/H3/H4, H7, H8), and Phases 5–7
+1. Hoseung: tag `phase-3` on the commit that adds `docs/releases/phase-3.md`, run its live evals and its UAT checklist.
+2. Remind Hoseung of G2's live run and the UAT of Phases 1 and 2 if they have not reported on them.
+3. Only when Hoseung resumes them: Phase 4 (H5 #41 up to date, finish H6 #67, then H2/H3/H4, H7, H8), and Phases 5–7
    (the conflict-hotspots PR from §4 first, then each open PR merged with `main` and retested, then the parts not
-   started).
+   started). Each open PR now also needs Phase 3's mandate guard in mind: an agent's command of a class its request's
+   mandate does not allow is refused, so tests that drive agents through decide, implement or configure work grant a
+   mandate first (`tests/test_mandates.py` `granted()`).
