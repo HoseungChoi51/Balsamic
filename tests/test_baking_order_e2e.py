@@ -3,12 +3,15 @@ standing in for the model. A permutation charter of 8 bakes (durations and due d
 and a campaign made from it; the researcher asks for four methods, and the lead's turn records 4 proposals and one compute
 plan (the coding workspace and 4 proposals x 2 seeds), which the researcher approves.
 
-Step 4 so far: a fake coding agent fills the library Balsamic generates from the confirmed revision (F3) with the objective
-and the four methods; the library is the declared problem and its comparison ranks exact enumeration best.
+Step 4: the lead, woken by the go-ahead, opens the coding workspace, which starts from the library Balsamic generates from the
+charter (F3, F4); a fake coding agent fills the objective and one method per proposal under the keys its brief gives, the
+library's own tests pass, it commits and submits a `ready` report. Step 5: Balsamic installs it with a fake uv, which makes
+the library's entry points visible to the lab as an install would, and the campaign's task adopts its problem (E4).
 
-The coding workspace's commit and `ready` report, step 5 (a fake uv installs it) and the assertions on adoption, the 8
-automatic starts and the single comparison wake are added as F4, E4 and E5 merge, never against a stand-in for them."""
+The assertions on the 8 automatic starts, the methods' outcomes, the ranking and the single comparison wake are added as E5
+merges, never against a stand-in for it."""
 import importlib
+import subprocess
 import itertools
 import socket
 import sys
@@ -22,13 +25,14 @@ from fastapi.testclient import TestClient
 sys.path.insert(0, str(Path(__file__).resolve().parent / "balsamic"))
 from balsamic.app import create_app  # noqa: E402
 from fake_harness import FakeHarness, serve  # noqa: E402
-from optimization_framework.contracts.problem_charter import ProblemCharter  # noqa: E402
-from optimization_framework.evaluation.registry import ProblemRegistry  # noqa: E402
-from optimization_framework.optimizers import conformance  # noqa: E402
-from optimization_framework.optimizers.plugins import OptimizerPlugins  # noqa: E402
+from optimization_framework.agents.development import DevelopmentWorkspaces, method_keys  # noqa: E402
+from optimization_framework.agents.library_install import Installer  # noqa: E402
+from optimization_framework.evaluation import registry as problem_registry  # noqa: E402
+from optimization_framework.optimizers import plugins as optimizer_plugins  # noqa: E402
 from optimization_framework.problem_charter import charter as C  # noqa: E402
-from optimization_framework.problem_charter.scaffold import scaffold  # noqa: E402
-from test_problem_charter_scaffold import pytest_in, write  # noqa: E402
+from test_development_generated_library import LibraryDriver  # noqa: E402
+from test_library_install import PYPROJECT  # noqa: E402
+from test_problem_charter_scaffold import pytest_in  # noqa: E402
 from support import command  # noqa: E402
 
 MAIN = "thread_main_bakery"
@@ -40,7 +44,17 @@ METHODS = [("Earliest due date", "Sort the bakes by due time: the classic rule f
            ("Exact enumeration", "All 8! = 40,320 orders: the optimum, as the reference")]
 SEEDS = [0, 1]
 PACKAGE = "baking_order"
-METHOD_IDS = ["earliest_due", "swap_search", "random_restarts", "exact"]
+LIBRARY = "libraries/baking_order"
+PLACEHOLDERS = ["EDD", "SWAP", "RESTARTS", "EXACT"]   # in the order of METHODS above
+
+def methods_code(keys):
+    """methods.py as the coding agent writes it: each proposal's method under the METHODS key its brief gives (keys: proposal
+    id -> key, in the order of the proposals)."""
+    text = METHODS_CODE
+    for placeholder, (hypothesis_id, key) in zip(PLACEHOLDERS, keys.items()):
+        text = text.replace(f'"H_{placeholder}"', f'"{hypothesis_id}"').replace(f'"{placeholder}"', f'"{key}"').replace(f"def {placeholder}(", f"def {key}(")
+    return text
+
 
 # What the fake coding agent writes into the generated library: the objective, and one method per proposal.
 OBJECTIVE = '''
@@ -57,10 +71,12 @@ import itertools
 
 from .harness import deterministic
 
-METHODS = {"earliest_due": {"name": "Earliest due date", "description": "Sorted by due time, evaluated once."},
-           "swap_search": {"name": "Adjacent swap search", "description": "From earliest due date, swap neighbours while it improves."},
-           "random_restarts": {"name": "Random restarts", "description": "Adjacent swap descent from random orders until the cap."},
-           "exact": {"name": "Exact enumeration", "description": "Every order once: the optimum."}}
+METHODS = {"EDD": {"name": "Earliest due date", "description": "Sorted by due time, evaluated once.", "hypothesis_id": "H_EDD"},
+           "SWAP": {"name": "Adjacent swap search", "description": "From earliest due date, swap neighbours while it improves.",
+                    "hypothesis_id": "H_SWAP"},
+           "RESTARTS": {"name": "Random restarts", "description": "Adjacent swap descent from random orders until the cap.",
+                        "hypothesis_id": "H_RESTARTS"},
+           "EXACT": {"name": "Exact enumeration", "description": "Every order once: the optimum.", "hypothesis_id": "H_EXACT"}}
 
 
 def _edd(problem):
@@ -81,22 +97,22 @@ def _descend(order, evaluate):
 
 
 @deterministic
-def earliest_due(problem, evaluate, rng):
+def EDD(problem, evaluate, rng):
     evaluate(_edd(problem))
 
 
 @deterministic
-def swap_search(problem, evaluate, rng):
+def SWAP(problem, evaluate, rng):
     _descend(_edd(problem), evaluate)
 
 
-def random_restarts(problem, evaluate, rng):
+def RESTARTS(problem, evaluate, rng):
     while True:
         _descend([int(bake) for bake in problem.random_candidate(rng)], evaluate)
 
 
 @deterministic
-def exact(problem, evaluate, rng):
+def EXACT(problem, evaluate, rng):
     for order in itertools.permutations(range(problem.dimensions)):
         evaluate(list(order))
 '''
@@ -199,6 +215,14 @@ def lead_turn(workspace, campaign_id):
     """The lead's answer to the researcher's request: 4 proposals and one compute plan naming them, through campaign_command."""
     def script(agent, run, tools):
         tools("campaign_inspect", {})
+        proposals = sorted(workspace.store.list("hypothesis", campaign_id), key=lambda h: h["created_at"])
+        if proposals:   # the researcher approved the plan: open its coding workspace for the four proposals
+            opened = tools("implementation_workspace_create", {"hypothesis_id": proposals[0]["id"], "hypothesis_ids": [h["id"] for h in proposals[1:]],
+                  "objective": "Implement the four methods in the generated library", "request_key": "bakery"})
+            assert "error" not in opened, opened
+            reply = "The go-ahead is in: a coding workspace is implementing the four methods."
+            tools("yield_work", {"disposition": "waiting", "report": reply, "summary": "opened the coding workspace", "evidence_ids": []})
+            return reply
         [task] = workspace.current_tasks(campaign_id)
         proposals = []
         for index, (title, mechanism) in enumerate(METHODS):
@@ -218,7 +242,41 @@ def lead_turn(workspace, campaign_id):
     return script
 
 
-def test_the_baking_order_goes_from_a_charter_to_one_approved_plan(client, workspace, stack):
+def lead_runs(workspace, campaign_id):
+    lead_id = workspace.pi.configuration(campaign_id)["lead_id"]
+    return sorted((run for run in workspace.store.list("agent_run", campaign_id) if run["agent_id"] == lead_id), key=lambda run: run["created_at"])
+
+
+def git(*args, cwd):
+    return subprocess.run(["git", *args], cwd=cwd, check=True, capture_output=True, text=True).stdout.strip()
+
+
+def fake_uv(monkeypatch, root):
+    """uv as the installer runs it: the dry run changes no other package, and the sync makes the library's two entry points
+    (its methods and its problem) visible to the lab, as installing it into the environment would."""
+    def runner(args, cwd, timeout=600):
+        if args[1:] == ["sync", "--inexact", "--extra", "libraries"]:
+            entries = tomllib.loads((root / LIBRARY / "pyproject.toml").read_text())["project"]["entry-points"]
+            monkeypatch.syspath_prepend(str(root / LIBRARY))
+            installed = optimizer_plugins.installed
+            monkeypatch.setattr(installed, "_entries", {**installed.entries(), **entries["optimization_framework.optimizers"]})
+            monkeypatch.setattr(installed, "_owners", None)
+            for name, value in entries["optimization_framework.problems"].items():
+                monkeypatch.setitem(problem_registry.problems._loaders, name, lambda value=value: problem_registry._factory(value))
+                monkeypatch.delitem(problem_registry.problems._adapters, name, raising=False)
+        return 0, " Would make no changes\n" if "--dry-run" in args else "ok"
+    return runner
+
+
+@pytest.fixture
+def forget_library():
+    yield
+    for name in [name for name in sys.modules if name == PACKAGE or name.startswith(PACKAGE + ".")]:
+        sys.modules.pop(name)
+
+
+def test_the_baking_order_goes_from_a_charter_to_an_installed_library_the_campaign_adopts(client, workspace, stack, tmp_path, monkeypatch,
+                                                                                            forget_library):
     # 1. The permutation charter, confirmed by the researcher, and a campaign made from it.
     rows = C.findings(bakery())
     assert not [row for row in rows if row["severity"] == "blocking"], rows
@@ -241,6 +299,10 @@ def test_the_baking_order_goes_from_a_charter_to_one_approved_plan(client, works
     # 2. The lead starts; the researcher's one message gets a turn that records the 4 proposals and the plan.
     version = lambda: workspace.store.get(cid, "campaign")["version"]
     command(client, "agent.activate", cid, {}, version())
+    monkeypatch.setenv("GRATING_DEVELOPMENT_ENABLED", "true")
+    driver = LibraryDriver(tmp_path / "development")
+    development = DevelopmentWorkspaces(workspace.pi, driver=driver)
+    workspace.pi.development = development
     stack.script = lead_turn(workspace, cid)
     ask = command(client, "agent.message", cid, {"message": "Compare four ways to order the bakes: earliest due date, an adjacent swap "
         "search, random restarts and exact enumeration. Two seeds each.", "thread_id": MAIN}, version(), origin={"thread_id": MAIN})
@@ -268,34 +330,67 @@ def test_the_baking_order_goes_from_a_charter_to_one_approved_plan(client, works
     assert len(workspace.charters.get(record["id"])["confirmed"]) == 1
 
 
-def test_a_fake_coding_agent_fills_the_generated_library_and_exact_enumeration_ranks_best(workspace, tmp_path, monkeypatch):
-    # 4. The library Balsamic generates from the confirmed revision, filled as a coding agent would: the objective and four methods.
-    record = workspace.charters.create(bakery(), source={"kind": "test", "id": "bakery", "name": "Bakery"})
-    confirmed = workspace.charters.confirm(record["id"], expected_revision=record["revision"])
-    charter = confirmed["charter"]
-    files = scaffold(workspace.charters.get(record["id"])["charter"], charter["revision"], name=PACKAGE, balsamic=True)
-    files[f"{PACKAGE}/objective.py"], files[f"{PACKAGE}/methods.py"] = OBJECTIVE.encode(), METHODS_CODE.encode()
-    root = write(files, tmp_path / "library")
-    result = pytest_in(root, "-rs")
-    assert result.returncode == 0, result.stdout + result.stderr   # its own tests, the contract with Balsamic among them
+    # 4. The go-ahead wakes the lead, which opens the coding workspace; it starts from the library generated from the charter.
+    first = run["id"]
+    deadline = time.time() + 15
+    while not [r for r in lead_runs(workspace, cid) if r["id"] != first and r["status"] in {"completed", "failed"}] and time.time() < deadline:
+        workspace.on_manager_tick()
+        for thread in list(workspace.pi.threads.values()):
+            thread.join(timeout=2)
+        time.sleep(0.1)
+    [answer] = [r for r in lead_runs(workspace, cid) if r["id"] != first]
+    assert answer["status"] == "completed", answer.get("error")
+    [record] = workspace.store.list("development_workspace", cid)
+    assert record["hypothesis_ids"] == [h["id"] for h in proposals]
+    development.sync(cid)
+    record = development.get(cid, record["id"])
+    assert record["library"]["revision"] == confirmed["charter"]["revision"] and record["library"]["package"] == PACKAGE
+    repo = driver.repo(record)
+    brief = (driver.root(record) / "brief.md").read_text()
+    keys = method_keys(proposals)
+    for proposal in proposals:
+        assert f'its METHODS key: `{keys[proposal["id"]]}` with `"hypothesis_id": "{proposal["id"]}"`' in brief
+    # The fake coding agent fills the two files it writes, runs the library's tests, commits and submits a ready report.
+    (repo / LIBRARY / PACKAGE / "objective.py").write_text(OBJECTIVE)
+    (repo / LIBRARY / PACKAGE / "methods.py").write_text(methods_code(keys))
+    result = pytest_in(repo / LIBRARY, "-rs")
+    assert result.returncode == 0, result.stdout + result.stderr   # the contract with Balsamic among them
+    git("init", "-q", cwd=repo)
+    git("add", ".", cwd=repo)
+    git("-c", "user.name=coder", "-c", "user.email=coder@lab", "commit", "-q", "-m", "The four orders", cwd=repo)
+    store = driver.root(record) / "work" / "git"
+    git("clone", "-q", "--bare", str(repo), str(store), cwd=tmp_path)
+    files = sorted(str(path.relative_to(repo)) for path in (repo / LIBRARY).rglob("*") if path.is_file() and "__pycache__" not in path.parts
+                   and ".pytest_cache" not in path.parts)
+    report = {"verdict": "ready", "summary": "Four methods; the library's tests pass", "limitations": [], "next_actions": [],
+              "tests": {"passed": 1, "failed": 0, "skipped": 0, "command": f"uv run pytest {LIBRARY}"},
+              "methods": [{"method_id": keys[h["id"]], "hypothesis_id": h["id"], "state": "implemented", "conformance": "passed"} for h in proposals]}
+    submission = workspace.store.put("development_submission", {"id": "development_submission_bakery", "campaign_id": cid,
+        "workspace_id": record["id"], "hypothesis_id": record["hypothesis_id"], "commit": git("rev-parse", "HEAD", cwd=repo),
+        "status": "submitted", "report": report, "manifest": {"files": files},
+        "package": {"files": [{"path": path, "content": (repo / path).read_text()} for path in files]},
+        "created_at": "2026-10-27T13:30:00+00:00"})
 
-    monkeypatch.syspath_prepend(str(root))
-    try:
-        compare = importlib.import_module(f"{PACKAGE}.compare")
-        entries = tomllib.loads((root / "pyproject.toml").read_text())["project"]["entry-points"]
-        registry = ProblemRegistry.from_entries(entries["optimization_framework.problems"])
-        want = C.manifest(ProblemCharter.model_validate(bakery()), C.resolve(bakery())["values"])
-        instance = registry.resolve("baking_order", want.configuration)
-        assert instance.candidate_schema.representation == "permutation" and C.compare_provided(want, instance) == []
-        plugins = OptimizerPlugins(entries["optimization_framework.optimizers"])
-        for method in METHOD_IDS:
-            conformance.check_function(plugins.get(method)[0], method, instance, registry=registry)
-        # The library's own comparison: earliest due date is 415 min late, exact enumeration finds the best order, 290.
-        rows = compare.compare(seeds=len(SEEDS), evaluations=50_000)
-        best = {row["method"]: row["best"] for row in rows}
-        assert best["earliest_due"] == 415 and best["exact"] == 290 == min(best.values())
-        assert best["swap_search"] <= 415 and best["random_restarts"] >= 290
-        assert compare.ranked(rows, compare.PROBLEMS[next(iter(compare.PROBLEMS))])[0]["best"] == 290
-    finally:
-        for name in [name for name in sys.modules if name == PACKAGE or name.startswith(PACKAGE + ".")]:
-            sys.modules.pop(name)
+    # 5. Balsamic installs it by itself (a fake uv), and the campaign's task adopts the problem the library provides.
+    lab = tmp_path / "lab"
+    (lab / "libraries").mkdir(parents=True)
+    (lab / "pyproject.toml").write_text(PYPROJECT)
+    (lab / "uv.lock").write_text("lock v1\n")
+    installer = Installer(workspace, development, lab, runner=fake_uv(monkeypatch, lab), uv="uv", providers=lambda group: {})
+    install = installer.automatic(cid, record["id"], submission, background=False)
+    assert install["status"] == "installed", install
+    assert install["actor"] == "balsamic" and install["problems_added"] == ["baking_order"]
+    assert sorted(install["methods_added"]) == sorted(keys.values()) and install.get("changed_generated_files", []) == []
+    adopted = workspace.adopt_library_problem(cid, install["id"], authority="balsamic")   # E5 makes this step Balsamic's own
+    [task] = workspace.current_tasks(cid)
+    assert task["provided_by"]["install_id"] == install["id"] and task["provided_by"]["commit"] == submission["commit"]
+    assert task["problem_id"] == "baking_order" and not task.get("evaluator_requirement_id") and adopted["adopted"]
+    instance = problem_registry.problems.resolve("baking_order", task["configuration"])
+    assert instance.candidate_schema.representation == "permutation"
+    assert problem_registry.problems.evaluator(instance).evaluate(sorted(range(8), key=lambda b: DUE[b])).objectives == {"total_tardiness": 415.0}
+    # The library's own comparison ranks exact enumeration best: the optimum, 290 min, against earliest due date's 415.
+    compare = importlib.import_module(f"{PACKAGE}.compare")
+    rows = compare.compare(seeds=len(SEEDS), evaluations=50_000)
+    best = {row["method"]: row["best"] for row in rows}
+    edd, exact = keys[proposals[0]["id"]], keys[proposals[3]["id"]]
+    assert best[edd] == 415 and best[exact] == 290 == min(best.values())
