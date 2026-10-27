@@ -125,7 +125,10 @@ comes first: a change to a package the lab already has waits for the researcher'
 `pyproject.toml`, `uv.lock` and `libraries/` back as they were. Each install is a `library_install` record with the methods it
 added (`agents/library_install.py`); the researcher commits the edited `pyproject.toml` and `uv.lock`. A new delivery of the
 same library needs a new version: the running lab loads a library's new code only when its version changes. The running lab lists its methods for the
-problems they name at the next listing, without a restart (see "Installed while the lab runs" below). A proposal runs a method once it is bound to it (`implementation.bind_builtin`). Frozen runs
+problems they name at the next listing, without a restart (see "Installed while the lab runs" below). A proposal runs a method once it is bound to it (`implementation.bind_builtin`). After an install Balsamic binds each proposal the delivery serves by itself, when exactly one of the methods
+the delivery reports for it is installed and runs on a current task: through the command bus as its system actor `balsamic`, citing the install, which lists
+its `bindings` and the proposals it `skipped` with why (a proposal someone bound, one using another method, one with several candidates). A binding keeps the
+proposal's concept review: the review's revision counts the configuration the first binding replaced (`pre_binding_config`). Frozen runs
 snapshot the library's source and record its version like any other plug-in. When a second project needs a library, it
 moves to its own repository, as `mask-optimizers` did.
 

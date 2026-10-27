@@ -46,6 +46,9 @@ DELEGATED.update({"experiments.rules", "trial.hide"})
 DELEGATED.update({"resources.plan", "resources.estimate"})
 # The lead works the evolution graph on request (docs/ui-workspace.md): allocations, batched interventions, new rounds, library reuse.
 DELEGATED.update({"hypothesis.allocate", "intervention.batch", "research.generate", "library.apply"})
+# Balsamic's own system actor (decision 6) runs only these, each citing what it acts under: binding a proposal to a method an
+# install delivered (B4). Its receipts name it as their origin.
+SYSTEM_OPERATIONS = frozenset({"implementation.bind_builtin"})
 
 
 class CommandService:
@@ -203,8 +206,13 @@ class CommandService:
             raise
 
     def _execute(self, command, *, actor, prepared=None):
-        if actor not in {"researcher", "manager", "autopilot"}:
+        if actor not in {"researcher", "manager", "autopilot", "balsamic"}:
             raise ValueError("Unknown command authority")
+        if actor == "balsamic":
+            if command.operation not in SYSTEM_OPERATIONS:
+                raise ValueError("Balsamic's system actor runs only " + ", ".join(sorted(SYSTEM_OPERATIONS)))
+            if command.origin is None or command.origin.actor != "balsamic":
+                raise ValueError("A command of Balsamic's system actor names it as its origin")
         # The fields the rebuild added are left out of the hash when unset, so receipts written before them still replay.
         request = command.model_dump(mode="json")
         for key in ("origin", "expected_thread_revision"):
@@ -488,7 +496,7 @@ class CommandService:
             return {"draft_id": launched["draft_id"], "trial_id": launched["trial_id"]}
         if command.operation == "implementation.bind_builtin":
             from optimization_framework.implementations.builtin import bind
-            return bind(self.workspace, command.campaign_id, payload, command.id)
+            return bind(self.workspace, command.campaign_id, payload, command.id, actor=actor)
         if command.operation == "implementation.reference":
             self._target(command, "hypothesis_id", "hypothesis")
             from optimization_framework.implementations.references import capture
