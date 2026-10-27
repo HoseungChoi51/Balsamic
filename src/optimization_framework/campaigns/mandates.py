@@ -463,13 +463,32 @@ def settle(workspace, campaign_id):
                     "(comparison.report when they compare methods); you may answer, ask and record under it.",
                     root=mandate.root.model_dump(exclude={"schema_version"}) if mandate.root else None)
         elif mandate.status in {"expired", "exhausted"} and mandate.granted_by != "automatic" and not row.get("ended_notice_at"):
+            # A quiet end is not news: the researcher is told when it stopped something, an agent's new work or a planned run.
+            unstarted = _unstarted(workspace, mandate)
+            refused = any(f"({mandate.id}) has ended" in (rejection.get("reason") or "") for rejection in workspace.store.list("command_rejection", campaign_id))
+            if not unstarted and not refused:
+                continue
             with workspace.lock:
                 row["ended_notice_at"] = now()
                 workspace.store.put("mandate", row, "mandate.ended")
             workspace.memory.issue(campaign_id, "mandate_ended", f"The {LABELS[mandate.template]} mandate you approved ({mandate.id}: "
-                f"\"{(mandate.plan or '')[:120]}\") has ended: {_ended(mandate)}. The agents start no new work under it; work already running "
-                "goes on. Their next card asks you for more, if the request needs it.", affected=mandate.id)
+                f"\"{(mandate.plan or '')[:120]}\") has ended: {_ended(mandate)}. The agents start no new work under it"
+                + (f", and {len(unstarted)} of its approved runs did not start" if unstarted else "") + "; work already running goes on. "
+                "Their next card asks you for more, if the request needs it.", affected=mandate.id)
+            agent = _owner(workspace, mandate)
+            if unstarted and mandate.status == "expired" and agent is not None:   # spent worker time already tells it (plan_runs)
+                workspace.pi.enqueue(agent, "mandate_ended_" + content_hash(mandate.id)[:24], NOTICE +
+                    f"This request's {LABELS[mandate.template]} mandate ({mandate.id}) has ended ({_ended(mandate)}) before {len(unstarted)} of its "
+                    "approved runs started; Balsamic starts none of them now. Report what ran, and propose a new mandate with mandate_propose "
+                    "if the request needs the rest.", root=mandate.root.model_dump(exclude={"schema_version"}) if mandate.root else None)
     return closed
+
+
+def _unstarted(workspace, mandate):
+    """The runs a mandate's plan lists (through its consent) that never ran."""
+    from .plan_runs import planned, run_of
+    consent = _record(workspace, mandate.consent_id, "compute_consent")
+    return [(index, seed) for index, seed, run in planned(consent or {}) if run_of(workspace.store, consent, run, seed, index) is None]
 
 
 
