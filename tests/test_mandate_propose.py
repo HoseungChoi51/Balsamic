@@ -67,7 +67,7 @@ def state(env, agent=None, run=None):
 
 def test_an_explore_mandate_under_the_threshold_is_granted_at_once_and_named_in_the_receipt(team):
     assert "mandate_propose" in team.tools.names(team.lead)
-    assert "Mandate of this request: none: Explore by default" in state(team)
+    assert "Mandate: none, Explore by default" in state(team)
     receipt = propose(team, "explore", template="explore", plan="Two short probes of coordinate search, to size the screen", worker_seconds=120,
                       stop_when={"text": "Both probes finished", "machine": "all_runs_terminal"})
     assert receipt["status"] == "active" and receipt["granted_by"] == "automatic"
@@ -78,7 +78,7 @@ def test_an_explore_mandate_under_the_threshold_is_granted_at_once_and_named_in_
     # The receipt is the tool's: the reply names the mandate from it.
     [saved] = [row for row in team.workspace.store.list("agent_tool_receipt", "demo") if row["tool"] == "mandate_propose"]
     assert saved["result"]["mandate_id"] == mandate.id
-    assert "Mandate of this request: Explore (active), left: 5 min of worker time; no deadline" in state(team)
+    assert f"Mandate: explore ({mandate.id}); model spend without an envelope of its own (the campaign's cap applies); worker time 5 min left; no deadline." in state(team)
     # Answer starts nothing and is granted at once too; Explore over the threshold, or with a coding workspace, is not Explore.
     assert propose(team, "answer", template="answer", plan="Answer from the records")["mandate"].startswith("Answer (active)")
     for call_id, extra in (("long", {"worker_seconds": 900}), ("coding", {"coding_workspaces": 1})):
@@ -110,7 +110,7 @@ def test_a_screen_mandate_becomes_one_card_and_approving_it_records_the_mandate_
     [consent] = team.workspace.store.list("compute_consent", "demo")
     assert mandate.consent_id == consent["id"] and resolved["outcome"] == {"mandate_id": mandate.id, "template": "screen", "consent_id": consent["id"]}
     assert team.workspace.store.get("H1", "hypothesis")["approved_by"]["decision_id"] == decision["id"]
-    assert "Mandate of this request: Screen (active), left: 40 min of worker time, 1 coding workspace, $2.00 of model spend; deadline " in state(team)
+    assert f"Mandate: screen ({mandate.id}); model spend $2.00 left of $2.00; worker time 40 min left, 1 coding workspace; deadline " in state(team)
 
 
 def test_approve_as_explore_only_records_explore_and_decline_records_nothing(team):
@@ -149,7 +149,7 @@ def test_a_page_agent_asked_on_its_page_proposes_its_own_mandate_and_its_runs_ar
     operator = team.workspace.pi.page_agent("demo", "experiment_operator")
     run = say(team, "Run two short probes of coordinate search.", page_agent="experiment_operator")
     operator = team.workspace.store.get(operator["id"], "agent_session")
-    assert "Mandate of this request: none: Explore by default" in state(team, operator, run)
+    assert "Mandate: none, Explore by default" in state(team, operator, run)
     receipt = propose(team, "probe", agent=operator, run=run, template="explore", plan="Two short probes", worker_seconds=240)
     mandate = mandates.active(team.workspace, "demo", root(team, run))
     assert mandate.id == receipt["mandate_id"] and mandate.root.thread_id == "desk_experiment_operator" and mandate.root.run_id == run["id"]
@@ -158,7 +158,7 @@ def test_a_page_agent_asked_on_its_page_proposes_its_own_mandate_and_its_runs_ar
         "payload": {"task_id": task["id"], "algorithm": "coordinate", "max_steps": 5, "wall_seconds": 120}})
     assert started.get("status") == "completed", started
     used = mandates.active(team.workspace, "demo", root(team, run))
-    assert used.used.worker_seconds == 120 and "left: 3 min of worker time" in state(team, operator, run)
+    assert used.used.worker_seconds == 120 and "worker time 3 min left" in state(team, operator, run)
     # Asked by the lead, it works under the lead's mandate: what it proposes is for the lead's request.
     team.tools.call(team.lead["id"], team.run["id"], "ask", "page_agent_message", {"page_agent": "experiment_operator", "message": "Probe once more."})
     operator = team.workspace.store.get(operator["id"], "agent_session")

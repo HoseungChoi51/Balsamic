@@ -1212,7 +1212,8 @@ class PiTools:
                         agent_records.append({"id": ref, "kind": kind, "record": self.record(agent, ref)})
                 job = writer.start(campaign_id=cid, brief=args["notes"], request_id="lead_" + content_hash([cid, args["request_key"]])[:32],
                     references=references, **({"evidence": {"agent_records": agent_records}} if agent_records else {}),
-                    literature=args.get("literature", True), requested_by=LEAD)
+                    literature=args.get("literature", True), requested_by=LEAD, run_id=run["id"] if run else None,
+                    request_root=self.assignment_origin(agent, run))
             else:
                 if self.store.get(args["job_id"], "report_writer_job")["campaign_id"] != cid:
                     raise ValueError("That report belongs to another campaign")

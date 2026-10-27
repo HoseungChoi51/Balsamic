@@ -1,4 +1,5 @@
-"""Researcher approvals of what an agent asked for: mandates, extensions, limits, waivers, the worker ceiling, journal clean-ups.
+"""Researcher approvals of what an agent asked for: mandates, extensions, limits, waivers, the worker ceiling, journal clean-ups,
+and the platform's ask to raise a request's model-spend envelope.
 
 An agent files a request as a decision (trial.extension_request, approval.request, journal.compaction_request); the
 researcher resolves it in the inbox, and the change runs as the researcher's own command through the bus, with the
@@ -67,6 +68,11 @@ def resolve(workspace, command):
         # A mandate: as proposed, its compute part a consent for its plan, or Explore only (campaigns/mandates.py).
         from .mandates import approve as approve_mandate
         granted = approve_mandate(workspace, decision, explore_only=values.choice == "1")
+    elif values.choice == "0" and (decision.get("approval_request") or {}).get("kind") == "mandate_model":
+        # A raise of one request's model-spend envelope (R5): its held turns go on at the next pass.
+        from .mandates import raise_model
+        request = decision["approval_request"]
+        raise_model(workspace, request["mandate_id"], request["model_usd"], decision["id"])
     elif values.choice == "0" and decision.get("approval_request"):
         request = decision["approval_request"]
         reason = decision["rationale"] + (" Researcher: " + values.comment if values.comment else "")

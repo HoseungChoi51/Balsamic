@@ -407,6 +407,24 @@ class PiController:
             return origin["root"]
         return {"thread_id": origin["thread_id"], "message_id": origin.get("message_id"), "run_id": run["id"]} if origin.get("thread_id") else None
 
+    def run_root(self, agent, run):
+        """The researcher's request an agent's run serves: the lead's as request_root() gives it; an assistant's or a page agent's
+        the one its assignment came with, else the request it was asked in (a researcher's question on a page, from a thread)."""
+        if run is None:
+            return None
+        if agent["role"] == LEAD:
+            return self.request_root(run)
+        return agent.get("assignment_origin") or self.request_root(run)
+
+    def _event_run(self, agent, event):
+        """The run a harness event was made in: the one it names, else the agent's run at work (an older harness names none)."""
+        if event.get("run_id"):
+            try:
+                return self.store.get(event["run_id"], "agent_run")
+            except KeyError:
+                return None
+        return next((run for run in reversed(self.store.list_agent_runs(agent["id"])) if run["status"] in {"running", "submitted"}), None)
+
     def enqueue(self, agent, identity, text, *, mode="follow_up", origin=None, root=None, leaf_entry_id=None, branch_from_entry_id=None, thread_revision=None, autopilot=False):
         try:
             saved = self.store.get(identity, "agent_run")
@@ -745,6 +763,8 @@ class PiController:
                         continue
                     if agent["id"] in occupied and run.get("mode") != "steer":
                         continue
+                    if not self._within_mandate_spend(agent, run):
+                        continue
                     if agent["role"] not in STANDING and agent["id"] not in occupied and children >= config["max_subagents"]:
                         continue
                     if agent["id"] not in occupied and agent["role"] not in STANDING:
@@ -794,7 +814,9 @@ class PiController:
                     for key in ("input", "output", "cacheRead", "cacheWrite", "reasoning"):
                         usage[key] = usage.get(key, 0) + event["usage"].get(key, 0)
                     usage["calls"] = usage.get("calls", 0) + 1
-                    charged = llm_usage.record(self.store, agent["campaign_id"], agent, f"pi:{agent_id}:{event['seq']}", event)
+                    run = self._event_run(agent, event)
+                    charged = llm_usage.record(self.store, agent["campaign_id"], agent, f"pi:{agent_id}:{event['seq']}", event,
+                                               run_id=run["id"] if run else None, root=self.run_root(agent, run))
                     usage["cost_usd"] = usage.get("cost_usd", 0) + (event["usage"].get("cost_usd") or 0)
                     usage["charged_usd"] = usage.get("charged_usd", 0) + charged
                     if event.get("billing"):
@@ -956,6 +978,13 @@ class PiController:
                 f"Agent turns are on hold: API spending ${spent:.2f} reached this campaign's LLM cap of ${cap:.2f}. "
                 "Raise the cap to continue.", affected="llm_budget_" + campaign_id)
         return False
+
+    def _within_mandate_spend(self, agent, run):
+        """A turn under a request whose mandate's model envelope is spent holds, with one card to raise it (R5); the campaign's
+        cap (_within_llm_budget) holds every turn whatever the mandate."""
+        from optimization_framework.campaigns import mandates
+        root = self.run_root(agent, run)
+        return mandates.hold(self.workspace, agent["campaign_id"], root) is None
 
     def _resource_events(self, campaign_id, config, rows):
         """How the machine is used is the resource planner's to answer: its events wake it, whatever the researcher's open request."""

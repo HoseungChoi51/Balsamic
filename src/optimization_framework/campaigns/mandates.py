@@ -12,6 +12,11 @@ A compute consent (campaigns/compute_consent.py) is the compute part of the mand
 envelope and use are the consent's, and charge() counts its compute there. A consent no mandate names, as every consent
 recorded before mandates, reads as a Screen mandate with only a compute envelope: a view over the old record, never a rewrite.
 
+A mandate's model spend (R5) is what the model calls made under its request cost: the lead's, its assistants', the page agents'
+and the report stages' (agents/usage.py spent(), by the request root each call records), plus any dollars charged on it
+directly; a standing mandate's is the campaign's since it was granted. When it reaches the envelope (model_usd), new agent
+turns under that request hold, as the campaign's model cap holds every turn, with one inbox card to raise it (hold()).
+
 An agent proposes its request's mandate with mandate_propose (R2, agents/tools.py): Answer and Explore within the researcher's
 thresholds are granted at once (propose()); Screen and Run the campaign become one inbox card, an approval.request of kind mandate,
 and the researcher's choice records the mandate (approve()). A request with none has Explore, recorded at its first command that
@@ -21,6 +26,8 @@ from datetime import datetime, timedelta, timezone
 from optimization_framework.contracts.commands import PlannedRun
 from optimization_framework.contracts.mandates import Mandate, MandateCompute, RequestRoot, StopCondition
 from optimization_framework.storage.sqlite import identifier, now
+
+from optimization_framework.agents import usage
 
 from . import compute_consent
 
@@ -134,9 +141,22 @@ def read(workspace, row, current=None):
         compute = envelope(workspace, row["campaign_id"], row["template"], row.get("compute")).model_dump(exclude={"schema_version"})
         workspace_ids = list(dict.fromkeys([*row.get("workspace_ids", []), *row.get("opened", [])]))
     used = {"worker_seconds": 0.0, "coding_workspaces": 0, "model_usd": 0.0, **used}
+    used["model_usd"] += model_spent(workspace, row)
     return Mandate(**{key: row.get(key) for key in ("id", "campaign_id", "root", "template", "classes", "plan", "hypothesis_ids", "runs",
         "model_usd", "deadline_at", "stop_when", "granted_by", "consent_id", "created_at")}, workspace_ids=workspace_ids, compute=compute,
         used=used, status=_status(workspace, row["status"], compute, used, row.get("model_usd"), row.get("deadline_at"), consent, current))
+
+
+def model_spent(workspace, row):
+    """API dollars of the model calls under a mandate's request; for a standing mandate, the campaign's since its grant."""
+    root = row.get("root")
+    return usage.spent(workspace.store, row["campaign_id"], root) if root else \
+        usage.spent(workspace.store, row["campaign_id"], since=row.get("created_at"))
+
+
+def model_left(mandate):
+    """Dollars left in a mandate's model-spend envelope; None when it sets none."""
+    return None if mandate.model_usd is None else max(0.0, mandate.model_usd - mandate.used.model_usd)
 
 
 def from_consent(workspace, consent, current=None):
@@ -170,6 +190,57 @@ def serves(mandate, root):
 def active(workspace, campaign_id, root):
     """The newest active mandate that serves this request, or None: then the request has the default, Explore (decision 10)."""
     return next((mandate for mandate in reversed(mandates(workspace, campaign_id)) if mandate.status == "active" and serves(mandate, root)), None)
+
+
+def current(workspace, campaign_id, root):
+    """The newest mandate in force for this request, its envelope spent or not: the one whose model spend holds its turns."""
+    return next((mandate for mandate in reversed(mandates(workspace, campaign_id))
+                 if mandate.status in {"active", "exhausted"} and serves(mandate, root)), None)
+
+
+def model_spent_out(mandate):
+    return mandate.model_usd is not None and mandate.used.model_usd >= mandate.model_usd - 1e-9
+
+
+def hold(workspace, campaign_id, root):
+    """The mandate whose model envelope this request's turns wait on, or None. Its first hold asks the researcher, once per
+    envelope, with one inbox card to raise it (raise_model on approval)."""
+    mandate = current(workspace, campaign_id, root)
+    if mandate is None or not model_spent_out(mandate):
+        return None
+    identity = f"mandate_model_{mandate.id}_{mandate.model_usd:g}".replace(".", "_")
+    if _record(workspace, identity, "decision") is None:
+        campaign = workspace.store.get(campaign_id, "campaign")
+        step = mandate.model_usd or 1.0
+        raised = round(mandate.model_usd + step, 2)
+        title = f"Raise this request's model spending to ${raised:.2f}?"
+        workspace.store.put("decision", {"id": identity, "campaign_id": campaign_id, "charter_version": campaign["version"],
+            "guidance_revision": workspace.memory.state(campaign_id)["guidance_revision"], "question": title, "title": title,
+            "rationale": f"The agents' model calls for this request have cost ${mandate.used.model_usd:.2f} of the "
+                         f"${mandate.model_usd:.2f} it was given, so its next turns wait.",
+            "context": (mandate.plan or "")[:2000],
+            "proposal": f"Raise the request's model-spend envelope from ${mandate.model_usd:.2f} to ${raised:.2f}. The campaign's own "
+                        "LLM cap still applies.",
+            "options": [{"id": "0", "label": f"Raise to ${raised:.2f}", "description": "The request's waiting turns go on."},
+                        {"id": "1", "label": "Leave it as it is", "description": "The request's turns keep waiting; nothing else changes."}],
+            "recommendation": "0", "approval_request": {"kind": "mandate_model", "mandate_id": mandate.id, "model_usd": raised},
+            "requested_by": "platform", "audience": "researcher", "status": "pending", "created_at": now(),
+            **({"request_root": mandate.root.model_dump(exclude={"schema_version"})} if mandate.root else {})}, "decision.created")
+    return mandate
+
+
+def raise_model(workspace, mandate_id, model_usd, decision_id):
+    """The researcher's raise of a mandate's model-spend envelope, recorded with the decision that granted it."""
+    with workspace.lock:
+        row = _record(workspace, mandate_id, "mandate")
+        if row is None:
+            raise ValueError(f"No mandate {mandate_id}")
+        if row.get("model_usd") is not None and model_usd < row["model_usd"]:
+            raise ValueError("A raise does not lower the envelope")
+        row["model_usd"] = model_usd
+        row["raises"] = [*row.get("raises", []), {"model_usd": model_usd, "decision_id": decision_id, "at": now()}]
+        workspace.store.put("mandate", row, "mandate.raised")
+    return read(workspace, row)
 
 
 def grant(workspace, campaign_id, template, *, root=None, granted_by="automatic", plan=None, hypothesis_ids=(), workspace_ids=(), runs=(),
