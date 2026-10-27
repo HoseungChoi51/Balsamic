@@ -336,8 +336,11 @@ workspace: the proposals it serves, who opened it under which go-ahead, its phas
 its CPU against the allowance, its latest checkpoint, its result (the delivery with the agent's verdict, each method, the
 limitations and the next steps by owner; a validation's result; a failure), how its library was installed (Balsamic installs
 a delivered one by itself and asks only when installed packages would change; Install there installs it again,
-`agents/library_install.py`), a box to message the coding agent, and its history newest first
-(`.../implementation-workspaces/{id}/timeline`). Each result is an inbox item until acknowledged.
+`agents/library_install.py`), a box to message the coding agent, "Deliver from your own coding agent" (a token for
+the workspace, shown once, with the commands that clone its library and submit a commit from the researcher's machine;
+`POST`/`GET .../implementation-workspaces/{id}/session-token`, the token taken by `.../bundles`, `.../bundles/base` and
+`.../bundles/start`, `agents/own_session.py`, roadmap H3; such a delivery reads "from your own session"), and its history
+newest first (`.../implementation-workspaces/{id}/timeline`). Each result is an inbox item until acknowledged.
 
 **Detached chat.** "Detach" in the chat header opens `#t/<thread>/chat`, a chat-only window (`window.name = balsamic-chat`);
 the main window replaces its chat column by a thin strip (Reattach) so the page fills it. Page links clicked in the detached window go over
