@@ -359,7 +359,10 @@ class CommandService:
                 hypothesis = hypotheses.create(self.workspace, command.campaign_id, values,
                     identity="hypothesis_" + command.id, bundle=prepared)
                 if actor == "manager":
-                    hypothesis.update(origin="pi" if self.workspace.pi.owns(command.campaign_id) else "manager", requires_concept_review=True)
+                    from .proposals import researcher_request
+                    asked = researcher_request(self.workspace, command.origin)
+                    hypothesis.update(origin="pi" if self.workspace.pi.owns(command.campaign_id) else "manager", requires_concept_review=True,
+                                      **({"requested_by": asked} if asked else {}))
                     self.store.put("hypothesis", hypothesis)
                     if self.workspace.pi.owns(command.campaign_id):
                         self.store.put_immutable("agent_alias", {"id": "pi_alias_" + hypothesis["id"], "campaign_id": command.campaign_id,
