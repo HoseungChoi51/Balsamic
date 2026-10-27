@@ -8,6 +8,7 @@ import time
 from optimization_framework.contracts.base import content_hash, lenient
 from optimization_framework.contracts.commands import Command
 from optimization_framework.storage.sqlite import now
+from optimization_framework.campaigns.guidance import WALKED, linked_ids
 from optimization_framework.campaigns.record_view import view_record
 from optimization_framework.campaigns.proposals import STANDINGS
 from .models import ROLES, LEAD, PAGE_AGENTS, RETIRED_ROLES, STANDING, DISCUSSION_ROLES
@@ -92,6 +93,10 @@ DIALOG_SECONDS = 15 * 60
 # A command refused because the researcher acted during the turn (the bus's "Researcher guidance changed ..." message).
 GUIDANCE_RECOVERY = ("The researcher changed the campaign during your turn. Read campaign_inspect, check the change against what you were doing, "
                      "and retry only if it still applies.")
+
+
+# A locked confirmation's trials, their files and their analyses, and whatever refers to them (campaigns/guidance.py).
+WITHHELD = "withheld until the confirmation is released"
 
 
 # Every tool result joins the model's context for the rest of its session, and a provider refuses a
@@ -860,7 +865,18 @@ class PiTools:
             return entry["data"]
         if entry["kind"] not in READ_KINDS or entry["data"].get("campaign_id", entry["data"].get("id")) != agent["campaign_id"]:
             raise ValueError("Evidence is not readable within this campaign")
+        withheld, views = self.workspace.memory.protected(agent["campaign_id"])
+        if identity in views:
+            return views[identity]
+        # A record the visibility walk does not cover (a tool receipt, a run, a report) is withheld when it names withheld evidence.
+        if identity in withheld or entry["kind"] not in WALKED and linked_ids(entry["data"], withheld):
+            raise ValueError(WITHHELD)
         return entry["data"]
+
+    def withheld(self, agent, identity):
+        """Refuse a withheld trial where only the trial itself would do (its files, an analysis of it)."""
+        if identity in self.workspace.memory.protected_ids(agent["campaign_id"]):
+            raise ValueError(WITHHELD)
 
     def compute(self, agent, expression, values, identity):
         """An expression over literals and numbers read from this campaign's records, evaluated by the charter's whitelisted
@@ -1035,7 +1051,8 @@ class PiTools:
                 rows = db.execute("SELECT id,kind,json_extract(data,'$.title') AS title,json_extract(data,'$.status') AS status FROM records "
                     "WHERE (campaign_id=? OR id=?) AND kind IN (" + ",".join("?" for _ in kinds) + ") AND data LIKE ? ESCAPE '\\' ORDER BY rowid LIMIT ? OFFSET ?",
                     [cid, cid, *kinds, query, args.get("limit", 25), args.get("offset", 0)]).fetchall()
-            return {"records": [dict(r) for r in rows], "next_offset": args.get("offset", 0) + len(rows)}
+            withheld = self.workspace.memory.protected_ids(cid)
+            return {"records": [dict(r) for r in rows if r["id"] not in withheld], "next_offset": args.get("offset", 0) + len(rows)}
         if name in {"source_search", "source_ingest"}:
             from optimization_framework.research.sources import deliver
             receipt = deliver(self.workspace, {"id": identity, "campaign_id": cid,
@@ -1100,7 +1117,7 @@ class PiTools:
             return self.ask_page_agent(agent, self.controller.page_agent(cid, args["page_agent"]), args["message"], args.get("evidence_ids", []), identity, run=run)
         if name == "experiment_progress":
             from .experiments import progress
-            return progress(self.workspace, cid, args.get("finished", 8))
+            return progress(self.workspace, cid, args.get("finished", 8), withheld=self.workspace.memory.protected_ids(cid))
         if name == "compute":
             return self.compute(agent, args["expression"], args.get("values", {}), identity)
         if name == "config_suggest":

@@ -12,12 +12,20 @@ from optimization_framework.storage.sqlite import identifier, now
 
 
 GUIDANCE_LIMIT = 48 * 1024
+# The kinds an agent may see, walked for what refers to withheld evidence.
+WALKED = ("campaign", "task", "hypothesis", "trial", "decision", "message", "source", "source_retrieval", "manager_note", "manager_issue", "implementation_grant",
+    "study", "nomination", "finalist_selection", "finalist_confirmation_binding", "budget_amendment", "campaign_budget_amendment", "validation_requirement", "validation_result", "waiver", "waiver_revocation",
+    "confirmation_protocol", "confirmation_allocation_binding", "confirmation_release", "confirmation_report", "execution_attempt", "diagnostic_grant", "reuse_decision", "asset", "work_command", "command_rejection", "outbox",
+    "experiment_draft", "draft_launch", "reproduction_comparison", "study_execution", "study_activation", "confirmation_design",
+    "protocol_cell", "method_binding", "cell_launch", "execution_grant", "execution_grant_release",
+    "evaluator_requirement", "evaluator_binding", "source_capture", "thread", "problem_note", "problem_note_revision", "intervention")
 
 
 class CampaignGuidance:
     def __init__(self, workspace):
         self.workspace = workspace
         self.store = workspace.store
+        self._protected = {}
 
     def state(self, campaign_id):
         identity = "manager_" + campaign_id
@@ -121,13 +129,35 @@ class CampaignGuidance:
         """(kind, record) pairs an agent may read: held-out evidence and what refers to it stay out until released."""
         return self._records(campaign_id)
 
+    def protected_ids(self, campaign_id):
+        """The ids _records() withholds from agents: locked splits, unreleased cohorts, and whatever refers to them."""
+        return self.protected(campaign_id)[0]
+
+    def protected(self, campaign_id):
+        """(the withheld ids, {withheld id: the view an agent reads in its place}): a trial reads as its status, an issue and
+        its message as the operational notice _records() gives. Cached by the campaign's event cursor and the store's writes,
+        so the walk runs once per change."""
+        with self.store.connection() as db:
+            cursor = db.execute("SELECT COALESCE(MAX(id),0) FROM events WHERE campaign_id=?", (campaign_id,)).fetchone()[0]
+        key = (cursor, self.store.revision(*WALKED, "evaluator_evidence"))
+        # A transaction that wrote records sees them before they count as writes: it walks again.
+        fresh = not (self.store.in_transaction and getattr(self.store._local, "written", None))
+        cached = self._protected.get(campaign_id)
+        if fresh and cached and cached[0] == key:
+            return cached[1]
+        records, locked, visible = self._walk(campaign_id)
+        views = {item["id"]: item for _, item in visible if item["id"] in locked}
+        views.update((item["id"], status_view(campaign_id, item)) for kind, item in records if kind == "trial" and item["id"] in locked)
+        result = (frozenset(locked), views)
+        if fresh:
+            self._protected[campaign_id] = (key, result)
+        return result
+
     def _records(self, campaign_id):
-        kinds = ("campaign", "task", "hypothesis", "trial", "decision", "message", "source", "source_retrieval", "manager_note", "manager_issue", "implementation_grant",
-                 "study", "nomination", "finalist_selection", "finalist_confirmation_binding", "budget_amendment", "campaign_budget_amendment", "validation_requirement", "validation_result", "waiver", "waiver_revocation",
-                 "confirmation_protocol", "confirmation_allocation_binding", "confirmation_release", "confirmation_report", "execution_attempt", "diagnostic_grant", "reuse_decision", "asset", "work_command", "command_rejection", "outbox",
-                 "experiment_draft", "draft_launch", "reproduction_comparison", "study_execution", "study_activation", "confirmation_design",
-                 "protocol_cell", "method_binding", "cell_launch", "execution_grant", "execution_grant_release",
-                 "evaluator_requirement", "evaluator_binding", "source_capture", "thread", "problem_note", "problem_note_revision", "intervention")
+        return self._walk(campaign_id)[2]
+
+    def _walk(self, campaign_id):
+        kinds = WALKED
         records = []
         for kind in kinds:
             values = [self.store.get(campaign_id, "campaign")] if kind == "campaign" else self.store.list(kind, campaign_id)
@@ -146,35 +176,7 @@ class CampaignGuidance:
             item.get("protected_cohort_id") and item["protected_cohort_id"] not in released_cohorts}
         known_ids = {item["id"] for _, item in records}
 
-        def references(value):
-            if isinstance(value, str):
-                return {value} if value in known_ids else set()
-            if isinstance(value, dict):
-                result = set()
-                for key, item in value.items():
-                    if key == "id":
-                        continue
-                    # Trial masks are numerical payloads, not record links.
-                    # Inspect the shape only, avoiding millions of scalar
-                    # checks when a 2D design appears in progress and archive.
-                    if key in {"candidate", "best_candidate", "best_design", "design"} and isinstance(item, list) and item:
-                        first = item[0]
-                        if isinstance(first, (int, float, bool)) or (isinstance(first, list) and first
-                                and isinstance(first[0], (int, float, bool))):
-                            continue
-                    result.update(references(item))
-                return result
-            if isinstance(value, list):
-                # Worker progress embeds large numerical masks. A numeric row
-                # cannot contain a record reference and need not be recursed.
-                if value and all(isinstance(item, (int, float, bool)) for item in value):
-                    return set()
-                result = set()
-                for item in value:
-                    result.update(references(item))
-                return result
-            return set()
-        edges = [(item["id"], references(item)) for _, item in records]
+        edges = [(item["id"], linked_ids(item, known_ids)) for _, item in records]
         changed = True
         while changed:
             changed = False
@@ -185,9 +187,7 @@ class CampaignGuidance:
         visible = [(kind, item) for kind, item in records if item["id"] not in locked]
         for kind, item in records:
             if kind == "trial" and item.get("protected_cohort_id") and item["id"] in locked:
-                visible.append(("protected_work_status", {"id": "status_"+item["id"], "campaign_id": campaign_id,
-                    "status": item["status"], "study_execution_id": item.get("study_execution_id"),
-                    "protected_evidence": True, "message": "Predeclared cohort work; results withheld until evidence release"}))
+                visible.append(("protected_work_status", status_view(campaign_id, item)))
         # Operational failures still reach the manager while heldout numerical
         # evidence stays protected. Never copy arbitrary worker error text here.
         hidden_issues = {item["id"] for kind, item in records if kind == "manager_issue" and item["id"] in locked}
@@ -202,5 +202,42 @@ class CampaignGuidance:
                 visible.append((kind, {"id": item["id"], "campaign_id": campaign_id, "role": item["role"],
                     "issue_id": item["issue_id"], "origin": "manager_system", "created_at": item["created_at"],
                     "content": "An issue in heldout work requires the campaign manager's attention. Numerical evidence remains protected."}))
-        return visible
+        return records, locked, visible
 
+
+def status_view(campaign_id, trial):
+    """What an agent reads of a withheld trial: whether it is running or done, never its results."""
+    return {"id": "status_" + trial["id"], "campaign_id": campaign_id, "status": trial["status"],
+            "study_execution_id": trial.get("study_execution_id"), "protected_evidence": True,
+            "message": "Predeclared cohort work; results withheld until evidence release"}
+
+
+def linked_ids(value, known_ids):
+    """The ids of known_ids that value refers to, anywhere in it."""
+    if isinstance(value, str):
+        return {value} if value in known_ids else set()
+    if isinstance(value, dict):
+        result = set()
+        for key, item in value.items():
+            if key == "id":
+                continue
+            # Trial masks are numerical payloads, not record links.
+            # Inspect the shape only, avoiding millions of scalar
+            # checks when a 2D design appears in progress and archive.
+            if key in {"candidate", "best_candidate", "best_design", "design"} and isinstance(item, list) and item:
+                first = item[0]
+                if isinstance(first, (int, float, bool)) or (isinstance(first, list) and first
+                        and isinstance(first[0], (int, float, bool))):
+                    continue
+            result.update(linked_ids(item, known_ids))
+        return result
+    if isinstance(value, list):
+        # Worker progress embeds large numerical masks. A numeric row
+        # cannot contain a record reference and need not be recursed.
+        if value and all(isinstance(item, (int, float, bool)) for item in value):
+            return set()
+        result = set()
+        for item in value:
+            result.update(linked_ids(item, known_ids))
+        return result
+    return set()
