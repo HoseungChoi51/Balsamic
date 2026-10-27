@@ -49,6 +49,7 @@ fidelity_trap = "optimization_benchmarks.problems:FidelityTrapProblem"
 knapsack_dp = "optimization_benchmarks.problems:KnapsackProblem"
 
 [project.entry-points."optimization_framework.optimizers"]
+flrl = "dqn_meent.flrl_methods:FourierPlugin"
 mask_optimizers = "dqn_meent.mask_library_adapter:MaskLibraryPlugin"
 
 [tool.uv]
