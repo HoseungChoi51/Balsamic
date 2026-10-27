@@ -5,7 +5,7 @@
 | Part of | [The Balsamic roadmap](README.md). Read its §0 (instructions), §1 (principles) and §2 (decisions) first |
 | Replaces | `docs/charter-to-results-plan.md` (`cc0e693`): the same goal, the same decisions 1–3 and the same phases, split into PR-sized parts and checked against the code at `cc0e693` |
 | Also includes | `docs/suggestions.md` S2 (part A4) |
-| Decisions it needs | 4–7 and 9 (README §2.2) |
+| Decisions it needs | 4–7 and 9 (README §2.2); 22 and 23 for the D1 and F1 notes on white-box problems (§2.3) |
 | Status | Not started. A1 fixes a live bug: do it first |
 
 ## Summary
@@ -193,10 +193,14 @@ the horizon at L185–190), `docs/optimizer-plugins.md`.
    `held_after_finish: true`.
 5. Check the readers of trial status for `completed` vs `failed` (`src/balsamic/evolution`, `analysis/standard_rules.py`):
    a finished run is a completed run.
+6. The final inspection of a finished method is kept in `progress` as `final_inspection`. A method may put
+   `{"bound": x, "proved_optimal": true}` in it (an exact method's proof, a solver's dual bound). This part only records
+   it; N13 shows and checks it.
 
 **Tests**
 - A packaged module that returns `[]` after three proposals: completed, `method_finished`, best kept, `scientific_complete`.
 - A method that raises any other exception still fails, with its message.
+- A finished method's `bound` and `proved_optimal` are kept in `final_inspection`.
 - A report with one finished run and one long run compares at the long run's cost, the finished value held.
 
 **Done when** the tests pass and `docs/optimizer-plugins.md` documents finishing.
@@ -545,6 +549,10 @@ checkpoint path), `optimizers/finish.py` (from A3), `contracts/problems.py` (`Pr
 - `rng` is a seeded `numpy.random.Generator`; `random` and `np.random` are seeded from the same seed.
 - `problem` is the library's own problem object when the plug-in provides one (F3), else a read-only mapping of
   `instance.descriptor()`.
+- On a white-box problem (the default, decision 22) the method may compute the objective itself, as often as it likes:
+  through `problem.objective(candidate)`, or the library's `objective.py`. Such calls are not observations and are not
+  counted; the run is judged on time (decision 23). `evaluate` records a candidate, and the best known to Balsamic is the
+  best of those recorded. N11 adds the `oracle` case, where `problem` has no objective.
 
 **Change:** new `optimizers/functions.py`:
 1. `StopSearch(BaseException)`.
@@ -756,10 +764,12 @@ function: the same charter revision always gives the same bytes. No generated fi
   - `README.md`: what the problem is, and how to run the tests and the comparison;
   - `<pkg>/data.py`: each instance's resolved values, the candidate schema and the objective (name, direction, units);
   - `<pkg>/problem.py`: a typed `Problem` per instance and `is_valid(candidate)` for the schema and the linear constraints;
-  - `<pkg>/harness.py`: `StopSearch(BaseException)` and `run(method, problem, seed, max_evaluations)` returning the log and
-    the best;
-  - `<pkg>/compare.py`: `python -m <pkg>.compare [--seeds N --evaluations M]` runs every method on every instance and prints
-    a table ranked by the objective's direction.
+  - `<pkg>/harness.py`: `StopSearch(BaseException)` and `run(method, problem, seed, max_seconds=None, max_evaluations=None)`
+    returning the log, the best and the elapsed time; at least one cap is required;
+  - `<pkg>/compare.py`: `python -m <pkg>.compare [--seeds N --seconds S --evaluations M]` runs every method on every instance
+    and prints a table ranked by the objective's direction, with each run's time and evaluations. The default cap is
+    `--seconds`, since a white-box method (decision 22) may compute the objective without calling `evaluate`; deterministic
+    methods run once whatever `--seeds` says (decision 14).
 - **For the agent to fill:**
   - `<pkg>/objective.py`: `def objective(problem, candidate) -> float`, raising `NotImplementedError`, its docstring the
     charter's objective definition with the values filled in, and the constraint statements;
@@ -776,7 +786,7 @@ function: the same charter revision always gives the same bytes. No generated fi
 - Golden tests for a small continuous charter and a discrete one (the file list and key contents).
 - The generated project, with a trivial objective and method filled in, passes its own tests in a temporary directory.
 - No generated file imports `optimization_framework` or `balsamic`.
-- `compare.py` ranks a minimize problem correctly.
+- `compare.py` ranks a minimize problem correctly, and stops a method on `--seconds`.
 
 **Done when** the tests pass.
 
