@@ -70,6 +70,23 @@ def test_package_checkpoint_over_16_mib_uses_binary_transport_and_restores(tmp_p
         optimizer.close()
 
 
+def test_a_sandboxed_package_that_returns_no_proposal_has_finished(tmp_path):
+    from optimization_framework.optimizers.finish import MethodFinished
+    source = (Path(__file__).resolve().parents[1] / "examples/implementation-reference/continuous_optimizer_v1.py").read_text()
+    source = source.replace("        self.proposals += 1\n", "        if self.proposals == 1:\n            return []\n        self.proposals += 1\n")
+    package = Package(contract="optimizer_v1", files=[{"path": "optimizer.py", "content": source}])
+    root, runtime = prepare_runtime(tmp_path / "runtimes", {})
+    directory = write_package(tmp_path / "package", package)
+    optimizer = PackageOptimizer(directory, root, runtime, package.entrypoint, context(spec(), 2, 4), contract="optimizer_v1")
+    try:
+        assert len(optimizer.propose(1)) == 1
+        optimizer.pending = []   # the observation itself is not under test
+        with pytest.raises(MethodFinished):
+            optimizer.propose(1)
+    finally:
+        optimizer.close()
+
+
 def test_native_package_build_binding_and_experiment_share_the_common_worker(tmp_path):
     from optimization_framework.implementations.models import JobRequest, ReviewResult
     from optimization_framework.implementations.service import ImplementationService

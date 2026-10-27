@@ -11,6 +11,7 @@ from __future__ import annotations
 import base64
 
 from optimization_framework.contracts.problems import Proposal
+from optimization_framework.optimizers.finish import MethodFinished
 
 
 class PackagedOptimizer:
@@ -27,7 +28,13 @@ class PackagedOptimizer:
     def propose(self, max_candidates=1):
         if self.pending:
             raise ValueError("Observe the outstanding batch before proposing again")
-        proposals = [Proposal(**proposal) for proposal in self.optimizer.propose(max_candidates)]
+        try:
+            raw = self.optimizer.propose(max_candidates)
+        except StopIteration as exc:
+            raise MethodFinished(exc.value if isinstance(exc.value, str) else None) from None
+        if isinstance(raw, list) and not raw:
+            raise MethodFinished()
+        proposals = [Proposal(**proposal) for proposal in raw]
         if not 1 <= len(proposals) <= max_candidates or len({p.id for p in proposals}) != len(proposals):
             raise ValueError("The optimizer returned no proposal, too many, or repeated proposal ids")
         self.pending = proposals

@@ -326,6 +326,7 @@ def comparison_brief(report):
              "method_summaries": group.get("method_summaries", []),
              "trials": [{**{key: trial.get(key) for key in ("id", "seed", "method_id", "algorithm", "status", "best_objective", "censored")},
                          **({"chain_trial_ids": trial["chain_trial_ids"]} if trial.get("chain_trial_ids") else {}),
+                         **({"held_after_finish": True} if trial.get("held_after_finish") else {}),
                          "end_cost": trial["curve"][-1]["cost"] if trial.get("curve") else None} for trial in group["trials"]]}
             for group in report.get("groups", [])]
 
