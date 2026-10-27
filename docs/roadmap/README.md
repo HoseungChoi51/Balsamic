@@ -4,9 +4,9 @@
 |---|---|
 | Target | `kc-ml2/balsamic`, branch `workspace-rebuild`. The parts are built on Hoseung's fork, `HoseungChoi51/Balsamic`, whose `main` holds that branch: on the fork, read `workspace-rebuild` in this roadmap as `main` |
 | Date | 2026-10-27 |
-| Sources | `docs/charter-to-results-plan.md` (`cc0e693`), which Phase 1 replaces; and the design-drift review of 2026-10-27, every suggestion and every lost idea it lists (§4 maps each one to its parts) |
+| Sources | `docs/charter-to-results-plan.md` (`cc0e693`), which Phase 1 replaces; the design-drift review of 2026-10-27, every suggestion and every lost idea it lists (§4 maps each one to its parts); and the algorithm-family review of 2026-10-27 (§4.1) |
 | Checked against | The code at `cc0e693`. Each part's "Today" says what the code does now |
-| Status | Plan, not started. A1 fixes a live bug. Decisions 1–21 are settled (§2): 1–3 before this roadmap, the rest in Hoseung's review on 2026-10-27, 8 and 14 with changes |
+| Status | Plan, not started. A1 fixes a live bug. Decisions 1–24 are settled (§2): 1–3 before this roadmap, 4–21 in Hoseung's review on 2026-10-27 (8 and 14 with changes), 22–24 after the algorithm-family review the same day (22 with a change) |
 | How to work | One part = one branch = one PR into `workspace-rebuild`. Each phase file lists its parts, what each depends on and which can run in parallel |
 
 The diagnosis behind Phases 2 to 7, in one paragraph: Balsamic enforces in code what agents may *do* (commands, compute,
@@ -26,13 +26,13 @@ and domain knowledge moved out of the core into problem packs.
 | 3 | **A mandate for every request.** What a request allows is a record the command bus checks, not a line of the prompt | 7: R1–R7 | B2; the J1 baseline | [phase-3-mandates.md](phase-3-mandates.md) |
 | 4 | **The coding box.** Pi inside, behind an interface that does not depend on Pi; open inside, strict at the walls, validated outside | 8: H1–H8 | F3, F4 for most parts | [phase-4-coding-box.md](phase-4-coding-box.md) |
 | 5 | **Evidence gates.** A stop, a promotion or a read of a locked result needs its evidence or the researcher's waiver | 5: V1–V5 | the J1 baseline | [phase-5-evidence-gates.md](phase-5-evidence-gates.md) |
-| 6 | **Problem packs.** Domain knowledge out of the core; problem-agnostic constraints (M5) | 10: N1–N10 | — (N9, N10 after G1 and decision 20) | [phase-6-problem-packs.md](phase-6-problem-packs.md) |
+| 6 | **Problem packs.** Domain knowledge out of the core; problem-agnostic constraints (M5); every algorithm family on fair terms | 15: N1–N15 | — (N9, N10 after G1 and decision 20; N11 after N2) | [phase-6-problem-packs.md](phase-6-problem-packs.md) |
 | 7 | **Fewer standing agents, claims that resolve.** Roles as calls with assembled context; numbers that point at receipts; findings that say what they state | 8: T1–T4, K1–K4 | the Phase 2 baseline; V4 for T1; V1, V2 for K4 | [phase-7-agents-and-claims.md](phase-7-agents-and-claims.md) |
 
-73 parts. Size: S is under about 200 changed lines including tests, M about 200–600, L more.
+78 parts. Size: S is under about 200 changed lines including tests, M about 200–600, L more.
 
 **Names.** A part is a letter and a number (A1); the letter is its track, and a phase holds one or two tracks. A line
-number is written L123. Decisions are numbered 1–21 and written "decision 7" (the first version of this plan called 4–9
+number is written L123. Decisions are numbered 1–24 and written "decision 7" (the first version of this plan called 4–9
 "D4–D9"). Other series keep their own names, and the roadmap names their file when it cites them: the harness plan's
 D1–D9, `docs/suggestions.md`'s findings R1–R6, suggestions S1–S7 and questions Q1–Q8, and the eval scenarios S1–S16.
 Entries of `docs/lead-agent-readiness.md` are "Part T", "Part U" and so on: a separate series, which names the roadmap
@@ -162,6 +162,18 @@ Changed in the review of this roadmap:
 | 20 | When M5 (problem-agnostic constraints) starts | After G1 passes and Hoseung confirms the narrower framework end to end, as decided on 21 October | N9, N10 |
 | 21 | What moves to `docs/history/` | The 14 docs that open with a "Superseded" banner at `cc0e693`, plus `docs/charter-to-results-plan.md` and `docs/agentic-algorithm-discovery-plan.md` (the first plan, superseded by the redesign that is itself superseded); `docs/harness-update-plan.md` once its D1–D9 are marked. Links in the repository are updated; no stubs are left | I3 |
 
+### 2.3 Settled after the algorithm-family review (Hoseung, 2026-10-27)
+
+The review asked whether Balsamic favours MILP-style methods. It does not run MILP solvers; its bias is toward black-box
+search (Phase 6 "Why"). Balsamic's goal is to solve the researcher's practical problem as efficiently as possible, not to
+run a benchmark or teach, and the decisions follow from that.
+
+| # | Decision | Settled | Parts |
+|---|---|---|---|
+| 22 | May a method use the objective's code, not only call the evaluator? | Yes, by default: every problem is `white_box` unless it declares `oracle` (an expensive evaluator such as MEENT, or a black-box comparison the researcher wants). Changed in the review: the recommendation was `oracle` by default | N11, D1, F1 |
+| 23 | The default cost axis on a white-box problem | `worker_seconds` on a fixed worker class; `core_seconds` (threads × wall time) when a method uses more than one thread. Evaluations stay as a diagnostic | N11, F1 |
+| 24 | A general problem-owned representation, or one named type at a time | `structured`, owned by the problem's library. A named type enters the core only once two problems need it (the rule of two, `docs/optimizer-plugins.md`) | N12 |
+
 ---
 
 ## 3. Order across phases
@@ -170,9 +182,10 @@ Phases are an order of priority, not a strict sequence: parts state their real d
 
 ```
 Now     Phase 1 (A1 first; critical path A3 → D1 → D2 → F3 → F4 → G1)
-        Phase 2 beside it (I1, I2, I3, J1–J4: other files)          N1 (the domain-names ratchet: one test)
+        Phase 2 beside it (I1, I2, I3, J1–J4: other files)          N1 (the domain-names ratchet: one test), N15 (prompts)
 Next    Phase 3 (after B2)                                          Phase 5 (V3 first, then V4, V1, V2, V5)
-Then    Phase 4 (after F3, F4)                                      Phase 6 (N2–N8; N9, N10 after G1 and decision 20)
+Then    Phase 4 (after F3, F4)                                      Phase 6 (N2–N8, N11, N13, N14; N9, N10, N12 after G1
+                                                                    and decision 20)
 Last    Phase 7: T1–T4 judged against the Phase 2 baseline (K1–K3 may start any time; K4 after V1, V2)
 ```
 
@@ -195,6 +208,10 @@ first because it is the work in progress and it holds a live bug.
 | T1 | V4 | The assembled context uses the same visibility rule as the read tools |
 | K4 | V1, V2 | A negative library entry needs a typed stop and, for a performance stop, an adequate assessment |
 | N9, N10 | G1, decision 20 | M5 waits for the narrower framework to be confirmed end to end |
+| N12 | N9 | A problem-owned candidate is admitted through N9's design-constraint path |
+| N13 | A3 | The bound travels in a finished method's final inspection |
+| N14 | N5 | The size ladder sits in the pack's `racing` section beside the fidelity ladder |
+| J1 (S17) | — | It measures the bias N11 and N15 address: expected to fail before them |
 | J1 (S15) | — | It measures the gap V4 closes: expected to fail before V4 |
 | Phase 7 | J1–J3 | Its parts are kept or reverted by their effect on the baseline |
 
@@ -263,6 +280,21 @@ flexibility and guardrails fought, 07 a coding-harness architecture, 08 architec
 | 09 | Docs smaller and dated: `docs/history/`, short ADRs, one status page | I3 |
 | 09 | Close Part S's open decision: should outcomes of runs the researcher started wake the lead | R6 |
 | 10 | The suggested order | §3 |
+
+### 4.1 The algorithm-family review (2026-10-27)
+
+[Is Balsamic biased toward MILP?](https://claude.ai/artifact/LwiujDQ7GTZqyoqDJK7mtV) (a private doc of the project).
+
+| Gap | Parts |
+|---|---|
+| An order has no form; a method cannot finish; a method is heavy to write; methods do not see the data | C1, C2, A3, D1, D3 (Phase 1, unchanged) |
+| The problem does not say whether the objective is an oracle or known code; evaluations are the cost; a threaded solver cannot be compared | N11 (decisions 22, 23); F1 and D1 amended for time budgets and the objective |
+| No place for a proven bound or optimality; nothing exact as a baseline | N13 (with `enumerate`); A3 amended to keep the bound |
+| Instance size is not an axis | N14 |
+| Representations stop at vectors and orders; scheduling constraints have no form | N12 (decision 24), with N9 |
+| Prompts ask for a search method; nobody classifies the problem or looks up known algorithms | N15 |
+| Nothing measures the bias | J1 S17 |
+| The UI assumes anytime runs (evaluations axis, "Extend" as more budget, no proof or gap badges) | N11 (axis), N13 (badges), N14 ("Extend" as the next size) |
 
 ---
 
