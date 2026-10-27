@@ -16,6 +16,8 @@ of `docs/lead-agent-readiness.md`. `tests/test_invariants.py` reads the table be
 A row is `code` only when a test fails if the guarantee breaks. Code that enforces a guarantee no test pins makes the row
 `none` until a test is added, however sure the code looks. When a part changes a guarantee, it updates its row here in the
 same PR, with the test that now pins it (roadmap README §0.11).
+A fix for a failure starts at [incident triage](incident-triage.md), which says at which layer to hold the guarantee
+and what row to add here.
 
 ## Register
 
