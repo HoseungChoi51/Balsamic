@@ -153,6 +153,27 @@ It writes the same event files the extension writes, so the host does not change
 `agent-harness/test/workspace-cli.test.mjs` pins that both write the same events for
 the same inputs (roadmap H1).
 
+A thin adapter, `deploy/implementation-workspace/harness.mjs`, runs the harness
+(roadmap H2). Each workspace records its harness and mode (`harness: {name, mode}`,
+from the create request's `harness` and `harness_mode`, else the lab's
+`GRATING_DEVELOPMENT_HARNESS_MODE`, which the launcher's `development_harness_mode` sets,
+else `tui`); the host passes them to the container
+and `start.sh` reads them. Only `pi` has an adapter, and any other name is refused with
+the same text by the host, `start.sh` and the adapter. At each start the adapter adds
+the `balsamic-workspace` MCP server to Pi's `~/.pi/agent/mcp.json`, with `checkpoint`
+and `submit` hidden because the extension already gives Pi `campaign_checkpoint` and
+`campaign_submit`, so Pi also gets `ask`, `check` and `evidence`. In `tui` mode tmux runs
+Pi's terminal UI, as before. In `headless` mode tmux runs the adapter's runner: it
+delivers each host instruction (steering before follow-ups) as one `pi --mode json`
+run on the same session file, with the instruction on stdin. The extension then gives
+only its tools, and the runner maps Pi's JSON stream to the extension's events
+(`agent_start`, `message` with its usage, `tool`, `agent_settled`) and the receipts.
+A pause or stop interrupts the running instruction, and a run that fails is reported
+as `harness_error`. Headless runs cannot be steered mid-run: a steering message waits
+for the running instruction to finish. Another harness would be one more adapter,
+opted into per workspace on the researcher's own credentials mounted read-only, with
+only its model endpoint added to the egress allowlist (decision 8).
+
 The researcher can deliver from their own coding agent instead (roadmap H3,
 `agents/own_session.py`). On the workspace's card they make a token, shown to them
 once (Balsamic keeps its SHA-256; a new one replaces it; stopping the workspace

@@ -5,6 +5,7 @@ scripts/run_coding_evals.py without --fake."""
 import ast
 import importlib.util
 import json
+import os
 from pathlib import Path
 import subprocess
 
@@ -89,10 +90,13 @@ def test_a_delivered_library_is_checked_by_its_contract_test_and_conformance(tmp
 def test_a_fake_run_opens_the_workspace_through_the_implementation_lead_and_records_a_baseline(tmp_path):
     evals = runner()
     baseline = tmp_path / "baseline.json"
-    assert evals.main(["--fake", "--scenarios", "C1", "--timeout", "120", "--out", str(tmp_path / "out"), "--record-baseline", str(baseline)]) == 0
+    mode = os.environ.get("GRATING_DEVELOPMENT_HARNESS_MODE")
+    assert evals.main(["--fake", "--scenarios", "C1", "--timeout", "120", "--out", str(tmp_path / "out"), "--record-baseline", str(baseline),
+                       "--harness-mode", "headless"]) == 0
     [row] = json.loads((tmp_path / "out" / "results.json").read_text())["scenarios"]
     assert row["status"] == "pass" and row["error"] is None
     metrics = row["metrics"]
+    assert metrics["harness"] == {"name": "pi", "mode": "headless"}   # the workspace ran Pi headless (H2), as asked
     assert metrics["researcher_approvals"] == 1 and metrics["submissions"] == 1 and metrics["cost_usd"] == 0
     assert 0 <= metrics["seconds_to_workspace"] <= metrics["seconds_to_submission"]
     assert metrics["lead_turns"] >= 2 and metrics["notices_from_workspace"] >= 1
@@ -101,6 +105,7 @@ def test_a_fake_run_opens_the_workspace_through_the_implementation_lead_and_reco
     assert "| C1-cyclic-geometric-vnd | pass |" in (tmp_path / "out" / "summary.md").read_text()
     recorded = json.loads(baseline.read_text())
     assert recorded["mode"] == "fake" and recorded["scenarios"]["C1-cyclic-geometric-vnd"]["conformance"] is True
+    assert recorded["harness_mode"] == "headless" and os.environ.get("GRATING_DEVELOPMENT_HARNESS_MODE") == mode   # the lab's setting restored
     regressed = {**recorded, "scenarios": {"C1-cyclic-geometric-vnd": {**recorded["scenarios"]["C1-cyclic-geometric-vnd"], "passed": True}}}
     failing = {"mode": "real", "commit": "abc", "started_at": "now", "seconds": 1, "model": None,
                "scenarios": [{**row, "passed": False, "status": "fail", "delivery": None}]}

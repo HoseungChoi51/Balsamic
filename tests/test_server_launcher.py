@@ -166,6 +166,17 @@ def test_the_coding_workspace_ceilings_reach_services_and_are_checked(setup, mon
             launcher.configuration(path)
 
 
+def test_the_coding_workspaces_harness_mode_reaches_services_and_is_checked(setup, monkeypatch):
+    config, path, _, _, _ = setup
+    monkeypatch.setenv("GRATING_DEVELOPMENT_HARNESS_MODE", "headless")   # left in the calling shell: not passed on
+    assert "GRATING_DEVELOPMENT_HARNESS_MODE" not in launcher.service_environment(launcher.configuration(path))
+    path.write_text(json.dumps({**config, "development_harness_mode": "headless"}))
+    assert launcher.service_environment(launcher.configuration(path))["GRATING_DEVELOPMENT_HARNESS_MODE"] == "headless"
+    path.write_text(json.dumps({**config, "development_harness_mode": "gui"}))
+    with pytest.raises(launcher.LauncherError, match="development_harness_mode"):
+        launcher.configuration(path)
+
+
 def test_runtime_gate_is_on_by_default_and_the_configuration_can_change_or_remove_it(setup, monkeypatch):
     config, path, _, _, _ = setup
     monkeypatch.setenv("GRATING_RUNTIME_GATE_SECONDS", "5")   # a variable left in the calling shell does not decide
