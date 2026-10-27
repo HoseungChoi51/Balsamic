@@ -107,3 +107,4 @@ def test_instructions_do_not_grow_past_the_ratchet(team):
     assert words(other) <= SPECIALIST_WORDS * GROWTH, f"A specialist's instructions grew to {words(other)} words (ratchet {SPECIALIST_WORDS} + 10%)"
     from optimization_framework.agents.tools import INSTRUCTIONS
     assert words(lead) <= LEAD_LIMIT and words(INSTRUCTIONS) <= CORE_LIMIT
+

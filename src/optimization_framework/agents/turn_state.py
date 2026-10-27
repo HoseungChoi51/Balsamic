@@ -47,7 +47,13 @@ def common(tools, agent, run):
     else:
         lines.append("Open questions to the researcher: none.")
     lines.append(compute_rule(tools, agent["campaign_id"]))
-    return lines
+    return lines + pack_procedures(tools, agent)
+
+
+def pack_procedures(tools, agent):
+    """The procedures the campaign's problems bring (their packs), which the role catalogs in the cached instructions leave out."""
+    procedures = getattr(tools.workspace, "procedures", None)
+    return procedures.campaign_lines(tools.workspace, agent["role"], agent["campaign_id"]) if procedures is not None else []
 
 
 def compute_rule(tools, campaign_id):
@@ -109,9 +115,14 @@ def cap(lines):
 
 
 def build(tools, agent, run):
-    """The block for this agent's turn: empty for assistants of one assignment, import agents and implementation roles."""
-    if agent.get("grant_id") or agent["role"] not in {LEAD, *PAGE_AGENTS}:
+    """The block for this agent's turn: empty for implementation roles, and for assistants of one assignment and import agents
+    except for the procedures of the campaign's problems."""
+    if agent.get("grant_id"):
         return {"text": "", "hash": content_hash("")[:16]}
+    if agent["role"] not in {LEAD, *PAGE_AGENTS}:
+        lines = pack_procedures(tools, agent)
+        text = cap(lines) if lines else ""
+        return {"text": text, "hash": content_hash(text)[:16]}
     lines = common(tools, agent, run)
     if agent["role"] == LEAD:
         extra = getattr(tools.workspace, "lead_state", None)

@@ -181,6 +181,10 @@ def test_how_runs_are_presented_starts_from_the_problem_and_refuses_unreadable_c
     shown = default_presentation(grid)
     assert shown['design']['render'] == 'mask' and (shown['design']['rows'], shown['design']['cols']) == (128, 256)
     assert shown['design']['on_label'] == 'silicon' and 'thumbnail' in shown['list_columns']
+    # The labels are the pack's (roadmap N3), not read from the id: a problem without a pack, or one not installed, gets none.
+    assert shown['design']['off_label'] == 'air'
+    assert default_presentation({**grid, 'definition_id': 'meent_lookalike'})['design']['on_label'] == '1'
+    assert default_presentation({**grid, 'definition_id': 'bounded_continuous'})['design']['on_label'] == '1'
     assert default_presentation({'candidate_schema': {'representation': 'binary', 'dimensions': 64}})['design']['render'] == 'strip'
     assert default_presentation({'candidate_schema': {'representation': 'continuous', 'dimensions': 6}})['design']['render'] == 'table'
     assert default_presentation({'candidate_schema': {'representation': 'continuous', 'dimensions': 5000}})['design']['render'] == 'none'
