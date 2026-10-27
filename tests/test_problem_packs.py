@@ -2,7 +2,7 @@
 import pytest
 
 from optimization_benchmarks.problems import ContinuousProblem
-from optimization_framework.contracts.packs import PackReference, PackTools, ProblemPack
+from optimization_framework.contracts.packs import PackCost, PackReference, PackTools, ProblemPack
 from optimization_framework.contracts.requests import CampaignInput, TaskInput
 from optimization_framework.evaluation.registry import ProblemRegistry, problems
 from optimization_framework.execution.service import Workspace
@@ -114,12 +114,13 @@ def test_a_reinstalled_problem_s_pack_is_read_again(fixture_package):
 
 def test_meents_pack_is_assembled_from_one_module_per_part_as_it_was_written_before():
     """The pack's parts write a module each (pack/<part>_<topic>.py), so parallel parts never edit one file; assembled, it is the
-    pack as N4 wrote it in pack/__init__.py, field by field."""
+    pack as N4 wrote it in pack/__init__.py, field by field, with the parts added since (N11's cost)."""
     from dqn_meent import pack as meent
-    assert [name for name, _ in meent.contributions()] == ["n4_tools"]
+    assert [name for name, _ in meent.contributions()] == ["n11_cost", "n4_tools"]
     expected = ProblemPack(package="dqn_meent.pack", problem_ids=["meent_grating", "meent_2d_dual_polarization_deflector"],
                            tools=PackTools(agent_tools=["dqn_meent.pack.tools:register_agent_tools"],
-                                           operations=["dqn_meent.pack.tools:register_operations"]))
+                                           operations=["dqn_meent.pack.tools:register_operations"]),
+                           cost=PackCost(access="oracle", cost_axis="worker_seconds"))   # N11
     assembled = meent.pack()
     for field in ProblemPack.model_fields:
         assert getattr(assembled, field) == getattr(expected, field), field
