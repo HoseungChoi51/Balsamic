@@ -680,7 +680,9 @@ def test_instructions_make_the_lead_act_on_requests_and_saved_assignments_follow
     from optimization_framework.agents.controller import PiController
     w, c, lead, run = prepared
     instructions = PiTools(w.pi).manifest(lead['id'], run['id'])['instructions']
-    assert "at the researcher's request" in instructions and 'start one only when a request covers it' in instructions
+    assert "at the researcher's request" in instructions and 'Propose the narrowest mandate that answers the request' in instructions
+    # What a request allows is its mandate, which the bus checks (R3): the lines that said it in prose are gone (R6).
+    assert 'start one only when a request covers it' not in instructions and 'Read a request narrowly' not in instructions
     assert 'end-to-end' not in instructions and 'If useful independent work remains' not in instructions
     # A team started by an earlier version was told to continue the campaign by itself; its saved assignment is replaced.
     w.store.put('agent_session', {**w.store.get(lead['id'], 'agent_session'), 'objective': FORMER_OBJECTIVE})
