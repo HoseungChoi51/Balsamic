@@ -28,7 +28,7 @@ and its evals reward doing less; and it cannot compute or check anything by itse
 
 ## 0. Instructions for Claude Code (read first)
 
-1. Read §2 (principles) and §3 (decisions) before any suggestion; the principles of `docs/harness-update-plan.md` §2 hold too.
+1. Read §2 (principles) and §3 (decisions) before any suggestion; the principles of `docs/history/harness-update-plan.md` §2 hold too.
 2. If a decision (Q1–Q8) the suggestion depends on is still open, ask Hoseung before implementing.
 3. Line numbers refer to the working tree on 2026-10-26 (`e931cc2` plus uncommitted changes); later commits moved some, `tools.py` among them, so find code by function name.
 4. The lead's instructions are under the prompt-size ratchet (`tests/test_harness_contract.py`, `LEAD_WORDS` + 10%). S5 replaces text rather than adding it.
@@ -145,7 +145,7 @@ and its evals reward doing less; and it cannot compute or check anything by itse
 
 **Requires**: Q6. D1 is unchanged: the lead still asks page agents for the pages' commands.
 
-**Read first**: `agents/tools.py` (`names()`, `record()`, `READ_KINDS`), `agents/development.py`, `agents/files.py`, `docs/harness-update-plan.md` Phase 5.
+**Read first**: `agents/tools.py` (`names()`, `record()`, `READ_KINDS`), `agents/development.py`, `agents/files.py`, `docs/history/harness-update-plan.md` Phase 5.
 
 1. The lead may read, without asking anyone: coding-workspace logs, test output and failure reports; validation reports; the tool receipts of its page agents and their assistants; run journals through Python (S6). Only run folders can be mounted in the analysis sandbox, so the logs and reports need read tools (S3's paged `implementation_workspace_inspect`, `evidence_read`).
 2. The contract says, as a goal: when work fails, find the cause in the records before asking anyone to try again, and say what it is.

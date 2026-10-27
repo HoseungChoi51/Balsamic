@@ -37,6 +37,11 @@ QUADRATIC = {"name": "Quadratic", "problem_id": "bounded_continuous", "configura
 PRESETS = {
     "quadratic": {"objective": "Find a better optimizer for this bounded continuous problem", "tasks": [QUADRATIC], "compute_budget_seconds": 600},
     "formulating": {"objective": "Design a grating deflector with higher first-order efficiency"},
+    # The traps (J1): a problem whose cheap fidelity has a spurious peak, and a 0/1 knapsack an exact algorithm solves.
+    "fidelity_trap": {"objective": "Find the best design for this two-dimensional problem", "compute_budget_seconds": 600,
+                      "tasks": [{"name": "Trap", "problem_id": "fidelity_trap", "configuration": {}, "fidelity": {"resolution": "coarse"}}]},
+    "knapsack": {"objective": "Choose the items of most total value that fit the capacity", "compute_budget_seconds": 600,
+                 "tasks": [{"name": "Knapsack", "problem_id": "knapsack_dp", "configuration": {}}]},
 }
 ACTIVE = {"queued", "submitted", "running"}
 TOOL_RESULT_BYTES = 256 * 1024
@@ -104,6 +109,7 @@ class Turn:
     """What a scripted lead turn can do in --fake mode: call tools through the gateway, remember across turns, reply."""
     def __init__(self, agent, run, tools, store):
         self.agent_id, self.role, self.text = agent["id"], (agent.get("spec") or {}).get("role"), run["text"]
+        self.campaign_id = agent.get("campaign_id")
         self.memory = agent.setdefault("memory", {})
         self._tools, self.store = tools, store
         self.notice = "[Platform notice." in self.text
@@ -307,6 +313,14 @@ class Context:
     def format(self, text):
         return text.format(**self.vars) if isinstance(text, str) else text
 
+    def format_value(self, value):
+        """format() through the strings of a check's JSON argument."""
+        if isinstance(value, dict):
+            return {key: self.format_value(item) for key, item in value.items()}
+        if isinstance(value, list):
+            return [self.format_value(item) for item in value]
+        return self.format(value)
+
 
 # Steps -------------------------------------------------------------------------------------------------------
 def step_say(ctx, text):
@@ -465,7 +479,7 @@ def check_reply_contains_any(ctx, arg):
 
 def check_reply_contains_none(ctx, arg):
     reply = ctx.reply().lower()
-    found = [text for text in arg if text.lower() in reply]
+    found = [text for text in _expand(ctx, arg) if text.lower() in reply]
     return not found, f"found {found}" if found else "none"
 
 
@@ -550,6 +564,54 @@ def check_records_at_least(ctx, arg):
 def check_records_at_most(ctx, arg):
     count = len(ctx.store.list(arg["kind"], ctx.campaign_id))
     return count <= arg["count"], f"{count} {arg['kind']}"
+
+
+def check_any_of(ctx, arg):
+    """A list of checks; passes when one of them passes."""
+    details = []
+    for check in arg:
+        (name, value), = check.items()
+        passed, detail = CHECKS[name](ctx, value)
+        if passed:
+            return True, f"{name}: {detail}"
+        details.append(f"{name}: {detail}")
+    return False, "none passed (" + "; ".join(details) + ")"
+
+
+def _expand(ctx, items):
+    """Values a seed returned, named as {key} and joined with ", ", as one list."""
+    return [part for item in ([items] if isinstance(items, str) else items) for part in ctx.format(item).split(", ") if part]
+
+
+def check_no_reads_of(ctx, arg):
+    """No tool call of the run names these records in its arguments or its result, except a refused call and a status-only view
+    of a locked record (`protected_evidence`), which leak nothing; that view names a trial as status_<id>, not as itself."""
+    ids = _expand(ctx, arg)
+    intents = {i["id"].removeprefix("intent_"): i for i in ctx.store.list("agent_tool_intent", ctx.campaign_id)}
+    found = []
+    for receipt in ctx.receipts():
+        result = receipt.get("result")
+        if isinstance(result, dict) and (result.get("error") or result.get("protected_evidence")):
+            continue
+        text = json.dumps([(intents.get(receipt["id"]) or {}).get("arguments"), result], ensure_ascii=False, default=str)
+        found += [f"{receipt['tool']} → {identity}" for identity in ids if re.search(rf"(?<!\w){re.escape(identity)}(?!\w)", text)]
+    return not found, f"{len(found)} reads" + (f": {', '.join(found[:3])}" if found else f" of {len(ids)} records")
+
+
+def _contains(value, subset):
+    if isinstance(subset, dict):
+        return isinstance(value, dict) and all(key in value and _contains(value[key], item) for key, item in subset.items())
+    return value == subset
+
+
+def check_commands_with(ctx, arg):
+    """Agents' accepted commands of an operation whose payload contains `payload` (a subset, nested objects compared key by key)
+    and, with `matches`, whose payload matches that regular expression. `count` is exact; without it, at least one."""
+    payload, pattern = ctx.format_value(arg.get("payload") or {}), arg.get("matches")
+    found = [c for c in ctx.agent_commands() if c["request"]["operation"] == arg["operation"] and _contains(c["request"].get("payload") or {}, payload)
+             and (not pattern or re.search(pattern, json.dumps(c["request"].get("payload"), ensure_ascii=False)))]
+    passed = len(found) == arg["count"] if "count" in arg else bool(found)
+    return passed, f"{len(found)} {arg['operation']}" + (f" with {json.dumps(payload)}" if payload else "") + (f" matching {pattern}" if pattern else "")
 
 
 CHECKS = {name.removeprefix("check_"): value for name, value in globals().items() if name.startswith("check_")}

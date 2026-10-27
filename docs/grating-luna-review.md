@@ -54,8 +54,8 @@ This is an actual model response to numerical evidence. An independent empirical
 - [Original Luna empirical review responses and provider usage](../runs/discovery/grating-luna-20260928/luna-empirical-review.json)
 - [Paused discovery snapshot: tasks, steps, artifacts, receipts and feedback](../runs/discovery/grating-luna-20260928/discovery-review-snapshot.json)
 - [Append-only agent trace](../runs/discovery/grating-luna-20260928/workspace/campaigns/campaign_grating_inverse_luna_20260928/agents/trace.jsonl)
-- [Real-model campaign launcher](../scripts/run_grating_discovery.py)
-- [Explicit operator-assisted empirical driver](../scripts/run_grating_empirical_screen.py)
+- Real-model campaign launcher (`scripts/run_grating_discovery.py`, since removed)
+- Explicit operator-assisted empirical driver (`scripts/run_grating_empirical_screen.py`, since removed)
 
 ## Engineering changes and remaining problems
 

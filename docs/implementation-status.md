@@ -1,10 +1,10 @@
 # Implementation evidence and remaining validation
 
-This map follows the eight sections of the [revised plan](agentic-algorithm-discovery-plan.md). It distinguishes implemented capabilities, the scope of their tests, and scientific or operational claims that still require evidence. Presence of a test is not recorded here as proof that it passed on every host.
+This map follows the eight sections of the [revised plan](history/agentic-algorithm-discovery-plan.md). It distinguishes implemented capabilities, the scope of their tests, and scientific or operational claims that still require evidence. Presence of a test is not recorded here as proof that it passed on every host.
 
 The newer two-repository consolidation is governed by the
-[consolidation plan](architecture-consolidation-plan.md), with checkpoint evidence
-in [consolidation progress](consolidation-progress.md) and the remaining mutations
+[consolidation plan](history/architecture-consolidation-plan.md), with checkpoint evidence
+in [consolidation progress](history/consolidation-progress.md) and the remaining mutations
 in the [command inventory](application-command-inventory.md). The dated entries
 below describe earlier implementations; they do not establish completion of the
 integrated product or its durable manager lifecycle. The live installation remains
@@ -30,7 +30,7 @@ The broader feature request initially updated the plan only. A subsequent live-t
 | Learn from individual and comparative finalist evaluations | Numerical comparisons, validation artifacts, and research summaries | Method–problem assessments, measured problem-characteristic profiles, competing explanations and diagnostic proposals, discussion drafts, and reviewed promotion of conditional findings |
 | Reuse learned knowledge and repeated background sources | Campaign source records and source material supplied to research calls | Canonical source/version management, claim-level notes and findings, retrieval before search, contradiction/correction propagation, and linked-workspace collections with inherited confirmation exposure |
 
-Internet publication, automatic sharing, and community synchronization remain deferred. General scientific knowledge sharing remains planned; known implementation development and validation exposure now follows reused package versions across local workspaces. The [plan's delivery increments](agentic-algorithm-discovery-plan.md#8-implementation-increments-and-acceptance-criteria) define acceptance checks for these additions.
+Internet publication, automatic sharing, and community synchronization remain deferred. General scientific knowledge sharing remains planned; known implementation development and validation exposure now follows reused package versions across local workspaces. The [plan's delivery increments](history/agentic-algorithm-discovery-plan.md#8-implementation-increments-and-acceptance-criteria) define acceptance checks for these additions.
 
 ## Individual idea feedback update
 
