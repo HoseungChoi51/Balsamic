@@ -1,5 +1,8 @@
 # Lead agent readiness: what is implemented and what is proposed
 
+> **This is the log, not the current state.** The current state is [status.md](status.md) (from 27 October 2026). This
+> page keeps the record of Parts A to S as they were written.
+
 Status on 14 October 2026. This page keeps two things apart: changes that exist in the code, and
 changes that are only proposed. An item moves from one part to the other when it is built and
 tested, and the date is updated. From the roadmap on (27 October 2026), each part's entry is its own file in
@@ -724,7 +727,7 @@ Nothing is written and no model is called: the graph reads what the list reads.
 
 Parts E and G–K were checked by hand: a rehearsal, a service check, a scratch campaign. None of it could be
 repeated, so a change to the instructions or the tools could not be compared with what came before
-(`docs/harness-update-plan.md`, F8).
+(`docs/history/harness-update-plan.md`, F8).
 
 ### What changed
 

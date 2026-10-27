@@ -16,6 +16,8 @@ of `docs/lead-agent-readiness.md`. `tests/test_invariants.py` reads the table be
 A row is `code` only when a test fails if the guarantee breaks. Code that enforces a guarantee no test pins makes the row
 `none` until a test is added, however sure the code looks. When a part changes a guarantee, it updates its row here in the
 same PR, with the test that now pins it (roadmap README §0.11).
+A fix for a failure starts at [incident triage](incident-triage.md), which says at which layer to hold the guarantee
+and what row to add here.
 
 ## Register
 
@@ -47,6 +49,7 @@ parallel parts never take the same id. INV-01 to INV-32 keep their numbers.
 | INV-20 | Only the researcher publishes to the library | code | `src/balsamic/library/service.py` `publish()` | `tests/balsamic/test_library.py::test_only_the_researcher_publishes_to_the_library` | |
 | INV-21 | Only the researcher endorses a finding, and a finding cites only evidence visible to its campaign | code | `campaigns/findings.py` `record()` | `tests/test_invariant_pins.py::test_only_the_researcher_endorses_a_finding_and_a_finding_cites_only_visible_evidence` | |
 | INV-22 | A library is installed from the exact commit the coding agent submitted | code | `agents/library_install.py` `Installer.prepare()` | `tests/test_library_install.py::test_the_researcher_installs_the_exact_submitted_library_and_its_methods_appear`, `tests/test_library_install.py::test_what_cannot_be_installed_is_refused_before_anything_changes` | |
+| INV-31 | A package installed while the services run is picked up without a restart, and the lab's own packages are never dropped or re-imported by it: they change only with a restart | code | `installed.py` `forget_changed()`; `evaluation/registry.py` `ProblemRegistry._sync()`; `optimizers/plugins.py` `OptimizerPlugins._reload()` | `tests/test_problem_registry_installs.py::test_the_labs_own_problems_are_never_dropped`, `tests/test_problem_registry_installs.py::test_a_version_bump_reloads_the_problem_and_an_uninstall_drops_it`, `tests/test_optimizer_plugins.py::test_a_plugin_installed_while_the_service_runs_is_listed_without_a_restart` | |
 | INV-23 | A library's tests and conformance passed before it enters the lab | none | The coding agent reports them; nothing outside the box runs them, and no eval scenario checks the report | | H6 |
 | INV-E3-1 | A library's problem stands in for a charter's declared problem only when it computes the same problem: the same candidate schema, objective (name, direction, units), metrics and configuration fields; any difference blocks the charter | code | `problem_charter/charter.py` `compare_provided()`, `provided_finding()`, `compile_setups()` | `tests/test_problem_charter.py::test_a_library_that_computes_another_problem_is_blocking_with_each_difference_listed`, `tests/test_problem_charter.py::test_a_declared_problem_that_a_matching_library_provides_compiles_to_the_installed_problem` | |
 | INV-24 | The coding box reaches no private network, and the agent in it runs without Linux capabilities | code | `deploy/implementation-workspace/network.sh` (the image's entrypoint) | `tests/test_invariant_pins.py::test_the_coding_box_rejects_private_networks_and_drops_its_capabilities_before_the_agent_starts` | |

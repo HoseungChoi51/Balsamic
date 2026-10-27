@@ -536,7 +536,7 @@ def installed(charter, change=None, *, distribution=None):
     registry = ProblemRegistry()
     registry.register(manifest.id, lambda: lambda: Library(manifest))
     if distribution:
-        registry._sources[manifest.id] = {"distribution": distribution, "version": "0.2.0"}
+        registry.source = lambda name: {"distribution": distribution, "version": "0.2.0"} if name == manifest.id else None
     return registry
 
 
@@ -553,8 +553,7 @@ def test_a_declared_problem_that_a_matching_library_provides_compiles_to_the_ins
     assert "the installed problem flow_reactor_yield" in next(
         row for row in C.findings(reactor(), installed(reactor())) if row["code"] == "evaluator.provided")["message"]
     # Compiled against the lab's own registry, with the library installed in it, as a task would be.
-    for name, value in (("_loaders", registry._loaders), ("_sources", registry._sources)):
-        monkeypatch.setitem(getattr(problems, name), "flow_reactor_yield", value["flow_reactor_yield"])
+    monkeypatch.setitem(problems._loaders, "flow_reactor_yield", registry._loaders["flow_reactor_yield"])
     monkeypatch.delitem(problems._adapters, "flow_reactor_yield", raising=False)
     setup = ProblemSetup.model_validate(C.compile_setups(reactor())[0])
     assert setup.problem_id == "flow_reactor_yield" and setup.evaluator_manifest is None

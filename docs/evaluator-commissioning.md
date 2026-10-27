@@ -5,7 +5,7 @@ saved experiment draft keeps that requirement alongside any missing optimizer.
 The implementation service builds or imports each executable separately and
 checks it before the workspace can bind an exact version.
 
-This workflow is part of the ongoing [consolidation](architecture-consolidation-plan.md#12-further-development-from-the-current-branch).
+This workflow is part of the ongoing [consolidation](history/architecture-consolidation-plan.md#12-further-development-from-the-current-branch).
 Default commissioning requires independent numerical fixtures for generated
 evaluators. Explicit contract-only commissioning supports a separate,
 study-scoped exploratory-waiver path described below. Generated evaluators can
