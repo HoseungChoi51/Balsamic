@@ -346,7 +346,10 @@
     paragraph('Inferred intent', (notes.brief?.inferred_intent || []).join(' '));
     paragraph('Reader and depth', notes.brief?.reader_and_depth);
     paragraph('Argument', notes.selection?.argument);
-    for (const item of notes.selection?.claims || []) { const claim = notes.claims?.find(claim => claim.id === item.claim_id); paragraph(item.place === 'archive' ? 'Left out' : 'Selected', `${claim?.statement || item.claim_id} — ${item.reason}`); }
+    for (const item of notes.selection?.claims || []) {
+      const claim = notes.claims?.find(claim => claim.id === item.claim_id); paragraph(item.place === 'archive' ? 'Left out' : 'Selected', `${claim?.statement || item.claim_id} — ${item.reason}`);
+      if (claim?.unverified_numbers?.length) paragraph('Unverified numbers', `${claim.unverified_numbers.join(', ')}: no evidence read in support of this claim holds them.`);
+    }
     for (const gap of [...(notes.snapshot_gaps || []), ...(notes.missing_evidence || [])]) paragraph('Evidence gap', gap);
     for (const issue of notes.unresolved || []) paragraph('Unresolved review issue', issue.problem + ' ' + issue.action);
     for (const proposal of notes.proposed_experiments || []) paragraph('Proposed follow-up', proposal);

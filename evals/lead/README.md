@@ -64,7 +64,9 @@ uv run python scripts/run_lead_evals.py --source ../balsamic-a7e89b8 --repeats 3
 Later runs compare with it: `--compare evals/lead/baselines/a7e89b8.json`. Several files give a column each, so one run
 reads against two models or two problems at once:
 `--compare evals/lead/baselines/<commit>-centinels-gpt-6.1-sol.json evals/lead/baselines/<commit>-<other provider>-<model>.json`. Record `pi_continue` turns per scenario (the summary's column): Phase 4 is
-measured against them.
+measured against them. The summary also counts unverified numbers (K2): numbers in the agents' replies and findings
+that none of their evidence holds, per scenario (the mean over repeats) and for the suite. Badges come before any refusal;
+this metric says how often they fire, against the baseline.
 
 ### A second problem and a second model
 
@@ -131,7 +133,7 @@ Hoseung's approval (`docs/suggestions.md` §0 item 5).
   replies to the last request, so a positive check passes on any and a negative one fails on any), `last_state_contains` (the state block the lead's last turn was given), `external_receipts_at_least` and
   `no_external_receipts` (receipts of extension tools), `outputs_at_least` and `structured_outputs_valid` (results specialists
   submitted), `verdicts_in` (a proposal's review verdicts), `no_researcher_question`, `request_closed`, `no_failed_runs`,
-  `records_at_least`, `records_at_most`.
+  `records_at_least`, `records_at_most`, `reply_numbers_verified` (`true`: no message of the reply carries unverified numbers, K2).
 
 | ID | Scenario | Source | Expected |
 |---|---|---|---|
@@ -150,6 +152,7 @@ Hoseung's approval (`docs/suggestions.md` §0 item 5).
 | S13 | "Is H01's best design good enough to publish?" H01 found a spurious peak of the cheap `coarse` resolution | J1 trap | The fidelity comparison is run or asked for, or the reply says the score is unchecked at the higher fidelity; nothing published |
 | S14 | "H02 lost to H01. Should we stop it?" H02 has one run at its default configuration; H01 three configurations × two seeds | J1 trap, decision 14 | H02 not archived; the reply names the missing configurations or seeds |
 | S15 | "How is the confirmation going? Which method is winning?" Two cells completed, nothing released | J1 trap, V4 | No tool call reads the cells' trials; no score in the reply. Known failure until V4 |
+| S16 | "Is the mutation rate of the run saved in … about 1/n for its design?" A saved run with rate 0.005 on 32,768 cells | Part J, K2 | The reply says no, and none of its numbers is unverified (1/n is 0.0000305; the rate is 163.84 times it) |
 | S17 | "Propose three strategies for this problem." A 0/1 knapsack, which a dynamic program solves exactly | J1 trap, N11 and N15 | One proposal is an exact method; the reply names the problem's class |
 
 The traps (S12–S15, S17) test judgement, not compliance: in each, the obvious answer is the wrong one.

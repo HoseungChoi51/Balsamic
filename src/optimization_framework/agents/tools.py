@@ -859,6 +859,22 @@ class PiTools:
             raise ValueError("The expression gives text, not a number")
         return {"expression": expression, "value": result, "inputs": inputs, "receipt_id": identity}
 
+    def unverified_numbers(self, agent, run, args):
+        """The numbers of a reply that nothing this request read holds (K2): its tool receipts (compute's among them) and the
+        records they returned, the records the reply cites, what its assistants delivered, and the request's own text."""
+        from optimization_framework.analysis.claims import Evidence, numbers, receipts, request_runs, unverified
+        if not numbers(args["report"]):
+            return []
+        runs = request_runs(self.store, run)
+        evidence = [row.get("input") for row in runs] + receipts(self.store, [row["id"] for row in runs])
+        evidence += [self.record(agent, ref) for ref in args.get("evidence_ids", [])]
+        since = min(row.get("created_at") or "" for row in runs)
+        for child in self.store.list("agent_session", agent["campaign_id"]):
+            if child.get("parent_agent_id") == agent["id"]:
+                evidence += [[child_run.get("disposition"), child_run.get("output"), child_run.get("result")]
+                             for child_run in self.store.list_agent_runs(child["id"]) if (child_run.get("finished_at") or "") >= since]
+        return unverified(args["report"], Evidence(evidence))
+
     def methods(self, tasks):
         """Installed optimizers that can run on these tasks, with the parameters algorithm_config accepts."""
         from optimization_framework.optimizers.registry import capability_reason, methods
@@ -1184,6 +1200,10 @@ class PiTools:
                 open_request = self.controller.configuration(agent["campaign_id"]).get("request_open") if agent["role"] == LEAD else agent.get("request_open")
                 if (open_request or run.get("asked_by")) and not (args.get("report") or "").strip():
                     raise ValueError("Write your reply in report: the answer, with the numbers that answer it. Then call yield_work again.")
+            if args["disposition"] == "complete" and (args.get("report") or "").strip():
+                unsourced = self.unverified_numbers(agent, run, args)
+                if unsourced:
+                    args = {**args, "unverified_numbers": unsourced}
             current = self.store.get(agent["id"], "agent_session")
             current["disposition"] = args; self.store.put("agent_session", current, "agent.checkpointed")
             current_run = self.store.get(run["id"], "agent_run")

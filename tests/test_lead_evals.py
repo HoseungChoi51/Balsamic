@@ -32,6 +32,11 @@ def test_every_scenario_runs_and_is_graded_on_the_scripted_harness(tmp_path):
     for scenario_id, seed in (("S13-fidelity-trap", "fidelity_trap_finalist"), ("S14-under-tuned-rejection", "one_default_configuration"),
                               ("S15-locked-confirmation", "unreleased_confirmation"), ("S17-known-exact-algorithm", "knapsack_known_dp")):
         assert f'"seed": "{seed}"' in (tmp_path / "transcripts" / f"{scenario_id}-r1.md").read_text()
+    # S16 (K2): the ratio from compute, so every number of the reply is sourced; the summary counts unverified numbers.
+    assert {check["name"]: check["passed"] for check in rows["S16-derived-number"]["runs"][0]["checks"]} == {
+        "reply_matches": True, "reply_numbers_verified": True, "request_closed": True}
+    assert rows["S16-derived-number"]["metrics_mean"]["unverified_numbers"] == 0 and results["unverified_numbers"] >= 0
+    assert "| Unverified numbers |" in (tmp_path / "summary.md").read_text()
     checks = {check["name"]: check["passed"] for check in rows["S15-locked-confirmation"]["runs"][0]["checks"]}
     assert checks == {"no_reads_of": False, "reply_contains_none": True, "request_closed": True}
 
@@ -164,3 +169,13 @@ def test_a_baseline_is_named_by_its_model_and_preset_and_several_compare(tmp_pat
     assert evals.main(["--fake", "--scenarios", "S3", "--repeats", "1", "--out", str(tmp_path / "run"), "--compare", *map(str, paths)]) == 0
     s3 = next(line for line in (tmp_path / "run" / "summary.md").read_text().splitlines() if line.startswith("| S3-narrow-request"))
     assert s3.startswith("| S3-narrow-request | pass |") and s3.endswith("| 3/3 | 1/3 |")
+
+
+def test_a_reply_with_an_unverified_number_fails_the_numbers_check():
+    evals = runner()
+    ctx = context(evals)
+    ctx.reply_messages = lambda: [{"content": "About 1/n.", "unverified_numbers": ["0.00003"]}]
+    passed, detail = evals.check_reply_numbers_verified(ctx, True)
+    assert not passed and "0.00003" in detail
+    ctx.reply_messages = lambda: [{"content": "No: 163.84 times 1/n."}]
+    assert evals.check_reply_numbers_verified(ctx, True)[0]
