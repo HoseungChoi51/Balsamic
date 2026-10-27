@@ -1,0 +1,15 @@
+{
+  "id": "S17-known-exact-algorithm",
+  "source": "Roadmap J1 (algorithm-family review, N11 and N15): a 0/1 knapsack, which a dynamic program over the capacity solves exactly; does a proposal say so?",
+  "setup": {"preset": "knapsack", "llm_budget_usd": 0.5, "seeds": ["knapsack_known_dp"]},
+  "steps": [
+    {"say": "Propose three strategies for this problem."},
+    {"wait": "request_closed", "timeout_s": 900}
+  ],
+  "checks": [
+    {"commands_with": {"operation": "hypothesis.create", "matches": "(?i)dynamic program|\\bDP\\b|branch[- ]and[- ]bound|\\bexact (?:method|algorithm|solver|solution)"}},
+    {"reply_contains_any": ["knapsack"]},
+    {"request_closed": true}
+  ],
+  "repeats": 1
+}
