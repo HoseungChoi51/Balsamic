@@ -9,7 +9,8 @@ import { track } from '../../telemetry/events';
 // One pass over the text: existing links and code are left alone; page addresses, bare record ids and H-labels become links.
 const PAGE_FOR: Record<string, string> = { hypothesis: 'hypotheses', ph: 'hypotheses', trial: 'experiments', report: 'files/reports', draft: 'experiments/drafts', race: 'evolution/races',
   decision: 'inbox', approval: 'inbox', extension: 'inbox', compaction: 'inbox', finding: 'files/assets', asset: 'files/assets', thread: 'branches', study: 'evolution/races' };
-const TOKEN = /(\[[^\]]*\]\([^)]*\))|(`[^`]*`)|((?<![\w\/#])#(?:note|hypotheses|experiments|evolution|files|inbox|monitor|library|branches)(?:\/[A-Za-z0-9_.-]+)*)|(\b(?:hypothesis|ph|trial|report|draft|race|decision|approval|extension|compaction|finding|asset|thread|study)_[A-Za-z0-9_-]+)|(\bH\d{2}\b)/g;
+// Formulas are left alone too: an H-label or an id inside one is part of the math.
+const TOKEN = /(\[[^\]]*\]\([^)]*\))|(`[^`]*`|\$\$[\s\S]*?\$\$|(?<!\\)\$[^$\n]+?(?<!\\)\$)|((?<![\w\/#])#(?:note|hypotheses|experiments|evolution|files|inbox|monitor|library|branches)(?:\/[A-Za-z0-9_.-]+)*)|(\b(?:hypothesis|ph|trial|report|draft|race|decision|approval|extension|compaction|finding|asset|thread|study)_[A-Za-z0-9_-]+)|(\bH\d{2}\b)/g;
 
 export function linkIds(text: string, aliases: Record<string, string> = {}) {
   return text.replace(TOKEN, (match, link: string, code: string, address: string, id: string, label: string) => {
@@ -19,6 +20,28 @@ export function linkIds(text: string, aliases: Record<string, string> = {}) {
     if (label) return aliases[label] ? `[${label}](#hypotheses/${aliases[label]})` : match;
     return match;
   });
+}
+
+// Models also write LaTeX's own delimiters, \(…\) inline and \[…\] for a display; remark-math reads dollars only, so they become
+// $…$ and a $$ block. Code is left alone.
+const DELIMITERS = /(```[\s\S]*?(?:```|$))|(`[^`]*`)|\\\(([\s\S]+?)\\\)|\\\[([\s\S]+?)\\\]/g;
+
+export function dollarMath(text: string) {
+  return text.replace(DELIMITERS, (match, block: string, code: string, inline: string, display: string) =>
+    block || code ? match : inline !== undefined ? `$${inline.trim()}$` : `\n$$\n${display.trim()}\n$$\n`);
+}
+
+const MATH = /\$\$[\s\S]*?\$\$|(?<!\\)\$[^$\n]+?(?<!\\)\$/g;
+
+/** The start of a text for a list, cut near `limit` and never inside a formula. */
+export function clip(text: string, limit = 240) {
+  if (text.length <= limit) return text;
+  let cut = limit;
+  for (const m of text.matchAll(MATH)) {
+    const start = m.index ?? 0, end = start + m[0].length;
+    if (start < cut && cut < end) { cut = start > limit / 2 ? start : end; break; }
+  }
+  return text.slice(0, cut).trimEnd() + ' …';
 }
 
 // Dollars are math only in a pair (pandoc's rule): the opening one has no space after it, the closing one no space before it and no
@@ -68,6 +91,9 @@ export function readable(text: string) {
     const trimmed = line.trim();
     if (/^(```|~~~)/.test(trimmed)) code = !code;
     const verbatim = code || math || /^(```|~~~)/.test(trimmed);
+    // A line that is one $$…$$ formula is a display; remark-math reads it as a display only with the $$ on lines of their own.
+    const display = !verbatim && /^\$\$([^$]+)\$\$$/.exec(trimmed);
+    if (display) { out.push('$$', display[1].trim(), '$$'); return; }
     if ((line.match(/\$\$/g) || []).length % 2) math = !math;
     if (verbatim || math || line.includes('$$')) { out.push(line); return; }
     const next = lines[index + 1];
@@ -80,7 +106,7 @@ export function readable(text: string) {
 }
 
 export function Markdown({ text, thread, aliases, className = 'md' }: { text: string; thread: string | null; aliases?: Record<string, string>; className?: string }) {
-  const prepared = linkIds(escapeStrayDollars(readable(text)), aliases);
+  const prepared = linkIds(escapeStrayDollars(readable(dollarMath(text))), aliases);
   return (
     <div className={className}>
       <ReactMarkdown remarkPlugins={[remarkGfm, remarkMath]} rehypePlugins={[rehypeKatex]} components={{

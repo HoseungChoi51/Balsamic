@@ -228,8 +228,9 @@ class ParentLink(Model):
 class HypothesisInput(Model):
     campaign_id: str
     title: str = Field(min_length=1, max_length=300)
-    mechanism: str = Field(default="", max_length=20000)
-    rationale: str = Field(default="", max_length=20000)
+    # The Hypotheses page renders both as Markdown with KaTeX math.
+    mechanism: str = Field(default="", max_length=20000, description="What is done and how. Markdown. Write every formula in LaTeX: inline between single dollars, $P(S)=\\sum_{i\\in S} p_i$, or on a line of its own between double dollars; never as plain text such as Σ_{i∈S}p_i.")
+    rationale: str = Field(default="", max_length=20000, description="Why it should win here. Markdown. Write every formula in LaTeX: inline between single dollars, $P(S)=\\sum_{i\\in S} p_i$, or on a line of its own between double dollars; never as plain text such as Σ_{i∈S}p_i.")
     assumptions: list[Any] = Field(default_factory=list, max_length=50)
     risks: list[str] = Field(default_factory=list, max_length=50)
     sources: list[Any] = Field(default_factory=list, max_length=50)

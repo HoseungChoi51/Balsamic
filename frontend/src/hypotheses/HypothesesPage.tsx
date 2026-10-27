@@ -7,6 +7,7 @@ import { Empty, Failed, Loading, Pill, Section, statusTone, when } from '../prim
 import { formatHash, navigate } from '../router/routes';
 import { useSelection } from '../stores/selection';
 import { HypothesisCard } from './HypothesisCard';
+import { Markdown, clip, dollarMath } from '../chat/render/Markdown';
 import { useEvolution, STAGE_TONE } from '../evolution/EvolutionPage';
 import { track } from '../telemetry/events';
 
@@ -48,7 +49,7 @@ export default function HypothesesPage({ campaignId, route, threadId }: PageProp
               {node ? <Pill tone={STAGE_TONE[node.stage]} title={node.stop_reason || node.stage}>{node.stage}</Pill> : <Pill tone={statusTone(h.status)}>{h.status}</Pill>}
               {h.readiness ? <Pill tone={h.readiness.eligible ? 'clear' : 'attention'} title={h.readiness.reason}>{h.readiness.state.replaceAll('_', ' ')}</Pill> : null}
               {node?.autonomous ? <Pill tone="agent">autopilot</Pill> : null}</div>
-            <p className="small muted">{(h.mechanism || '').slice(0, 240)}</p>
+            <Markdown text={clip(dollarMath(h.mechanism || ''))} thread={route.thread} className="md small muted" />
             <div className="row small faint"><span>{h.algorithm ? <>{h.algorithm}{h.algorithm_chosen === false ? <span className="pill attention" style={{ marginLeft: 6 }} title="The default search lane was recorded because none was chosen; the lead can set it with hypothesis.edit">default, not chosen</span> : null}</> : 'no executable algorithm yet'}</span><span>· {h.reviews?.length || 0} reviews</span><span>· round {node?.round ?? '–'}</span><span>· {when(h.created_at)}</span></div>
           </article>); })}
         {placeholders.filter(p => p.status === 'pending').map(p => <div key={p.id} className="card" data-testid="placeholder"><div className="row"><Pill tone="agent">generating</Pill><span className="faint">{p.id}: the lead is recording this strategy</span></div></div>)}
