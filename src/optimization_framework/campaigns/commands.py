@@ -343,7 +343,7 @@ class CommandService:
             if command.operation == "hypothesis.create":
                 values = HypothesisInput(**{**payload, "campaign_id": command.campaign_id})
                 hypothesis = hypotheses.create(self.workspace, command.campaign_id, values,
-                    identity="hypothesis_" + command.id, bundle=prepared)
+                    identity="hypothesis_" + command.id, bundle=prepared, actor=actor)
                 if actor == "manager":
                     from .proposals import researcher_request
                     asked = researcher_request(self.workspace, command.origin)
@@ -363,7 +363,7 @@ class CommandService:
                     values = model(**payload)
                     hypothesis = hypotheses.set_status(self.workspace, hypothesis,
                         values.status if command.operation == "hypothesis.status" else "finalist", values.expected_status_revision,
-                        stop_reason=getattr(values, "stop_reason", None))
+                        stop_reason=getattr(values, "stop_reason", None), actor=actor)
                     if command.operation == "hypothesis.status" and values.status == "archived":
                         # A stopped strategy's race configuration is held, so the race spends nothing more on it.
                         self._hold_race_configurations(command.campaign_id, hypothesis["id"], hypothesis.get("stop_reason") or "stopped", actor)
@@ -645,7 +645,7 @@ class CommandService:
             return {"nomination_id": nominate(self.workspace, values.study_id, authority=actor, expected_evidence_hash=values.expected_evidence_hash)["id"]}
         if command.operation == "finalist.set":
             from optimization_framework.analysis.finalists import set_selection
-            record = set_selection(self.workspace, command.campaign_id, FinalistSetInput(**payload), command_id=command.id)
+            record = set_selection(self.workspace, command.campaign_id, FinalistSetInput(**payload), command_id=command.id, actor=actor)
             return {"finalist_selection_id": record["id"], "revision": record["revision"],
                 "trial_ids": record["trial_ids"], "prototype_trial_ids": record["prototype_trial_ids"]}
         if command.operation in {"validation.run", "validation.require"}:
@@ -808,6 +808,11 @@ class CommandService:
         if command.operation == "validation.waive":
             values = WaiverInput(**payload)
             requirement = self._target(command, "requirement_id", "validation_requirement")
+            if actor != "researcher":
+                from .promotion import promotion_recipe
+                if promotion_recipe(self.workspace, requirement):
+                    raise ValueError("Only the researcher waives a fidelity check that guards promotion (decision 16); "
+                                     "ask with approval.request kind waiver and this requirement_id")
             waiver = Waiver(id="waiver_" + command.id, campaign_id=command.campaign_id, study_id=requirement["study_id"],
                 requirement_id=requirement["id"], subject_digest=requirement["subject_digest"], recipe_id=requirement["recipe_id"],
                 rationale=values.rationale, evidence_ids=values.evidence_ids, authority=actor, authority_kind=actor, created_at=now())
