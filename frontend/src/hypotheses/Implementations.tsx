@@ -90,6 +90,7 @@ function WorkspaceCard({ workspace: w, thread, labels, focused }: { workspace: W
         {latest.remaining?.length ? <div className="faint">Remaining: {latest.remaining.join('; ')}</div> : null}
       </div> : null}
       <MessageAgent workspace={w} />
+      <OwnSession workspace={w} />
       <History workspace={w} live={live} open={focused} />
     </article>
   );
@@ -157,7 +158,8 @@ function OutcomeBox({ workspace: w, labels, thread }: { workspace: Workspace; la
   return (
     <div className="outcome" data-testid="workspace-outcome" data-state={o.state} data-verdict={o.verdict || ''}>
       <div className="row wrap">
-        <strong className="grow">{o.state === 'failed' ? 'Failed' : o.state === 'stopped' ? 'Stopped' : `Delivered commit ${o.commit?.slice(0, 7)}`}
+        <strong className="grow">{o.state === 'failed' ? 'Failed' : o.state === 'stopped' ? 'Stopped'
+          : `Delivered commit ${o.commit?.slice(0, 7)}${submission?.source === 'own_session' ? ' from your own session' : ''}`}
           <span className="faint small"> · {new Date(o.at).toLocaleString()}</span></strong>
         {o.commit ? <Pill tone={tone} title="The coding agent's own judgement of what it delivered">{verdict}</Pill> : null}
       </div>
@@ -300,6 +302,55 @@ function MessageAgent({ workspace: w }: { workspace: Workspace }) {
       <button className="btn small" disabled={!text.trim() || state === 'sending'} onClick={() => void send()}>Send</button>
       {state && state !== 'sending' ? <span className="small faint">{state}</span> : null}
     </div>
+  );
+}
+
+interface SessionToken { issued_at: string | null; last_used_at: string | null; active: boolean; revoked: string | null; stopped: boolean }
+interface MadeToken { token: string; issued_at: string; cli: string }
+
+/** Deliver from your own coding agent (roadmap H3): a token for this workspace, shown here once (Balsamic keeps only its
+ *  fingerprint), and the commands that clone its library and send a commit back from the researcher's own machine. */
+function OwnSession({ workspace: w }: { workspace: Workspace }) {
+  const [open, setOpen] = useState(false);
+  const [made, setMade] = useState<MadeToken | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const stopped = w.desired_status === 'stopped';
+  const base = `/api/campaigns/${encodeURIComponent(w.campaign_id)}/implementation-workspaces/${w.id}`;
+  const state = useRead<SessionToken>(['session-token', w.id], open && !stopped ? `${base}/session-token` : null);
+  const make = async () => {
+    setError(null);
+    try {
+      setMade(await api<MadeToken>(`${base}/session-token`, { method: 'POST' }));
+      await state.refetch();
+    } catch (e) { setError(String((e as Error).message || e)); }
+  };
+  const s = state.data;
+  const cli = made ? `node ${made.cli}` : 'balsamic-workspace';
+  const folder = w.library?.name || 'my-library';
+  return (
+    <details className="small" open={open} onToggle={e => setOpen((e.target as HTMLDetailsElement).open)} data-testid="own-session" style={{ marginTop: 6 }}>
+      <summary>Deliver from your own coding agent</summary>
+      <p>Work on this library with your own coding agent, on your machine, and deliver a commit: Balsamic installs it and binds its
+        proposals as it does the coding agent's delivery.</p>
+      {stopped ? <p className="faint" data-testid="own-session-stopped">The workspace is stopped, so no token opens it. Resume it to deliver from your own session.</p> : <>
+        <div className="row wrap">
+          <span className="grow" data-testid="own-token-state">{made ? 'Your new token is in the commands below. Copy it now: it is shown only this once, and Balsamic keeps only its fingerprint.'
+            : s?.active ? `A token made ${when(s.issued_at)} opens this workspace${s.last_used_at ? `; it last delivered ${when(s.last_used_at)}` : ''}. It is not shown again: make a new one, and the old one stops working.`
+            : s?.revoked ? `The last token no longer works: ${s.revoked}.` : s ? 'No token yet.' : ''}</span>
+          <button className="btn small" onClick={() => void make()} data-testid="own-token-make">{s?.issued_at || made ? 'Make a new token' : 'Make a token'}</button>
+        </div>
+        {made ? <pre className="small" data-testid="own-commands" style={{ whiteSpace: 'pre-wrap', wordBreak: 'break-all' }}>{[
+          `export BALSAMIC_WORKSPACE_URL=${window.location.origin}${base}`,
+          `export BALSAMIC_WORKSPACE_TOKEN=${made.token}`,
+          `${cli} clone ${folder}    # the library as this workspace started from it`,
+          `cd ${folder}              # work there with your own coding agent, and commit`,
+          `${cli} check libraries/${folder}    # the tests and contract checks, for report.json`,
+          `${cli} submit HEAD --report report.json    # report.json: your delivery report, as the coding agent writes one`,
+        ].join('\n')}</pre> : null}
+        {w.desired_status === 'paused' ? <p className="faint" data-testid="own-session-paused">While the workspace is paused it takes no delivery: resume it first.</p> : null}
+      </>}
+      {error ? <div className="pill bad" role="alert">{error}</div> : null}
+    </details>
   );
 }
 

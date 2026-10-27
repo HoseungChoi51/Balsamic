@@ -864,15 +864,18 @@ class DevelopmentWorkspaces:
                     raise ValueError(f"report.methods[{index}].hypothesis_id: {method['hypothesis_id']} is not a proposal of this campaign")
         return report
 
-    def capture_submission(self, record, key, payload):
+    def capture_submission(self, record, key, payload, *, snapshot=None, source=None):
+        """The exact commit as a submission: its manifest and files as `snapshot` reads them (the box's Git unless given), and
+        its delivery report. source: who delivered it when the coding agent did not ("own_session": the researcher, from their
+        own coding agent, agents/own_session.py); only the coding agent waits for a result file. Returns that result."""
         report = self.delivery_report(record, payload.get("report"))
-        package, manifest, ignored = self.driver.snapshot(record, payload["commit"], payload.get("manifest_path", "implementation-manifest.json"))
+        package, manifest, ignored = (snapshot or self.driver.snapshot)(record, payload["commit"], payload.get("manifest_path", "implementation-manifest.json"))
         with self.workspace.lock, self.store.transaction():
             identity = "development_submission_" + content_hash([record["id"], payload["commit"], package, manifest])[:24]
             submission = {"id": identity, "campaign_id": record["campaign_id"], "workspace_id": record["id"],
                 "hypothesis_id": record["hypothesis_id"], "hypothesis_ids": record.get("hypothesis_ids") or [record["hypothesis_id"]],
                 "commit": payload["commit"], "package": package, "manifest": manifest, "notes": payload.get("notes", ""),
-                "report": report, "status": "submitted", "created_at": now()}
+                "report": report, "status": "submitted", "created_at": now(), **({"source": source} if source else {})}
             try:
                 saved = self.store.get(identity, "development_submission")
                 if report and saved.get("report") != report:   # the same commit again: its latest report stands
@@ -880,12 +883,15 @@ class DevelopmentWorkspaces:
                     self.store.put("development_submission", saved, "development.submitted")
             except KeyError:
                 saved = self.store.put("development_submission", submission, "development.submitted")
-                verdict = f" The coding agent's verdict: {report['verdict'].replace('_', ' ')}; next: " + ("; ".join(
+                verdict = f" {'The researcher' if source else 'The coding agent'}'s verdict: {report['verdict'].replace('_', ' ')}; next: " + ("; ".join(
                     f"{a['owner']}: {a['action']}" for a in report["next_actions"]) or "nothing named") + "." if report else " It sent no delivery report."
-                self.notify(record, identity, f"Commit {submission['commit']} submitted as {identity}.{verdict} Review its manifest and commission independent validation using implementation_workspace_validate under the compute go-ahead.", "submissions")
-            self.event(record, key, "submission", {"submission_id": identity, "commit": payload["commit"]})
-        atomic_json(self.driver.root(record) / "incoming/results" / (key + ".json"), {"submission_id": saved["id"], "status": saved["status"],
-            **({"ignored_fields": ignored} if ignored else {})})
+                what = f"The researcher delivered commit {submission['commit']} from their own coding session" if source else f"Commit {submission['commit']} submitted"
+                self.notify(record, identity, f"{what} as {identity}.{verdict} Review its manifest and commission independent validation using implementation_workspace_validate under the compute go-ahead.", "submissions")
+            self.event(record, key, "submission", {"submission_id": identity, "commit": payload["commit"], **({"source": source} if source else {})})
+        result = {"submission_id": saved["id"], "status": saved["status"], **({"ignored_fields": ignored} if ignored else {})}
+        if not source:
+            atomic_json(self.driver.root(record) / "incoming/results" / (key + ".json"), result)
+        return result
 
     def validate(self, campaign_id, identity, payload, *, actor="researcher", asked=None):
         from optimization_framework.implementations.models import BoundOptimizerSpec, ImplementationSpec

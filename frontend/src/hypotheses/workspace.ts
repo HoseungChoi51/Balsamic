@@ -15,6 +15,8 @@ export interface Install { id: string; submission_id: string; status: string; ac
   bindings?: { hypothesis_id: string; title?: string; method: string; task_id: string; binding_id: string }[]; skipped?: { hypothesis_id: string; reason: string }[];
   launched?: { hypothesis_id: string; seed: number; trial_id: string; task_id: string; consent_id: string }[] }
 export interface Submission { id: string; commit: string; status: string; notes?: string; report?: Report | null; created_at: string; manifest?: { files?: string[] };
+  /** own_session: the researcher delivered it from their own coding agent (roadmap H3); absent for the coding agent's. */
+  source?: string;
   validation_outcome?: { status?: string; error?: string | null; findings?: Record<string, string>[] } }
 export interface Outcome { state: string; verdict?: string; submission_id?: string; commit?: string; at: string; reason?: string }
 export interface Workspace {
@@ -26,6 +28,8 @@ export interface Workspace {
   outcome?: Outcome | null; finished_at?: string | null; submissions?: Submission[]; installs?: Install[];
   control_revision?: number; wall_seconds?: number | null; deadline_at?: string | null; limits?: { cpus: number; memory_gb: number; gpus: number };
   egress?: { model: string[]; package_index: string[]; named: string[] };
+  /** The library generated from the charter it started from (roadmap F4). */
+  library?: { name: string; package?: string; revision?: number } | null;
 }
 export const LIVE = new Set(['queued', 'starting', 'resuming', 'running', 'pausing', 'stopping']);
 export const VERDICT: Record<string, [string, string]> = { ready: ['ready', 'clear'], ready_with_limits: ['ready, with limits', 'attention'],

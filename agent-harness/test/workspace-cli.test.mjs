@@ -199,3 +199,103 @@ test('check runs the library\'s tests and its contract tests, and returns the co
   const unnamed = run(temp(t, 'bridge-'), ['check'], {env: {...env, BALSAMIC_WORKSPACE_REPO: temp(t, 'empty-')}});
   assert.match(unnamed.stderr, /Name the library to check/);
 });
+
+// ---- Outside the box: the researcher's own session (roadmap H3) ----
+
+const gitIn = (cwd, ...args) => {
+  const result = spawnSync('git', ['-c', 'user.name=Researcher', '-c', 'user.email=r@example.org', ...args], {cwd, encoding: 'utf8'});
+  assert.equal(result.status, 0, result.stderr);
+  return result.stdout.trim();
+};
+
+// The CLI as a child process that does not block this process, which serves the fake host.
+function runAsync(args, {cwd, env}) {
+  return new Promise(resolve => {
+    const child = spawn(process.execPath, [cli, ...args], {cwd, env});
+    let stdout = '', stderr = '';
+    child.stdout.on('data', data => { stdout += data; });
+    child.stderr.on('data', data => { stderr += data; });
+    child.on('close', status => resolve({status, stdout, stderr, json: status === 0 ? JSON.parse(stdout) : undefined}));
+  });
+}
+
+/** A fake host for one workspace: the token routes of agents/own_session.py, recording what it is sent. */
+async function host(t, {token, start, commits}) {
+  const http = await import('node:http');
+  const seen = [];
+  const server = http.createServer((request, response) => {
+    let body = '';
+    request.on('data', chunk => { body += chunk; });
+    request.on('end', () => {
+      const answer = (status, data) => { response.writeHead(status, {'content-type': 'application/json'}); response.end(JSON.stringify(data)); };
+      seen.push({method: request.method, url: request.url, body: body && JSON.parse(body)});
+      if (request.headers.authorization !== `Bearer ${token}`) return answer(401, {detail: 'The token does not open this workspace'});
+      if (request.url === '/ws/bundles/base') return answer(200, {commits});
+      if (request.url === '/ws/bundles/start') return answer(200, start);
+      if (request.url === '/ws/bundles' && request.method === 'POST') return answer(200, {submission_id: 'development_submission_x', status: 'submitted'});
+      return answer(404, {detail: 'Not Found'});
+    });
+  });
+  await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
+  t.after(() => server.close());
+  return {url: `http://127.0.0.1:${server.address().port}/ws`, seen};
+}
+
+test('outside the box, clone fetches the workspace\'s library and submit sends the commit as a bundle without what the workspace has', async t => {
+  const work = temp(t, 'outside-');
+  // The workspace's start: one commit holding the library, on main, as a bundle.
+  const source = path.join(work, 'start');
+  fs.mkdirSync(path.join(source, 'libraries', 'bakery'), {recursive: true});
+  fs.writeFileSync(path.join(source, 'libraries', 'bakery', 'pyproject.toml'), '[project]\nname = "bakery"\nversion = "0.1.0"\n');
+  gitIn(source, 'init', '-q', '-b', 'main');
+  gitIn(source, 'add', '.');
+  gitIn(source, 'commit', '-q', '-m', 'The library generated from charter revision 1');
+  const startCommit = gitIn(source, 'rev-parse', 'HEAD');
+  gitIn(source, 'bundle', 'create', path.join(work, 'start.bundle'), 'refs/heads/main');
+  const start = {library: 'libraries/bakery', commit: startCommit, bundle: fs.readFileSync(path.join(work, 'start.bundle')).toString('base64')};
+  // The host names the start and a commit the researcher does not have.
+  const {url, seen} = await host(t, {token: 'bws_secret', start, commits: [startCommit, 'f'.repeat(40)]});
+  const env = {...process.env, BALSAMIC_WORKSPACE_URL: url, BALSAMIC_WORKSPACE_TOKEN: 'bws_secret', GRATING_DEVELOPMENT_BRIDGE: path.join(work, 'no-bridge')};
+  delete env.BALSAMIC_WORKSPACE_REPO;
+
+  const cloned = await runAsync(['clone', 'mine'], {cwd: work, env});
+  assert.equal(cloned.status, 0, cloned.stderr);
+  const mine = path.join(work, 'mine');
+  assert.equal(cloned.json.directory, mine);
+  assert.match(cloned.json.message, /^Cloned libraries\/bakery \(commit [0-9a-f]{7}\) into mine\./);
+  assert.equal(gitIn(mine, 'rev-parse', 'HEAD'), startCommit);
+  assert.equal(gitIn(mine, 'remote'), '');   // the downloaded bundle is not left as a remote
+
+  fs.writeFileSync(path.join(mine, 'libraries', 'bakery', 'methods.py'), 'METHODS = {}\n');
+  gitIn(mine, 'add', '.');
+  gitIn(mine, 'commit', '-q', '-m', 'Methods');
+  const commit = gitIn(mine, 'rev-parse', 'HEAD');
+  const report = path.join(work, 'report.json');
+  fs.writeFileSync(report, JSON.stringify(REPORT));
+  const submitted = await runAsync(['submit', 'HEAD', '--report', report, '--notes', 'From my own agent'], {cwd: mine, env});
+  assert.equal(submitted.status, 0, submitted.stderr);
+  assert.equal(submitted.json.message, 'Submitted development_submission_x. Independent validation has not been run yet.');
+  const posted = seen.find(item => item.method === 'POST').body;
+  assert.deepEqual({...posted, bundle: undefined}, {commit, manifest_path: 'implementation-manifest.json', notes: 'From my own agent',
+    report: REPORT, bundle: undefined});
+  // The bundle carries the commit and builds on the start, which the workspace has: it is not carried again.
+  const file = path.join(work, 'sent.bundle');
+  fs.writeFileSync(file, Buffer.from(posted.bundle, 'base64'));
+  const verify = spawnSync('git', ['bundle', 'verify', file], {cwd: source, encoding: 'utf8'});
+  assert.equal(verify.status, 0, verify.stderr);
+  assert.match(verify.stdout + verify.stderr, new RegExp(`${commit} refs/balsamic-workspace/submit-\\d+`));
+  assert.match(verify.stdout + verify.stderr, new RegExp(`requires this ref:\\s*\\n${startCommit}`));
+  assert.equal(gitIn(mine, 'for-each-ref', 'refs/balsamic-workspace'), '');   // the temporary ref is gone
+  assert.deepEqual(events(path.join(work, 'no-bridge')), []);   // nothing went through a bridge
+
+  // A wrong token is refused with the host's words; checkpoint and ask need the box.
+  const refused = await runAsync(['submit', commit, '--report', report], {cwd: mine, env: {...env, BALSAMIC_WORKSPACE_TOKEN: 'bws_wrong'}});
+  assert.equal(refused.status, 1);
+  assert.match(refused.stderr, /401: The token does not open this workspace/);
+  const checkpoint = await runAsync(['checkpoint', '--summary', 'x'], {cwd: mine, env});
+  assert.match(checkpoint.stderr, /checkpoint goes through the coding box's bridge; from your own session, deliver with submit/);
+  const unset = {...env};
+  delete unset.BALSAMIC_WORKSPACE_URL;
+  assert.match((await runAsync(['clone', 'again'], {cwd: work, env: unset})).stderr, /clone works outside the box: set BALSAMIC_WORKSPACE_URL/);
+  assert.match((await runAsync(['clone', 'mine'], {cwd: work, env})).stderr, /mine exists and is not empty/);
+});
