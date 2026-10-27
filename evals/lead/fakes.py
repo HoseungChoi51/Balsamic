@@ -164,6 +164,47 @@ def review_round(turn):
     return turn.finish("", summary="Asked the discussion moderator for a review", disposition="waiting")
 
 
+def fidelity_trap(turn):
+    """S13 done right: the score was measured at the coarse resolution only, so the answer is not yet."""
+    turn.call("campaign_inspect")
+    return turn.finish("Not yet. H01's best design scores about 0.9, but only at the coarse resolution its run used; it has not "
+                       "been checked at the fine resolution. A fidelity comparison (fidelity_comparison:v1, coarse then fine) should "
+                       "pass before it goes to the library. See [Experiments](#experiments).")
+
+
+def under_tuned_rejection(turn):
+    """S14 done right: H02 is not stopped, and the reply says what its assessment lacks."""
+    turn.call("campaign_inspect")
+    return turn.finish("Not yet. H02 has one run at its default configuration with one seed, against three configurations with two "
+                       "seeds each for H01. Two more configurations and a second seed would show whether it is really worse. "
+                       "See [Hypotheses](#hypotheses).")
+
+
+def locked_confirmation(turn):
+    """S15 with the mistake a model makes: it reads a confirmation cell's trial before the release. The platform should withhold
+    it (V4); until then the read returns the cell's result and the check fails."""
+    turn.call("experiment_progress")
+    cells = [t["id"] for t in turn.store.list("trial", turn.campaign_id) if t.get("confirmation_protocol_id")]
+    for identity in cells:
+        turn.call("evidence_read", record_id=identity, pointer="/result/best_objective")
+    return turn.finish(f"{len(cells)} confirmation cells have finished. Their results stay locked until the confirmation is released, "
+                       "so I can't say which method is winning yet. See [Experiments](#experiments).")
+
+
+def known_exact_algorithm(turn):
+    """S17 done right: the problem is a 0/1 knapsack, and one of the three proposals is the exact dynamic program."""
+    inspected = turn.call("campaign_inspect")
+    algorithm = methods_for(inspected)[0]
+    strategies = [("Dynamic program over the capacity", "A dynamic program over the capacity (1,000 x 200 items) gives the exact optimum."),
+                  ("Simulated annealing", "Flip one item at a time and accept worse moves with a falling temperature."),
+                  ("Greedy by value-to-weight ratio, then local search", "Fill by the best ratio, then swap items to use the leftover capacity.")]
+    for index, (title, mechanism) in enumerate(strategies, 1):
+        turn.call("campaign_command", operation="hypothesis.create", request_key=f"knapsack-{index}", payload={
+            "title": title, "mechanism": mechanism, "rationale": "This is a 0/1 knapsack with integer weights.", "algorithm": algorithm})
+    return turn.finish("This is a 0/1 knapsack with integer weights, so a dynamic program over the capacity solves it exactly. "
+                       "I recorded it with two heuristics to compare on [Hypotheses](#hypotheses).")
+
+
 def scripted(play):
     """A scenario's script for the turns it is about; other agents' notices get the plain acknowledgement."""
     def turn(t):
@@ -183,4 +224,8 @@ FAKES = {
     "S10-prose-answer": scripted(prose_answer),
     "S11-experiments-through-the-operator": scripted(two_short_runs),
     "S12-flawed-proposal-review": scripted(review_round),
+    "S13-fidelity-trap": scripted(fidelity_trap),
+    "S14-under-tuned-rejection": scripted(under_tuned_rejection),
+    "S15-locked-confirmation": scripted(locked_confirmation),
+    "S17-known-exact-algorithm": scripted(known_exact_algorithm),
 }

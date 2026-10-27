@@ -42,7 +42,7 @@ The service snapshots requested exact dependency versions from the installed env
 
 ## Commission, validate, and reuse
 
-1. Assign **Implementation compute cap (seconds)** in the charter. This is separate from experiment compute and physical validation reserves. The API dollar cap remains shared with manager reasoning.
+1. An agent's commission needs the researcher's compute go-ahead (`approval.request` kind `compute`, `campaigns/compute_consent.py`), like any other work over the go-ahead threshold. **Implementation compute cap (seconds)** in the charter is only an optional ceiling: 0, the default, sets none, and a positive value caps the implementation time committed in the campaign. An agent cannot ask to raise it; it asks for a compute go-ahead instead. The API dollar cap remains shared with manager reasoning.
 2. Open an idea and choose **Request implementation**. Specify mechanism, acceptance criteria, evaluator capabilities, exact dependencies, supported parameters/schema, and job allocation. Importing a package can supply the first candidate instead of using the builder.
 3. The service freezes behavior checks before candidate construction. It checks the declared candidate domain, seeded replay, checkpoint continuation, mechanism-specific cases, four bounded calls to the selected evaluator, and an independent model review against every criterion. A failed candidate can be repaired within the original grant and three-attempt limit.
 4. A successful, still-current proposal receives the resulting version automatically. If the idea changed, the manager requests a binding decision. The library can attach that exact version to other campaigns and workspaces.

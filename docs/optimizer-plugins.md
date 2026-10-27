@@ -104,10 +104,16 @@ specification. A coding workspace builds it under `libraries/<name>/` (`librarie
 - a module per method on the `optimizer_v1` package contract (`create_optimizer(context)`, then `initialize`,
   `propose`, `observe`, `checkpoint` as bytes, `restore`, `inspect`; `propose` returns `[]` when the method has
   finished, see "Finishing"), with no Balsamic imports, so the same module also runs as a package in the implementation
-  service;
+  service. The context carries `dimensions` (the candidate's length), `seed`, `parameters`, `problem` (the descriptor
+  `initialize` also receives) and `capabilities`, and where it runs as a package `schedule_steps` and `declared_assets`. It also carries `n_cells`, the same count under the
+  grating's name: it is deprecated and stays only for existing libraries, so read `dimensions`;
 - the implementer's tests of each method against its specification;
 - `plugin.py`, a `PackagedPlugin` subclass (`optimization_framework/optimizers/packaged.py`) that lists the methods and
-  runs each module in-process, registered under the entry point in the library's `pyproject.toml`;
+  runs each module in-process, registered under the entry point in the library's `pyproject.toml`. It says which
+  candidates its methods accept: `REPRESENTATIONS = ["continuous"]` on the class covers every method, and a method's own
+  `representations` in `METHODS` overrides it. A library that declares neither is treated as binary-only, as the grating
+  library is, and a method on that default that does not fit a task's problem says "the library declares no
+  representations, so it is treated as binary; declare REPRESENTATIONS";
 - `tests/test_contract.py`, which runs `optimization_framework.optimizers.conformance.check` on each method: valid
   candidates, seeded replay, checkpoint continuation, JSON checkpoints and a small inspection (at most
   `DIAGNOSTICS_BYTES`, 16 kB: the host records `inspect()` after every evaluation, so it holds counters and a recent tail,
@@ -159,10 +165,13 @@ Three consequences to remember:
   enforces this. The first draft of this change loaded plug-ins at import and failed that test, so keep it in mind
   when you add a registry.
 - **Installed while the lab runs.** The installed registry compares what is installed (each entry and its
-  distribution's version) with what it loaded, at most once a second (`plugins.RECHECK_SECONDS`). On a change it
+  distribution's version) with what it loaded, at most once a second (`installed.RECHECK_SECONDS`). On a change it
   reloads: the directories that new `.pth` files name (an editable install) join `sys.path`, as at a restart, the
   modules of a plug-in upgraded in place import afresh, and `registry.methods()` rebuilds its descriptors. The lab's
   own packages (`src/`) are never re-imported. Runs already queued keep the plug-ins captured in their manifests.
+  The problem registry (`evaluation/registry.py`, `problems`) follows installs the same way, through the same helpers in
+  `optimization_framework/installed.py`: a new problem is listed, one upgraded in place loads afresh, and one removed
+  is no longer listed. Frozen hosts' registries (`from_entries()`) and `extended()` copies never change.
 - Entry points are recorded **at install time**. After adding or renaming one, run `uv sync`; an editable install
   does not see new entry points until then.
 - The framework imports only the module named in metadata, and only an administrator can change it. Model output

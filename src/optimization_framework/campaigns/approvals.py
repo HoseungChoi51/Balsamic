@@ -60,7 +60,9 @@ def resolve(workspace, command):
     elif values.choice == "0" and (decision.get("approval_request") or {}).get("kind") == "compute":
         # The go-ahead itself: the requester starts the work, charged to this consent.
         from .compute_consent import grant
+        from .proposals import approve
         consent = grant(workspace, decision, decision["approval_request"])
+        approve(workspace, consent)
     elif values.choice == "0" and decision.get("approval_request"):
         request = decision["approval_request"]
         reason = decision["rationale"] + (" Researcher: " + values.comment if values.comment else "")

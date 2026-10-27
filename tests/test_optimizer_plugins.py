@@ -7,6 +7,7 @@ import textwrap
 import pytest
 
 from optimization_benchmarks.problems import ContinuousProblem
+from optimization_framework import installed
 from optimization_framework.execution import frozen_host, provenance
 from optimization_framework.optimizers import plugins
 from optimization_framework.optimizers.registry import capability_reason, create, methods
@@ -156,8 +157,8 @@ def test_a_plugin_installed_while_the_service_runs_is_listed_without_a_restart(t
     site_dir.mkdir(), library.mkdir()
     # An editable install as uv makes it: metadata in site-packages, and a .pth naming the library's source directory.
     monkeypatch.setattr(sys, "path", [str(site_dir), *sys.path])
-    monkeypatch.setattr(plugins.site, "getsitepackages", lambda: [str(site_dir)])
-    monkeypatch.setattr(plugins.site, "getusersitepackages", lambda: str(tmp_path / "no-user-site"))
+    monkeypatch.setattr(installed.site, "getsitepackages", lambda: [str(site_dir)])
+    monkeypatch.setattr(installed.site, "getusersitepackages", lambda: str(tmp_path / "no-user-site"))
     monkeypatch.setattr(plugins, "RECHECK_SECONDS", 0)
     monkeypatch.delitem(sys.modules, "late_plugin", raising=False)
 
