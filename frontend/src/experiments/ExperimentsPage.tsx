@@ -64,12 +64,17 @@ export default function ExperimentsPage({ campaignId, route }: PageProps) {
 function ExperimentLog({ trialId, campaignId, thread, back }: { trialId: string; campaignId: string; thread: string | null; back: string }) {
   const record = useRead<{ trial: Trial; chain_trial_ids: string[]; validations: Record<string, unknown>[]; race: { race_id: string } | null }>(['experiment', trialId], `/api/v1/experiments/${trialId}`, { refetchInterval: 5000 });
   const [trace, setTrace] = useState(false);
+  const [axis, setAxis] = useState<'time' | 'evaluations' | null>(null);
   const metrics = useRead<Record<string, unknown>[]>(['metrics', trialId], `/api/v1/experiments/${trialId}/metrics?points=200`, { refetchInterval: 5000 });
   const logs = useRead<{ text: string }>(['logs', trialId], `/api/v1/experiments/${trialId}/logs`, { refetchInterval: 10000 });
   if (record.isPending) return <Loading what="Loading the run" />;
   if (record.error) return <Failed error={record.error} />;
   const trial = record.data.trial;
-  const points = (metrics.data || []).map((row, i) => ({ x: Number(row.evaluations ?? row.step ?? i), y: Number(row.best_objective ?? row.best_efficiency ?? row.best ?? row.score ?? NaN) })).filter(p => Number.isFinite(p.y));
+  // A white-box run is judged by its time, on cores when it used several threads; an oracle run by its evaluations (N11).
+  const threads = Number(trial.numerical_threads ?? 1) || 1;
+  const timeLabel = threads > 1 ? 'core-seconds' : 'seconds';
+  const onTime = (axis ?? (trial.access === 'white_box' ? 'time' : 'evaluations')) === 'time';
+  const points = (metrics.data || []).map((row, i) => ({ x: onTime ? Number(row.elapsed_seconds ?? NaN) * threads : Number(row.evaluations ?? row.step ?? i), y: Number(row.best_objective ?? row.best_efficiency ?? row.best ?? row.score ?? NaN) })).filter(p => Number.isFinite(p.x) && Number.isFinite(p.y));
   return (
     <div className="col">
       <div className="stage-head"><a href={back} className="small">← Experiments</a><h1 className="mono">{trialId}</h1><Pill tone={statusTone(trial.status)}>{STATUS_WORDS[trial.status] || trial.status}</Pill>
@@ -77,9 +82,12 @@ function ExperimentLog({ trialId, campaignId, thread, back }: { trialId: string;
         {trial.hypothesis_id ? <a className="btn small" href={formatHash({ page: 'evolution', sub: 'lineage', sel: trial.hypothesis_id }, thread)}>Open in graph</a> : null}</div>
       {trace ? <TraceOrigin recordId={trialId} thread={null} onClose={() => setTrace(false)} /> : null}
       <Section title="Run"><Kv rows={[['Algorithm', trial.algorithm], ['Device', <DevicePlace trial={trial} campaignId={campaignId} />], ['Kind', record.data.chain_trial_ids.length > 1 ? 'one run continued over ' + record.data.chain_trial_ids.length + ' parts' : 'single run'], ['Task', String(trial.task_id)], ['Seed', String(trial.seed ?? '')], ['Budget', <>{num(trial.max_steps, 0)} evaluations, {duration(trial.wall_seconds)}</>],
+        ['Objective', <span data-testid="run-access">{trial.access === 'white_box' ? 'white box: the method may compute it itself; judged by its time' : 'oracle: reached only through evaluations'}</span>],
         ['Best (measured)', num(score(trial), 5)], ['Chain', record.data.chain_trial_ids.length > 1 ? record.data.chain_trial_ids.join(' → ') : 'single run'], ['Race', record.data.race ? record.data.race.race_id : 'not in a race'],
         ['Hypothesis', trial.hypothesis_id ? String(trial.hypothesis_id) : <span className="faint">none</span>], ['Campaign', campaignId]]} /></Section>
-      <Section title="Score curve" right={<span className="small faint">{points.length} points, measured</span>}><Curve points={points} label="best score over evaluations" /></Section>
+      <Section title="Score curve" right={<span className="row small faint">{points.length} points, measured, over <span data-testid="curve-axis">{onTime ? timeLabel : 'evaluations'}</span>
+        <button className="btn quiet small" data-testid="curve-axis-switch" onClick={() => setAxis(onTime ? 'evaluations' : 'time')}>{onTime ? 'Show over evaluations' : `Show over ${timeLabel}`}</button></span>}>
+        <Curve points={points} label={`best score over ${onTime ? timeLabel : 'evaluations'}`} /></Section>
       <Section title="Checks">{record.data.validations.length ? record.data.validations.map(v => <div key={String(v.id)} className="row small"><Pill>{String(v.verdict || v.status)}</Pill><span>{String(v.kind || v.recipe_id || '')}</span></div>) : <Empty>No validation ran on this run.</Empty>}</Section>
       <Section title="Worker log (tail)"><pre style={{ maxHeight: 300 }}>{logs.data?.text || '(empty)'}</pre></Section>
     </div>

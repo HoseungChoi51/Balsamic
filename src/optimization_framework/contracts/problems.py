@@ -4,9 +4,24 @@ from __future__ import annotations
 import math
 from typing import Any, Literal, Protocol, runtime_checkable
 
-from pydantic import Field, model_validator
+from pydantic import Field, model_serializer, model_validator
 
 from .base import Contract, content_hash
+
+# How a method may reach the objective (decision 22): ``white_box`` lets it compute the objective itself from the
+# problem's code, as often as it likes; ``oracle`` lets it reach the objective only through ``evaluate``.
+Access = Literal["white_box", "oracle"]
+# What a comparison charges a method for (decision 23). None is the default: ``worker_seconds`` on a fixed worker
+# class, ``core_seconds`` (threads × wall time) when a method uses more than one thread.
+CostAxis = Literal["worker_seconds", "core_seconds", "evaluations", "solver_calls"]
+
+
+def without_unset(result: dict, *names: str) -> dict:
+    """A dump without the named fields while they are None, so records made before they existed keep their digests."""
+    for name in names:
+        if result.get(name) is None:
+            result.pop(name, None)
+    return result
 
 
 class Objective(Contract):
@@ -102,6 +117,13 @@ class ProblemDefinition(Contract):
     validation_recipes: list[str] = Field(default_factory=list)
     recipe_schemas: dict[str, dict[str, Any]] = Field(default_factory=dict)
     renderer: str | None = None
+    # None: not declared here; the problem's pack may declare it, else it is white_box (decision 22).
+    access: Access | None = None
+    cost_axis: CostAxis | None = None
+
+    @model_serializer(mode="wrap")
+    def compatible_serialization(self, handler):
+        return without_unset(handler(self), "access", "cost_axis")
 
 
 class ProblemInstance(Contract):

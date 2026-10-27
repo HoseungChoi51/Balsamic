@@ -5,7 +5,7 @@ from typing import Any, Literal
 from pydantic import AliasChoices, BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from optimization_framework.evaluation.registry import problems
-from .problems import ProblemInstance
+from .problems import Access, CostAxis, ProblemInstance
 from .evaluators import EvaluatorManifest
 from .diagnostics import DiagnosticSchedule
 from .experiments import RecoveryPolicy
@@ -26,9 +26,26 @@ class TaskInput(Model):
     problem: ProblemInstance | None = None
     evaluator_manifest: EvaluatorManifest | None = None
     split: Literal["development", "selection", "test"] = "development"
+    # How methods reach the objective and what they are compared on (N11); unset, the problem's own declaration. The
+    # task records the result, so a later change to the problem does not change what a task's runs were.
+    access: Access | None = None
+    cost_axis: CostAxis | None = None
 
     @model_validator(mode="after")
     def resolve_problem(self):
+        self.resolve_instance()
+        if self.evaluator_manifest is not None:
+            manifest = self.evaluator_manifest
+            if self.access not in {None, manifest.effective_access} or self.cost_axis not in {None, manifest.cost_axis}:
+                raise ValueError("A declared problem's access and cost axis are its manifest's")
+            self.access, self.cost_axis = manifest.effective_access, manifest.cost_axis
+        else:
+            from optimization_framework.evaluation.access import declared
+            own = declared(self.problem_id, problems)
+            self.access, self.cost_axis = self.access or own["access"], self.cost_axis or own["cost_axis"]
+        return self
+
+    def resolve_instance(self):
         if self.evaluator_manifest is not None:
             if self.physics or self.problem_id != self.evaluator_manifest.id:
                 raise ValueError("A commissioned problem must match its declared manifest and use configuration")

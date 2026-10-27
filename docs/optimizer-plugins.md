@@ -287,6 +287,31 @@ class Plugin(FunctionPlugin):
   returning or at the cap. Each distinct candidate is evaluated once, so the replays compare what the method proposes,
   not the evaluator's noise.
 
+### Access, cost axes and threads
+
+A problem says how methods may reach its objective and what they are compared on (roadmap N11, decisions 22 and 23):
+
+- **Access.** `white_box` (the default) or `oracle`. On a white-box problem a method may compute the objective itself, as
+  often as it likes: a function method's `problem` then has `problem.objective(candidate)`, the primary objective computed
+  by the problem's own evaluator in the charter's units and direction, and a generated library's methods may call its
+  `objective.py`. Those calls are not observations and are not counted; `evaluate` is still how a candidate is recorded
+  and how the run's best is known. On an `oracle` problem (an expensive evaluator such as MEENT, or a black-box comparison
+  the researcher wants) `problem` has no `objective`, and a method reaches the objective only through `evaluate`.
+- **Where it is declared.** First to last: the charter's `evaluator.access` (the Charter page's "How methods reach the
+  objective"), the problem's `ProblemDefinition.access`, its pack's `cost` section (`ProblemPack.cost`, MEENT's says
+  `oracle`), then `white_box`. A declared problem's manifest carries the charter's choice. A task records the result when
+  it is created (`evaluation/access.py`), and a white-box run records `access` in its frozen schedule. A task or a manifest
+  made before N11 has no access and reads as `oracle`, so its digests and its runs are what they were.
+- **Cost axes.** `worker_seconds`, `core_seconds`, `evaluations` or `solver_calls`, declared like the access. Unset, the
+  comparison report uses time: `worker_seconds`, or `core_seconds` when a white-box run used several threads. Every cost
+  row records `core_seconds = numerical_threads × worker_seconds`. On `core_seconds` runs on different thread counts are
+  compared together; on `worker_seconds` a run on several threads is its own comparison (`condition.worker_threads`), as
+  a run on the GPU is (`condition.device`). Upstream work (implementation, evaluator development) is counted in
+  worker-seconds on either time axis. A study that names an axis other than worker-seconds, or a report asked for one,
+  keeps it.
+- **Threads.** A run's thread count is its `numerical_threads` (1 to 4, set when the run is created); the worker limits
+  the numerical libraries to it. A method cannot yet declare its own count.
+
 ### Failure policy
 
 | Situation | Behavior | Why |

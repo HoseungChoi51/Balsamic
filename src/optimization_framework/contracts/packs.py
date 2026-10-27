@@ -12,6 +12,7 @@ from typing import Any
 from pydantic import Field, field_validator, model_validator
 
 from .base import Contract
+from .problems import Access, CostAxis
 
 HOOK = re.compile(r"^[A-Za-z_][\w]*(\.[A-Za-z_][\w]*)*:[A-Za-z_][\w]*(\.[A-Za-z_][\w]*)*$")
 
@@ -65,6 +66,13 @@ class PackRacing(Contract):
         return _hook(value)
 
 
+class PackCost(Contract):
+    """How the pack's methods reach the objective and what they are compared on (N11, decisions 22 and 23); a field the
+    problem's own definition sets wins."""
+    access: Access | None = None
+    cost_axis: CostAxis | None = None
+
+
 class PackPresentation(Contract):
     """Labels and defaults beside ``ProblemDefinition.renderer`` (e.g. what a design's on and off cells are)."""
     labels: dict[str, str] = Field(default_factory=dict)
@@ -97,6 +105,7 @@ class ProblemPack(Contract):
     procedures: str | None = None
     estimators: PackEstimators = Field(default_factory=PackEstimators)
     racing: PackRacing | None = None
+    cost: PackCost = Field(default_factory=PackCost)
     presentation: PackPresentation = Field(default_factory=PackPresentation)
     references: list[PackReference] = Field(default_factory=list)
     legacy: dict[str, str] = Field(default_factory=dict)

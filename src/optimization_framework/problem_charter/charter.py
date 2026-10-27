@@ -822,7 +822,27 @@ def describe(charter, registry=None) -> dict:
             "references": [{"applies": applies(reference, values)} for reference in charter.references],
             "findings": rows, "blocking": len(blocking(rows)),
             "instances": [{"name": instance.name, "values": resolve(charter, instance.values)["values"] if instance.values else values}
-                          for instance in charter.instances]}
+                          for instance in charter.instances],
+            "access": access(charter, registry)}
+
+
+def access(charter, registry=None) -> dict | None:
+    """How methods will reach the objective and what they will be compared on (N11): the charter's choice where it makes
+    one, else the installed problem's own declaration (white_box for a declared problem, decision 22)."""
+    charter = parse(charter)
+    binding = charter.evaluator
+    if binding is None:
+        return None
+    own = {"access": "white_box", "cost_axis": None}
+    if binding.kind == "installed":
+        from optimization_framework.evaluation.access import declared
+        from optimization_framework.evaluation.registry import problems
+        try:
+            own = declared(binding.problem_id, registry or problems)
+        except (KeyError, ValueError):   # not installed: its own finding says so
+            pass
+    return {"access": binding.access or own["access"], "cost_axis": binding.cost_axis or own["cost_axis"],
+            "problem": own, "charter": {"access": binding.access, "cost_axis": binding.cost_axis}}
 
 
 def applies(reference, values) -> bool:
@@ -1026,7 +1046,8 @@ def compile_setups(charter, registry=None) -> list[dict]:
         fidelity = {field: values[name] for field, name in binding.fidelity.items()}
         if binding.kind == "installed":
             setup = ProblemSetup(name=instance.name, split=instance.split, problem_id=binding.problem_id,
-                                 configuration=configuration, fidelity=fidelity, rationale=instance.note)
+                                 configuration=configuration, fidelity=fidelity, rationale=instance.note,
+                                 access=binding.access, cost_axis=binding.cost_axis)
         else:
             setup = ProblemSetup(name=instance.name, split=instance.split, configuration=configuration, fidelity=fidelity,
                                  evaluator_manifest=manifest(charter, values), rationale=instance.note)
@@ -1091,7 +1112,7 @@ def manifest(charter, values):
         configuration_schema=schema(binding.configuration), configuration={f: values[n] for f, n in binding.configuration.items()},
         fidelity_schema=schema(binding.fidelity), fidelity={f: values[n] for f, n in binding.fidelity.items()},
         public_configuration_keys=sorted(binding.configuration),   # the instance's data is the method's input; fidelity stays private
-        deterministic=binding.deterministic)
+        deterministic=binding.deterministic, access=binding.access or "white_box", cost_axis=binding.cost_axis)
 
 
 # Conversion --------------------------------------------------------------------------------------------

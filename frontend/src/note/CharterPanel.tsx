@@ -19,7 +19,12 @@ interface Change { part: string; name: string; change: string; before?: unknown;
 interface ProposalOption { label?: string; summary?: string; reason?: string; changes?: unknown[]; blocking_reason?: string | null; diff?: Change[]; findings?: { message: string }[] }
 interface Proposal { id: string; status: string; request?: string; asked?: string | null; created_at?: string; accepted_option?: number | null; options?: ProposalOption[] }
 interface CharterView { id: string; title?: string; status: string; revision: number; blocking: number; formulator?: { status: string | null; listening: boolean }; question_rounds?: number; question_rounds_max?: number; findings: Finding[]; values: Record<string, number | null>; errors?: Record<string, string>;
-  rendered?: Record<string, string>; units_elsewhere?: { about: string[]; message: string }[]; proposals: Proposal[]; charter: { title?: string; text?: string; summary?: string; quantities: Record<string, Quantity>; variables: Variable[]; questions: Question[]; assumptions: { statement: string; accepted?: boolean }[]; waivers: { key: string; reason: string }[] } }
+  rendered?: Record<string, string>; access?: Access | null; units_elsewhere?: { about: string[]; message: string }[]; proposals: Proposal[]; charter: { title?: string; text?: string; summary?: string; quantities: Record<string, Quantity>; variables: Variable[]; questions: Question[]; assumptions: { statement: string; accepted?: boolean }[]; waivers: { key: string; reason: string }[] } }
+
+/** How methods reach the objective and what they are compared on (N11): the charter's choice, else the problem's own. */
+interface Access { access: string; cost_axis: string | null; problem: { access: string; cost_axis: string | null }; charter: { access: string | null; cost_axis: string | null } }
+const ACCESS_WORDS: Record<string, string> = { white_box: 'white box: a method may compute the objective itself, as often as it likes', oracle: 'oracle: a method reaches the objective only by evaluating a candidate' };
+const AXIS_WORDS: Record<string, string> = { worker_seconds: 'worker-seconds', core_seconds: 'core-seconds (threads × time)', evaluations: 'evaluations', solver_calls: 'solver calls' };
 
 const number = (text: string) => { const v = Number(text.replace(/[,_\s]/g, '')); return Number.isFinite(v) ? v : null; };
 const show = (v: unknown) => v == null ? '' : typeof v === 'number' ? (Math.abs(v) >= 1e4 ? v.toLocaleString('en-US') : String(v)) : typeof v === 'object' ? JSON.stringify(v) : String(v);
@@ -175,6 +180,8 @@ export function CharterPanel({ charterId, campaignId, version, onChanged, formul
           {doc.variables.map((v, i) => <VariableRow key={v.name} index={i} variable={v} busy={locked} edit={edit} />)}
         </tbody></table>
       </Section> : null}
+
+      {c.access ? <MethodAccess access={c.access} confirmed={confirmed} busy={locked} edit={edit} /> : null}
 
       {pending.length ? <Section title="Asked of the formulator" right={<span className="small faint">it answers with a proposal below, or a new revision</span>}>
         <div className="col">{pending.map(a => <div key={a.at} className="finding small row" data-testid="asked"><span className="finding-code">sent</span><span className="grow">{a.text}</span><Pill tone="agent">{working ? 'formulator working' : 'sent'}</Pill></div>)}</div>
@@ -387,6 +394,25 @@ function QuantityRow({ name, quantity: q, computed, error, busy, edit, post }: {
     <td>{q.origin === 'assumed' ? <span className="row" style={{ gap: 4 }}><Pill tone={q.accepted ? 'clear' : 'attention'}>{q.accepted ? 'assumed · accepted' : 'assumed'}</Pill>{!q.accepted ? <button className="btn quiet small" disabled={busy} onClick={() => post('accept-assumptions', { names: [name] })}>Accept</button> : null}</span>
       : <Pill tone={q.origin === 'researcher' ? 'you' : ''}>{q.origin || ''}</Pill>}</td>
   </tr>;
+}
+
+function MethodAccess({ access, confirmed, busy, edit }: { access: Access; confirmed: boolean; busy: boolean; edit: (changes: Record<string, unknown>[], rationale: string) => Promise<unknown> }) {
+  const own = (value: string | null, words: Record<string, string>, fallback: string) => `the problem's own: ${value ? words[value] || value : fallback}`;
+  const choose = (field: 'access' | 'cost_axis', value: string) => value === ''
+    ? (access.charter[field] != null ? edit([{ op: 'remove', path: `evaluator.${field}` }], `Use the problem's own ${field === 'access' ? 'access' : 'cost axis'}`) : Promise.resolve())
+    : edit([{ op: 'set', path: `evaluator.${field}`, value }], `Set ${field === 'access' ? 'the access' : 'the cost axis'} to ${value}`);
+  return <Section title="How methods reach the objective" right={<span className="small faint">{confirmed ? 'fixed by the confirmed revision' : 'choose before confirming'}</span>}>
+    <div className="col small" data-testid="charter-access">
+      <label className="row">Access <select data-testid="access-select" disabled={busy || confirmed} value={access.charter.access ?? ''} onChange={e => void choose('access', e.target.value)}>
+        <option value="">{own(access.problem.access, ACCESS_WORDS, 'white box')}</option>
+        {Object.entries(ACCESS_WORDS).map(([key, words]) => <option key={key} value={key}>{words}</option>)}</select></label>
+      <label className="row">Compared on <select data-testid="cost-axis-select" disabled={busy || confirmed} value={access.charter.cost_axis ?? ''} onChange={e => void choose('cost_axis', e.target.value)}>
+        <option value="">{own(access.problem.cost_axis, AXIS_WORDS, 'worker-seconds, core-seconds when a method uses several threads')}</option>
+        {Object.entries(AXIS_WORDS).map(([key, words]) => <option key={key} value={key}>{words}</option>)}</select></label>
+      <p className="muted" data-testid="access-why">{access.access === 'oracle'
+        ? 'Methods are counted by what they ask the evaluator; choose this for an expensive evaluator (a simulator, a measurement) or when you want a black-box comparison.'
+        : 'Methods may use the objective\'s code freely and are judged by the time they take. Choose oracle for an expensive evaluator (a simulator, a measurement) or a black-box comparison.'}</p>
+    </div></Section>;
 }
 
 function VariableRow({ index, variable: v, busy, edit }: { index: number; variable: Variable; busy: boolean; edit: (changes: Record<string, unknown>[], rationale: string) => Promise<unknown> }) {

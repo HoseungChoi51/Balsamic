@@ -22,6 +22,8 @@ export interface Placeholder { id: string; batch_id: string; status: string; hyp
 export interface Messages extends Scoped { thread_id: string; messages: Message[]; truncated: boolean; inherited: Inherited[]; inherited_messages: Message[]; parent_path: { thread_id: string; title: string; fork_message_id: string | null }[]; fork_message_id: string | null; questions: Question[]; placeholders: Placeholder[]; status: string; merged_into: string | null; summary: ThreadSummary | null }
 export interface ThreadSummary { text: string; strip: { at: string; glyph: string; id: string; who?: string; operation?: string }[]; as_of_message_id: string | null; written_by: 'model' | 'activity_only'; stale: boolean; edited: boolean; reason?: string; written_at?: string; model?: string }
 export interface Trial { id: string; campaign_id: string; task_id: string; algorithm: string; status: string; seed?: number; max_steps?: number; wall_seconds?: number; created_at?: string;
+  /** 'white_box' when the method may compute the objective itself and is judged by its time; absent on an oracle run. */
+  access?: 'white_box'; numerical_threads?: number;
   progress?: Record<string, unknown>; result?: Record<string, unknown>; stopped_by?: string; hidden?: boolean; hypothesis_id?: string; [key: string]: unknown }
 export interface Experiments extends Scoped { short: Trial[]; long: Trial[]; checks: Trial[]; drafts: Record<string, unknown>[]; rules: Record<string, unknown>; profiles: Record<string, unknown>[] }
 export interface Hypothesis { id: string; title: string; short_title?: string | null; status: string; mechanism?: string; rationale?: string; algorithm?: string; algorithm_chosen?: boolean; origin?: string; parent_ids?: string[];

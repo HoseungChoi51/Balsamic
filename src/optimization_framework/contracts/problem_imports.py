@@ -3,10 +3,11 @@ from __future__ import annotations
 
 from typing import Any, Literal
 
-from pydantic import Field, model_validator
+from pydantic import Field, model_serializer, model_validator
 
 from .base import Contract
 from .evaluators import EvaluatorManifest
+from .problems import Access, CostAxis, without_unset
 
 
 class ProblemSetup(Contract):
@@ -18,6 +19,14 @@ class ProblemSetup(Contract):
     fidelity: dict[str, Any] = Field(default_factory=dict)
     evaluator_manifest: EvaluatorManifest | None = Field(default=None, description="A declared problem whose evaluator is still needed")
     rationale: str = Field(default="", max_length=5000)
+    # An installed problem's access and cost axis as the charter sets them; unset, the problem's own (N11). A declared
+    # problem carries them in its manifest.
+    access: Access | None = None
+    cost_axis: CostAxis | None = None
+
+    @model_serializer(mode="wrap")
+    def compatible_serialization(self, handler):
+        return without_unset(handler(self), "access", "cost_axis")
 
     @model_validator(mode="after")
     def one_problem(self):
@@ -30,7 +39,8 @@ class ProblemSetup(Contract):
         from .requests import TaskInput
         manifest = self.evaluator_manifest
         return TaskInput(name=self.name, split=self.split, problem_id=manifest.id if manifest else self.problem_id,
-            configuration=self.configuration, fidelity=self.fidelity, evaluator_manifest=manifest)
+            configuration=self.configuration, fidelity=self.fidelity, evaluator_manifest=manifest,
+            access=None if manifest else self.access, cost_axis=None if manifest else self.cost_axis)
 
 
 class CampaignDefaults(Contract):

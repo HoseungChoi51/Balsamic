@@ -156,7 +156,8 @@ class ComparisonReportInput(Contract):
     trial_ids: list[str] | None = Field(default=None, min_length=1, max_length=200, description="Compare only these experiments. "
         "Methods are compared at the largest cost every compared run reached, so name the long runs to compare them with each other: "
         "a short run in the same study would otherwise set that cost. A continued run is named by its last experiment.")
-    cost_axis: Literal["worker_seconds", "full_worker_seconds", "evaluation_requests", "solver_executions"] | None = None
+    cost_axis: Literal["worker_seconds", "full_worker_seconds", "core_seconds", "evaluation_requests", "solver_executions"] | None = Field(
+        default=None, description="Omit for the problem's own axis (time on a white-box problem, core_seconds when a run used several threads)")
     cost_view: Literal["full_attributed_cost", "actual_expenditure"] = "full_attributed_cost"
 
 

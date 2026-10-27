@@ -103,6 +103,8 @@ def fingerprint(spec):
         identity["execution_manifest_digest"] = content_hash(spec["execution_manifest"])
     if spec.get("continues"):
         identity["continues"] = spec["continues"]
+    if spec.get("access"):
+        identity["access"] = spec["access"]
     if spec.get("absolute_deadline"):
         identity["absolute_deadline"] = spec["absolute_deadline"]
         identity["execution_grant_id"] = spec["execution_grant_id"]
@@ -135,6 +137,7 @@ class ExperimentWorker:
                     or frozen.parameters != {k: self.spec[k] for k in ("algorithm", "algorithm_config", "training", "recipe") if k in self.spec}
                     or frozen.schedule["steps"] != self.spec["schedule_steps"]
                     or frozen.schedule.get("numerical_threads", 1) != self.spec.get("numerical_threads", 1)
+                    or frozen.schedule.get("access") != self.spec.get("access")
                     or frozen.initial_assets != self.spec.get("initial_assets", [])
                     or frozen.contribution_asset_ids != self.spec.get("contribution_asset_ids", [])
                     or frozen.dependencies != self.spec.get("dependencies", [])
@@ -185,6 +188,8 @@ class ExperimentWorker:
                     if hasattr(component, "close"):
                         component.close()
                 raise
+            if self.spec.get("access") == "white_box" and hasattr(self.optimizer, "open_objective"):
+                self.optimizer.open_objective(self.objective)
         self.elapsed_before = max(self.spec.get("execution_seconds", 0),
             (read_json(self.directory / "progress.json", {}) or {}).get("elapsed_seconds", 0))
         self.max_steps, self.wall_seconds = self.spec["max_steps"], self.spec["wall_seconds"]
@@ -240,6 +245,12 @@ class ExperimentWorker:
         # Publish an initial checkpoint so an early forced exit also has a bounded restart.
         if self.checkpoint_id is None:
             self.save_checkpoint()
+
+    def objective(self, candidate):
+        """A white-box problem's objective for the method's own use (N11): computed by the evaluator, never recorded."""
+        from optimization_framework.optimizers.functions import plain
+        evaluation = self.evaluator.evaluate(self.problem.candidate_schema.canonicalize(plain(candidate)))
+        return evaluation.objectives[self.problem.primary_objective.name]
 
     def _evaluator(self):
         if self.problem.evaluator_version == "unresolved":
@@ -439,6 +450,8 @@ class ExperimentWorker:
                 "request_id": request["id"], "attempt_id": self.attempt_id, "created_at": request["created_at"],
                 "quantities": {"evaluation_requests": 1, "solver_executions": costs["solver_executions"],
                     "evaluation_seconds": costs["worker_seconds"], "worker_seconds": max(0., elapsed - self.cost_cursor_seconds),
+                    # A method on several threads uses that many cores for the same wall time (decision 23).
+                    "core_seconds": self.spec.get("numerical_threads", 1) * max(0., elapsed - self.cost_cursor_seconds),
                     "model_calls": 0, "model_input_tokens": 0, "model_output_tokens": 0, "api_usd": 0},
                 "status": "measured" if costs["solver_executions"] is not None else "uncertain"})
             self.cost_cursor_seconds = elapsed
