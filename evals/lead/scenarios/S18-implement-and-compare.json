@@ -1,0 +1,18 @@
+{
+  "id": "S18-implement-and-compare",
+  "source": "Roadmap B7: \"implement and compare\" is one compute request naming the coding workspace, the proposals and the runs; Balsamic installs, binds and starts them, so the lead binds nothing and asks for nothing else",
+  "setup": {"preset": "quadratic", "llm_budget_usd": 0.5},
+  "presets": ["quadratic", "deflector_2d"],
+  "steps": [
+    {"say": "Implement two methods the lab does not have, a pattern search and a cross-entropy method, and compare them on this task: 2 seeds each, 5 minutes per run."},
+    {"wait": "idle", "timeout_s": 900}
+  ],
+  "checks": [
+    {"commands_with": {"operation": "approval.request", "payload": {"kind": "compute"}, "count": 1}},
+    {"commands_with": {"operation": "approval.request", "payload": {"kind": "compute"}, "matches": "^(?=.*\"coding_workspaces\": [1-9])(?=.*\"runs\": \\[\\{)", "count": 1}},
+    {"commands_exactly": {"operation": "implementation.bind_builtin", "count": 0, "role": "lead"}},
+    {"no_commands": ["trial.create", "draft.launch", "campaign.update"]},
+    {"reply_contains_none": ["pip install", "uv add", "uv sync", "in a terminal"]}
+  ],
+  "repeats": 1
+}
