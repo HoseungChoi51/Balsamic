@@ -120,10 +120,11 @@ def catalog(workspace, campaign_id, *, other_limit=40):
             built_by.setdefault(method["method_id"], submission)
     rows, other = [], []
     installed = {method["id"]: method for method in algorithms()}
+    from optimization_framework.agents.library_validation import refused_reason
     for method in installed.values():
-        per_task = []
+        per_task, refused = [], refused_reason(store, method["id"])   # failed validation outside the box (H6): not installed
         for task in tasks:
-            reason = capability_reason(method["id"], task["problem"]) if task.get("problem") else "The task has no problem definition yet"
+            reason = refused or (capability_reason(method["id"], task["problem"]) if task.get("problem") else "The task has no problem definition yet")
             per_task.append({"task_id": task["id"], "runnable": reason is None, "reason": reason})
         proposals = [{"hypothesis_id": h["id"], "bound": True, "default": h.get("algorithm_chosen") is False}
                      for h in hypotheses if h.get("algorithm") == method["id"]]

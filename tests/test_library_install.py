@@ -138,7 +138,13 @@ def lab(tmp_path):
     return workspace, campaign["id"], development, root, submission
 
 
-def installer(lab, dry_run=" Would make no changes\n", sync_code=0, provided=(), installed=None):
+def passing(files, name, instances=(), protected=None):
+    """Validation outside the box that the library passes (library_validation.run's result): the libraries here are fakes, so
+    the real sandbox is tested on a real library in tests/test_library_validation.py."""
+    return {"tests": {"passed": 3, "failed": 0, "skipped": 0, "results": []}, "protected": None, "methods": [], "seconds": 0.5}
+
+
+def installer(lab, dry_run=" Would make no changes\n", sync_code=0, provided=(), installed=None, validator=passing):
     """installed: {group: {entry-point name: distribution}} of what other packages provide."""
     workspace, cid, development, root, submission = lab
     plugins, commands = Plugins(), []
@@ -150,7 +156,7 @@ def installer(lab, dry_run=" Would make no changes\n", sync_code=0, provided=(),
             return sync_code, "Installed 1 package" if sync_code == 0 else "error: no matching distribution"
         return 0, dry_run if "--dry-run" in args else "Resolved 3 packages"
     return Installer(workspace, development, root, runner=runner, uv="uv", plugins=plugins, problems=problems,
-                     providers=lambda group: (installed or {}).get(group, {})), commands
+                     providers=lambda group: (installed or {}).get(group, {}), validator=validator), commands
 
 
 def request(lab, install, **options):
@@ -295,7 +301,7 @@ def syncing(lab, monkeypatch):
     monkeypatch.setattr(development_runtime, "ROOT", root)
     monkeypatch.setattr(Installer, "reparsed", functools.partialmethod(Installer.reparsed, background=False))
     monkeypatch.setattr(Installer, "__init__", lambda self, *args, **kwargs: original(self, *args, **{**kwargs, "runner": fake.runner, "uv": "uv", "plugins": fake.plugins,
-        "problems": fake.problems, "providers": fake.providers}))
+        "problems": fake.problems, "providers": fake.providers, "validator": fake.validator}))
     return commands
 
 
