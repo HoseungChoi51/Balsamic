@@ -208,6 +208,22 @@ test('an installed library that provides a problem names the problem it added', 
   await expect(added).not.toContainText('methods');
 });
 
+test('an install from the library generated from the charter names the generated files the coding agent changed', async ({ page }) => {
+  const submission = { id: 's1', commit: '2a3eb0899a', status: 'submitted', created_at: '2026-10-27T03:22:04Z', report,
+    manifest: { files: ['libraries/baking_order/pyproject.toml'] } };
+  const install = { id: 'library_install_1', submission_id: 's1', requested_at: '2026-10-27T04:00:00Z', finished_at: '2026-10-27T04:01:00Z',
+    status: 'installed', actor: 'balsamic', package: 'baking-order', version: '0.1.1', path: 'libraries/baking_order', changes: [],
+    entry_points: { baking_order: 'baking_order.adapter:method_plugin' }, methods_added: ['shuffle'], missing_methods: [],
+    changed_generated_files: ['libraries/baking_order/pyproject.toml', 'libraries/baking_order/baking_order/harness.py'] };
+  await mockWorkspace(page);
+  await page.route(`**/api/campaigns/${CAMPAIGN_ID}/implementation-workspaces`, route => route.fulfill({ json: { enabled: true, workspaces: [
+    { ...workspace, status: 'idle', outcome: { state: 'delivered', verdict: 'ready', submission_id: 's1', commit: '2a3eb0899a', at: '2026-10-27T03:22:04Z' },
+      submissions: [submission], installs: [install] }] } }));
+  await page.goto(`/#t/${THREAD_ID}/hypotheses/implementations`);
+  await expect(page.getByTestId('install-box').getByTestId('install-changed-generated'))
+    .toHaveText('changed from the generated library: pyproject.toml, baking_order/harness.py');
+});
+
 test('a library the coding agent reported not ready installs only once the researcher says so; loose files cannot be installed', async ({ page }) => {
   const notReady = { ...report, verdict: 'not_ready', limitations: [], next_actions: [{ owner: 'lead', action: 'Fix the seed replay' }] };
   await mockWorkspace(page, { [`/api/campaigns/${CAMPAIGN_ID}/implementation-workspaces`]: { enabled: true, workspaces: [

@@ -7,7 +7,7 @@ from .base import Contract
 from .requests import CampaignUpdate, ControlInput, ValidationInput, ReviewInput, DecisionInput
 from optimization_framework.implementations.models import EvaluatorSpec, EvaluatorPackage, EvaluatorCheckSpec, OptimizerCheckSpec
 
-Operation = Literal["agent.activate", "agent.message", "agent.control", "agent.rollback", "agent.configure", "agent.question_dismiss", "agent.ui_respond", "fixed_mask.run", "campaign.create", "campaign.update", "context.edit", "issue.resolve", "issue.reopen", "trial.create", "trial.control", "trial.extension_request", "trial.validate", "draft.save", "draft.launch", "reproduction.draft", "reproduction.compare", "study.create", "study.nominate", "finalist.set", "study.freeze_template", "study.activate", "study.race.create", "study.race.control", "study.race.decide", "validation.run", "validation.require", "validation.execute", "validation.waive",
+Operation = Literal["agent.activate", "agent.message", "agent.control", "agent.rollback", "agent.configure", "agent.question_dismiss", "agent.ui_respond", "fixed_mask.run", "campaign.create", "campaign.update", "campaign.adopt_problem", "context.edit", "issue.resolve", "issue.reopen", "trial.create", "trial.control", "trial.extension_request", "trial.validate", "draft.save", "draft.launch", "reproduction.draft", "reproduction.compare", "study.create", "study.nominate", "finalist.set", "study.freeze_template", "study.activate", "study.race.create", "study.race.control", "study.race.decide", "validation.run", "validation.require", "validation.execute", "validation.waive",
     "asset.snapshot",
     "validation.revoke_waiver", "inference.run", "asset.reuse", "asset.import_reference_set", "cost.reconcile", "comparison.report", "finding.record", "implementation.commission",
     "implementation.reference", "implementation.bind_builtin", "implementation.attach", "evaluator.commission", "evaluator.attach", "implementation.control", "implementation.revalidate", "implementation.reuse", "implementation.resolve_runtime", "bundle.export", "bundle.inspect", "bundle.publish", "decision.resolve", "source.record", "source.ingest", "hypothesis.create", "hypothesis.review", "hypothesis.status", "hypothesis.nominate", "literature.search", "confirmation.schedule", "confirmation.validate", "confirmation.release",
@@ -60,6 +60,12 @@ class Command(Contract):
 
 class CampaignUpdateInput(CampaignUpdate):
     rationale: str = Field(default="Researcher revised the campaign charter", min_length=1, max_length=5000)
+
+
+class ProblemAdoptionInput(Contract):
+    """The campaign's tasks adopt the problem an installed library provides for its charter's declared problem (roadmap E4)."""
+    install_id: str = Field(min_length=1, max_length=200, description="The library install that provides the charter's declared problem")
+    rationale: str = Field(default="The installed library provides the charter's declared problem", min_length=1, max_length=5000)
 
 
 class FinalistSetInput(Contract):

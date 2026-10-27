@@ -141,7 +141,7 @@ its `bindings` and the proposals it `skipped` with why (a proposal someone bound
 proposal's concept review: the review's revision counts the configuration the first binding replaced (`pre_binding_config`). Then
 Balsamic starts the runs an approved compute plan lists for the proposals that can now run, one per planned seed, under that
 go-ahead (`campaigns/plan_runs.py`; the install lists them as `launched`), and wakes the lead once when all of a plan's runs have
-ended. Frozen runs
+ended. When a library provides the problem a campaign's charter declares, `campaign.adopt_problem` (the researcher or the lead; it starts no compute) has the campaign adopt it: its tasks are compiled again from the charter, each declared task is replaced by a new one naming what provides it (`provided_by`: package, version, commit, submission, install), the old one is kept, never rebound, with `superseded_by_task_id`, and an `evaluator_requirement_satisfaction` record links its evaluator requirement to the install; one campaign version and one new study for the adoption, and adopting again changes nothing. Frozen runs
 snapshot the library's source and record its version like any other plug-in. When a second project needs a library, it
 moves to its own repository, as `mask-optimizers` did.
 
@@ -315,6 +315,15 @@ evaluates. The evaluator's version is the charter revision and a hash of the pac
 changed objective is another evaluator. A field mapped to a derived quantity (the residence time from a volume and a flow
 rate) must agree with what the charter computes; a configuration that is none of the charter's instances gets a
 `Problem` of its own, resolved from the charter.
+
+A coding workspace of a campaign made from a charter starts from this library (`agents/development.py`
+`generated_library()`): the workspace's first preparation writes it into `libraries/<problem-id>/` of the worktree, never
+over a file that is already there, and records the hash of each generated file. Its brief gives each proposal it serves
+the `METHODS` key to write it under, with its `hypothesis_id`. Under decision 9, `charter.json` and `data.py` are fixed:
+the install refuses a delivery whose copies differ from the generated ones ("the library's data no longer matches the
+charter revision"), and lists the other generated files the coding agent changed (`changed_generated_files`; the
+objective and the methods, which it writes, are not listed). A charter with no evaluator gives no library, and the brief
+says why; the coding agent then builds one as this page describes.
 
 ### Failure policy
 
