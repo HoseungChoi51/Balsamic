@@ -5,6 +5,7 @@ from copy import deepcopy
 import numpy as np
 
 from optimization_framework.contracts.problems import CandidateSchema, Objective, Proposal
+from optimization_framework.optimizers.finish import MethodFinished
 
 
 class AskTellAdapter:
@@ -25,8 +26,11 @@ class AskTellAdapter:
             raise ValueError("The previous proposal batch must be observed before proposing again")
         if max_candidates < 1:
             raise ValueError("Proposal capacity must be positive")
+        try:
+            candidate = self.optimizer.ask()
+        except StopIteration as exc:
+            raise MethodFinished(exc.value if isinstance(exc.value, str) else None) from None
         self.sequence += 1
-        candidate = self.optimizer.ask()
         if hasattr(candidate, "tolist"):
             candidate = candidate.tolist()
         self.pending = [Proposal(id=f"proposal_{self.sequence}", candidate=candidate)]

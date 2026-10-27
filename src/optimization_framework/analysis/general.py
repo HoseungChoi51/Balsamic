@@ -27,8 +27,9 @@ def number(value):
     return float(value) if isinstance(value, (float, int)) and not isinstance(value, bool) and math.isfinite(value) else None
 
 
-def observed_at(curve, budget):
-    if not curve or budget < curve[0]["cost"] or budget > curve[-1]["cost"]:
+def observed_at(curve, budget, *, held=False):
+    """The best objective a curve had reached at a cost; past its end only when held (a method that finished keeps its value)."""
+    if not curve or budget < curve[0]["cost"] or (budget > curve[-1]["cost"] and not held):
         return None
     return next(point["objective"] for point in reversed(curve) if point["cost"] <= budget)
 
@@ -51,7 +52,8 @@ def report(workspace, campaign_id, *, study_id=None, cost_axis=None, cost_view="
     A run that was continued (trial.continue) is one run: its last experiment stands for it, with the
     earlier ones' curves in front and their costs added. Methods are compared at the largest cost every
     compared run reached, so a comparison of long runs names them: one short run in the same study
-    would otherwise set that cost.
+    would otherwise set that cost. A run whose method finished on its own does not set that cost: it holds
+    its final value after its last point (held_after_finish), unless every compared run finished.
     """
     if cost_view not in {"full_attributed_cost", "actual_expenditure"}:
         raise ValueError("Choose full_attributed_cost or actual_expenditure")
@@ -171,6 +173,7 @@ def report(workspace, campaign_id, *, study_id=None, cost_axis=None, cost_view="
             points[final_cost] = {"cost": final_cost, "objective": best, "upstream_cost": upstream_cost,
                                   "direct_cost": None if upstream_cost is None else max(0., final_cost - upstream_cost)}
         scientific_complete = bool(latest.get("scientific_complete"))
+        method_finished = bool(latest.get("method_finished"))
         from .finalists import prototype_details
         details = prototype_details(trial, study, tasks.get(trial.get("task_id")), hypotheses.get(trial.get("hypothesis_id")))
         group["trials"].append({"id": trial["id"], "seed": trial["seed"], "method_id": identity, "method": definition,
@@ -179,18 +182,21 @@ def report(workspace, campaign_id, *, study_id=None, cost_axis=None, cost_view="
             "algorithm": trial["algorithm"], "status": trial["status"], "best_objective": best,
             "scientific_complete": scientific_complete, "process_exit": latest.get("process_exit"),
             "allocation_stop": latest.get("allocation_stop"), "censored": not scientific_complete,
+            "method_finished": method_finished, "held_after_finish": method_finished,
             "adaptive_extension": any(member["id"] in amendments for member in chain),
             "unknown_cost": unknown or upstream_cost is None, "upstream": upstream, "full_cost": full,
             "curve": thin([points[key] for key in sorted(points)])})
     for group in groups.values():
         usable = [trial for trial in group["trials"] if trial["curve"]]
-        horizon = min((trial["curve"][-1]["cost"] for trial in usable), default=None)
+        # A finished method has no more points to give; the runs still going set the matched cost.
+        open_ended = [trial for trial in usable if not trial["method_finished"]] or usable
+        horizon = min((trial["curve"][-1]["cost"] for trial in open_ended), default=None)
         start = max((trial["curve"][0]["cost"] for trial in usable), default=None)
         if horizon is not None and start > horizon:
             horizon = None
         methods = defaultdict(list)
         for trial in group["trials"]:
-            value = observed_at(trial["curve"], horizon) if horizon is not None else None
+            value = observed_at(trial["curve"], horizon, held=trial["method_finished"]) if horizon is not None else None
             methods[trial["method_id"]].append((trial, value))
         summaries = []
         for method_id, rows in methods.items():
