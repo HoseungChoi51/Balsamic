@@ -213,6 +213,58 @@ def known_exact_algorithm(turn):
                        "I recorded it with two heuristics to compare on [Hypotheses](#hypotheses).")
 
 
+def implement_and_compare(turn):
+    """S18 done right: the two proposals, then one Screen mandate naming the coding workspace, the proposals and their runs;
+    Balsamic installs, binds and starts the runs once the researcher approves, so the lead binds nothing."""
+    task = turn.call("campaign_inspect")["tasks"][0]["id"]
+    ids = []
+    for key, title in (("pattern", "Pattern search"), ("cem", "Cross-entropy method")):
+        created = turn.call("campaign_command", operation="hypothesis.create", request_key=key, payload={
+            "title": title, "mechanism": f"A {title.lower()} built as a library in a coding workspace.",
+            "rationale": "The researcher asked for it; the lab has no such method.", "algorithm": "random"})
+        ids.append(created["outcome"]["hypothesis"]["id"])
+    turn.call("mandate_propose", **{"template": "screen", "plan": "One coding workspace builds both methods as a library; Balsamic installs it, binds the two proposals "
+        "and starts their runs: 2 seeds each, 5 minutes per run.", "wall_seconds": 3600, "worker_seconds": 1200, "coding_workspaces": 1, "hypothesis_ids": ids,
+        "meanwhile": "Read the proposals on Hypotheses", "runs": [{"task_id": task, "hypothesis_id": h, "seeds": [0, 1], "wall_seconds": 300}
+                                                                for h in ids]})
+    return turn.finish("I recorded the two proposals and proposed one Screen mandate for the coding workspace and their 4 runs. "
+                       "Once you approve it on [Inbox](#inbox), Balsamic installs the library, binds both and starts the runs.",
+                       summary="Waiting for the go-ahead", disposition="waiting")
+
+
+def charter_to_results(turn):
+    """S19 done right as far as the scripted harness goes: three proposals and one Screen mandate naming the coding workspace
+    and their runs; once the researcher approves, the lead opens the coding workspace and waits. The library, its install, the
+    runs and the comparison need a coding agent, so the rest is graded live only."""
+    if turn.notice:
+        if turn.memory.get("proposals") and not turn.memory.get("opened"):
+            turn.memory["opened"] = True
+            first, *others = turn.memory["proposals"]
+            opened = turn.call("implementation_workspace_create", hypothesis_id=first, hypothesis_ids=others, request_key="baking-order",
+                               objective="Implement earliest due date, adjacent swap search and exact enumeration as methods of the "
+                               "generated baking_order library, test them and submit.")
+            state = "opened" if not opened.get("error") else f"not opened ({opened['error'][:120]})"
+            return turn.finish("", summary=f"Coding workspace {state}", disposition="waiting")
+        return unrelated_notice(turn)
+    task = turn.call("campaign_inspect")["tasks"][0]["id"]
+    ids = []
+    for key, title, mechanism in (("edd", "Earliest due date", "Sort the bakes by due time and evaluate that order once."),
+                                  ("swap", "Swap search", "From the earliest-due-date order, swap neighbours while the tardiness falls."),
+                                  ("exact", "Exact enumeration", "Evaluate all 8! orders: the optimum, as the reference.")):
+        created = turn.call("campaign_command", operation="hypothesis.create", request_key=key, payload={
+            "title": title, "mechanism": mechanism, "rationale": "The researcher asked for it; no installed method orders bakes.",
+            "algorithm": "custom", "algorithm_config": {"design_note": mechanism}})
+        ids.append(created["outcome"]["hypothesis"]["id"])
+    turn.memory["proposals"] = ids
+    turn.call("mandate_propose", **{"template": "screen", "plan": "One coding workspace builds the three methods in the library generated from the charter; Balsamic "
+        "installs it, binds the proposals and starts their runs: 2 seeds each, 2 minutes per run.", "wall_seconds": 3600, "worker_seconds": 1200, "coding_workspaces": 1, "hypothesis_ids": ids,
+        "meanwhile": "Read the charter's data on Problem", "runs": [{"task_id": task, "hypothesis_id": h, "seeds": [0, 1], "wall_seconds": 120}
+                                                                    for h in ids]})
+    return turn.finish("I recorded the three proposals and proposed one Screen mandate for the coding workspace and their 6 runs. "
+                       "Once you approve it on [Inbox](#inbox), the methods are built and Balsamic installs, binds and starts them; "
+                       "I will rank them by total tardiness when they finish.", summary="Waiting for the go-ahead", disposition="waiting")
+
+
 def scripted(play):
     """A scenario's script for the turns it is about; other agents' notices get the plain acknowledgement."""
     def turn(t):
@@ -236,4 +288,6 @@ FAKES = {
     "S14-under-tuned-rejection": scripted(under_tuned_rejection),
     "S15-locked-confirmation": scripted(locked_confirmation),
     "S17-known-exact-algorithm": scripted(known_exact_algorithm),
+    "S18-implement-and-compare": scripted(implement_and_compare),
+    "S19-charter-to-results": scripted(charter_to_results),
 }

@@ -152,6 +152,31 @@ def test_paper_reference_is_optional_and_reaches_services(setup, monkeypatch):
             launcher.configuration(path)
 
 
+def test_the_coding_workspace_ceilings_reach_services_and_are_checked(setup, monkeypatch):
+    config, path, _, _, _ = setup
+    monkeypatch.setenv("GRATING_DEVELOPMENT_MAX_CPUS", "64")   # left in the calling shell: not passed on
+    assert "GRATING_DEVELOPMENT_MAX_CPUS" not in launcher.service_environment(launcher.configuration(path))
+    path.write_text(json.dumps({**config, "development_max_cpus": 8, "development_max_memory_gb": 16.5, "development_max_gpus": 1}))
+    environment = launcher.service_environment(launcher.configuration(path))
+    assert (environment["GRATING_DEVELOPMENT_MAX_CPUS"], environment["GRATING_DEVELOPMENT_MAX_MEMORY_GB"],
+            environment["GRATING_DEVELOPMENT_MAX_GPUS"]) == ("8", "16.5", "1")
+    for key, invalid in (("development_max_cpus", 0), ("development_max_memory_gb", "8g"), ("development_max_gpus", 0.5)):
+        path.write_text(json.dumps({**config, key: invalid}))
+        with pytest.raises(launcher.LauncherError, match=key):
+            launcher.configuration(path)
+
+
+def test_the_coding_workspaces_harness_mode_reaches_services_and_is_checked(setup, monkeypatch):
+    config, path, _, _, _ = setup
+    monkeypatch.setenv("GRATING_DEVELOPMENT_HARNESS_MODE", "headless")   # left in the calling shell: not passed on
+    assert "GRATING_DEVELOPMENT_HARNESS_MODE" not in launcher.service_environment(launcher.configuration(path))
+    path.write_text(json.dumps({**config, "development_harness_mode": "headless"}))
+    assert launcher.service_environment(launcher.configuration(path))["GRATING_DEVELOPMENT_HARNESS_MODE"] == "headless"
+    path.write_text(json.dumps({**config, "development_harness_mode": "gui"}))
+    with pytest.raises(launcher.LauncherError, match="development_harness_mode"):
+        launcher.configuration(path)
+
+
 def test_runtime_gate_is_on_by_default_and_the_configuration_can_change_or_remove_it(setup, monkeypatch):
     config, path, _, _, _ = setup
     monkeypatch.setenv("GRATING_RUNTIME_GATE_SECONDS", "5")   # a variable left in the calling shell does not decide

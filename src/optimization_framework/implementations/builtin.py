@@ -36,7 +36,8 @@ def bind(workspace, campaign_id, payload, command_id, *, actor='researcher'):
             content_hash(hypothesis.get('algorithm_config', {})) != values.expected_configuration_hash):
         raise ValueError('Proposal implementation changed; refresh the binding')
     instance = ProblemInstance(**task['problem'])
-    reason = capability_reason(values.algorithm, instance)
+    from optimization_framework.agents.library_validation import refused_reason
+    reason = refused_reason(workspace.store, values.algorithm) or capability_reason(values.algorithm, instance)
     if reason:
         raise ValueError(reason)
     validate_parameters(values.algorithm, instance, values.parameters)

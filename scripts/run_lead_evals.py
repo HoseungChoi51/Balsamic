@@ -49,6 +49,10 @@ PRESETS = {
                      "delegated_trial_seconds": 60, "example": "flrl_2d_deflector_1050nm_75deg"},
     "reactor": {"objective": "Find the conditions of highest isolated yield for this flow reaction", "compute_budget_seconds": 600,
                 "validation_reserve_seconds": 0, "charter": "flow-reactor.json"},
+    # Charter to results (G2): a small permutation charter whose declared problem no installed library provides yet, so the
+    # methods are built in a coding workspace and Balsamic installs, adopts, binds and starts them.
+    "baking_order": {"objective": "Find the order of bakes that is least late", "compute_budget_seconds": 7200,
+                     "validation_reserve_seconds": 0, "charter": "baking-order.json"},
 }
 ACTIVE = {"queued", "submitted", "running"}
 TOOL_RESULT_BYTES = 256 * 1024
@@ -254,6 +258,13 @@ class Stack:
         """The extension allowlist the next sessions' manifests name (setup.extensions), or the default one."""
         self._env(GRATING_PI_EXTENSIONS=str((self.source / allowlist).resolve()) if allowlist else None)
 
+    def development(self, enabled):
+        """Coding workspaces on for a scenario that builds methods (setup.development), as the lab's own setting otherwise.
+        The scripted harness has no coding agent, so a --fake run leaves them as they are."""
+        key = "GRATING_DEVELOPMENT_ENABLED"
+        self.saved_env.setdefault(key, os.environ.get(key))
+        self._env(**{key: "true" if enabled and not self.fake else self.saved_env[key]})
+
     def command(self, campaign_id, operation, payload, *, origin=None, expect_ok=True):
         campaign = self.workspace.store.get(campaign_id, "campaign") if operation != "campaign.create" else {"version": 0}
         body = {"id": "eval_" + uuid.uuid4().hex, "campaign_id": campaign_id, "operation": operation,
@@ -347,6 +358,8 @@ def step_wait(ctx, what, timeout_s=600):
         "request_closed": lambda: not config().get("request_open") and not any(r["status"] in ACTIVE for r in ctx.runs()),
         "idle": lambda: not any(r["status"] in ACTIVE for r in ctx.runs()),
         "trials_settled": lambda: not any(t["status"] in {"queued", "running", "pausing"} for t in ctx.store.list("trial", ctx.campaign_id)),
+        # A comparison report was written and nothing of the campaign's agents is queued or at work: the lead has replied with it.
+        "compared": lambda: bool(_commands_of(ctx, "comparison.report")) and not any(r["status"] in ACTIVE for r in ctx.runs()),
     }
     if what not in conditions:
         raise ValueError(f"Unknown wait {what}")
@@ -395,6 +408,8 @@ def step_pin(ctx, record_id):
 
 
 def run_step(ctx, step):
+    if step.get("live_only") and ctx.stack.fake:
+        return {"skipped": {key: value for key, value in step.items() if key != "live_only"}, "why": "live only: the scripted harness has no coding agent"}
     if "say" in step:
         return step_say(ctx, step["say"])
     if "wait" in step:
@@ -631,7 +646,93 @@ def check_commands_with(ctx, arg):
     return passed, f"{len(found)} {arg['operation']}" + (f" with {json.dumps(payload)}" if payload else "") + (f" matching {pattern}" if pattern else "")
 
 
+def _commands_of(ctx, operation):
+    """Accepted commands of an operation, whoever sent them (agents, the researcher or Balsamic), oldest first."""
+    return sorted((c for c in ctx.store.list("work_command", ctx.campaign_id) if c["request"]["operation"] == operation and c.get("status") == "completed"),
+                  key=lambda c: c.get("created_at") or "")
+
+
+def check_trials_started_by(ctx, arg):
+    """Every experiment of the campaign was started by this actor (`balsamic`: a planned run under the researcher's go-ahead),
+    and at least `count` of them."""
+    starters = {(c.get("outcome") or {}).get("trial_id"): c.get("actor") for c in _commands_of(ctx, "trial.create")}
+    trials = [t for t in ctx.store.list("trial", ctx.campaign_id) if not t.get("hidden")]
+    others = [f"{t['id']} by {starters.get(t['id'], 'no command')}" for t in trials if starters.get(t["id"]) != arg["actor"]]
+    started = len(trials) - len(others)
+    return not others and started >= arg["count"], f"{started} started by {arg['actor']}" + (f"; others: {', '.join(others[:3])}" if others else "")
+
+
+def _after_activation(ctx):
+    activated = _commands_of(ctx, "agent.activate")
+    return activated[0] if activated else None
+
+
+def check_researcher_actions(ctx, arg):
+    """The researcher's actions after the team started (their messages, decisions, answers), with the decisions and questions
+    still waiting for them counted too: what the flow needed of them, exactly `arg`."""
+    activated = _after_activation(ctx)
+    since = (activated or {}).get("created_at") or ""
+    sent = [c["request"]["operation"] for c in ctx.store.list("work_command", ctx.campaign_id)
+            if c.get("actor") == "researcher" and (c.get("created_at") or "") >= since and c["id"] != (activated or {}).get("id")]
+    waiting = [d["id"] for d in ctx.store.list("decision", ctx.campaign_id) if d.get("status") == "pending"]
+    waiting += [q["id"] for q in ctx.store.list("agent_question", ctx.campaign_id) if q["status"] == "pending" and not q["id"].startswith("pi_stalled_")]
+    count = len(sent) + len(waiting)
+    return count == arg, f"{count} researcher actions: {', '.join(sent) or 'none'}" + (f"; waiting: {', '.join(waiting)}" if waiting else "")
+
+
+def _numbers(value):
+    """How a reply would write a score: 290, 290.0, 290.00, 1,290."""
+    return {f"{value:g}", f"{value:.1f}", f"{value:.2f}", f"{value:,.0f}"} | ({f"{value:.0f}"} if float(value).is_integer() else set())
+
+
+def check_reply_ranks_by_report(ctx, arg):
+    """The lead's reply gives the last comparison report's method means in the report's rank order (best first, under the
+    objective's direction): each ranked mean appears, and each after the one ranked above it."""
+    reports = [c for c in _commands_of(ctx, "comparison.report") if c.get("outcome")]
+    if not reports:
+        return False, "no comparison report"
+    groups = [g for g in reports[-1]["outcome"].get("groups", []) if any(s.get("rank") for s in g.get("method_summaries", []))]
+    if not groups:
+        return False, "the report ranks no method"
+    group = max(groups, key=lambda g: len(g["method_summaries"]))
+    ranked = sorted((s for s in group["method_summaries"] if s.get("rank")), key=lambda s: s["rank"])
+    reply, cursor, found = ctx.reply(), 0, []
+    for summary in ranked:
+        hits = [m.start() for text in _numbers(summary["mean"]) for m in re.finditer(rf"(?<![\d.,]){re.escape(text)}(?![\d]|[.,]\d)", reply)]
+        later = [position for position in hits if position >= cursor]
+        if not later:
+            where = "not in the reply" if not hits else "before a method ranked above it"
+            return False, f"{summary['method_id']} (rank {summary['rank']}, mean {summary['mean']:g}) {where}; ranked so far: {found}"
+        cursor = min(later)
+        found.append(f"{summary['method_id']} {summary['mean']:g}")
+    return True, f"{group.get('direction')}: " + ", ".join(found)
+
+
+def check_live_only(ctx, arg):
+    """A check of what only a live run produces (a coding agent's library, its runs, their comparison): graded live,
+    reported as not graded on the scripted harness."""
+    (name, value), = arg.items()
+    if ctx.stack.fake:
+        return True, f"{name}: not graded on the scripted harness (no coding agent)"
+    return CHECKS[name](ctx, value)
+
+
 CHECKS = {name.removeprefix("check_"): value for name, value in globals().items() if name.startswith("check_")}
+
+
+def _time(text):
+    from datetime import datetime
+    return datetime.fromisoformat(text.replace("Z", "+00:00")) if text else None
+
+
+def go_ahead_to_results(ctx):
+    """Seconds from the researcher's go-ahead (their first decision after the team started) to the lead's first reply after the
+    first comparison report written since; None while either is missing."""
+    since = (_after_activation(ctx) or {}).get("created_at") or ""
+    go = next((c for c in _commands_of(ctx, "decision.resolve") if c.get("actor") == "researcher" and (c.get("created_at") or "") >= since), None)
+    report = next((c for c in _commands_of(ctx, "comparison.report") if go and c["created_at"] >= go["created_at"]), None)
+    reply = min((m["created_at"] for m in ctx.lead_replies() if report and (m.get("created_at") or "") >= report["created_at"]), default=None)
+    return round((_time(reply) - _time(go["created_at"])).total_seconds(), 1) if reply else None
 
 
 def metrics(ctx):
@@ -649,7 +750,7 @@ def metrics(ctx):
     return {"lead_turns": len(ctx.lead_runs()), "continue_turns": sum(r["id"].startswith("pi_continue_") for r in runs),
             "other_turns": page_turns, "failed_runs": sum(r["status"] == "failed" for r in runs), "agent_commands": operations,
             "refusals": len(_refusals(ctx)), "max_tool_result_bytes": max([serialized_bytes(r.get("result")) for r in ctx.receipts()] or [0]),
-            **ctx.usage(), "seconds": round(time.monotonic() - ctx.started, 1)}
+            **ctx.usage(), "seconds": round(time.monotonic() - ctx.started, 1), "go_ahead_to_results_s": go_ahead_to_results(ctx)}
 
 
 def transcript(ctx, result):
@@ -723,6 +824,7 @@ def run_scenario(stack, scenario, repeat, *, model, scale, fakes, preset=None):
         for name in setup.get("seeds", []):
             ctx.timeline.append(step_seed(ctx, name))
         stack.extensions(setup.get("extensions"))
+        stack.development(setup.get("development", False))
         stack.command(campaign_id, "agent.activate", {**({"model": model} if model else {})})
         for step in scenario["steps"]:
             ctx.timeline.append(run_step(ctx, step))
@@ -763,6 +865,9 @@ def summarize(scenario, repeats):
     passed = passes == len(repeats) if scoring == "all" else passes > 0
     keys = ("lead_turns", "continue_turns", "model_calls", "cost_usd", "cache_read_tokens", "input_tokens", "seconds")
     mean = {key: round(statistics.fmean(r["metrics"][key] for r in repeats), 4) for key in keys} if repeats else {}
+    timed = [r["metrics"]["go_ahead_to_results_s"] for r in repeats if r["metrics"].get("go_ahead_to_results_s") is not None]
+    if timed:
+        mean["go_ahead_to_results_s"] = round(statistics.fmean(timed), 1)
     status = "pass" if passed else "xfail" if scenario.get("known_failure") else "fail"
     return {"id": scenario["id"], "source": scenario.get("source"), "scoring": scoring, "known_failure": scenario.get("known_failure"),
             "passes": passes, "repeats": len(repeats), "passed": passed, "status": status, "metrics_mean": mean, "runs": repeats}
@@ -795,6 +900,11 @@ def summary_markdown(results, baselines=None):
             old = baseline.get("scenarios", {}).get(row["id"])
             line += (" — |" if not old else f" {old['passes']}/{old['repeats']}{' **regressed**' if old['passed'] and not row['passed'] else ''} |")
         lines.append(line)
+    timed = [row for row in results["scenarios"] if row["metrics_mean"].get("go_ahead_to_results_s") is not None]
+    if timed:
+        lines += ["", "## Go-ahead to ranked results", ""] + [
+            f"- {row['id']}: {row['metrics_mean']['go_ahead_to_results_s'] / 60:.1f} min ({row['metrics_mean']['go_ahead_to_results_s']:g} s, "
+            f"mean of {sum(run['metrics'].get('go_ahead_to_results_s') is not None for run in row['runs'])} runs)" for row in timed]
     unsupported = results.get("unsupported") or []
     if unsupported:
         lines += ["", f"## Not run on {results['preset']}", ""] + [f"- {row['id']}: {row['reason']}" for row in unsupported]

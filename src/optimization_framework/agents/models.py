@@ -1,6 +1,7 @@
 from typing import Literal
 from pydantic import Field, model_validator
 from optimization_framework.contracts.base import Contract
+from optimization_framework.contracts.mandates import MessageMandate
 
 
 # The campaign lead coordinates the other roles. ("pi" was a misreading of the
@@ -15,9 +16,11 @@ STANDING = {LEAD, *PAGE_AGENTS}
 # The assistants the moderator asks for views and verdicts in a review round.
 DISCUSSION_ROLES = ("literature_specialist", "methodology_specialist", "cross_domain_explorer", "skeptical_domain_analyst",
                     "empirical_assessor", "proposal_reviewer", "results_analyst")
+# The implementation service's builder, test designer and validator are no longer roles (roadmap H8): code is built in a coding box
+# (agents/development_commission.py). Agents recorded under them keep their records and never run again.
 ROLES = (LEAD, "literature_specialist", "methodology_specialist", "cross_domain_explorer",
-         "skeptical_domain_analyst", "empirical_assessor", "proposal_reviewer", "implementation_builder",
-         "implementation_test_designer", "implementation_validator", "results_analyst", *PAGE_AGENTS)
+         "skeptical_domain_analyst", "empirical_assessor", "proposal_reviewer", "results_analyst", *PAGE_AGENTS)
+RETIRED_ROLES = frozenset({"implementation_builder", "implementation_test_designer", "implementation_validator"})
 # The standing assignment of each page agent.
 PAGE_OBJECTIVES = {
     "discussion_moderator": "Run the review of this campaign's proposals when the researcher or the lead agent asks: ask specialists and "
@@ -26,8 +29,8 @@ PAGE_OBJECTIVES = {
     "experiment_operator": "Run this campaign's experiments when the researcher or the lead agent asks: design, start, watch, pause, extend "
         "and stop runs within the campaign's allocations, find out why a run failed from its records and files, and report what ran and "
         "what it measured.",
-    "implementation_lead": "Build, check and attach optimizer and evaluator implementations when the researcher or the lead agent asks, "
-        "through implementation commissions and coding workspaces, and report what was built, how it was checked, and what remains.",
+    "implementation_lead": "Build, check and attach optimizer and evaluator implementations when the researcher or the lead agent asks: "
+        "coding workspaces (write the ticket, review the delivery) or commissions. Report what was built and checked, and what remains.",
     "resource_planner": "Plan how this campaign uses the machine within the researcher's resource level: estimate what kinds of runs never "
         "measured will use, decide how many of the campaign's runs and of each kind go at once, explain why runs wait or ran out of "
         "memory, and report the plan and its reasons. Start no runs and stop none.",
@@ -87,6 +90,8 @@ class Message(Contract):
     thread_id: str | None = None
     parent_message_id: str | None = None
     edit_of_message_id: str | None = None
+    # The mandate the researcher grants with this message, for the request it opens (R7, the dial beside the chat's send button).
+    mandate: MessageMandate | None = None
 
     @model_validator(mode="after")
     def one_recipient(self):

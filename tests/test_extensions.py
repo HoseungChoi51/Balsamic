@@ -35,7 +35,7 @@ def receipt(w, agent, run, call_id="call_1", tool="web_read", **extra):
                                           "The paper reports 0.93.", 2100, **extra)
 
 
-def test_the_manifest_names_the_roles_extensions_and_a_grant_has_none(team, allowlist):
+def test_the_manifest_names_the_roles_extensions_and_a_retired_grant_agent_has_none(team, allowlist):
     w, c, lead, run = team
     tools = PiTools(w.pi)
     manifest = tools.manifest(lead["id"], run["id"])
@@ -45,11 +45,13 @@ def test_the_manifest_names_the_roles_extensions_and_a_grant_has_none(team, allo
     w.store.put("agent_run", {**w.store.get(operator_run["id"], "agent_run"), "status": "submitted"})
     operator = tools.manifest(operator_run["agent_id"], operator_run["id"])
     assert operator["extension_host"] is True and operator["extensions"] == []
-    builder = w.pi.create_agent(c["id"], "implementation_builder", "Build", "builder_x", parent_id=lead["id"], grant_id="grant_x")
-    built = w.pi.enqueue(builder, "builder_run", "Build it")
-    w.store.put("agent_run", {**built, "status": "submitted"})
-    grant = tools.manifest(builder["id"], built["id"])
-    assert grant["extension_host"] is False and grant["extensions"] == []
+    # An implementation grant's agent recorded before roadmap H8 retired its roles gets no manifest, so no extension either.
+    builder = w.store.put("agent_session", {**w.store.get(lead["id"], "agent_session"), "id": "agent_builder_before_h8",
+                                            "role": "implementation_builder", "parent_agent_id": lead["id"], "grant_id": "grant_x"})
+    built = w.store.put("agent_run", {**w.store.get(run["id"], "agent_run"), "id": "run_builder_before_h8", "agent_id": builder["id"],
+                                      "status": "submitted"})
+    with pytest.raises(ValueError, match="retired in roadmap H8"):
+        tools.manifest(builder["id"], built["id"])
     # An allowlist that names a path outside its folder is refused.
     (allowlist / "allowlist.json").write_text(json.dumps({"extensions": {"evil": {"path": "../../evil.ts"}}, "roles": {}}))
     with pytest.raises(ValueError, match="outside"):

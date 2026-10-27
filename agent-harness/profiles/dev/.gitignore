@@ -7,3 +7,5 @@ npm/
 git/
 models-store.json
 auth.json
+# A researcher's own catalogue for this profile (it replaces models.template.json; endpoints stay local).
+models.json
