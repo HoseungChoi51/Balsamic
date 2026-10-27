@@ -253,3 +253,29 @@ test('a side conversation with implementation work opens on the Implementations 
   await page.goto(`/#t/${THREAD_ID}/inbox`);
   await expect(page.getByTestId('open-agents-thread')).toHaveAttribute('href', `#t/${f.AGENTS_THREAD_ID}/hypotheses/implementations`);
 });
+
+test('the baking order (roadmap G1): Balsamic installs the library that provides the problem, binds the four proposals and starts the 8 approved runs', async ({ page }) => {
+  const methods = [['hypothesis_edd', 'Earliest due date', 'bakery_edd'], ['hypothesis_swap', 'Adjacent swap search', 'bakery_swap'],
+    ['hypothesis_restarts', 'Random restarts', 'bakery_restarts'], ['hypothesis_exact', 'Exact enumeration', 'bakery_exact']];
+  const submission = { id: 's1', commit: '2a3eb0899a', status: 'submitted', created_at: '2026-10-27T03:22:04Z', report,
+    manifest: { files: ['libraries/baking-order/pyproject.toml', 'libraries/baking-order/src/baking_order/problem.py'] } };
+  const install = { id: 'library_install_1', submission_id: 's1', requested_at: '2026-10-27T04:00:00Z', finished_at: '2026-10-27T04:01:00Z',
+    status: 'installed', actor: 'balsamic', package: 'baking-order', version: '0.1.0', path: 'libraries/baking-order', changes: [],
+    entry_points: Object.fromEntries(methods.map(([, , m]) => [m, `baking_order.methods:${m}`])), problem_entry_points: { baking_order: 'baking_order.problem:Problem' },
+    methods_added: methods.map(([, , m]) => m), missing_methods: [], problems_added: ['baking_order'], missing_problems: [],
+    bindings: methods.map(([h, title, m], i) => ({ hypothesis_id: h, title, method: m, task_id: 'task_1', binding_id: `builtin_binding_${i}` })), skipped: [],
+    launched: methods.flatMap(([h], i) => [0, 1].map(seed => ({ hypothesis_id: h, seed, trial_id: `trial_${i}_${seed}`, task_id: 'task_1', consent_id: 'compute_consent_1' }))) };
+  await mockWorkspace(page);
+  await page.route(`**/api/campaigns/${CAMPAIGN_ID}/implementation-workspaces`, route => route.fulfill({ json: { enabled: true, workspaces: [
+    { ...workspace, title: 'Baking order', hypothesis_ids: methods.map(([h]) => h), status: 'idle',
+      outcome: { state: 'delivered', verdict: 'ready', submission_id: 's1', commit: '2a3eb0899a', at: '2026-10-27T03:22:04Z' }, submissions: [submission], installs: [install] }] } }));
+  await page.goto(`/#t/${THREAD_ID}/hypotheses/implementations`);
+  const box = page.getByTestId('install-box');
+  await expect(box.getByTestId('install-added')).toContainText('problems baking_order');
+  const bindings = box.getByTestId('install-bindings');
+  for (const [h, title, m] of methods) {
+    await expect(bindings).toContainText(`bound ${title} → ${m} by Balsamic`);
+    for (const seed of [0, 1]) await expect(bindings).toContainText(`started ${h} seed ${seed}: an approved run, by Balsamic`);
+  }
+  await expect(bindings).not.toContainText('not bound');
+});
