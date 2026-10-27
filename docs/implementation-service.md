@@ -18,6 +18,29 @@ flowchart LR
     U -->|Routine experiment controls| W
 ```
 
+## Commissions run as coding boxes (roadmap H7)
+
+When coding workspaces are on, a commission no longer goes to this service. `implementation.commission` (a proposal's method)
+and `evaluator.commission` (a task's evaluator, when the campaign's charter declares its problem) open a coding workspace in which
+Pi runs headless (`agents/development_commission.py`), on a work ticket that holds the frozen specification (its provenance and an
+evaluator's independent fixtures left out), behind the box's walls: the egress allowlist, the limits, and the commission's
+`compute_seconds` as its deadline, within the go-ahead's wall time. Its result is a submission like any coding workspace's:
+Balsamic validates the exact commit outside the box (`agents/library_validation.py`), installs the library, binds the proposal
+or has the declared task adopt the problem, and starts the approved runs.
+
+- **Protected tests.** The test designer's job is done outside the box, before it opens: the commissioner writes at least one
+  protected acceptance test (`ticket.protected_tests`), and an evaluator's `correctness_cases` become one Balsamic writes
+  (`test_commission_fixtures.py`). They are kept on the host (`development_protected_test`) and run on every delivery; the box
+  sees their names only. The specification's behaviour, mechanism and diagnostic checks are part of what the coding agent reads,
+  not protected tests.
+- **One log, one ledger, one contract.** The workspace's history is the commission's. The bus charges the commission's
+  `compute_seconds` to the go-ahead once, as for a job; the box takes none of its coding workspaces, and its wall time and its
+  validation are counted on the box (`commission.usage`), not charged again. The optional implementation ceiling counts boxes and
+  jobs alike. What the box builds is a library (`libraries/<name>/`).
+- **Still this service's.** While coding workspaces are off, a commission that imports a package, and an evaluator for a task no
+  charter declares, a commission is a job here as before (the next sections). H8 retires the job's agent loop. Jobs and grants
+  recorded before stay as they are and readable; nothing is migrated.
+
 ## Run locally
 
 The services share a local filesystem and run as the same trusted user. This is not a remote or multi-tenant execution service. Install the project with `uv sync --extra dev` and build the frontend with `npm --prefix frontend run build`. Linux bubblewrap, unprivileged user namespaces, `ldd`, `readelf`, and `ldconfig` are required for isolated package execution.

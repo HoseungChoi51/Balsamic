@@ -25,7 +25,7 @@ export interface Submission { id: string; commit: string; status: string; notes?
   validation_outcome?: { status?: string; error?: string | null; findings?: Record<string, string>[] } }
 export interface Outcome { state: string; verdict?: string; submission_id?: string; commit?: string; at: string; reason?: string }
 export interface Workspace {
-  id: string; campaign_id: string; title: string; hypothesis_id: string; hypothesis_ids?: string[]; status: string; desired_status: string; created_at: string;
+  id: string; campaign_id: string; title: string; hypothesis_id: string | null; hypothesis_ids?: string[]; status: string; desired_status: string; created_at: string;
   started_at?: string; last_activity_at?: string; cpu_budget_seconds?: number | null; usage?: { container_cpu_seconds?: number };
   error?: string; activity?: string; checkpoints?: Checkpoint[]; last_error_at?: string | null; ide_url?: string;
   opened_by?: { actor?: string; role?: string }; questions?: { id: string; question: string }[];
@@ -35,6 +35,10 @@ export interface Workspace {
   egress?: { model: string[]; package_index: string[]; named: string[] };
   /** The library generated from the charter it started from (roadmap F4). */
   library?: { name: string; package?: string; revision?: number } | null;
+  /** The commission this box runs headless for (roadmap H7): its kind, its specification's name, its compute time and the
+   *  protected tests kept outside the box. A box for a task's evaluator has a task_id and serves no proposal. */
+  commission?: { kind: 'implementation' | 'evaluator'; name: string; compute_seconds: number; protected_tests?: string[]; task_id?: string | null } | null;
+  task_id?: string | null;
 }
 export const LIVE = new Set(['queued', 'starting', 'resuming', 'running', 'pausing', 'stopping']);
 export const VERDICT: Record<string, [string, string]> = { ready: ['ready', 'clear'], ready_with_limits: ['ready, with limits', 'attention'],

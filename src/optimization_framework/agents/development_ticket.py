@@ -19,6 +19,7 @@ from __future__ import annotations
 import difflib
 import hashlib
 import json
+import re
 from pathlib import PurePosixPath
 
 from pydantic import Field, field_validator, model_validator
@@ -99,6 +100,7 @@ def build(record, proposals, keys, *, library=None, problem=None, why=None, give
     budget of the go-ahead (``consent``) and ``mandate`` it opens under; and the box's walls as the record holds them (H5,
     `DevelopmentWorkspaces.walls()`: its wall time to the deadline, its limits and the hosts it may reach)."""
     given = given or TicketInput()
+    commission = record.get("commission")
     prefix = f"libraries/{library['name']}/" if library else None
     generated = {prefix + path for path in library["files"]} if library else set()
     tests = [{"path": prefix + path, "source": "generated"} for path in sorted(library["files"])
@@ -108,8 +110,10 @@ def build(record, proposals, keys, *, library=None, problem=None, why=None, give
             raise ValueError(f"{test.path} is a file of the generated library: name it without content, or put the new test at another path")
         if test.path in {row["path"] for row in tests}:
             continue
-        tests.append({"path": test.path, "source": "implementation lead",
+        tests.append({"path": test.path, "source": "commission" if commission else "implementation lead",
                       **({"content": test.content, "sha256": sha256(test.content.encode())} if test.content is not None else {})})
+    if commission and not tests:   # a commission names the library's contract test when nothing else gives one (roadmap H7)
+        tests.append({"path": f"libraries/{library_name(commission)}/tests/test_contract.py", "source": "commission"})
     targets = [prefix.rstrip("/")] if prefix else []
     targets += [row["path"] for row in tests if not (prefix and row["path"].startswith(prefix))]
     ticket = {"id": "development_ticket_" + content_hash([record["id"]])[:24], "kind": KIND, "campaign_id": record["campaign_id"],
@@ -121,12 +125,21 @@ def build(record, proposals, keys, *, library=None, problem=None, why=None, give
                     "filled": [f"{prefix}{library['package']}/{name}" for name in ("objective.py", "methods.py")]} if library else None,
         "no_library": why if problem and not library else None,
         "acceptance_tests": tests, "test_command": "uv run pytest " + " ".join(targets) if targets else None,
-        "protected_tests": [test.name for test in given.protected_tests],
+        "protected_tests": list(commission["protected_tests"]) if commission else [test.name for test in given.protected_tests],
         "evidence_ids": list(record.get("evidence_ids") or []), "budget": budget_of(record, consent, mandate),
         "deadline": {"wall_seconds": record.get("wall_seconds"), "at": mandate.deadline_at if mandate else None},
         "limits": record.get("limits"), "egress": record.get("egress")}
+    if commission:
+        ticket["commission"] = {key: commission.get(key) for key in ("kind", "name", "compute_seconds", "spec", "fixtures", "task_id")}
+        ticket["commission"]["library"] = None if library else library_name(commission)
     ticket["house_rules"] = house_rules(ticket)
     return ticket
+
+
+def library_name(commission):
+    """The library a commission builds when no charter generates one: its specification's name as a directory name."""
+    name = re.sub(r"[^a-z0-9]+", "-", str(commission.get("name") or "").lower()).strip("-")[:60].strip("-")
+    return name if name[:1].isalnum() else ("library-" + name).rstrip("-")
 
 
 def spec(ticket):
@@ -151,6 +164,8 @@ def task(ticket):
     """TASK.md: the ticket as the coding agent reads it."""
     lines = [f"# Work ticket: {ticket['title']}", "", ticket["objective"], ""]
     problem, library = ticket.get("charter"), ticket.get("library")
+    if ticket.get("commission"):
+        lines += commission_lines(ticket["commission"])
     if problem:
         lines += ["## The problem", "", f"{problem['title']}. {problem['summary']}", ""]
         if problem.get("objective"):
@@ -159,6 +174,8 @@ def task(ticket):
             f"The library generated from it is in `{library['path']}`; its README says what to write." if library else
             f"No library could be generated from it ({ticket.get('no_library')}): build one as docs/optimizer-plugins.md describes."), ""]
     lines += ["## Proposals", ""]
+    if not ticket["proposals"]:
+        lines += ["None: this work builds the evaluator, not a method.", ""]
     for row in ticket["proposals"]:
         lines += [f"### {row['title']} (`{row['hypothesis_id']}`)", ""]
         if row.get("method_key"):
@@ -175,6 +192,24 @@ def task(ticket):
     if ticket["evidence_ids"]:
         lines += ["", "## Evidence", "", "`.campaign/evidence.json` holds: " + ", ".join(f"`{value}`" for value in ticket["evidence_ids"]) + "."]
     return "\n".join(lines) + "\n"
+
+
+def commission_lines(commission):
+    """TASK.md's section on a commission (roadmap H7): what it asks for, and its frozen specification as the coding agent may read it."""
+    spec = dict(commission.get("spec") or {})
+    what = ("the evaluator of a task: a library that provides its problem, with the objective written in it" if commission["kind"] == "evaluator"
+            else "a method for the proposal below")
+    lines = ["## The commission", "", f"This work was commissioned: {what}. Its specification is frozen: implement it as written, and say "
+             "in your delivery report what you could not.", "", "Mechanism:", "", str(spec.pop("mechanism", "")).strip(), "",
+             "Acceptance criteria, each to be shown by a test of the library:", ""]
+    lines += [f"- {criterion}" for criterion in spec.pop("acceptance_criteria", [])] + [""]
+    if commission.get("library"):
+        lines += [f"Build it as the library `libraries/{commission['library']}/`.", ""]
+    if commission.get("fixtures"):
+        lines += [f"Balsamic holds {commission['fixtures']} independent numerical fixtures of this evaluator outside the workspace and "
+                  "checks them on every delivery, as a protected test.", ""]
+    lines += ["The rest of the specification:", "", "```json", json.dumps(spec, indent=2, sort_keys=True), "```", ""]
+    return lines
 
 
 def budget_lines(ticket):
@@ -204,8 +239,9 @@ def budget_lines(ticket):
 def house_rules(ticket):
     """AGENTS.md and CLAUDE.md, the same for any harness: what to build, how to run the tests, how to submit, what not to touch."""
     library = ticket.get("library")
+    named = (ticket.get("commission") or {}).get("library")
     command = ticket.get("test_command") or "uv run pytest libraries/<name>"
-    target = library["path"].rstrip("/") if library else "libraries/<name>"
+    target = library["path"].rstrip("/") if library else f"libraries/{named or '<name>'}"
     lines = ["# House rules", "", "This is a Balsamic coding workspace. TASK.md is your work ticket: the proposals to implement, the problem, "
              "the acceptance tests, the budget and the deadline. `.balsamic/spec.json` holds the same ticket as JSON.", "",
              "## What to build", ""]
@@ -217,7 +253,7 @@ def house_rules(ticket):
                   "A method that needs its own state, batches or checkpoints follows the optimizer_v1 package contract instead: see "
                   "docs/optimizer-plugins.md."]
     else:
-        lines += ["A library under `libraries/<name>/` for the proposals in TASK.md, on the optimizer_v1 package contract as "
+        lines += [f"A library under `{target}/` for the proposals in TASK.md, on the optimizer_v1 package contract as "
                   "docs/optimizer-plugins.md describes: a module per method, its own tests and `tests/test_contract.py`."]
     lines += ["", "## How to run the tests", "",
               f"`{command}` runs the acceptance tests TASK.md lists, Balsamic's contract checks (`tests/test_contract.py`) among them. "

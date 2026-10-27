@@ -102,7 +102,7 @@ test('the CLI refuses what the extension\'s schema refuses, naming the field, an
                               [['checkpoint', '--summary', 'x', '--phase', 'coding'], /arguments\.phase: one of orienting/],
                               [['checkpoint', '--summary', 'x', '--tests', 'many'], /--tests is PASSED\/FAILED/],
                               [['submit', 'abc', '--json', JSON.stringify({commit: 'abc', report: REPORT})], /arguments\.commit: must match/],
-                              [['submit', '--json', JSON.stringify({commit: 'a'.repeat(40), report: {...REPORT, methods: []}})], /report\.methods: at least 1 items/],
+                              [['submit', '--json', JSON.stringify({commit: 'a'.repeat(40), report: {...REPORT, methods: [{state: 'implemented', conformance: 'passed'}]}})], /report\.methods\[0\]\.method_id: required/],
                               [['ask'], /arguments\.question: must not be empty/],
                               [['deploy'], /Unknown tool deploy/]]) {
     const result = run(bridge, args);

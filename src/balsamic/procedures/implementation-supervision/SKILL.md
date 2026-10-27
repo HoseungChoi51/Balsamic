@@ -55,7 +55,12 @@ run.
 In `optimizer_v1` a method only proposes and observes. The lab's worker evaluates, caches, enforces deadlines and timeouts, and
 charges failures and costs; none of that is the library's job.
 
+A commission (`implementation.commission` for a proposal, `evaluator.commission` for a task's evaluator) is the same work without
+the conversation: Balsamic opens a coding workspace that runs headless on a ticket made from the frozen specification, under the
+go-ahead, with the commission's compute time as its deadline, and its questions, delivery and install reach you as a workspace's do.
+The specification is all the coding agent sees, so it states the mechanism in full. Writing the protected tests is yours, outside
+the box: give at least one in `ticket.protected_tests` (an evaluator's `correctness_cases` become one by themselves).
+
 When coding workspaces are off (`implementation_workspace_create` refuses), tell the researcher once what turns them on, as the
-refusal says. The implementation service is the other route (`implementation.commission`): builders, a test designer and a
-reviewer build and check a package under a compute go-ahead. Its specification is all they see, so it
-states the mechanism in full; a package holds at most 256 KiB per file and 1 MiB in all.
+refusal says. A commission is then an implementation service job, as is one that imports a package: builders, a test designer and
+a reviewer build and check a package of at most 256 KiB per file and 1 MiB in all.

@@ -266,7 +266,16 @@ class Installer:
         return judged
 
     def _charge(self, record, identity, seconds):
+        """Validation's time, charged to the go-ahead the workspace opened under; for a commission's box (roadmap H7), counted on the
+        commission instead, whose compute time the bus charged to the go-ahead once when it opened."""
         from optimization_framework.campaigns import compute_consent
+        if record.get("commission"):
+            with self.workspace.lock:
+                current = self.store.get(record["id"], "development_workspace")
+                usage = current["commission"].setdefault("usage", {})
+                usage["validation_seconds"] = usage.get("validation_seconds", 0.0) + (seconds or 0.0)
+                self.store.put("development_workspace", current)
+            return
         consent_id = (record.get("consent") or {}).get("id")
         if not consent_id or not seconds:
             return

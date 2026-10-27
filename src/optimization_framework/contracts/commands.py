@@ -6,6 +6,7 @@ from pydantic import Field, model_validator, field_validator
 from .base import Contract
 from .requests import CampaignUpdate, ControlInput, ValidationInput, ReviewInput, DecisionInput
 from optimization_framework.implementations.models import EvaluatorSpec, EvaluatorPackage, EvaluatorCheckSpec, OptimizerCheckSpec
+from optimization_framework.agents.development_ticket import TicketInput
 
 Operation = Literal["agent.activate", "agent.message", "agent.control", "agent.rollback", "agent.configure", "agent.question_dismiss", "agent.ui_respond", "fixed_mask.run", "campaign.create", "campaign.update", "campaign.adopt_problem", "context.edit", "issue.resolve", "issue.reopen", "trial.create", "trial.control", "trial.extension_request", "trial.validate", "draft.save", "draft.launch", "reproduction.draft", "reproduction.compare", "study.create", "study.nominate", "finalist.set", "study.freeze_template", "study.activate", "study.race.create", "study.race.control", "study.race.decide", "validation.run", "validation.require", "validation.execute", "validation.waive",
     "asset.snapshot",
@@ -417,6 +418,9 @@ class CommissionInput(Contract):
     api_budget_usd: float = Field(default=0, ge=0, le=10000)
     package: dict[str, Any] | None = None
     service_idempotency_key: str | None = Field(default=None, min_length=1, max_length=200)
+    # A commission that opens a headless coding box (roadmap H7): acceptance tests the coding agent sees, and the protected ones
+    # its commissioner writes outside the box, which it never does (agents/development_commission.py).
+    ticket: TicketInput | None = None
 
 
 class AttachInput(Contract):
@@ -431,6 +435,7 @@ class EvaluatorCommissionInput(Contract):
     max_calls: int = Field(default=12, ge=1, le=20)
     api_budget_usd: float = Field(default=0, ge=0, le=10000)
     package: EvaluatorPackage | None = None
+    ticket: TicketInput | None = None
 
 
 class EvaluatorAttachInput(Contract):

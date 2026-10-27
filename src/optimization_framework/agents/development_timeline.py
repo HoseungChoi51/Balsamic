@@ -78,8 +78,13 @@ def entries(store, record):
     opener = record.get("opened_by") or {}
     who = OPENERS.get(opener.get("role") or opener.get("actor"), "you" if opener.get("actor") == "researcher" else None)
     consent = record.get("consent")   # workspaces opened before this was recorded say neither
-    found.append(entry(record["created_at"], "opened", ("Opened" + (f" by {who}" if who else "")) + (" under your go-ahead" if consent else ""),
-                       (f"Approved plan: {consent['plan']}\n\n" if consent and consent.get("plan") else "") + f"Task: {record.get('objective', '')}",
+    commission = record.get("commission")   # a commission's headless box (roadmap H7): its history is this one
+    what = (f"Commission: {'an evaluator' if commission['kind'] == 'evaluator' else 'an implementation'} job of "
+            f"{_minutes(commission['compute_seconds'])}, {commission['name']}; its protected tests "
+            f"({', '.join(commission.get('protected_tests') or []) or 'none'}) run outside the box.\n\n") if commission else ""
+    found.append(entry(record["created_at"], "opened", ("Commissioned" if commission else "Opened") + (f" by {who}" if who else "")
+                       + (" under your go-ahead" if consent else ""),
+                       what + (f"Approved plan: {consent['plan']}\n\n" if consent and consent.get("plan") else "") + f"Task: {record.get('objective', '')}",
                        "info", consent["decision_id"] if consent else None))
     spell = None
     for event in events:

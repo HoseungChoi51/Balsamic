@@ -230,6 +230,12 @@ the coding agent's edits. `.campaign/assignment.md` keeps only the Pi session's 
 rules (`DEVELOPMENT_INSTRUCTIONS`). Protected acceptance tests stay on the host.
 "A library generated from a charter" in `docs/optimizer-plugins.md` describes it.
 
+A commission opens the same workspace with Pi headless (roadmap H7, `agents/development_commission.py`): its ticket
+holds the commission's frozen specification, its deadline is the commission's compute time, and its protected tests
+are the commissioner's (and an evaluator's independent fixtures), written before the box opens. Nobody attaches to it;
+its questions go to whoever commissioned it, and its delivery is validated and installed as any workspace's.
+`docs/implementation-service.md` says which commissions still run as service jobs.
+
 Each delegated programming task gets its own focused session and worktree. The
 PI receives progress summaries, blockers, artifact references, and commits. It
 does not need every specialist's full transcript in its active context.

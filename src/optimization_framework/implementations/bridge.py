@@ -206,8 +206,10 @@ class ImplementationBridge:
                    for g in self.store.list("implementation_grant", campaign_id))
 
     def compute_committed(self, campaign_id):
+        """The implementation time committed in the campaign: each service job's, and each commission's coding box's (roadmap H7)."""
         return sum(g.get("compute_seconds", 0) if settled(g) else max(g["request"]["compute_seconds"], g.get("compute_seconds", 0))
-                   for g in self.store.list("implementation_grant", campaign_id))
+                   for g in self.store.list("implementation_grant", campaign_id)) + \
+            sum(row["commission"]["compute_seconds"] for row in self.store.list("development_workspace", campaign_id) if row.get("commission"))
 
     def commission(self, hypothesis_id, spec, *, compute_seconds, max_calls=12, api_budget_usd=0, idempotency_key, package=None, expected_context=None, accounting_mode="wall"):
         self.catalog(refresh=True)

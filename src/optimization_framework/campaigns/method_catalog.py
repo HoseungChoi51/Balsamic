@@ -23,7 +23,7 @@ def latest_submissions(store, campaign_id):
 def served(submission):
     """The proposals a submission serves: those its report's methods name, else those its workspace was opened for."""
     named = [method["hypothesis_id"] for method in (submission.get("report") or {}).get("methods", []) if method.get("hypothesis_id")]
-    return list(dict.fromkeys(named + (submission.get("hypothesis_ids") or [submission["hypothesis_id"]])))
+    return list(dict.fromkeys(named + [value for value in submission.get("hypothesis_ids") or [submission.get("hypothesis_id")] if value]))
 
 
 def library_of(submission):
@@ -90,7 +90,7 @@ def development_readiness(store, hypothesis, installed):
         return {"state": "submitted_not_installed", "runnable": False, "submission_id": submission["id"], "workspace_id": submission["workspace_id"],
                 "methods": methods, "reason": f"Delivered in commit {submission['commit'][:7]} ({verdict}), not installed yet. {install['text']}."}
     for record in store.list("development_workspace", hypothesis["campaign_id"]):
-        if hypothesis_id in (record.get("hypothesis_ids") or [record["hypothesis_id"]]) and record.get("desired_status") == "running":
+        if hypothesis_id in (record.get("hypothesis_ids") or [record.get("hypothesis_id")]) and record.get("desired_status") == "running":
             return {"state": "building", "runnable": False, "workspace_id": record["id"],
                     "reason": "Being built in a coding workspace" + (f" ({record['phase']})" if record.get("phase") else "") + "."}
     return None
@@ -172,7 +172,7 @@ def catalog(workspace, campaign_id, *, other_limit=40):
                          "next_action": action})
     delivered = {submission["workspace_id"] for submission in submissions}
     building = [{"workspace_id": record["id"], "title": record.get("title", ""), "phase": record.get("phase"),
-                 "hypothesis_ids": record.get("hypothesis_ids") or [record["hypothesis_id"]]}
+                 "hypothesis_ids": [value for value in record.get("hypothesis_ids") or [record.get("hypothesis_id")] if value]}
                 for record in store.list("development_workspace", campaign_id) if record.get("desired_status") == "running" and record["id"] not in delivered]
     order = {"runnable": 0, "not_installed": 1, "needs_revision": 2, "incompatible": 3, "legacy": 4}
     rows.sort(key=lambda row: (order.get(row["state"], 4), row["source"] == "bundled", row["id"]))
