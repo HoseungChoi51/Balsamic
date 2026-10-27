@@ -1,14 +1,14 @@
 # Discovery redesign: implementation status
 
-> **Superseded.** The workspace was rebuilt around the chat-centred UI plan; see [ui-workspace.md](ui-workspace.md). This document describes the earlier service and is kept for history.
+> **Superseded.** The workspace was rebuilt around the chat-centred UI plan; see [ui-workspace.md](../ui-workspace.md). This document describes the earlier service and is kept for history.
 
 Date: 2026-09-28
 
-The [public checkpoint](publication-checkpoint.md) records the later handoff repairs: an accepted literature map and four real-model hypotheses now exist, but the critic/revision provider failures leave the full cycle incomplete. The earlier checkpoint counts below are historical.
+The [public checkpoint](../publication-checkpoint.md) records the later handoff repairs: an accepted literature map and four real-model hypotheses now exist, but the critic/revision provider failures leave the full cycle incomplete. The earlier checkpoint counts below are historical.
 
 ## Latest checkpoint: real Luna grating run
 
-The current review deployment has replaced the fixture demonstration with **1D grating inverse design — finding an efficient optimizer**. Actual GPT-6 Luna calls produced analyses, literature work, optimizer proposals and a review/revised hypothesis after eight actual MEENT experiments. Discovery is paused for researcher review; the server remains available. See [the real-run report](grating-luna-review.md) and [current review checklist](discovery-review-checklist.md).
+The current review deployment has replaced the fixture demonstration with **1D grating inverse design — finding an efficient optimizer**. Actual GPT-6 Luna calls produced analyses, literature work, optimizer proposals and a review/revised hypothesis after eight actual MEENT experiments. Discovery is paused for researcher review; the server remains available. See [the real-run report](../grating-luna-review.md) and [current review checklist](discovery-review-checklist.md).
 
 This was operator-assisted: source leads were supplied, and a labeled driver launched the empirical screen after an artifact/assignment handoff bug prevented candidate acceptance. There are zero accepted discovery candidates and no independent empirical review in this checkpoint. The readable scientific dialogue retains rejected proposals and original responses. The final model review explicitly discusses the eight measured trials and narrows its hypothesis. Latest focused verification: **63 passed**, plus TypeScript and an isolated frontend build. Earlier reports below retain their historical verification scope.
 
@@ -28,10 +28,10 @@ Implemented:
 
 Verification:
 
-- [Focused regression report](../runs/discovery/agent-log-20260928/pytest.xml): **91 passed** across diagnostic logs, existing research, manager recovery/context, provider adapters, implementation service, commands and transactions.
-- TypeScript and an isolated production build passed. Build artifact: [frontend](../runs/discovery/agent-log-20260928/frontend-dist/index.html). The shared review build was not replaced.
+- [Focused regression report](../../runs/discovery/agent-log-20260928/pytest.xml): **91 passed** across diagnostic logs, existing research, manager recovery/context, provider adapters, implementation service, commands and transactions.
+- TypeScript and an isolated production build passed. Build artifact: [frontend](../../runs/discovery/agent-log-20260928/frontend-dist/index.html). The shared review build was not replaced.
 - The browser control test covers live events, pause/catch-up, replay deduplication and filtering without writes.
-- [Actual HTTP/browser qualification](../runs/discovery/agent-log-20260928/http-1/qualification.json) runs the existing five-role workflow through actual HTTP transport, the campaign manager, JSONL projection and SSE. It proves logging starts with the browser closed and that the downloaded log matches the file. [Screenshot](../runs/discovery/agent-log-20260928/http-1/agent-log.png) and [browser output](../runs/discovery/agent-log-20260928/http-1/browser.log) are retained.
+- [Actual HTTP/browser qualification](../../runs/discovery/agent-log-20260928/http-1/qualification.json) runs the existing five-role workflow through actual HTTP transport, the campaign manager, JSONL projection and SSE. It proves logging starts with the browser closed and that the downloaded log matches the file. [Screenshot](../../runs/discovery/agent-log-20260928/http-1/agent-log.png) and [browser output](../../runs/discovery/agent-log-20260928/http-1/browser.log) are retained.
 
 The HTTP model outputs are explicitly labeled fixtures. No real LLM call or optimizer-quality claim is part of this checkpoint. The service-trace tests exercise authentication, grant scope, delayed availability, payload integrity and deduplication; the HTTP/browser scenario covers the workspace service. Final two-service discovery qualification remains R5 work.
 
@@ -62,12 +62,12 @@ Implemented in the current worktree:
 
 Verification at this checkpoint:
 
-- [Literature/foundation regression report](../runs/discovery/literature-20260928/pytest.xml): **91 passed** across discovery, citations, full-text extraction, logging, manager recovery/context, commands and existing research. This report predates the final assessment additions below; it is not a claim that every later change was in that run.
+- [Literature/foundation regression report](../../runs/discovery/literature-20260928/pytest.xml): **91 passed** across discovery, citations, full-text extraction, logging, manager recovery/context, commands and existing research. This report predates the final assessment additions below; it is not a claim that every later change was in that run.
 - The assessment tests execute six actual bounded-continuous experiments: three configurations with two seeds each. They check idempotent launch, preservation of every result, missing-implementation drafts, training adequacy and rejection without independent review. Model-authored inputs in these tests are fixtures.
-- [Actual HTTP discovery qualification](../runs/discovery/literature-20260928/http-2/qualification.json) completes two analyses, a literature search/read/map sequence, two generators sharing one input snapshot and manager synthesis. Application commands and model transport use HTTP; task continuations, extraction, passage checks, candidate projection and logging are real. Model responses and source content are explicitly synthetic fixtures. The downloaded log matches the file produced with no browser connected. This second run includes the final citation-content and trace-identity changes.
-- TypeScript and an isolated production build pass: [frontend artifact](../runs/discovery/literature-20260928/frontend-dist/index.html). The discovery controls and agent-log browser tests pass. Environment-dependent campaign/experiment/research browser cases require an actual HTTP qualification server and are not counted when skipped.
-- The [broad Python sweep](../runs/discovery/literature-20260928/full-pytest.xml) recorded **550 passed, 6 failed**. Three failures were obsolete expectations of automatically seeded proposals. The others exposed historical implementation-job log compatibility and two cancellation/budget receipt rollback bugs. All six were fixed; the [final focused rerun](../runs/discovery/literature-20260928/checkpoint-fixed-pytest.xml) records **84 passed**, including every previously failing test, discovery, citations, extraction, assessments and logging. The full suite has not been rerun after these fixes; the two reports must be read together.
-- [Source snapshot](../runs/discovery/literature-20260928/source-checkpoint.tar.gz), [file hashes](../runs/discovery/literature-20260928/source-manifest.json) and [checkpoint record](../runs/discovery/literature-20260928/checkpoint.json) preserve the code and exact verification boundaries for review.
+- [Actual HTTP discovery qualification](../../runs/discovery/literature-20260928/http-2/qualification.json) completes two analyses, a literature search/read/map sequence, two generators sharing one input snapshot and manager synthesis. Application commands and model transport use HTTP; task continuations, extraction, passage checks, candidate projection and logging are real. Model responses and source content are explicitly synthetic fixtures. The downloaded log matches the file produced with no browser connected. This second run includes the final citation-content and trace-identity changes.
+- TypeScript and an isolated production build pass: [frontend artifact](../../runs/discovery/literature-20260928/frontend-dist/index.html). The discovery controls and agent-log browser tests pass. Environment-dependent campaign/experiment/research browser cases require an actual HTTP qualification server and are not counted when skipped.
+- The [broad Python sweep](../../runs/discovery/literature-20260928/full-pytest.xml) recorded **550 passed, 6 failed**. Three failures were obsolete expectations of automatically seeded proposals. The others exposed historical implementation-job log compatibility and two cancellation/budget receipt rollback bugs. All six were fixed; the [final focused rerun](../../runs/discovery/literature-20260928/checkpoint-fixed-pytest.xml) records **84 passed**, including every previously failing test, discovery, citations, extraction, assessments and logging. The full suite has not been rerun after these fixes; the two reports must be read together.
+- [Source snapshot](../../runs/discovery/literature-20260928/source-checkpoint.tar.gz), [file hashes](../../runs/discovery/literature-20260928/source-manifest.json) and [checkpoint record](../../runs/discovery/literature-20260928/checkpoint.json) preserve the code and exact verification boundaries for review.
 
 ## Remaining deliveries
 

@@ -2,8 +2,8 @@
 
 Status: milestone M0 (foundations) built on branch `workspace-rebuild`, 2026-10-19. This document is the reference for the
 rebuilt service and frontend. It supersedes `workspace.md`, `cli-research.md`, the discovery documents, the model control
-panel, decision reconsideration, proposal exploration and the consolidation plans, each of which now carries a banner
-pointing here. The scientific core (problem adapters, optimizers, scheduler and workers, races, confirmation, admission,
+panel, decision reconsideration, proposal exploration and the consolidation plans, each of which carries a banner
+pointing here and is now in [history/](history/README.md). The scientific core (problem adapters, optimizers, scheduler and workers, races, confirmation, admission,
 the implementation service, assets and accounting), the Pi agent tools and the report writer are unchanged; their own
 documents remain current.
 

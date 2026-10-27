@@ -1,6 +1,10 @@
 # Researcher-guided algorithm discovery for 1D grating design
 
-Plan revision: 2026-09-23. This revision adds researcher-guided idea regeneration, explanatory finalist assessments, and persistent knowledge shared across related local research workspaces. These additions are planned features; their delivery status is recorded separately in [implementation status](implementation-status.md).
+> **Superseded.** The [discovery redesign plan](agentic-discovery-redesign-plan.md) replaced this first plan on
+> 2026-09-28, and the chat-centred rebuild replaced that one on 2026-10-19: see [ui-workspace.md](../ui-workspace.md).
+> This document is kept for history.
+
+Plan revision: 2026-09-23. This revision adds researcher-guided idea regeneration, explanatory finalist assessments, and persistent knowledge shared across related local research workspaces. These additions are planned features; their delivery status is recorded separately in [implementation status](../implementation-status.md).
 
 ## 1. Purpose and operating principles
 
@@ -352,7 +356,7 @@ Use independent per-trial caches for comparative trials. Any shared pretrained m
 
 ### Physical reliability
 
-The repository documents a coarse-resolution design scoring 64.6% that fell to 3.25% at higher resolution. Cheap scores therefore need numerical scrutiny before they guide strong conclusions. [Existing validation report](validation.md).
+The repository documents a coarse-resolution design scoring 64.6% that fell to 3.25% at higher resolution. Cheap scores therefore need numerical scrutiny before they guide strong conclusions. [Existing validation report](../validation.md).
 
 - Archive multiple promising and structurally distinct designs, with a common submission/validation allowance for formal comparisons.
 - Reevaluate at common higher fidelity and assess convergence over increasing Fourier orders.

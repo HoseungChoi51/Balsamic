@@ -1,7 +1,7 @@
 # Plan: after the charter, no harder than a script and a local coding agent
 
 > **Superseded** (2026-10-27). Phase 1 of the roadmap splits this plan into parts checked against the code: see
-> [roadmap/phase-1-charter-to-results.md](roadmap/phase-1-charter-to-results.md) and the [roadmap](roadmap/README.md).
+> [roadmap/phase-1-charter-to-results.md](../roadmap/phase-1-charter-to-results.md) and the [roadmap](../roadmap/README.md).
 > This document is kept for its reasoning and history.
 
 | Item | Detail |

@@ -1,8 +1,8 @@
 # Updating outdated decisions
 
-> **Superseded.** The workspace was rebuilt around the chat-centred UI plan; see [ui-workspace.md](ui-workspace.md). This document describes the earlier service and is kept for history.
+> **Superseded.** The workspace was rebuilt around the chat-centred UI plan; see [ui-workspace.md](../ui-workspace.md). This document describes the earlier service and is kept for history.
 
-See [the decision inbox](decision-inbox.md) for structured requests, explicit
+See [the decision inbox](../decision-inbox.md) for structured requests, explicit
 choice descriptions and the separate manager follow-up view.
 
 An execution recommendation belongs to the charter and researcher guidance
