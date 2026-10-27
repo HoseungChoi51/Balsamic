@@ -8,7 +8,9 @@ export interface Report {
   next_actions: { owner: 'researcher' | 'lead' | 'validator'; action: string }[];
 }
 export interface Install { id: string; submission_id: string; status: string; actor?: string; package: string; version: string; path: string; requested_at: string;
-  finished_at?: string; methods_added: string[]; missing_methods: string[]; changes: { name: string; from: string; to: string | null }[]; error?: string; log_tail?: string }
+  finished_at?: string; methods_added: string[]; missing_methods: string[]; changes: { name: string; from: string; to: string | null }[]; error?: string; log_tail?: string;
+  /** What Balsamic bound after the install, and the proposals it left with why. */
+  bindings?: { hypothesis_id: string; title?: string; method: string; task_id: string; binding_id: string }[]; skipped?: { hypothesis_id: string; reason: string }[] }
 export interface Submission { id: string; commit: string; status: string; notes?: string; report?: Report | null; created_at: string; manifest?: { files?: string[] };
   validation_outcome?: { status?: string; error?: string | null; findings?: Record<string, string>[] } }
 export interface Outcome { state: string; verdict?: string; submission_id?: string; commit?: string; at: string; reason?: string }
