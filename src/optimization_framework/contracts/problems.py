@@ -40,7 +40,8 @@ class Constraint(Contract):
 
 
 class CandidateSchema(Contract):
-    representation: Literal["binary", "discrete", "continuous"]
+    """A permutation candidate is an order of the items 0 … dimensions−1 (indices into the instance's data), each exactly once."""
+    representation: Literal["binary", "discrete", "continuous", "permutation"]
     dimensions: int = Field(ge=1, le=1000000)
     bounds: list[tuple[float, float]] = Field(default_factory=list)
     values: list[float] = Field(default_factory=list)
@@ -53,6 +54,8 @@ class CandidateSchema(Contract):
                 raise ValueError("Continuous candidates need one finite increasing bound per dimension")
         if self.representation == "discrete" and not self.values:
             raise ValueError("Discrete candidates require permitted values")
+        if self.representation == "permutation" and (self.bounds or self.values or self.constraints):
+            raise ValueError("Permutation candidates take no bounds, permitted values or linear constraints")
         if any(len(c.coefficients) != self.dimensions for c in self.constraints):
             raise ValueError("Constraint dimension does not match candidate schema")
         return self
@@ -72,6 +75,10 @@ class CandidateSchema(Contract):
             if any(x not in self.values for x in candidate):
                 raise ValueError("Candidate contains a value outside the declared discrete domain")
             result = list(candidate)
+        elif self.representation == "permutation":
+            if any(x != int(x) for x in candidate) or sorted(int(x) for x in candidate) != list(range(self.dimensions)):
+                raise ValueError(f"Candidate must be an order of the items 0 to {self.dimensions - 1}, each exactly once")
+            result = [int(x) for x in candidate]
         else:
             if any(x < lo or x > hi for x, (lo, hi) in zip(candidate, self.bounds, strict=True)):
                 raise ValueError("Candidate is outside the declared bounds")

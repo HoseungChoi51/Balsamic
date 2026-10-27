@@ -250,6 +250,9 @@ function Names({ text, doc }: { text: string; doc: CharterView['charter'] }) {
   const re = new RegExp(`(?<![\\w])(${names.map(escapeRe).join('|')})(?![\\w])`, 'g');
   return <>{text.split(re).map((part, i) => names.includes(part) ? <span key={i} className="qname" title={meaningOf(doc, part) || 'No description in the charter'}>{part}</span> : part)}</>;
 }
+// An order (a permutation) has no bounds or values: it says how many items it orders.
+const order = (v: Variable) => `an order of ${v.shape?.length === 1 ? String(v.shape[0]) : '?'} items`;
+
 /** Each name a finding or question is about, under it: what it means, the unit its numbers are in, and its value or bounds
  *  now, with what the unit checks say about it. The reader need not know the charter, or the other campaigns, by heart. */
 function Meanings({ names, doc, values, notes }: { names: string[]; doc: CharterView['charter']; values: Record<string, number | null>; notes: Record<string, string[]> }) {
@@ -265,6 +268,7 @@ function Meaning({ name, doc, values, notes }: { name: string; doc: CharterView[
   const bound = (b: unknown) => typeof b === 'number' ? amount(b) : typeof b === 'string' ? <>{b}{typeof values[b] === 'number' ? <> = {amount(values[b] as number)}</> : null}</> : 'none yet';
   const now = q ? (typeof values[name] === 'number' ? <>now {amount(values[name] as number)}</> : numeric ? 'no value yet' : null)
     : v?.representation === 'discrete' ? (v.values.length ? `one of ${v.values.map(String).join(', ')}` : 'no values yet')
+    : v?.representation === 'permutation' ? <>{order(v)}{typeof v.shape?.[0] === 'string' && typeof values[v.shape[0]] === 'number' ? <> ({v.shape[0]} = {grouped(values[v.shape[0]] as number)})</> : null}</>
     : v ? <>from {bound(v.lower as unknown)} to {bound(v.upper as unknown)}</> : null;
   return <div data-testid="meaning" data-name={name}>
     <span className="qname">{name}</span>{q?.description || v?.description || ''}
@@ -375,8 +379,8 @@ function VariableRow({ index, variable: v, busy, edit }: { index: number; variab
   const continuous = v.representation === 'continuous' || v.representation === 'integer';
   return <tr data-testid="variable" data-name={v.name}>
     <td><strong>{v.name}</strong>{v.description ? <div className="small faint">{v.description}</div> : null}</td>
-    <td className="small">{v.representation}{v.shape?.length ? <span className="faint"> × {v.shape.map(String).join(' × ')}</span> : null}</td>
-    <td>{continuous ? <NumberField initial={v.lower} onSet={x => edit([{ op: 'set', path: `variables.${index}.lower`, value: x }], `Set the lower bound of ${v.name}`)} busy={busy} width={110} testId={`lower-${v.name}`} /> : <span className="faint small">{v.values.length ? v.values.map(String).join(', ') : 'no values'}</span>}</td>
+    <td className="small">{v.representation}{v.shape?.length && v.representation !== 'permutation' ? <span className="faint"> × {v.shape.map(String).join(' × ')}</span> : null}</td>
+    <td>{v.representation === 'permutation' ? <span className="small" data-testid={`order-${v.name}`}>{order(v)}</span> : continuous ? <NumberField initial={v.lower} onSet={x => edit([{ op: 'set', path: `variables.${index}.lower`, value: x }], `Set the lower bound of ${v.name}`)} busy={busy} width={110} testId={`lower-${v.name}`} /> : <span className="faint small">{v.values.length ? v.values.map(String).join(', ') : 'no values'}</span>}</td>
     <td>{continuous ? <NumberField initial={v.upper} onSet={x => edit([{ op: 'set', path: `variables.${index}.upper`, value: x }], `Set the upper bound of ${v.name}`)} busy={busy} width={110} testId={`upper-${v.name}`} /> : null}</td>
     <td className="small">{v.units || ''}</td>
   </tr>;

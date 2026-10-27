@@ -29,7 +29,8 @@ what you know becomes a question to the researcher.
 ## Writing the note
 
 1. Write it with `problem_note_draft` (objective, knobs, observables, noise, constraints, confounders, open questions; LaTeX
-   allowed), one section at a time when the researcher must answer first, and revise it as they answer.
+   allowed), one section at a time when the researcher must answer first, and revise it as they answer. An order or a ranking
+   is a permutation knob (each item once, no range); do not encode it as discrete values.
 2. Answer questions about the note as proposed edits (`problem_note_propose`), never a silent rewrite.
 3. When every section is written or skipped by agreement, say so and ask the researcher to adopt the note (Adopt on [the note](#note)). The formulator
    then writes the charter and the researcher confirms it on `#note/charter`.
