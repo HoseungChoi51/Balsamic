@@ -15,15 +15,15 @@ import time
 import numpy as np
 
 from optimization_framework.contracts.base import content_hash
+from optimization_framework.contracts.packs import PackRacing
 from optimization_framework.contracts.racing import RaceCreateInput, RaceControlInput, RaceDecisionInput
 from optimization_framework.contracts.requests import ControlInput, RecipeInput, StudyInput, TrialInput
+from optimization_framework.evaluation.packs import hook, task_racing
 from optimization_framework.execution.resources import ACTIVE
 from optimization_framework.storage.sqlite import atomic_json, identifier, now
 
 
 TERMINAL = {"completed", "budget_exhausted", "paused", "interrupted", "stopped", "failed"}
-PREFERRED = ("motif_surgery", "flrl_ppo_residual", "flrl_autograd_adam", "flrl_lsf_random")
-FINAL_VALIDATION_LIMIT = {"rcwa_order_x": 34, "rcwa_order_y": 17}
 
 
 def memory_available_bytes():
@@ -31,10 +31,6 @@ def memory_available_bytes():
         return int(next(line.split()[1] for line in Path("/proc/meminfo").read_text().splitlines() if line.startswith("MemAvailable:"))) * 1024
     except (OSError, StopIteration, ValueError):
         return None
-
-
-def harmonics(fidelity):
-    return (2 * fidelity["rcwa_order_x"] + 1) * (2 * fidelity["rcwa_order_y"] + 1)
 
 
 def activity_gate(algorithm, config, diagnostics):
@@ -159,10 +155,18 @@ class AdaptiveRacing:
     @staticmethod
     def _effective_configuration(configuration, task):
         parameters = dict(configuration["algorithm_config"])
-        for key in ("rcwa_order_x", "rcwa_order_y"):
+        for key, value in (task["problem"].get("fidelity") or {}).items():
             if key in parameters:
-                parameters[key] = task["problem"]["fidelity"][key]
+                parameters[key] = value
         return parameters
+
+    def _racing(self, race):
+        """The pack's racing section the race was created under (roadmap N5); none when the race's problem has none for
+        its fidelity, and the race then runs at the task's declared fidelity with no ladder. Races created before N5 read
+        their problem's pack."""
+        if "racing" in race:
+            return PackRacing.model_validate(race["racing"]) if race["racing"] is not None else None
+        return task_racing(self.store.get(race["task_id"], "task"))
 
     def _save(self, race, event="race.progress"):
         race["revision"] += 1
@@ -215,6 +219,8 @@ class AdaptiveRacing:
                 "preflight": {"status": "pending", "required_subject_trial_ids": request.preflight_subject_trial_ids},
                 "configurations": {c.id: {"status": "active"} for c in request.configurations}, "cells": [], "confirmation": {},
                 "worker_seconds_spent": 0., "report_revision": 0}
+            racing = task_racing(task)
+            race["racing"] = racing.model_dump(mode="json") if racing is not None else None
             for configuration in request.configurations:
                 pilots = {self.store.get(key, "trial")["seed"]: key for key in configuration.pilot_trial_ids}
                 for seed in request.development_seeds:
@@ -729,13 +735,17 @@ class AdaptiveRacing:
             pass
         protocol = self._protocol(race)
         task = self.store.get(race["task_id"], "task")
-        current = dict(task["problem"]["fidelity"])
-        accepted = race.get("preflight", {}).get("highest_fidelities", []) or [current]
-        highest_accepted = max(accepted, key=harmonics)
+        current = dict(task["problem"].get("fidelity") or {})
         parameters = {"absolute_tolerance": .005, "energy_tolerance": .001, "repeat_tolerance": 1e-6, "repeats": 2,
             **protocol["numerical_parameters"]}
-        declared = parameters.get("fidelities", [{"rcwa_order_x": x, "rcwa_order_y": y} for x, y in ((10, 5), (12, 6), (14, 7))])
-        limit = FINAL_VALIDATION_LIMIT
+        racing = self._racing(race)
+        if racing is None or not racing.ladder:
+            return self._declared_fidelity_plan(race, identity, current, parameters)
+        growth = hook(racing.cost_model)
+        accepted = race.get("preflight", {}).get("highest_fidelities", []) or [current]
+        highest_accepted = max(accepted, key=lambda fidelity: growth(fidelity, current))
+        declared = parameters.get("fidelities", racing.ladder)
+        limit = racing.limit
         greater = lambda fidelity: all(fidelity[key] >= current[key] for key in current) and any(fidelity[key] > current[key] for key in current)
         if greater(declared[-1]) and all(declared[-1][key] >= highest_accepted[key] and declared[-1][key] <= limit[key] for key in current):
             ladder = [fidelity for fidelity in declared if all(fidelity[key] >= current[key] for key in current)]
@@ -743,8 +753,7 @@ class AdaptiveRacing:
                 ladder.insert(0, current)
         else:
             higher = highest_accepted if greater(highest_accepted) else {
-                "rcwa_order_x": min(current["rcwa_order_x"] + 4, limit["rcwa_order_x"]),
-                "rcwa_order_y": min(current["rcwa_order_y"] + 2, limit["rcwa_order_y"])}
+                key: min(current[key] + racing.step.get(key, 0), limit[key]) for key in limit}
             ladder = [current, higher] if greater(higher) and all(higher[key] <= limit[key] for key in limit) else []
         parameters["fidelities"] = ladder
         samples = [sample for sample in race["profile"].get("validation_memory_samples", [])
@@ -752,21 +761,36 @@ class AdaptiveRacing:
             and sample.get("peak_rss_bytes", 0) > 0 and sample.get("trial_id") in race["preflight"].get("evidence_trial_ids", [])
             and isinstance(sample.get("fidelity"), dict) and all(type(sample["fidelity"].get(key)) is int and sample["fidelity"][key] > 0 for key in current)]
         if samples:
-            top = max(harmonics(sample["fidelity"]) for sample in samples)
-            measured = [sample for sample in samples if harmonics(sample["fidelity"]) == top]
-            prediction = math.ceil(max(2 * sample["peak_rss_bytes"] * (harmonics(ladder[-1]) / harmonics(sample["fidelity"])) ** 2
+            top = max(growth(sample["fidelity"], current) for sample in samples)
+            measured = [sample for sample in samples if growth(sample["fidelity"], current) == top]
+            prediction = math.ceil(max(2 * sample["peak_rss_bytes"] * growth(ladder[-1], sample["fidelity"])
                 for sample in measured)) if ladder else None
-            basis = "Twice measured completed preflight worker VmHWM, scaled by squared harmonic-count ratio"
+            basis = "Twice measured completed preflight worker VmHWM, scaled by the problem's cost model"
         else:
             reference = race["profile"].get("validation_peak_bytes", 5 * 1024**3)
-            prediction = math.ceil(reference * (harmonics(ladder[-1]) / harmonics(highest_accepted)) ** 2) if ladder else None
-            basis = "Conservative prior preflight admission ceiling scaled by squared harmonic-count ratio; measured RSS unavailable"
+            prediction = math.ceil(reference * growth(ladder[-1], highest_accepted)) if ladder else None
+            basis = "Conservative prior preflight admission ceiling scaled by the problem's cost model; measured RSS unavailable"
         prediction = max(5 * 1024**3, prediction) if prediction is not None else None
         plan = {"id": identity, "campaign_id": race["campaign_id"], "race_id": race["id"], "task_id": race["task_id"],
             "search_fidelity": current, "highest_accepted_preflight_fidelity": highest_accepted, "maximum_fidelity": limit,
             "parameters": parameters, "predicted_peak_bytes": prediction, "memory_headroom_bytes": 4 * 1024**3,
             "prediction_basis": basis, "measured_samples": len(samples), "evidence_trial_ids": race["preflight"].get("evidence_trial_ids", []),
             "status": "ready" if ladder else "higher_fidelity_unavailable", "created_at": now()}
+        record = self.store.put_immutable("race_validation_plan", plan, "race.validation_plan_frozen")
+        race["validation_plan_id"] = record["id"]
+        race["numerical_parameters"] = parameters
+        return record
+
+    def _declared_fidelity_plan(self, race, identity, current, parameters):
+        """A problem without a fidelity ladder races at its declared fidelity: there is no higher fidelity to validate the
+        finalists at, so the plan holds no ladder and the race ends with its confirmation."""
+        parameters["fidelities"] = []
+        plan = {"id": identity, "campaign_id": race["campaign_id"], "race_id": race["id"], "task_id": race["task_id"],
+            "search_fidelity": current, "highest_accepted_preflight_fidelity": None, "maximum_fidelity": None,
+            "parameters": parameters, "predicted_peak_bytes": None, "memory_headroom_bytes": 4 * 1024**3,
+            "prediction_basis": "No fidelity ladder: the problem races at its declared fidelity", "measured_samples": 0,
+            "evidence_trial_ids": race["preflight"].get("evidence_trial_ids", []), "status": "declared_fidelity",
+            "created_at": now()}
         record = self.store.put_immutable("race_validation_plan", plan, "race.validation_plan_frozen")
         race["validation_plan_id"] = record["id"]
         race["numerical_parameters"] = parameters
@@ -795,6 +819,11 @@ class AdaptiveRacing:
     def _queue_final_validation(self, race, endpoints=None):
         protocol = self._protocol(race)
         plan = self._final_validation_plan(race)
+        if plan["status"] == "declared_fidelity":
+            race["confirmation"].update(status="complete_at_declared_fidelity")
+            race.update(status="completed", finished_at=now(), reason="Frozen roster finished at the problem's declared fidelity; it has no fidelity ladder to validate on")
+            self._decision(race, "complete", race["reason"], validation_plan_id=plan["id"])
+            return
         if plan["status"] != "ready":
             race["confirmation"].update(status="numerically_inconclusive", validation_hold="No permitted fidelity above the actual search truncation")
             race.update(status="completed", finished_at=now(), reason="Final higher-order validation is unassessed at the permitted fidelity ceiling")
@@ -933,7 +962,8 @@ class AdaptiveRacing:
         if race["stage"] in {"development", "adaptive_followup"} and race["status"] == "running":
             live = sum(self._summary(cell["trial_id"])["status"] in ACTIVE for cell in race["cells"] if cell.get("trial_id"))
             slots = max(0, race["profile"]["max_workers"] - live)
-            preferred = {algorithm: i for i, algorithm in enumerate(PREFERRED)}
+            racing = self._racing(race)
+            preferred = {algorithm: i for i, algorithm in enumerate(racing.preferred_methods if racing else ())}
             configurations = {item["id"]: item for item in protocol["configurations"]}
             pending = sorted([cell for cell in race["cells"] if cell["phase"] == "development" and cell["status"] == "pending" and race["configurations"][cell["configuration_id"]]["status"] == "active"],
                 key=lambda cell: (cell["rung_seconds"], cell["seed"], preferred.get(configurations[cell["configuration_id"]]["algorithm"], 5)))

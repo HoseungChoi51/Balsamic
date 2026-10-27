@@ -14,6 +14,7 @@ import subprocess
 import threading
 import time
 
+from optimization_framework.evaluation.packs import hook, problem_pack
 from optimization_framework.execution.resources import ACTIVE
 
 
@@ -458,11 +459,18 @@ class ResourceObservability:
                 return manifest
         return {}
 
-    def _memory_plan(self, manifest, available, configuration=None):
+    def _memory_plan(self, manifest, available, configuration=None, pack=None):
+        """The forecast and per-fidelity checks of a race's memory plan. The pack's estimator and cost model forecast;
+        without them (a problem with no pack, or none for the task's fidelity) the checks give measured peaks only."""
         samples = [row for row in manifest.get("worker_memory_samples", []) if row.get("phase") == "validation" and row.get("completed_evaluations", 0) > 0 and row.get("peak_rss_bytes", 0) > 0][-4096:]
         predictions = manifest.get("memory_predictions", [])
         historical = predictions[-1] if predictions else {}
-        measured = max(samples, key=lambda row: ((2 * row["fidelity"]["rcwa_order_x"] + 1) * (2 * row["fidelity"]["rcwa_order_y"] + 1), row["peak_rss_bytes"]), default={})
+        racing, estimate = (pack.racing, pack.estimators.memory) if pack is not None else (None, None)
+        if racing is not None and racing.cost_model and samples:
+            growth = hook(racing.cost_model)
+            measured = max(samples, key=lambda row: (growth(row["fidelity"], samples[0]["fidelity"]), row["peak_rss_bytes"]))
+        else:
+            measured = max(samples, key=lambda row: row["peak_rss_bytes"], default={})
         forecast = None
         headroom = _number(historical.get("memory_headroom_bytes"), 4 * GIB)
         if historical:
@@ -478,17 +486,20 @@ class ResourceObservability:
                         "fits_now": predicted + headroom <= available if predicted is not None and available is not None else None,
                         "historical_reason": manifest.get("waiting_reason")}
         checks = []
-        from optimization_framework.execution.rcwa_memory import estimate_rcwa_memory
-        fidelities = manifest.get("fidelities", []) + [{"rcwa_order_x": x, "rcwa_order_y": x // 2} for x in (22, 26, 30, 34)]
+        estimator = hook(estimate) if estimate else None
+        fidelities = manifest.get("fidelities", []) + (racing.memory_checks if racing is not None else [])
         for fidelity in fidelities[:16]:
             if any(row["fidelity"] == fidelity for row in checks):
                 continue
-            configuration = configuration or {}
-            estimate = estimate_rcwa_memory(fidelity, samples, available_memory_bytes=available, memory_headroom_bytes=int(headroom),
-                                            grid_x=configuration.get("grid_x", 256), grid_y=configuration.get("grid_y", 128))
             measurements = [row for row in samples if row["fidelity"] == fidelity]
-            estimate.update(predicted_bytes=estimate["predicted_peak_bytes"], headroom_bytes=headroom,
-                            measured_peak_bytes=max((row["peak_rss_bytes"] for row in measurements), default=None),
+            peak = max((row["peak_rss_bytes"] for row in measurements), default=None)
+            if estimator is None:
+                checks.append({"fidelity": fidelity, "predicted_bytes": None, "headroom_bytes": headroom, "measured_peak_bytes": peak,
+                               "fits_now": None, "basis": "Measured peak only: the problem declares no memory estimator"})
+                continue
+            estimate = estimator(fidelity, samples, configuration=configuration or {}, available_memory_bytes=available,
+                                 memory_headroom_bytes=int(headroom))
+            estimate.update(predicted_bytes=estimate["predicted_peak_bytes"], headroom_bytes=headroom, measured_peak_bytes=peak,
                             fits_now=estimate["predicted_peak_bytes"] + headroom <= available if available is not None else None)
             checks.append(estimate)
         return forecast, checks
@@ -501,13 +512,15 @@ class ResourceObservability:
             tasks = self._rows("task", {"definition_id": "problem.definition_id", "grid_x": "problem.configuration.grid_x", "grid_y": "problem.configuration.grid_y",
                                         "fidelity": "problem.fidelity"}, race["campaign_id"])
             task = next((row for row in tasks if row["id"] == race.get("task_id")), {})
-            is_grating = task.get("definition_id") == "meent_2d_dual_polarization_deflector"
             configuration = {key: task[key] for key in ("grid_x", "grid_y") if task.get(key) is not None}
-            if is_grating and not manifest.get("fidelities"):
-                fidelity = json.loads(task["fidelity"]) if isinstance(task.get("fidelity"), str) else task.get("fidelity")
+            fidelity = json.loads(task["fidelity"]) if isinstance(task.get("fidelity"), str) else task.get("fidelity")
+            pack = problem_pack(task.get("definition_id"))
+            planned = pack is not None and pack.racing is not None and pack.racing.applies_to(fidelity)
+            pack = pack if planned else None
+            if planned and not manifest.get("fidelities"):
                 planned_fidelities = protocol.get("numerical_parameters", {}).get("fidelities", [])
                 manifest = {**manifest, "fidelities": planned_fidelities or ([fidelity] if fidelity else [])}
-            forecast, checks = self._memory_plan(manifest, available, configuration) if is_grating or manifest.get("fidelities") else (None, [])
+            forecast, checks = self._memory_plan(manifest, available, configuration, pack) if planned or manifest.get("fidelities") else (None, [])
             ended = race["status"] in ENDED or wall_clock >= race["deadline_at"]
             cells = race.get("cells", [])
             pending = [cell for cell in cells if cell["status"] == "pending"]
