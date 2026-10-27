@@ -21,7 +21,7 @@ This phase makes both visible before Phases 3 to 7 change anything, so that each
 | **I** | **Invariants and docs** | | | | |
 | I1 | The invariant register | No single list says which guarantees are code, prompt or nothing; a "code" claim can lose its test silently | — | S–M | 1 |
 | I2 | Triage by layer | Each incident adds a rule to the command it happened on | I1 | S | 2 |
-| I3 | Docs small and dated | A new reader meets a 1,773-line progress log and a 1,102-line readiness log before the design; superseded plans sit beside current ones; the harness plan still lists D1–D9 as "Open" | decision 21 | M | 1 |
+| I3 | Docs small and dated | A new reader meets a 1,773-line progress log and a 1,102-line readiness log before the design; superseded plans sit beside current ones; the harness plan still lists D1–D9 as "Open" | I1, decision 21 | M | 2 |
 | **J** | **Evals of judgement** | | | | |
 | J1 | Trap scenarios | No scenario plants a scientific trap: a score that collapses at higher fidelity, a method rejected after one default configuration, a locked result | — | M | 1 |
 | J2 | A second problem and a second model | Every scenario runs on one problem and all 36 passing runs used one model | J1 | S–M | 2 |
@@ -110,7 +110,8 @@ L85–103, `tests/balsamic/test_layering.py`, `tests/test_harness_contract.py`, 
 
 ### I3 — Docs small and dated
 
-**Depends on:** decision 21. **Size:** M.
+**Depends on:** I1 (the status page links the register's rows, and `tests/test_invariants.py` must still pass),
+decision 21. **Size:** M.
 
 **Read first:** `docs/` (54 Markdown files at `cc0e693`), the 14 docs that open with a "Superseded" banner, the
 harness plan's §3 decisions table, `docs/lead-agent-readiness.md` (its header and summary table), the root `README.md`.
@@ -275,8 +276,8 @@ so it needs a number to beat.
 ## Order and shared files
 
 ```
-Wave 1  I1 · I3 · J1 · J4
-Wave 2  I2 (I1) · J2 (J1) · J3 (after A2 in Phase 1)
+Wave 1  I1 · J1 · J4
+Wave 2  I2 (I1) · I3 (I1) · J2 (J1) · J3 (after A2 in Phase 1)
 ```
 
 | File | Parts |

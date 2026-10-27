@@ -2,7 +2,7 @@
 
 | Item | Detail |
 |---|---|
-| Target | `kc-ml2/balsamic`, branch `workspace-rebuild` |
+| Target | `kc-ml2/balsamic`, branch `workspace-rebuild`. The parts are built on Hoseung's fork, `HoseungChoi51/Balsamic`, whose `main` holds that branch: on the fork, read `workspace-rebuild` in this roadmap as `main` |
 | Date | 2026-10-27 |
 | Sources | `docs/charter-to-results-plan.md` (`cc0e693`), which Phase 1 replaces; and the design-drift review of 2026-10-27, every suggestion and every lost idea it lists (§4 maps each one to its parts) |
 | Checked against | The code at `cc0e693`. Each part's "Today" says what the code does now |
@@ -80,6 +80,13 @@ GRATING_LLM_DISABLED=true uv run pytest -q          # tests/test_tracking.py is 
 (cd frontend && npx tsc -b && npx playwright test)   # when the UI changes
 uv run python scripts/run_lead_evals.py --fake       # the eval plumbing, no model calls
 ```
+
+In a fresh container, such as a cloud session: install bubblewrap (`apt-get install -y bubblewrap`; without it the isolated
+package tests fail with `SandboxUnavailable`), then `uv sync --extra dev` and
+`uv pip install scipy==1.18.1 "matplotlib>=3.10,<4"`. Some tests outside the `meent` marker need scipy and matplotlib,
+which come with the `meent` extra, and that extra installs `meent` from a private repository. Install them into the
+environment rather than with `uv run --with`, which a sandboxed test's Python does not see. As root,
+`tests/test_server_launcher.py` fails by design (the launcher refuses to run as root): run it as a normal user.
 
 ---
 
