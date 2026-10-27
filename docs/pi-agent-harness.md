@@ -378,6 +378,16 @@ read from a record of the agent's own campaign at a JSON pointer. The result, wh
 call's receipt, holds the expression, each input with its record and pointer (none for a literal),
 and the value. The protected implementation roles do not have it.
 
+The numbers agents write are checked against their evidence (roadmap K2, `analysis/claims.py`): an
+agent's finding against its sources, the findings it links and its request's tool receipts; a reply
+(`yield_work(complete)`'s report) against its request's receipts, the records it cites and what its
+assistants delivered; a report claim against the receipts in its support. A compute receipt is
+evidence like any other. A number matches when an evidence number rounds to it at the precision
+written, or as a percentage; ids, dates, times, versions, links, code and integers below 10 are
+skipped. The ones nothing matches are saved as `unverified_numbers` (on the finding, on the reply's
+receipt and message, on the report's investigation stage and claim) and shown as a badge on Files, in
+the chat and in the report's writing notes. Nothing is refused; the evals count the badges.
+
 Whatever an agent reads is sent to its model provider. The repository root therefore exposes the
 committed code and documents of this checkout to that provider; nothing outside the two roots is
 reachable.

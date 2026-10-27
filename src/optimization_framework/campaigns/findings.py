@@ -1,4 +1,5 @@
 """Findings remain scoped claims with provenance, never unqualified memory."""
+from optimization_framework.analysis.claims import numbers as numbers_in
 from optimization_framework.contracts.assets import Asset
 from optimization_framework.contracts.commands import FindingInput
 from optimization_framework.storage.sqlite import now
@@ -81,6 +82,9 @@ def record(workspace, command, actor):
         "kind": "counterevidence" if values.interpretation == "counterevidence" else "finding",
         **values.model_dump(exclude={"schema_version", "publish", "links", "statement"}),
         "statement": values.statement or "unspecified", "links": typed, "author": actor, "created_at": now()}
+    unsourced = [] if actor == "researcher" else unverified_numbers(store, command, values, linked)
+    if unsourced:
+        finding["unverified_numbers"] = unsourced
     if values.publish:
         finding["asset_id"] = "asset_" + finding["id"]
     store.put_immutable("manager_note", finding, "finding.recorded")
@@ -113,13 +117,34 @@ def record(workspace, command, actor):
             title=values.content[:160], payload={"finding_id": finding["id"], "content": values.content,
                 "classification": values.interpretation, "statement": finding["statement"], "links": typed, "evidence_ids": values.source_ids,
                 "problem_scope": values.problem_scope, "study_ids": values.study_ids,
-                "limitations": values.limitations, "counterevidence_for": values.counterevidence_for},
+                "limitations": values.limitations, "counterevidence_for": values.counterevidence_for,
+                **({"unverified_numbers": unsourced} if unsourced else {})},
             applicability={"problem_scope": values.problem_scope, "study_ids": values.study_ids, "limitations": values.limitations},
             producer_id=finding["id"], dependency_ids=sorted(dependencies), exposed_instance_ids=sorted(exposed),
             exposure_status="known" if assets and all(row["exposure_status"] == "known" for row in assets) else "unknown",
             cost_provenance="complete" if evidence_covered and all(row["cost_provenance"] == "complete" for row in assets) else "partial",
             authority=actor, created_at=finding["created_at"]))
-    return {"finding_id": finding["id"], **({"asset_id": finding["asset_id"]} if values.publish else {})}
+    return {"finding_id": finding["id"], **({"asset_id": finding["asset_id"]} if values.publish else {}),
+            **({"unverified_numbers": unsourced, "note": "No cited source or receipt of this request holds these numbers; "
+                "they are shown as unverified. Cite the record they come from, or derive them with compute."} if unsourced else {})}
+
+
+def unverified_numbers(store, command, values, linked):
+    """The numbers of an agent's finding that neither its sources (and the findings it links to) nor the recording request's
+    tool receipts hold (K2). Saved on the finding and shown as a badge; nothing is refused."""
+    from optimization_framework.analysis.claims import Evidence, receipts, request_runs, unverified
+    if not numbers_in(values.content):
+        return []
+    evidence = [store.get(identity) for identity in dict.fromkeys([*values.source_ids, *values.counterevidence_for, *linked])]
+    run_id = command.origin.run_id if command.origin else None
+    try:
+        run = store.get(run_id, "agent_run") if run_id else None
+    except KeyError:
+        run = None
+    if run:
+        runs = request_runs(store, run)
+        evidence += [row.get("input") for row in runs] + receipts(store, [row["id"] for row in runs])
+    return unverified(values.content, Evidence(evidence))
 
 
 def view(store, campaign_id):
