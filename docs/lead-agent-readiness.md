@@ -47,7 +47,6 @@ to replace that outside session.
 | Specialists with briefs, tool scopes and output schemas; results submitted before completion | Implemented, tested; checked live by the evals; see Parts R and S |
 | A delivered library installs without a false "needs confirmation"; a stale one is tried once more | Implemented, tested; the live install is for Hoseung to check; see Part T |
 | A method that stops on its own completes as `method_finished`; a comparison holds its final value | Implemented, tested; not live; see Part U |
-| The invariant register: which guarantees are code, prompt or nothing, each pinned by a test or an eval scenario | Implemented, tested; see Part V |
 
 "Live" means the running services on X670 use the code (last restarted on 14 October 2026).
 "Not live" means the code is in the working tree and tested, and the services still run the old
@@ -1163,40 +1162,6 @@ code) read `status == "completed"` and `scientific_complete`, both of which a fi
   the process boundary as itself. Returning `[]` works there.
 - Not live: Hoseung's check is to run a library method that returns `[]` early beside a longer one and read the
   comparison.
-
-## Part V — The invariant register (roadmap I1, 27 October 2026)
-
-### What was wrong
-
-Nothing listed which guarantees code holds, which rest on the agents' instructions and which nothing holds.
-`docs/pi-agent-harness.md` said it for three rules of the controller, and this log says it per Part, in prose. And nothing
-failed when a guarantee "enforced by code" lost its test: five guarantees that code enforced had no test at all.
-
-### What changed
-
-| Change | Where |
-|---|---|
-| The register: 28 guarantees, each with its state (`code`, `prompt`, `none`), where it is enforced, the tests or eval scenarios that pin it, and the roadmap part that will close it. 17 are `code`, 1 is `prompt`, 10 are `none` | `docs/invariants.md` |
-| A test reads the table and fails when a `code` row names no test, a test file that does not exist or a test it does not define (read with `ast`, methods of test classes included), when a `prompt` row names no scenario or one that `evals/lead/scenarios/` does not hold, and when an id repeats or a state is not one of the three | `tests/test_invariants.py` |
-| Tests for what code held without one: an agent's own proposal does not run before its concept review (at trial creation, also when the researcher starts it), only the researcher endorses a finding, a finding cites only visible evidence, only the researcher publishes to the library, and the coding box's entrypoint rejects private networks and drops its capabilities | `tests/test_invariant_pins.py`, `tests/balsamic/test_library.py` |
-| The harness doc links the register instead of stating the split itself | `docs/pi-agent-harness.md` |
-
-### Checked
-
-- `tests/test_invariants.py`: the register holds; a well-formed fixture table holds; each of 11 broken fixture rows fails with
-  its own message; a page without the table fails. On its first run it caught a misspelt test name in the register.
-- Each new pinning test fails when the check it pins is removed (the concept-review check at trial creation, the
-  endorsement check, the researcher-only check of `publish()`).
-- All 30 tests the register names pass.
-
-### Not done
-
-- The coding box's network rule is pinned by reading the script and the Dockerfile, not by running the container: the
-  tests cannot start Docker. A run of the image is H5's.
-- "A library's tests and conformance passed" is `none`, not `prompt` as the roadmap seeded it: it rests on the coding
-  agent's report, but no eval scenario checks that report, so the register's own test would refuse a `prompt` row. J4 or H6
-  moves it.
-- From here, every roadmap part updates its rows in the same PR (roadmap README §0.11).
 
 ## Not planned
 
