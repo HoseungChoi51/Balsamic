@@ -32,7 +32,7 @@ mandate with the stop condition all_runs_terminal has ended, it closes and the a
 
 The researcher may also grant a request's mandate with the message that opens it (R7, the dial beside the chat's send button;
 with_message()): Answer and Explore at once, Screen and Run the campaign as their go-ahead, recorded as a resolved decision of
-theirs so that its compute part is a consent. A template the researcher chose is not widened by an agent's own proposal, and a
+theirs so that its compute part is a consent, which pays for that request's work only. A template the researcher chose is not widened by an agent's own proposal, and a
 mandate the researcher closed (mandate.close) is not granted again automatically. The campaign's default template, where the
 dial starts, is a setting (default_template()); unset, it follows the campaign's autonomy (AUTONOMY)."""
 from datetime import datetime, timedelta, timezone
@@ -591,7 +591,8 @@ def approve(workspace, decision, explore_only=False):
 def with_message(workspace, campaign_id, values, root, *, plan, message_id):
     """The mandate the researcher grants with the message that opens a request (R7): Answer and Explore at once; Screen and Run the
     campaign are their go-ahead, recorded as a resolved decision of theirs for this request and approved as a card would be
-    (approve()), so its compute part is a consent and the bus's compute guard lets the work start. Returns the mandate."""
+    (approve()), so its compute part is a consent and the bus's compute guard lets the work start. That consent is request-only
+    (compute_consent.covers()): it pays for this request's work and never another's. Returns the mandate."""
     from optimization_framework.contracts.commands import ApprovalRequestInput
     from optimization_framework.contracts.mandates import MessageMandate
     values = values if isinstance(values, MessageMandate) else MessageMandate(**values)
@@ -614,7 +615,9 @@ def with_message(workspace, campaign_id, values, root, *, plan, message_id):
         "guidance_revision": workspace.memory.state(campaign_id)["guidance_revision"], "question": title, "title": title,
         "rationale": "You granted this request's mandate with your message in the chat.", "context": plan[:2000], "proposal": plan,
         "options": OPTIONS[:1], "recommendation": "0", "approval_request": request, "requested_by": "researcher", "audience": "researcher",
-        "status": "resolved", "choice": "0", "comment": "", "request_root": root, "message_id": message_id, "created_at": now(), "resolved_at": now()}
+        "status": "resolved", "choice": "0", "comment": "", "request_root": root, "message_id": message_id, "created_at": now(), "resolved_at": now(),
+        # The go-ahead pays for this request's work only, never another request's, whether or not it names proposals (Hoseung).
+        "request_only": True}
     workspace.store.put("decision", decision, "decision.created")
     decision["outcome"] = approve(workspace, decision)
     workspace.store.put("decision", decision, "decision.resolved")

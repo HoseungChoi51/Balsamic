@@ -284,7 +284,8 @@ the composer shows them while they match the last message, and the stage default
 
 **The mandate dial** (roadmap R7, `docs/readiness/R7.md`). Beside Send, the four templates (Answer, Explore, Screen, Run the
 campaign); the message grants its request that mandate (`agent.message` `mandate`). Screen and Run the campaign first ask for
-their envelope and deadline in a small form, and are recorded as the researcher's go-ahead. The dial starts at the campaign's
+their envelope and deadline in a small form, and are recorded as the researcher's go-ahead, which pays for that request's work
+only. The dial starts at the campaign's
 default template (Monitor › Resources; unset, it follows `autonomy`) and returns to it after each message; slash commands carry
 none. Above the chat, the mandate of the thread's latest request, what is left of it and its deadline, with Close
 (`mandate.close`), and any other still in force in the thread (`GET /api/v1/threads/{id}/mandate`).

@@ -7,7 +7,7 @@ from optimization_framework.campaigns import mandates
 from optimization_framework.contracts.commands import Command
 from optimization_framework.contracts.requests import CampaignInput, StudyInput, TaskInput, TrialInput
 from optimization_framework.execution.service import Workspace
-from test_mandate_guard import operator_for, trial
+from test_mandate_guard import approve_screen, operator_for, trial
 from test_mandate_propose import MAIN, propose, root, say, state, team, version  # noqa: F401  (team is a fixture)
 from support import command, submitted  # noqa: E402
 
@@ -65,6 +65,30 @@ def test_a_message_sent_with_screen_grants_its_request_a_mandate_and_after_the_r
     assert len(team.workspace.store.list("trial", "demo")) == 1
     shown = bar(team)["current"]
     assert (shown["status"], shown["closable"], shown["closed_by"]) == ("closed", False, "researcher")
+
+
+def test_a_go_ahead_granted_with_a_message_pays_for_its_own_request_only_while_an_agents_card_stays_campaign_wide(team):
+    own = send(team, "Screen coordinate search with longer runs.", SCREEN)
+    [consent] = team.workspace.store.list("compute_consent", "demo")
+    assert consent["request_only"] is True and consent["hypothesis_ids"] == [] and mandates.same_root(consent["request_root"], root(team, own))
+    used = lambda identity: team.workspace.store.get(identity, "compute_consent")["used_seconds"]
+    # Another request's 20-minute run is refused and not charged to it, though it names no proposals (Hoseung, 27 October 2026).
+    other = say(team, "Something else entirely.")
+    refused = trial(team, *operator_for(team, run=other), "other", wall=1200)
+    assert refused["executed"] is False and "has not given the go-ahead for it" in refused["error"], refused
+    assert "No approved plan has time left" in refused["error"]       # the other request's go-ahead is not offered either
+    assert used(consent["id"]) == 0 and team.workspace.store.list("trial", "demo") == []
+    # The request it was granted with is still covered, and charged to it.
+    started = trial(team, *operator_for(team, run=own), "own", wall=1200)
+    assert started["status"] == "completed", started
+    assert used(consent["id"]) == 1200
+    # An agent's card that names no proposals keeps decision 4's rule: once approved, it pays for any request's work.
+    approve_screen(team, "card", run=other, plan="Screen the other idea", worker_seconds=2400, wall_seconds=900)
+    card = next(row for row in team.workspace.store.list("compute_consent", "demo") if row["id"] != consent["id"])
+    assert not card.get("request_only")
+    third = say(team, "And a third thing.")
+    assert trial(team, *operator_for(team, run=third), "third", wall=1200)["status"] == "completed"
+    assert (used(card["id"]), used(consent["id"])) == (1200, 1200)
 
 
 def test_answer_and_explore_are_granted_with_the_message_and_an_agent_does_not_widen_the_researchers_answer(team):
