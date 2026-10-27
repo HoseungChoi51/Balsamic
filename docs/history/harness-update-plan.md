@@ -1,5 +1,10 @@
 # Balsamic agent harness update plan
 
+> **Superseded** (2026-10-27). Phases 1–7 are done (readiness Parts L–S in
+> [lead-agent-readiness.md](../lead-agent-readiness.md)), and its decisions are marked below. Phase 9 is part K2 of the
+> [roadmap](../roadmap/README.md); Phase 8 (MCP at the edges) and D5 are not planned there. See
+> [ADR 0006](../adr/0006-harness-plan-decisions.md). This document is kept for its reasoning and history.
+
 | Item | Detail |
 |---|---|
 | Target | `kc-ml2/balsamic`, branch `workspace-rebuild` |
@@ -111,19 +116,21 @@ Authority, the gate, budgets, the wake rules (`request_open`) and `yield_work`'s
 
 ---
 
-## 3. Decisions (Hoseung to confirm)
+## 3. Decisions
+
+Marked on 2026-10-27 (roadmap part I3), each checked against the readiness Part that implemented it.
 
 | ID | Question | Recommended default | Needed by | Status |
 |---|---|---|---|---|
-| D1 | Which page-agent-only operations to remove from the lead's enum | The table in Phase 5 | Phase 5 | Open |
-| D2 | Specialist roles: keep them with briefs and schemas, or merge into one analyst role | Keep, with briefs and schemas; revisit merging after evals | Phase 7 | Open |
-| D3 | How procedures are delivered | (A) Gateway tool `procedure_read` plus files in Agent Skills format. (B) Alternative once Phase 4 exists: an extension-provided `read` limited to the procedure folders, so Pi lists native skills. Default A; try B in dev mode | Phase 6 | Open |
-| D4 | Where the state block is injected | The harness calls a gateway `turn_state` route right before `prompt()` | Phase 2 | Open |
-| D5 | Who an inbound MCP client acts as | Read-only first; decide writes separately | Phase 8 | Open |
-| D6 | Model and budget for live evals | A cheap model from the dev profile. For example, `llm_budget_usd` 0.30 per scenario and a $5 cap per suite run (for reference, the Part G service check cost $0.12 for three steps) | Phase 1 | Open |
-| D7 | What to do with `campaign_command.guidance_revision` | Accept and ignore in this release; remove from the schema in the next | Phase 3 | Open |
-| D8 | First curated extension set and per-role allowlist | Start with only the Balsamic gateway extension for every non-grant role. Add one third-party context-management extension after it passes the evals; then read-only web tools, receipted | Phase 4 | Open |
-| D9 | How extension dialogs reach the researcher, and what happens when nobody answers | Show as a question above the chat (on the agent's page for page agents). Honour the extension's own timeout; otherwise cancel after 15 minutes. Under autopilot, cancel at once | Phase 4 | Open |
+| D1 | Which page-agent-only operations to remove from the lead's enum | The table in Phase 5 | Phase 5 | Decided at the default: the table's operations left the lead's enum, `fixed_mask.run` among them; the lead keeps its `implementation_workspace_*` tools (Part P) |
+| D2 | Specialist roles: keep them with briefs and schemas, or merge into one analyst role | Keep, with briefs and schemas; revisit merging after evals | Phase 7 | Kept at the default by Part R: the roles have briefs and schemas. Merging them is decided by roadmap part T3's eval comparison (roadmap decision 19) |
+| D3 | How procedures are delivered | (A) Gateway tool `procedure_read` plus files in Agent Skills format. (B) Alternative once Phase 4 exists: an extension-provided `read` limited to the procedure folders, so Pi lists native skills. Default A; try B in dev mode | Phase 6 | Decided: A, `procedure_read` with files in Agent Skills format (Part Q). B was not tried |
+| D4 | Where the state block is injected | The harness calls a gateway `turn_state` route right before `prompt()` | Phase 2 | Decided at the default: `POST /api/internal/pi/turn_state`, called right before `prompt()` (Part M) |
+| D5 | Who an inbound MCP client acts as | Read-only first; decide writes separately | Phase 8 | Open, with Phase 8, which the roadmap does not plan |
+| D6 | Model and budget for live evals | A cheap model from the dev profile. For example, `llm_budget_usd` 0.30 per scenario and a $5 cap per suite run (for reference, the Part G service check cost $0.12 for three steps) | Phase 1 | Decided: the dev profile's default model (`centinels/gpt-6.1-sol`), `llm_budget_usd` 0.30 per scenario, a $5 suite cap (`--suite-cap`) (Parts L and S) |
+| D7 | What to do with `campaign_command.guidance_revision` | Accept and ignore in this release; remove from the schema in the next | Phase 3 | Decided at the default: accepted and ignored, with a TODO to remove it in the next release (Part N) |
+| D8 | First curated extension set and per-role allowlist | Start with only the Balsamic gateway extension for every non-grant role. Add one third-party context-management extension after it passes the evals; then read-only web tools, receipted | Phase 4 | Decided at the default: the Balsamic gateway extension only; the curated allowlist is empty until an extension passes the evals (Part O) |
+| D9 | How extension dialogs reach the researcher, and what happens when nobody answers | Show as a question above the chat (on the agent's page for page agents). Honour the extension's own timeout; otherwise cancel after 15 minutes. Under autopilot, cancel at once | Phase 4 | Decided at the default: a question above the chat (on the agent's page for page agents), the extension's timeout or 15 minutes, cancelled at once under autopilot (Part O) |
 
 Why D4's default:
 - If Python put the state into the run text at dispatch, a re-submit would carry different state and trip the harness's run-identity check (`requestHash`).

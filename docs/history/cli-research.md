@@ -1,6 +1,6 @@
 # Recorded CLI research
 
-> **Superseded.** The workspace was rebuilt around the chat-centred UI plan; see [ui-workspace.md](ui-workspace.md). This document describes the earlier service and is kept for history.
+> **Superseded.** The workspace was rebuilt around the chat-centred UI plan; see [ui-workspace.md](../ui-workspace.md). This document describes the earlier service and is kept for history.
 
 The numerical CLI uses the same commands, reservations, execution attempts and
 evidence ledger as the web workspace. Install the branch with `uv sync --frozen --all-extras --no-extra cpu`
@@ -74,9 +74,9 @@ uv run --no-sync optimization-research --workspace-url http://127.0.0.1:8791 \
 
 `request.json` contains a v1 command envelope: a stable `id`, `campaign_id`,
 `operation`, `expected_revision` and typed `payload`. Campaign creation uses
-revision zero. The [command schema catalog](../src/optimization_framework/campaigns/commands.py)
+revision zero. The [command schema catalog](../../src/optimization_framework/campaigns/commands.py)
 exposes the payloads through `CommandService.describe()`; the
-[typed contracts](../src/optimization_framework/contracts/commands.py) define their fields.
+[typed contracts](../../src/optimization_framework/contracts/commands.py) define their fields.
 The command journal is written before admission; retrying the same saved request
 reconciles its accepted receipt before attempting new work.
 

@@ -1,6 +1,6 @@
 # Consolidation implementation record
 
-> **Superseded.** The workspace was rebuilt around the chat-centred UI plan; see [ui-workspace.md](ui-workspace.md). This document describes the earlier service and is kept for history.
+> **Superseded.** The workspace was rebuilt around the chat-centred UI plan; see [ui-workspace.md](../ui-workspace.md). This document describes the earlier service and is kept for history.
 
 Authoritative scope: [architecture consolidation plan](architecture-consolidation-plan.md).
 Purpose: a reusable user–LLM research harness for the problem at hand. Optimizers
@@ -465,9 +465,9 @@ missing. The implementation objective remains incomplete.
   checks passed: **317 Python tests**, one existing Starlette warning (154.40 s),
   and **25 browser tests, one skipped** (2.5 min). The skipped test targets the
   unchanged live deployment. Both template screenshots were visually inspected.
-- Added [the bounded fidelity qualification script](../scripts/qualify_meent_fidelity.py).
+- Added [the bounded fidelity qualification script](../../scripts/qualify_meent_fidelity.py).
   Its isolated run is recorded in
-  [the numerical report](../runs/consolidation/fidelity-20260927/qualification-report.json).
+  [the numerical report](../../runs/consolidation/fidelity-20260927/qualification-report.json).
   The preserved 1100 nm / 70-degree paper design was evaluated at F40, F160, F320
   and F480 using the common worker and a frozen convergence recipe. All four
   efficiencies exactly matched the sibling's preserved report; the F320/F480
@@ -534,8 +534,8 @@ migration, real-model qualification and cutover remain under the full objective.
   **27 passed, one skipped** (4.3 min), including both new scenarios and all
   existing study/draft/confirmation scenarios. The skipped test targets the
   unchanged live deployment.
-- Added [the seven-reference qualification script](../scripts/qualify_meent_references.py).
-  Its completed [report](../runs/consolidation/references-20260927/qualification-report.json)
+- Added [the seven-reference qualification script](../../scripts/qualify_meent_references.py).
+  Its completed [report](../../runs/consolidation/references-20260927/qualification-report.json)
   records campaign `campaign_001c1a98b052488e`, execution
   `execution_026463a4330341be`, the exact captured source, original source hashes,
   frozen bindings, validation and the released qualification report. All seven
@@ -567,7 +567,7 @@ No full-release gate is inferred from this checkpoint.
   diagnostic path uses these declarations; historical DQN rollout declarations
   retain their original serialization and behavior. Implementation correctness
   checks verify declared counters/exports and that exporting leaves the next
-  proposal unchanged. See the [extension guide](diagnostic-extensions.md).
+  proposal unchanged. See the [extension guide](../diagnostic-extensions.md).
 - Captured numerical source includes inference entry points and compilation.
   Immutable milestone snapshots dispatch ordinary dependent jobs with separate
   random seeds, resource limits and exact upstream-prefix contributions. Nested
@@ -590,7 +590,7 @@ No full-release gate is inferred from this checkpoint.
   two parent-prefix requests and three inference requests. The semantic-review
   transport is mocked and candidate code is supplied; this is not real-model
   build qualification.
-- The saved [browser qualification report](../runs/consolidation/diagnostic-capabilities-20260927/qualification-report.json)
+- The saved [browser qualification report](../../runs/consolidation/diagnostic-capabilities-20260927/qualification-report.json)
   records campaign `campaign_b72005e03b69463b`, parent
   `trial_f8af29cb559f4c9f`, captured source, frozen specifications, snapshots,
   outputs and lineage. Its five completed jobs are the parent, two inference
@@ -600,9 +600,9 @@ No full-release gate is inferred from this checkpoint.
 - Final saved regression reports record **326 Python tests passed** in 195.45 s
   and **28 browser tests passed, one skipped** in 419.92 s. The frontend
   production build passed. The skipped browser case targets the unchanged live
-  deployment. Reports are [Python JUnit](../runs/consolidation/diagnostic-capabilities-20260927/pytest.xml)
-  and [browser JUnit](../runs/consolidation/diagnostic-capabilities-20260927/browser.xml).
-  [Extension evidence](../runs/consolidation/diagnostic-capabilities-20260927/extension-evidence.json)
+  deployment. Reports are [Python JUnit](../../runs/consolidation/diagnostic-capabilities-20260927/pytest.xml)
+  and [browser JUnit](../../runs/consolidation/diagnostic-capabilities-20260927/browser.xml).
+  [Extension evidence](../../runs/consolidation/diagnostic-capabilities-20260927/extension-evidence.json)
   and its copied local workspace retain the independent recovery records. That
   workspace is an evidence backup with original runtime references, not a
   portable execution bundle. Diagnostic and resolved-draft screenshots are
@@ -666,7 +666,7 @@ annotations and live services remain unchanged.
   identities, resource costs or provenance. Both executable kinds retain source,
   runtime and scoped correctness evidence. Wrong numerical results cannot pass
   through a positive semantic reviewer. Missing fixtures block the default path
-  before a model call. See the [commissioning guide](evaluator-commissioning.md).
+  before a model call. See the [commissioning guide](../evaluator-commissioning.md).
 - Unresolved problem declarations create durable requirements. Immutable bindings
   resolve them without rewriting a frozen study. Drafts remain editable with
   missing optimizer/evaluator requirements. Launch rechecks exact versions and
@@ -692,19 +692,19 @@ annotations and live services remain unchanged.
   and validates the supplied packages, edits only the budget and launches the
   original draft. Browser errors are empty. Its specification, jobs and frozen
   experiment are in
-  [browser evidence](../runs/consolidation/evaluator-commissioning-20260927/browser-results/commissioning-commissioned-070a6-nding-and-upstream-evidence/commissioning-evidence.json),
+  [browser evidence](../../runs/consolidation/evaluator-commissioning-20260927/browser-results/commissioning-commissioned-070a6-nding-and-upstream-evidence/commissioning-evidence.json),
   with library and resolved-draft screenshots in the same directory.
 - Both qualification HTTP services were stopped and restarted on their existing
   databases. Scientific records and manager guidance remained identical. Retrying
   the original launch command returned the same receipt without another trial or
-  implementation job. The [restart record](../runs/consolidation/evaluator-commissioning-20260927/http-restart-evidence.json)
-  and [recovery record](../runs/consolidation/evaluator-commissioning-20260927/recovery-evidence.json)
+  implementation job. The [restart record](../../runs/consolidation/evaluator-commissioning-20260927/http-restart-evidence.json)
+  and [recovery record](../../runs/consolidation/evaluator-commissioning-20260927/recovery-evidence.json)
   retain the evidence. The copied recovery workspace is a local evidence backup
   with original runtime references, not C's portable bundle.
 - Final regression: **341 Python tests passed** in 205.20 s; **29 browser tests
   passed, one skipped** in about 3.1 minutes; the frontend production build
-  passed. Reports are [Python JUnit](../runs/consolidation/evaluator-commissioning-20260927/pytest.xml)
-  and [browser JUnit](../runs/consolidation/evaluator-commissioning-20260927/browser.xml).
+  passed. Reports are [Python JUnit](../../runs/consolidation/evaluator-commissioning-20260927/pytest.xml)
+  and [browser JUnit](../../runs/consolidation/evaluator-commissioning-20260927/browser.xml).
   The skipped test targets the unchanged live deployment. All 64 trials in the
   qualification workspace were completed before its HTTP restart.
 
@@ -744,7 +744,7 @@ does not complete or release the integrated product.
   both service objects. Neither the revoked waiver nor a replacement can resume
   the frozen experiment. A later waiver leaves an earlier still-active waiver
   valid. A linked study requires its own decision. The local fixture backup and
-  [recovery evidence](../runs/consolidation/evaluator-eligibility-20260927/recovery-evidence.json)
+  [recovery evidence](../../runs/consolidation/evaluator-eligibility-20260927/recovery-evidence.json)
   preserve the records; this backup retains original runtime paths and is not a
   portable bundle.
 - Manager context includes the evaluator contract report and preserves the exact
@@ -756,21 +756,21 @@ does not complete or release the integrated product.
   eligible linked study, saves a blocked draft, records the waiver, launches the
   draft, rejects confirmation and revokes further authorization. The original
   trial remains complete with its original evidence basis. Its
-  [browser evidence](../runs/consolidation/evaluator-eligibility-20260927/browser-results/commissioning-contract-onl-c4ef3--cannot-become-confirmation/eligibility-evidence.json)
+  [browser evidence](../../runs/consolidation/evaluator-eligibility-20260927/browser-results/commissioning-contract-onl-c4ef3--cannot-become-confirmation/eligibility-evidence.json)
   and screenshot identify campaign `campaign_562d1582f1b84bc3` and trial
   `trial_b4134aed4b564b55`.
 - Both isolated HTTP services were subsequently stopped and restarted. Campaign,
   study, task, draft, trial and waiver records remained identical. Replaying the
   original waiver command returned the identical receipt without restoring the
   revoked authorization or creating another trial/waiver. See the
-  [HTTP restart record](../runs/consolidation/evaluator-eligibility-20260927/http-restart-evidence.json).
+  [HTTP restart record](../../runs/consolidation/evaluator-eligibility-20260927/http-restart-evidence.json).
 - Full regression: **345 Python tests passed** in 211.08 s and **30 browser tests
   passed, one skipped** in about 3.1 minutes; the frontend production build passed.
   The final manager-summary and probe-label corrections then passed a focused
   **45-test regression** in 10.14 s. Reports are
-  [full Python](../runs/consolidation/evaluator-eligibility-20260927/pytest.xml),
-  [browser](../runs/consolidation/evaluator-eligibility-20260927/browser.xml) and
-  [manager regression](../runs/consolidation/evaluator-eligibility-20260927/manager-regression.xml).
+  [full Python](../../runs/consolidation/evaluator-eligibility-20260927/pytest.xml),
+  [browser](../../runs/consolidation/evaluator-eligibility-20260927/browser.xml) and
+  [manager regression](../../runs/consolidation/evaluator-eligibility-20260927/manager-regression.xml).
 
 All commissioning model reviews remain explicitly mocked and source is supplied.
 The HTTP, isolation, contract checks, persistence, worker and recovery paths are
@@ -808,30 +808,30 @@ ordinary experiments, periodic diagnostics, required checks and study templates.
   **26 observations across two attempts and 13 fidelity identities**. Its
   **50 attributed requests** comprise 20 correctness calls, four parent requests
   and 26 child requests; the physical ledger also records 50 requests. See the
-  [recovery evidence](../runs/consolidation/generated-recipes-20260927/recovery-evidence.json).
+  [recovery evidence](../../runs/consolidation/generated-recipes-20260927/recovery-evidence.json).
 - The final browser scenario creates campaign `campaign_8ed6751f9fe74163`,
   commissions a supplied evaluator, configures study and periodic checks, and
   completes a parent experiment, measurement diagnostic and fidelity validation.
   Its catalog basis is `captured_source`, and recorded browser errors are empty.
-  The [browser evidence](../runs/consolidation/generated-recipes-20260927/browser-results/generated-recipes-commissi-e0157-tic-and-validation-controls/generated-recipe-evidence.json)
-  and [screenshot](../runs/consolidation/generated-recipes-20260927/browser-results/generated-recipes-commissi-e0157-tic-and-validation-controls/commissioned-fidelity-evidence.png)
+  The [browser evidence](../../runs/consolidation/generated-recipes-20260927/browser-results/generated-recipes-commissi-e0157-tic-and-validation-controls/generated-recipe-evidence.json)
+  and [screenshot](../../runs/consolidation/generated-recipes-20260927/browser-results/generated-recipes-commissi-e0157-tic-and-validation-controls/commissioned-fidelity-evidence.png)
   preserve the resulting controls, specifications and evidence.
 - An earlier scenario in the same qualification workspace survived restarting
   both HTTP services: 49 campaign records and three trials remained unchanged,
   and replaying a completed command returned the same receipt. Its older capture
   retains the explicitly labeled compatible-current-definition catalog. See the
-  [HTTP restart evidence](../runs/consolidation/generated-recipes-20260927/http-restart-evidence.json).
+  [HTTP restart evidence](../../runs/consolidation/generated-recipes-20260927/http-restart-evidence.json).
 - Full regression records **353 Python tests passed** in 250.43 seconds and
   **31 browser tests passed, one skipped** in 242.03 seconds. The skipped test
   targets the unchanged live deployment. The frontend production build passed.
-  Reports are [Python JUnit](../runs/consolidation/generated-recipes-20260927/pytest.xml)
-  and [browser JUnit](../runs/consolidation/generated-recipes-20260927/browser.xml).
+  Reports are [Python JUnit](../../runs/consolidation/generated-recipes-20260927/pytest.xml)
+  and [browser JUnit](../../runs/consolidation/generated-recipes-20260927/browser.xml).
   The first browser run exposed an incorrect new test expectation: it counted
   only the latest correctness report while the persistent library retained
   earlier commissions of the same executable. The corrected assertion checks
   the full implementation contribution; both its focused rerun and the final
   full suite passed. The initial report remains alongside the final evidence.
-- The [checkpoint](../runs/consolidation/generated-recipes-20260927/checkpoint.json)
+- The [checkpoint](../../runs/consolidation/generated-recipes-20260927/checkpoint.json)
   links the reports and the 232-file source manifest, whose SHA-256 is
   `a297b20972c9a318151f12fe5c09c3ada7d7caee1d17eae38ba68769cfcf385b`.
   Every captured source file still matches at the subsequent planning review.
@@ -903,24 +903,24 @@ recovery; a narrower request cannot conceal a known correctness failure.
   with its numerical evidence, and records an incompatible decline and compatible
   reuse in another campaign. The old and new experiments retain **9 and 24**
   attributed requests respectively. Browser errors are empty. See the
-  [browser evidence](../runs/consolidation/revalidation-reuse-20260927/browser-results/revalidation-independent-r-cb9a9-ble-reuse-records-its-scope/revalidation-reuse-evidence.json)
-  and [inspected screenshot](../runs/consolidation/revalidation-reuse-20260927/browser-results/revalidation-independent-r-cb9a9-ble-reuse-records-its-scope/executable-reuse-decisions.png).
+  [browser evidence](../../runs/consolidation/revalidation-reuse-20260927/browser-results/revalidation-independent-r-cb9a9-ble-reuse-records-its-scope/revalidation-reuse-evidence.json)
+  and [inspected screenshot](../../runs/consolidation/revalidation-reuse-20260927/browser-results/revalidation-independent-r-cb9a9-ble-reuse-records-its-scope/executable-reuse-decisions.png).
 - Both isolated HTTP services were stopped and restarted while a real experiment
   was paused. **186 records** remained identical, and replay returned the original
   accepted command receipt without adding work. The same experiment then completed
   **1,200 unique observations across two attempts**, preserving its specification,
   source and numerical authorization. Its **1,220 attributed requests** include
   five original evaluator checks and 15 revalidation requests. See the
-  [HTTP restart record](../runs/consolidation/revalidation-reuse-20260927/http-restart-evidence.json),
-  [process evidence](../runs/consolidation/revalidation-reuse-20260927/service-process-restart.json)
-  and [worker recovery](../runs/consolidation/revalidation-reuse-20260927/worker-recovery-evidence.json).
+  [HTTP restart record](../../runs/consolidation/revalidation-reuse-20260927/http-restart-evidence.json),
+  [process evidence](../../runs/consolidation/revalidation-reuse-20260927/service-process-restart.json)
+  and [worker recovery](../../runs/consolidation/revalidation-reuse-20260927/worker-recovery-evidence.json).
 - A separate actual HTTP countercheck found a previously unchecked numerical
   error, used zero model calls and produced one manager issue, still one after
   another reconciliation cycle. Independent work continued. Its 5,000-request
   procedure reached the frozen 20-second cap at 4,210 observations and remains
   scientifically incomplete; a separately frozen 20-request experiment completed
   while that same issue remained open. The
-  [failure/continuation record](../runs/consolidation/revalidation-reuse-20260927/failure-continuation-evidence.json)
+  [failure/continuation record](../../runs/consolidation/revalidation-reuse-20260927/failure-continuation-evidence.json)
   retains both outcomes without changing the first procedure's criterion.
 - Final regression: **371 Python tests passed** in 285.41 seconds and **32 browser
   tests passed, one skipped** in 224.28 seconds. The skipped test targets the live
@@ -928,12 +928,12 @@ recovery; a narrower request cannot conceal a known correctness failure.
   exposed a feedback fixture that intercepted the new catalog refresh with its
   model transport; an explicit empty-library fixture fixed that isolation, and
   its focused and full reruns passed. Reports are
-  [Python](../runs/consolidation/revalidation-reuse-20260927/pytest.xml) and
-  [browser](../runs/consolidation/revalidation-reuse-20260927/browser.xml).
+  [Python](../../runs/consolidation/revalidation-reuse-20260927/pytest.xml) and
+  [browser](../../runs/consolidation/revalidation-reuse-20260927/browser.xml).
 
-The [checkpoint](../runs/consolidation/revalidation-reuse-20260927/checkpoint.json)
+The [checkpoint](../../runs/consolidation/revalidation-reuse-20260927/checkpoint.json)
 links these artifacts and a 241-file source manifest. The restart qualification
-is repeatable with [its script](../scripts/check_revalidation_restart.py). Its
+is repeatable with [its script](../../scripts/check_revalidation_restart.py). Its
 database backups and runtime paths are local recovery evidence, not portable
 bundles. Qualification used ports 8774/8775. Initial commissioning source is
 supplied and semantic review is mocked; numerical checks, HTTP, workers,
@@ -977,22 +977,22 @@ Qualification evidence:
   status, resolves through the shared command, inspects the receipt and runs a
   three-request experiment. The executable, validation report and production-job
   count remain unchanged. Resolution records zero model calls and zero
-  downloaded bytes. The [browser evidence](../runs/consolidation/runtime-portability-20260927/browser-results/runtime-portability-an-exp-3304f-ilding-or-changing-evidence/runtime-resolution-evidence.json)
-  and [inspected screenshot](../runs/consolidation/runtime-portability-20260927/browser-results/runtime-portability-an-exp-3304f-ilding-or-changing-evidence/runtime-resolution.png)
+  downloaded bytes. The [browser evidence](../../runs/consolidation/runtime-portability-20260927/browser-results/runtime-portability-an-exp-3304f-ilding-or-changing-evidence/runtime-resolution-evidence.json)
+  and [inspected screenshot](../../runs/consolidation/runtime-portability-20260927/browser-results/runtime-portability-an-exp-3304f-ilding-or-changing-evidence/runtime-resolution.png)
   identify the campaign, command, exact runtime and completed experiment.
 - Both actual HTTP services were stopped while idle and restarted on ports
   8776/8777. **31 scientific, execution, cost, command and resolution records**
   remained identical. Replaying the original command returned its original
   receipt and created no additional work. See the
-  [restart evidence](../runs/consolidation/runtime-portability-20260927/runtime-restart-evidence.json),
-  [process identities](../runs/consolidation/runtime-portability-20260927/service-process-restart.json)
-  and [repeatable check](../runs/consolidation/runtime-portability-20260927/check-runtime-restart.py).
+  [restart evidence](../../runs/consolidation/runtime-portability-20260927/runtime-restart-evidence.json),
+  [process identities](../../runs/consolidation/runtime-portability-20260927/service-process-restart.json)
+  and [repeatable check](../../runs/consolidation/runtime-portability-20260927/check-runtime-restart.py).
 - The completed source passed **380 Python tests**, **33 browser tests with one
   skipped**, and the frontend production build. The skipped browser scenario
   targets the unchanged live deployment. Reports are
-  [Python](../runs/consolidation/runtime-portability-20260927/pytest.xml) and
-  [browser](../runs/consolidation/runtime-portability-20260927/browser.xml).
-  The [checkpoint](../runs/consolidation/runtime-portability-20260927/checkpoint.json)
+  [Python](../../runs/consolidation/runtime-portability-20260927/pytest.xml) and
+  [browser](../../runs/consolidation/runtime-portability-20260927/browser.xml).
+  The [checkpoint](../../runs/consolidation/runtime-portability-20260927/checkpoint.json)
   links a 244-file source manifest and the evidence above. Qualification caught
   and fixed native-loader alias loss; a browser screenshot locator was scoped to
   the version card rather than also matching its production job. Final suites
@@ -1009,7 +1009,7 @@ historical migration/rollback and F's real-model qualification/cutover remain.
 
 ## Portable evidence bundle foundation — 2026-09-27
 
-C2 is implemented and locally verified. The [bundle workflow](evidence-bundles.md)
+C2 is implemented and locally verified. The [bundle workflow](../evidence-bundles.md)
 exports a result with its declared evidence and captured bytes, verifies it in
 another workspace, stages each service's evidence, and publishes through durable
 commands. Original record/source identities, objective interpretation, exposure
@@ -1048,29 +1048,29 @@ Qualification evidence:
   has zero native historical experiments/jobs and a `validation_required`
   executable. Recorded provenance is complete; accounting remains partial where
   usage is unknown. See the
-  [browser evidence](../runs/consolidation/evidence-bundles-20260927/bundle-browser-final-results/bundles-portable-evidence--a281e-ng-its-historical-producers/bundle-transfer-evidence.json),
-  [portable ZIP](../runs/consolidation/evidence-bundles-20260927/bundle-browser-final-results/bundles-portable-evidence--a281e-ng-its-historical-producers/portable-evidence.zip)
-  and [inspected screenshot](../runs/consolidation/evidence-bundles-20260927/bundle-browser-final-results/bundles-portable-evidence--a281e-ng-its-historical-producers/imported-evidence.png).
+  [browser evidence](../../runs/consolidation/evidence-bundles-20260927/bundle-browser-final-results/bundles-portable-evidence--a281e-ng-its-historical-producers/bundle-transfer-evidence.json),
+  [portable ZIP](../../runs/consolidation/evidence-bundles-20260927/bundle-browser-final-results/bundles-portable-evidence--a281e-ng-its-historical-producers/portable-evidence.zip)
+  and [inspected screenshot](../../runs/consolidation/evidence-bundles-20260927/bundle-browser-final-results/bundles-portable-evidence--a281e-ng-its-historical-producers/imported-evidence.png).
 - Both destination HTTP services were stopped while idle and restarted. **722
   workspace records and 28 library records** remained identical, including after
   replaying the original import command. The original receipt, costs and local
   validation-required state survived without starting any historical job. See
-  [restart evidence](../runs/consolidation/evidence-bundles-20260927/bundle-restart-evidence.json),
-  [process identities](../runs/consolidation/evidence-bundles-20260927/service-process-restart.json)
-  and the [repeatable check](../runs/consolidation/evidence-bundles-20260927/check-bundle-restart.py).
+  [restart evidence](../../runs/consolidation/evidence-bundles-20260927/bundle-restart-evidence.json),
+  [process identities](../../runs/consolidation/evidence-bundles-20260927/service-process-restart.json)
+  and the [repeatable check](../../runs/consolidation/evidence-bundles-20260927/check-bundle-restart.py).
   The three new library export/import endpoints also reject unauthenticated
-  requests; [HTTP results](../runs/consolidation/evidence-bundles-20260927/library-http-auth.json).
+  requests; [HTTP results](../../runs/consolidation/evidence-bundles-20260927/library-http-auth.json).
 - The final source passed **389 Python tests** and the frontend production build.
   Browser verification covers **34 passing scenarios and one live-deployment
   skip**: 33 regression passes plus the new scenario's focused passing retry.
   The broad run's only failure was an ambiguous locator matching both original
   asset and producer JSON after all transfer/replay assertions had passed. Its
   corrected assertion targets producer history. Original reports remain intact:
-  [Python](../runs/consolidation/evidence-bundles-20260927/pytest.xml),
-  [broad browser run](../runs/consolidation/evidence-bundles-20260927/browser.xml),
-  [focused retry](../runs/consolidation/evidence-bundles-20260927/bundle-browser-final.xml)
-  and [scenario-by-scenario verification](../runs/consolidation/evidence-bundles-20260927/browser-verification.json).
-  The [checkpoint](../runs/consolidation/evidence-bundles-20260927/checkpoint.json)
+  [Python](../../runs/consolidation/evidence-bundles-20260927/pytest.xml),
+  [broad browser run](../../runs/consolidation/evidence-bundles-20260927/browser.xml),
+  [focused retry](../../runs/consolidation/evidence-bundles-20260927/bundle-browser-final.xml)
+  and [scenario-by-scenario verification](../../runs/consolidation/evidence-bundles-20260927/browser-verification.json).
+  The [checkpoint](../../runs/consolidation/evidence-bundles-20260927/checkpoint.json)
   links the 253-file source manifest and all evidence.
 
 Qualification fixed unstable blob media envelopes during re-export, retention of
@@ -1078,7 +1078,7 @@ missing-evidence declarations and immediate admission of published library
 evidence into the workspace catalog. Test corrections wait for evidence
 publication after worker completion and compare normalized objective records.
 
-C remains open. A [recorded reproducer](../runs/consolidation/evidence-bundles-20260927/accounting-followup.json)
+C remains open. A [recorded reproducer](../../runs/consolidation/evidence-bundles-20260927/accounting-followup.json)
 imports two historical cost events with the correct three-call total, then
 demonstrates the missing local cursor reconstruction when the same cumulative
 receipt is processed. C3 must preserve those events, reconstruct the accounting
@@ -1095,7 +1095,7 @@ local transfer checkpoint, not product qualification or release.
 
 ## Accounting reconciliation checkpoint — 2026-09-27
 
-C3 is implemented and locally verified. The [accounting ledger](accounting.md)
+C3 is implemented and locally verified. The [accounting ledger](../accounting.md)
 keeps original cost events immutable and appends cumulative receipts and scoped
 reconciliations. Imported accounting positions are reconstructed from that
 evidence, including legacy data without snapshot records. Replaying a receipt
@@ -1134,8 +1134,8 @@ Qualification evidence:
 - The final source passed **404 Python tests**, **34 browser scenarios with one
   live-deployment skip**, and the frontend production build. The broad browser
   run has no failures. Reports:
-  [Python](../runs/consolidation/accounting-reconciliation-20260927/pytest.xml),
-  [browser](../runs/consolidation/accounting-reconciliation-20260927/browser.xml).
+  [Python](../../runs/consolidation/accounting-reconciliation-20260927/pytest.xml),
+  [browser](../../runs/consolidation/accounting-reconciliation-20260927/browser.xml).
   An initial successful 403-test/34-scenario run is retained separately; final
   review added the same-work receipt guard and the complete checks were rerun.
 - The browser uses two workspaces and separate libraries on 8782–8785. It imports
@@ -1143,16 +1143,16 @@ Qualification evidence:
   123 input tokens**, verifies unchanged asset content and physical event count,
   replays the command, rejects a conflicting total and re-exports the added
   evidence. Unmeasured output tokens and model time remain unknown. See the
-  [final browser evidence](../runs/consolidation/accounting-reconciliation-20260927/browser-final-results/bundles-portable-evidence--a281e-ng-its-historical-producers/bundle-transfer-evidence.json)
-  and [inspected receipt interface](../runs/consolidation/accounting-reconciliation-20260927/browser-final-results/bundles-portable-evidence--a281e-ng-its-historical-producers/reconciled-cost-evidence.png).
+  [final browser evidence](../../runs/consolidation/accounting-reconciliation-20260927/browser-final-results/bundles-portable-evidence--a281e-ng-its-historical-producers/bundle-transfer-evidence.json)
+  and [inspected receipt interface](../../runs/consolidation/accounting-reconciliation-20260927/browser-final-results/bundles-portable-evidence--a281e-ng-its-historical-producers/reconciled-cost-evidence.png).
 - Both destination HTTP services restarted on the completed source with **642
   workspace records and 21 library records unchanged**. Replaying the import and
   receipt commands preserved their outcomes and costs; no historical job entered
   either queue. The imported executable still requires local validation. See
-  [restart evidence](../runs/consolidation/accounting-reconciliation-20260927/restart-evidence.json),
-  [process identities](../runs/consolidation/accounting-reconciliation-20260927/accounting-final-restart.json)
-  and the [repeatable check](../runs/consolidation/accounting-reconciliation-20260927/check-accounting-restart.py).
-- The [checkpoint](../runs/consolidation/accounting-reconciliation-20260927/checkpoint.json)
+  [restart evidence](../../runs/consolidation/accounting-reconciliation-20260927/restart-evidence.json),
+  [process identities](../../runs/consolidation/accounting-reconciliation-20260927/accounting-final-restart.json)
+  and the [repeatable check](../../runs/consolidation/accounting-reconciliation-20260927/check-accounting-restart.py).
+- The [checkpoint](../../runs/consolidation/accounting-reconciliation-20260927/checkpoint.json)
   links the reports and **296-file source manifest**, verified unchanged after
   the checks. Model review is mocked and the delayed token receipt is synthetic;
   package execution, independent checks, HTTP transfer and service restart are
@@ -1163,13 +1163,13 @@ conflict with an existing immutable asset. The original asset metadata is now
 retained; snapshots carry the newly reported billing information and quantities.
 
 C4 remains the next implementation gate. A
-[read-only follow-up](../runs/consolidation/accounting-reconciliation-20260927/reproduction-followup.json)
+[read-only follow-up](../../runs/consolidation/accounting-reconciliation-20260927/reproduction-followup.json)
 verifies an imported framework capture and matching installed dependencies, but
 confirms that no explicit reproduction command exists. Add a linked execution
 using that captured evidence without activating the archived original job, and
 finish verified legacy runtime relocation.
 
-D1's [mutation inventory](application-command-inventory.md) now identifies the
+D1's [mutation inventory](../application-command-inventory.md) now identifies the
 23 direct HTTP mutation paths, remaining browser callers, direct manager budget
 extension and CLI work without workspace command/grant records. These are
 remaining implementation tasks. D2's complete manager lifecycle, E's historical
@@ -1218,13 +1218,13 @@ qualification work. No service was restarted or migrated during this review.
 ## Imported-source and compiler foundation — 2026-09-27
 
 C4 implementation has started. The new
-[source resolver](../src/optimization_framework/assets/captures.py) selects an
+[source resolver](../../src/optimization_framework/assets/captures.py) selects an
 exact admitted historical record and reconstructs its code and dependency locks
 from verified blobs. The source remains resolvable when the original directory
 and import staging tree are unavailable. Historical results, observations and
 operational state do not become files available to the compiler.
 
-The new [execution isolation](../src/optimization_framework/execution/isolation.py)
+The new [execution isolation](../../src/optimization_framework/execution/isolation.py)
 is an explicit mode of captured compiler dispatch. The host selects runtime
 mounts and enforces namespaces, read-only source, a clean environment, memory and
 file limits, bounded scratch and timeout. It never substitutes ordinary process
@@ -1240,18 +1240,18 @@ original/staged paths and explicit rejection of missing or changed snapshots.
 No historical job enters the native queue and existing costs remain unchanged.
 
 The checkpoint directory is
-[`runs/consolidation/imported-execution-foundation-20260927`](../runs/consolidation/imported-execution-foundation-20260927).
+[`runs/consolidation/imported-execution-foundation-20260927`](../../runs/consolidation/imported-execution-foundation-20260927).
 Its 299-file source manifest is
 `9d680c40b4193905fef0e813bf9fa54905a15a841d69f90ec3185fce323c9fa0`.
 The changes are three new source/test files plus the provenance and history
 readers; frontend source is unchanged. The full Python suite passed **410 tests**
 with no failures or skips in 393.52 seconds. The
-[test report](../runs/consolidation/imported-execution-foundation-20260927/pytest.xml)
-and [checkpoint](../runs/consolidation/imported-execution-foundation-20260927/checkpoint.json)
+[test report](../../runs/consolidation/imported-execution-foundation-20260927/pytest.xml)
+and [checkpoint](../../runs/consolidation/imported-execution-foundation-20260927/checkpoint.json)
 record that result; all 299 source files were rechecked unchanged afterward.
 No new browser or live-model qualification is claimed by this foundation.
 
-A separate [probe of the older C3 imported capture](../runs/consolidation/imported-execution-foundation-20260927/c3-capture-probe.json)
+A separate [probe of the older C3 imported capture](../../runs/consolidation/imported-execution-foundation-20260927/c3-capture-probe.json)
 ran its actual `trial.prepare` compiler under isolation and exactly matched the
 original resolved algorithm configuration, training, completion and diagnostics.
 The source remained unchanged. This exercised compatibility with a pre-existing
@@ -1262,7 +1262,7 @@ Further source inspection found a necessary numerical-host boundary: existing
 progress, log, artifact, journal and diagnostic readers trust worker-created
 local paths. A namespace alone would still permit an imported worker to create
 paths that those host readers follow. The
-[C4 handoff](imported-reproduction.md#next-integration-boundary) therefore places
+[C4 handoff](../imported-reproduction.md#next-integration-boundary) therefore places
 the imported worker in a private attempt tree and requires host-owned leases,
 supervision and validated output publication before connecting launch. This is
 implementation work within the chosen architecture, not a request for another
@@ -1295,7 +1295,7 @@ The chosen execution design puts package launch in the installed supervisor:
 only the frozen experiment's declared optimizer/evaluator packages can launch,
 in separate sandboxes with a bounded protocol relay. The host owns process
 identity, deadlines, shutdown and receipts; imported code cannot choose arbitrary
-commands or mounts. The [C4 handoff](imported-reproduction.md#numerical-host-work-in-progress)
+commands or mounts. The [C4 handoff](../imported-reproduction.md#numerical-host-work-in-progress)
 records this decision and the remaining supervision, publication, recovery and
 accounting work. It does not claim the failing path is repaired.
 
@@ -1306,18 +1306,18 @@ or migrated, and the annotated questions retain SHA-256
 ## Imported numerical and package host foundation — 2026-09-27
 
 The generated-evaluator namespace failure from the planning recheck is fixed.
-The installed [package host](../src/optimization_framework/execution/package_host.py)
+The installed [package host](../../src/optimization_framework/execution/package_host.py)
 launches only verified frozen optimizer/evaluator invocations as separate
-sandboxes. Its [standalone client](../src/optimization_framework/execution/package_client.py)
+sandboxes. Its [standalone client](../../src/optimization_framework/execution/package_client.py)
 preserves the captured package protocol by relaying three pipes through a private
 Unix socket. No host file or directory descriptor crosses that boundary. Package
 code cannot reach the socket or the surrounding workspace. The original captured
 scientific source and the host's namespace policy remain unchanged.
 
-The [numerical supervisor](../src/optimization_framework/execution/isolated_host.py)
+The [numerical supervisor](../../src/optimization_framework/execution/isolated_host.py)
 owns the lease, deadlines and receipt outside the captured worker's writable
 tree. A separate guard thread enforces deadlines independently of publication.
-The [publisher](../src/optimization_framework/execution/publication.py) validates
+The [publisher](../../src/optimization_framework/execution/publication.py) validates
 regular files and blob identities before exposing them to ordinary evidence
 readers; changed or removed committed journals, external artifact mappings,
 symlinks, hardlinks and special files are rejected. These modules are not yet
@@ -1331,19 +1331,19 @@ deadline enforcement. The host/package/imported-compiler group passed 22 checks;
 the final full suite also includes the journal-removal check added afterward.
 
 The checkpoint is
-[`runs/consolidation/imported-package-host-20260927`](../runs/consolidation/imported-package-host-20260927).
-Its [source manifest](../runs/consolidation/imported-package-host-20260927/source-manifest.json)
+[`runs/consolidation/imported-package-host-20260927`](../../runs/consolidation/imported-package-host-20260927).
+Its [source manifest](../../runs/consolidation/imported-package-host-20260927/source-manifest.json)
 contains **304 files**, with SHA-256
 `75218f7f95a9bc79b6dc504424313a112a8646c4f7717da6ad2e6381b6540a76`.
-The [full Python report](../runs/consolidation/imported-package-host-20260927/pytest.xml)
+The [full Python report](../../runs/consolidation/imported-package-host-20260927/pytest.xml)
 records **422 passed, zero failed or skipped**, in 412.25 seconds. All source
 hashes were rechecked unchanged afterward. The
-[checkpoint record](../runs/consolidation/imported-package-host-20260927/checkpoint.json)
+[checkpoint record](../../runs/consolidation/imported-package-host-20260927/checkpoint.json)
 states the remaining gates. Frontend source is unchanged; no new browser or
 real-model qualification is claimed. Semantic reviewers are fixtures, while the
 package processes, checkpoints, isolation and numerical workers are real.
 
-The separate [older-capture probe](../runs/consolidation/imported-package-host-20260927/older-capture-probe.json)
+The separate [older-capture probe](../../runs/consolidation/imported-package-host-20260927/older-capture-probe.json)
 uses an actual archived C3 worker whose package launcher predates the current
 helper. In another experiment directory, its original source and a copied,
 verified evaluator runtime produce all three original candidate/objective
@@ -1433,25 +1433,25 @@ scheduler/accounting/diagnostic/resource group passed **36 tests** before the
 final two integration cases; the final full suite includes those additions.
 
 The checkpoint is
-[`runs/consolidation/imported-scheduler-20260927`](../runs/consolidation/imported-scheduler-20260927).
-Its [source manifest](../runs/consolidation/imported-scheduler-20260927/source-manifest.json)
+[`runs/consolidation/imported-scheduler-20260927`](../../runs/consolidation/imported-scheduler-20260927).
+Its [source manifest](../../runs/consolidation/imported-scheduler-20260927/source-manifest.json)
 contains **310 files**, with SHA-256
 `ce972758be307830f1b04f33eb1af15c07f66a92bbd9c222a85b0910b99408e1`.
-The [full Python report](../runs/consolidation/imported-scheduler-20260927/pytest.xml)
+The [full Python report](../../runs/consolidation/imported-scheduler-20260927/pytest.xml)
 records **437 passed, zero failed, errored or skipped**, in **469.29 seconds**.
 There is one dependency deprecation warning. All source hashes were rechecked
 unchanged after the suite and both probes. The
-[checkpoint record](../runs/consolidation/imported-scheduler-20260927/checkpoint.json)
+[checkpoint record](../../runs/consolidation/imported-scheduler-20260927/checkpoint.json)
 retains the exact verification scope and remaining gates.
 
-The [older-capture probe](../runs/consolidation/imported-scheduler-20260927/older-capture-probe.json)
+The [older-capture probe](../../runs/consolidation/imported-scheduler-20260927/older-capture-probe.json)
 again runs the actual C3 archived worker with its original inline package launcher
 and a copied evaluator runtime. Its three observations exactly match the original
 trajectory, completing in approximately 2.47 host seconds without changing the
 original source or specification. It allocates no native campaign and remains
 direct compatibility evidence.
 
-A separate [recovery probe](../runs/consolidation/imported-scheduler-20260927/crash-resume-probe.json)
+A separate [recovery probe](../../runs/consolidation/imported-scheduler-20260927/crash-resume-probe.json)
 kills a real supervisor, reconciles while captured source is unavailable, restores
 that source and resumes from the published checkpoint. Replay exhausts the original
 100-request allowance with scientific completion still false. A recorded test
@@ -1504,29 +1504,29 @@ revalidation and captured execution using a representative schema-1 manifest.
 This is separate from the earlier actual C3 captured-worker compatibility probe.
 
 The checkpoint is
-[`runs/consolidation/historical-reproduction-20260927`](../runs/consolidation/historical-reproduction-20260927).
-Its [source manifest](../runs/consolidation/historical-reproduction-20260927/source-manifest.json)
+[`runs/consolidation/historical-reproduction-20260927`](../../runs/consolidation/historical-reproduction-20260927).
+Its [source manifest](../../runs/consolidation/historical-reproduction-20260927/source-manifest.json)
 contains **316 files**, with SHA-256
 `519ee664648f2c2ed1f3bbe8056d479ea7ef67147d264cb1b36302eed71759f0`.
-The [full Python report](../runs/consolidation/historical-reproduction-20260927/pytest.xml)
+The [full Python report](../../runs/consolidation/historical-reproduction-20260927/pytest.xml)
 records **449 passed**, zero failed, errored or skipped, in **529.65 seconds**
 (529.88 seconds in pytest's console summary), with one dependency deprecation
 warning. All source hashes were rechecked unchanged afterward. The frontend
 production build passed during the increment.
 
-The [browser run](../runs/consolidation/historical-reproduction-20260927/browser.log)
+The [browser run](../../runs/consolidation/historical-reproduction-20260927/browser.log)
 passed **19 scenarios** in **21.0 seconds**. It includes an actual archive import,
 reproduction draft edit, accepted launch with a lost response, successful retry
 and agreement from one numerical experiment while the original directory is
 unavailable. Seventeen scenarios needing other fixture setups were skipped;
 this run does not replace their earlier checkpoint evidence. The
-[browser evidence](../runs/consolidation/historical-reproduction-20260927/browser-final/reproduction-an-exact-impo-20139-on-and-a-recoverable-launch/reproduction-evidence.json)
+[browser evidence](../../runs/consolidation/historical-reproduction-20260927/browser-final/reproduction-an-exact-impo-20139-on-and-a-recoverable-launch/reproduction-evidence.json)
 and screenshots retain the final workflow.
 
-A [separate restart probe](../runs/consolidation/historical-reproduction-20260927/restart-after.json)
+A [separate restart probe](../../runs/consolidation/historical-reproduction-20260927/restart-after.json)
 restarts both isolated HTTP services with **66 scientific and command records
 unchanged**. Replaying that scenario's accepted launch command creates no new
-execution or cost event. The [checkpoint record](../runs/consolidation/historical-reproduction-20260927/checkpoint.json)
+execution or cost event. The [checkpoint record](../../runs/consolidation/historical-reproduction-20260927/checkpoint.json)
 links its distinct browser evidence and records all qualification limits.
 Executable code is supplied and model reviews are fixtures; numerical/package
 processes, isolation, HTTP and browser interactions are real. No new model calls
@@ -1548,7 +1548,7 @@ during this increment. The annotated questions retain their original hash.
 The first D1 increment translates campaign creation/update, context editing and
 issue resolution into the common application commands. Their browser controls
 use those commands directly; the old HTTP shapes translate through the same
-authority and revision checks. The [command inventory](application-command-inventory.md)
+authority and revision checks. The [command inventory](../application-command-inventory.md)
 now identifies **19 remaining direct mutation routes**. Manager controls,
 feedback, trial/validation compatibility routes, sources and the CLI remain D1
 work; this checkpoint does not close that package.
@@ -1577,15 +1577,15 @@ newer one. Stale edits remain available in the editor for the researcher to
 review rather than overwriting current guidance.
 
 The checkpoint is
-[`runs/consolidation/campaign-controls-20260927`](../runs/consolidation/campaign-controls-20260927).
-Its [source manifest](../runs/consolidation/campaign-controls-20260927/source-manifest.json)
+[`runs/consolidation/campaign-controls-20260927`](../../runs/consolidation/campaign-controls-20260927).
+Its [source manifest](../../runs/consolidation/campaign-controls-20260927/source-manifest.json)
 contains **319 files**, with SHA-256
 `61ee1b2104238af1dfe614e1fcc6846da92e54c5f7829ac1796c800d858168db`.
-The [full Python report](../runs/consolidation/campaign-controls-20260927/pytest.xml)
+The [full Python report](../../runs/consolidation/campaign-controls-20260927/pytest.xml)
 records **460 passed**, zero failed, errored or skipped, in **532.21 seconds**
 (532.31 seconds in pytest's console summary), with one dependency deprecation
 warning. All source hashes and the annotated researcher comments were rechecked
-unchanged after verification. The [checkpoint record](../runs/consolidation/campaign-controls-20260927/checkpoint.json)
+unchanged after verification. The [checkpoint record](../../runs/consolidation/campaign-controls-20260927/checkpoint.json)
 retains the exact scope and the remaining D–F gates.
 
 Focused backend verification passed **40 tests** across command, campaign,
@@ -1593,7 +1593,7 @@ manager and existing API cases. The existing mocked browser group passed
 **18 scenarios**. An actual isolated HTTP/browser scenario loses accepted
 creation, charter and context replies, observes concurrent changes, then retries
 without duplicate work. It rejects a stale edit and records one manager issue.
-The combined [browser run](../runs/consolidation/campaign-controls-20260927/browser.log)
+The combined [browser run](../../runs/consolidation/campaign-controls-20260927/browser.log)
 passed **20 scenarios** in **24.5 seconds**, including historical reproduction
 against the current backend and frontend. Seventeen other fixture-dependent
 scenarios were skipped; their earlier evidence retains its own source scope.
@@ -1602,8 +1602,8 @@ Both isolated services restarted with **118 captured scientific and control
 records unchanged**. Replaying five accepted commands preserves campaign,
 guidance and issue choices, adds no execution or cost event, and retains the
 historical reproduction's agreement. The
-[restart probe](../runs/consolidation/campaign-controls-20260927/restart-after.json)
-and [browser artifacts](../runs/consolidation/campaign-controls-20260927/browser-final)
+[restart probe](../../runs/consolidation/campaign-controls-20260927/restart-after.json)
+and [browser artifacts](../../runs/consolidation/campaign-controls-20260927/browser-final)
 record the actual cases. No real model calls were made.
 
 Qualification now supplies its own frontend directory. The new build is served
@@ -1618,7 +1618,7 @@ dashboard assets.
 
 D1.1 and D1.2 are implemented and locally verified. The five study/experiment
 routes and seven idea/implementation routes now translate to the shared command
-service. The [inventory](application-command-inventory.md) records 16 translated
+service. The [inventory](../application-command-inventory.md) records 16 translated
 compatibility mutations and seven remaining direct research/decision/source routes.
 Connected/local CLI work, the complete durable manager, historical migration and
 final release remain D1.3–F work. The shorter
@@ -1648,15 +1648,15 @@ That view now shows generic problem definitions, fidelity, evaluator declaration
 and implementation budgets.
 
 The checkpoint is
-[`runs/consolidation/experiment-controls-20260927`](../runs/consolidation/experiment-controls-20260927).
-Its [source manifest](../runs/consolidation/experiment-controls-20260927/source-manifest.json)
+[`runs/consolidation/experiment-controls-20260927`](../../runs/consolidation/experiment-controls-20260927).
+Its [source manifest](../../runs/consolidation/experiment-controls-20260927/source-manifest.json)
 contains **325 files**, with SHA-256
 `f7b5b604a8ae653b37d668123e0d3d74f13e05f0246891671d4b110c940bf338`.
-The [Python report](../runs/consolidation/experiment-controls-20260927/pytest.xml)
+The [Python report](../../runs/consolidation/experiment-controls-20260927/pytest.xml)
 records **477 passed**, no failures/errors/skips, in **539.09 seconds**. The backend
 source remained unchanged; the later charter-history fix changes only the
 frontend. Its final isolated build, **index-CN4ReTS2.js**, passed the complete
-[browser run](../runs/consolidation/experiment-controls-20260927/browser-complete.log):
+[browser run](../../runs/consolidation/experiment-controls-20260927/browser-complete.log):
 **40 passed**, no failures or skips, in **7.4m**.
 These are 18 mocked UI cases and 22 actual service/browser workflows; semantic
 reviews remain fixtures and no real model calls were made. All final source
@@ -1667,12 +1667,12 @@ Both review-fixture services restarted with **804 authoritative records unchange
 Replaying **76 commands** preserved guidance in **15 campaigns** and created no
 executions, cost events, grants or comments. Derived projections/caches/cursors
 are excluded from the record hash comparison. The
-[restart report](../runs/consolidation/experiment-controls-20260927/restart-after.json),
-[verified source archive](../runs/consolidation/experiment-controls-20260927/verified-source.tar.gz)
+[restart report](../../runs/consolidation/experiment-controls-20260927/restart-after.json),
+[verified source archive](../../runs/consolidation/experiment-controls-20260927/verified-source.tar.gz)
 and integrity-checked database copies make the checkpoint inspectable.
 The source review also records a remaining D2 edge case—reconciling an accepted
 implementation control after a lost reply and later guidance change—in the
-[resume notes](../runs/consolidation/experiment-controls-20260927/resume-notes.md).
+[resume notes](../../runs/consolidation/experiment-controls-20260927/resume-notes.md).
 
 The new interface is isolated on 8791. Additional browser fixtures used 8793/8795
 for both-workspace workflows and were stopped after all jobs and deliveries settled. Original live services 8765/8766 retain
@@ -1685,7 +1685,7 @@ migration, real-model qualification and researcher acceptance unfinished.
 
 D1.3, D1.4 and D2 are implemented and locally qualified. All 23 compatibility
 mutations and browser mutations, apart from immutable byte staging, now use the
-shared command boundary. The [inventory](application-command-inventory.md)
+shared command boundary. The [inventory](../application-command-inventory.md)
 records their owning commands. E's complete source-specific historical imports
 and migration rehearsal, and F's real-model, researcher and release acceptance
 remain open. The original two-service architecture and general harness objective
@@ -1729,8 +1729,8 @@ claim. Implementation-control recovery queries the service's accepted receipt
 before checking newer guidance, and supplied package dictionaries are interpreted
 according to the commissioned executable kind.
 
-The [checkpoint record](../runs/consolidation/manager-lifecycle-20260928/checkpoint.json)
-links the final [Python report](../runs/consolidation/manager-lifecycle-20260928/pytest-stable.xml),
+The [checkpoint record](../../runs/consolidation/manager-lifecycle-20260928/checkpoint.json)
+links the final [Python report](../../runs/consolidation/manager-lifecycle-20260928/pytest-stable.xml),
 source/runtime manifests, source archive and integrity-checked database copies.
 The final suite records **522 passed**, no failures/errors/skips, in **571.34
 seconds**; before/after package and lock manifests match. One dependency
@@ -1739,7 +1739,7 @@ cases and one actual HTTP/browser research/decision/source recovery case passed.
 The prior 40-browser checkpoint retains its original source scope; final combined
 product qualification remains F.
 
-The [two-service manager scenario](../runs/consolidation/manager-lifecycle-20260928/restart-http-final/qualification.json)
+The [two-service manager scenario](../../runs/consolidation/manager-lifecycle-20260928/restart-http-final/qualification.json)
 passed through two library starts and four workspace starts. Eleven manager
 turns and fourteen inputs retain two implementation grants, two numerical
 experiments and one scoped issue. The scenario commissions missing code while
@@ -1749,10 +1749,10 @@ around a failed implementation check, reconsiders changed guidance and closes an
 uncertain provider reservation without replay. The invalid package's actual
 failed independent check is retained; its fixture cannot repair it.
 
-[Connected CLI replay](../runs/consolidation/manager-lifecycle-20260928/connected-restart.json)
+[Connected CLI replay](../../runs/consolidation/manager-lifecycle-20260928/connected-restart.json)
 reconciles ten accepted commands after a server restart with four trials, four
 attempts and eighteen cost events unchanged. The
-[SIGINT/resume scenario](../runs/consolidation/cli-controls-20260928/interruption-3/qualification.json)
+[SIGINT/resume scenario](../../runs/consolidation/cli-controls-20260928/interruption-3/qualification.json)
 preserves the observation prefix, resumes into another output directory after a
 charter edit, and exactly matches uninterrupted DQN results. Earlier failures
 exposed and corrected resumed export identity, wall-limit canonicalization,

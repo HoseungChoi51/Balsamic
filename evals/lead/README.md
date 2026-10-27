@@ -2,7 +2,7 @@
 
 The failures the readiness audits and rehearsals found (`docs/lead-agent-readiness.md`, Parts E and G–K), kept as
 scenarios that can be run again. A change to the agents' prompts, roles, tools or extensions is judged by them: it
-merges only with no regression against the recorded baseline (`docs/harness-update-plan.md` §2.6).
+merges only with no regression against the recorded baseline (`docs/history/harness-update-plan.md` §2.6).
 
 | Tier | What | Where | Model |
 |---|---|---|---|

@@ -1,6 +1,6 @@
 # Review the real grating discovery run
 
-> **Superseded.** The workspace was rebuilt around the chat-centred UI plan; see [ui-workspace.md](ui-workspace.md). This document describes the earlier service and is kept for history.
+> **Superseded.** The workspace was rebuilt around the chat-centred UI plan; see [ui-workspace.md](../ui-workspace.md). This document describes the earlier service and is kept for history.
 
 Updated 2026-09-28. The previous **Discovery HTTP qualification** campaign was a software test fixture, not a scientific example. Presenting it as the principal research review was a mistake. The current review instance contains a real scientific campaign with actual GPT-6 Luna responses and actual MEENT numerical experiments.
 
@@ -12,7 +12,7 @@ Discovery is **paused for researcher review**. The web services remain running. 
 
 1. Open **Notebook → Discovery → Scientific dialogue**. Read the analysts' problem descriptions, literature work, methodology proposals and final campaign-manager review. Expand work products and tool results. Enable **Include earlier responses and corrections** to see failed attempts and revisions as well as the latest response from each task.
 2. In the final manager review, look for **revised_hypothesis**, **counterevidence_and_limits** and **next_test**. These are actual Luna responses to the eight completed trials, not developer-written substitutes.
-3. Open **Experiments** to inspect all eight runs. Each used 96 evaluations of the 64-cell grating at Fourier order 15. The [run report](grating-luna-review.md) links the predeclared protocol, numerical results and original model responses.
+3. Open **Experiments** to inspect all eight runs. Each used 96 evaluations of the 64-cell grating at Fourier order 15. The [run report](../grating-luna-review.md) links the predeclared protocol, numerical results and original model responses.
 4. Open **Notebook → Agent log** for chronological requests, ordinary model responses, tool results and manager handoffs. Earlier failures remain visible. The file is `runs/discovery/grating-luna-20260928/workspace/campaigns/campaign_grating_inverse_luna_20260928/agents/trace.jsonl`, with large payloads in the adjacent `payloads` directory.
 
 The questions for your review are:
@@ -38,4 +38,4 @@ cd ~/Work/dqn-meent-latest
 
 Use this explicit configuration: the launcher's default configuration refers to the earlier review instance. Changing/removing the Tailnet route may require normal interactive administrator authentication. The older fixture and original campaign data remain saved separately.
 
-Add comments here, in [the run report](grating-luna-review.md), or in conversation. No rerun of the numerical or automated tests is needed for this review.
+Add comments here, in [the run report](../grating-luna-review.md), or in conversation. No rerun of the numerical or automated tests is needed for this review.

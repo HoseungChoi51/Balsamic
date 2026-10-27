@@ -1,6 +1,6 @@
 # Grating Lab workspace guide
 
-> **Superseded.** The workspace was rebuilt around the chat-centred UI plan; see [ui-workspace.md](ui-workspace.md). This document describes the earlier service and is kept for history.
+> **Superseded.** The workspace was rebuilt around the chat-centred UI plan; see [ui-workspace.md](../ui-workspace.md). This document describes the earlier service and is kept for history.
 
 For recorded training, baselines, inference, evaluation and generic commands,
 see the [CLI research guide](cli-research.md).
@@ -28,7 +28,7 @@ CPU execution is supported. PyTorch's Linux package may download CUDA dependenci
 
 ## Configure the research models
 
-For the current review deployment, use the [server control script](server-control.md)
+For the current review deployment, use the [server control script](../server-control.md)
 to start or stop both services and their private Tailnet route with one command.
 Its explicit configuration enables Codex for both services; `--no-llm` disables
 model calls for an inspection session.
@@ -150,7 +150,7 @@ Open **Research notebook → Source library** to search arXiv/Crossref or retrie
 
 Search providers are `arxiv` and `crossref`. Ingestion recognizes DOI/arXiv identifiers, the supplied Nature article URL, and citation metadata on a small primary-source allowlist. Retrieval has size/time/result limits and does not follow arbitrary redirects. A successful metadata fetch verifies bibliographic content and available abstracts; it does not establish the paper's claims or applicability. Unavailable sources remain explicit failures.
 
-New strategies use the independent [implementation service](implementation-service.md). An idea can have **Implementation missing**, **Implementation validation required**, a job state, or **Implementation available**. The backend resolves this state; the UI displays its reason beside the experiment control. **Request implementation** opens a commissioning form with a frozen mechanism, acceptance criteria, exact dependencies, supported parameters, and a bounded allocation. **Implementations** lets you reuse a specific published version across campaigns and local workspaces.
+New strategies use the independent [implementation service](../implementation-service.md). An idea can have **Implementation missing**, **Implementation validation required**, a job state, or **Implementation available**. The backend resolves this state; the UI displays its reason beside the experiment control. **Request implementation** opens a commissioning form with a frozen mechanism, acceptance criteria, exact dependencies, supported parameters, and a bounded allocation. **Implementations** lets you reuse a specific published version across campaigns and local workspaces.
 
 The package interface is `create_optimizer(context)` returning an object with `ask()`, `tell(design, efficiency)`, `checkpoint() -> bytes`, and `restore(bytes)`. A persistent isolated Python process can use declared, locked numerical libraries. Only the trusted parent evaluates proposed designs. The service freezes protected behavior checks before building, performs reproducibility and checkpoint checks plus four real MEENT evaluations, obtains an independent semantic review, and permits at most three candidate attempts inside the fixed grant. These checks concern implementation correctness; comparative performance remains workbench evidence.
 
@@ -213,4 +213,4 @@ GRATING_LLM_DISABLED=true uv run --no-sync grating-lab --directory /tmp/grating-
 
 Then run `npm run test:live` from `frontend/`. This creates an actual campaign, performs small MEENT baseline and validation jobs, and exercises the comparison/history/export surfaces. It uses the running backend rather than mocked API data. Both browser scopes and the production build were exercised during implementation; see the evidence map for the exact coverage and remaining audit items.
 
-See [implementation status](implementation-status.md) for the evidence map and remaining validation. Known development and validation exposure follows reused implementation versions across local workspaces. This cannot certify what a researcher already knew from other projects or papers. No full campaign comparing researcher-alone, researcher-plus-agents, and system-only performance has been conducted as part of implementing this software. No state-of-the-art algorithm or device claim follows from these software tests.
+See [implementation status](../implementation-status.md) for the evidence map and remaining validation. Known development and validation exposure follows reused implementation versions across local workspaces. This cannot certify what a researcher already knew from other projects or papers. No full campaign comparing researcher-alone, researcher-plus-agents, and system-only performance has been conducted as part of implementing this software. No state-of-the-art algorithm or device claim follows from these software tests.

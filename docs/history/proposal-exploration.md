@@ -1,6 +1,6 @@
 # Proposal exploration and implementation
 
-> **Superseded.** The workspace was rebuilt around the chat-centred UI plan; see [ui-workspace.md](ui-workspace.md). This document describes the earlier service and is kept for history.
+> **Superseded.** The workspace was rebuilt around the chat-centred UI plan; see [ui-workspace.md](../ui-workspace.md). This document describes the earlier service and is kept for history.
 
 Status: September 28, 2026. This describes the working controls and their limits, not a claim of an autonomous scientific discovery result.
 
@@ -62,7 +62,7 @@ The review is visible in the proposal dossier and Scientific dialogue. Original 
 
 The UI was exercised for additional proposals, diversification, two-parent combinations, paused requests, installed-code search, and insufficient implementation allocation. Backend regression checks cover parent provenance, independent review, launch gates, restart recovery and bounded correction of malformed model response envelopes.
 
-An isolated copy of the actual 1D grating campaign was also exercised with **Codex GPT-6 Luna**. Ten actual calls were used across the initial workflow and a fresh reviewer check. The generator produced a hill-climbing/tabu hybrid with both original parent IDs. The independent reviewer returned **revise**, identifying underspecified stagnation, tabu and restart semantics. No hybrid implementation or numerical experiment was executed. See [the recorded scientific exchange](grating-hybrid-review.md).
+An isolated copy of the actual 1D grating campaign was also exercised with **Codex GPT-6 Luna**. Ten actual calls were used across the initial workflow and a fresh reviewer check. The generator produced a hill-climbing/tabu hybrid with both original parent IDs. The independent reviewer returned **revise**, identifying underspecified stagnation, tabu and restart semantics. No hybrid implementation or numerical experiment was executed. See [the recorded scientific exchange](../grating-hybrid-review.md).
 
 The live run exposed duplicated context, artifact IDs used as task dependencies, and incorrectly placed response fields. Context compilation now retains selected scientific evidence while indexing indirect details when necessary; saved artifacts can satisfy explicit evidence prerequisites; malformed received envelopes can receive up to two budgeted corrections. Original output and usage are retained. Oversized explicitly assigned evidence still requires a smaller task.
 
