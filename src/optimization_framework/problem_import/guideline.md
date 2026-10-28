@@ -205,6 +205,11 @@ objective (TE and TM separately), selectivity beside yield, or mass beside peak 
   - Record the settings the sources use.
   - Do not add requirements of your own, such as convergence studies, unless the sources or the
     researcher ask for them.
+- **Access.** Leave `evaluator.access` unset: methods may then compute the objective from the
+  problem's code and are judged by their time. Set it to `oracle` only when the evaluator is
+  expensive (a simulator, a measurement) or the researcher wants a black-box comparison; methods
+  then reach the objective only by evaluating candidates. Leave `evaluator.cost_axis` unset unless
+  the researcher names what to compare methods on.
 
 ### Instances
 

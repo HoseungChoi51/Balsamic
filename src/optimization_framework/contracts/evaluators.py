@@ -6,7 +6,7 @@ from typing import Annotated, Any
 from pydantic import Field, StrictBool, model_serializer, model_validator
 
 from .base import Contract, content_hash
-from .problems import CandidateSchema, Objective, ProblemDefinition, ProblemInstance
+from .problems import Access, CandidateSchema, CostAxis, Objective, ProblemDefinition, ProblemInstance, without_unset
 
 
 def object_schema():
@@ -26,6 +26,10 @@ class EvaluatorManifest(Contract):
     public_configuration_keys: list[str] = Field(default_factory=list, max_length=100)
     deterministic: bool = True
     recipe_ids: list[Annotated[str, Field(pattern=r"^[a-z][a-z0-9_.-]*:v[1-9][0-9]*$")]] = Field(default_factory=list, max_length=30)
+    # A charter compiles both (N11). None: a manifest made before they existed, read as an oracle problem, the rule it
+    # was built under; the dump leaves them out, so its version and digest stay what they were.
+    access: Access | None = None
+    cost_axis: CostAxis | None = None
 
     @model_validator(mode="after")
     def declared_domain(self):
@@ -50,7 +54,11 @@ class EvaluatorManifest(Contract):
         result = handler(self)
         if not self.recipe_ids:
             result.pop("recipe_ids", None)
-        return result
+        return without_unset(result, "access", "cost_axis")
+
+    @property
+    def effective_access(self) -> str:
+        return self.access or "oracle"
 
     @property
     def version(self):
@@ -66,7 +74,8 @@ class EvaluatorManifest(Contract):
             evaluator_id="package:" + self.id, evaluator_version=evaluator_version,
             configuration_schema=self.configuration_schema, fidelity_schema=self.fidelity_schema,
             capabilities=self.capabilities, validation_recipes=self.recipe_ids,
-            recipe_schemas=(recipe_registry or recipes).schemas(self.recipe_ids))
+            recipe_schemas=(recipe_registry or recipes).schemas(self.recipe_ids),
+            access=self.effective_access, cost_axis=self.cost_axis)
 
     def resolve(self, evaluator_version: str, configuration=None, fidelity=None):
         from optimization_framework.implementations.models import check_parameters
