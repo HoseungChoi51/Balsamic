@@ -106,6 +106,33 @@ uv run python scripts/run_lead_evals.py --scenarios S19
 A second model on the dev profile's provider (Centinels) needs no approval; one on another provider costs money and needs
 Hoseung's approval (`docs/suggestions.md` §0 item 5).
 
+### From the researcher's words to a confirmed charter (track P)
+
+G1 and S19 start from a confirmed charter, so they do not measure the set-up before it. S20 and S21 do: the researcher
+describes the problem in one message, and a `define` step plays the researcher through the problem-definition gate until
+it opens. Their presets, `baking_words` and `reactor_words`, are the campaigns of `baking_order` and `reactor` without the
+charter, so the gate is closed at the start. S20 (eight bakes, every number in the message) is the simple problem track P
+sets up in one pass; S21 (a flow reaction whose yield varies between repeats) needs the full path.
+
+The step reads the gate's step, not the path, so it plays today's path (the lead's note, Adopt, the formulator's charter,
+the confirmation) as it will play the quick path. Each time the campaign's agents and its formulators are idle, the
+researcher does what the page offers: a question of the lead gets the step's `reply`, as does a lead that ended its turn
+without finishing the note (three times at most); the lead's proposed skips are agreed; Adopt adopts the current revision;
+on the charter, open questions get their recommended option, the assumptions are accepted, and "Confirm and set the tasks"
+confirms the revision and installs its tasks, one action as on the page. A blocking finding that no page settles stops the
+step with its message; a step out of time says what it was waiting for.
+
+`summary.md` gives the set-up under "Words to a confirmed charter": the researcher's actions by kind and their rounds (each
+return to the campaign), the lead's and the formulators' turns, model calls and cost (the formulators' are read from their
+imports, which `llm_usage` does not count), and the minutes from the first message to the gate opening. The baseline is
+today's path, taken on `c6c4c32`, before track P, from a worktree; track P's release (P6) compares with it:
+
+```bash
+git worktree add ../balsamic-c6c4c32 c6c4c32
+(cd ../balsamic-c6c4c32/agent-harness && npm ci --ignore-scripts && npm run build)
+uv run python scripts/run_lead_evals.py --source ../balsamic-c6c4c32 --scenarios S20,S21 --record-baseline
+```
+
 ## Scenarios
 
 ```json
@@ -128,7 +155,8 @@ Hoseung's approval (`docs/suggestions.md` §0 item 5).
 
 - `setup.preset`: `quadratic` (a task installed, so the problem-definition gate is open) or `formulating` (no task, gate closed);
   for the traps, `fidelity_trap` and `knapsack` (the problems of the same names in `src/optimization_benchmarks/problems.py`,
-  gate open); for a second problem, `deflector_2d` and `reactor` (above). Optional `presets`: the presets `--preset` may
+  gate open); for a second problem, `deflector_2d` and `reactor` (above); for the set-up from the researcher's words,
+  `baking_words` and `reactor_words` (no charter, gate closed; above). Optional `presets`: the presets `--preset` may
   run the scenario on (default: only `setup.preset`).
   `setup.seeds` run before the team starts. `setup.development: true` switches coding workspaces on for the scenario
   (`GRATING_DEVELOPMENT_ENABLED`; a live run needs Docker and the workspace image, `deploy/implementation-workspace/`). `setup.extensions` names an extension allowlist (relative to the checkout) for
@@ -136,7 +164,9 @@ Hoseung's approval (`docs/suggestions.md` §0 item 5).
   Optional `known_failure`: why the scenario is expected to fail on the current code; remove it with the fix.
 - Steps: `say` (a researcher message in the main thread; `{key}` takes a value a seed returned), `wait`
   (`request_closed`: the lead closed the request and no agent run is active; `idle`; `trials_settled`; `compared`: a
-  comparison report was written and no agent run is active; `seconds`, with `timeout_s` or `seconds`), `seed` (a function of `seeds.py`), `approve_latest_decision`, `answer_latest_question`, `pin` (a record id). A step with `"live_only": true` is skipped on the
+  comparison report was written and no agent run is active; `seconds`, with `timeout_s` or `seconds`), `seed` (a function of `seeds.py`), `approve_latest_decision`, `answer_latest_question`, `pin` (a record id),
+  `define` (the researcher through the problem-definition gate until it opens, above; optional `timeout_s`, 1800 by default,
+  and `reply`). A step with `"live_only": true` is skipped on the
   scripted harness, which has no coding agent (S19 waits for the comparison only live).
 - Checks, each read from the store at the end: `commands_exactly`, `commands_at_least` (an operation or a list, optionally
   `role` for one role's agents), `no_commands`, `max_commands` (agents' accepted commands), `max_lead_turns`, `max_continue_turns` (`pi_continue_*` runs), `no_model_calls`,
@@ -153,9 +183,15 @@ Hoseung's approval (`docs/suggestions.md` §0 item 5).
   `balsamic`, and at least `count`), `researcher_actions` (exactly this many: the researcher's commands after the team
   started, with the decisions and questions still waiting for them), `reply_ranks_by_report` (the reply gives the last
   comparison report's method means in its rank order), `live_only` (a check, graded live only; on the scripted harness it
-  reports "not graded"), `reply_numbers_verified` (`true`: no message of the reply carries unverified numbers, K2).
+  reports "not graded"), `reply_numbers_verified` (`true`: no message of the reply carries unverified numbers, K2),
+  `definition_ready` (the gate is open, or with `false` closed), `charter_matches` (the charter the campaign was confirmed
+  from holds `subset`, a JSON subset whose lists match item by item in order, and each of `values` is some quantity's value),
+  `charter_writer` (who saved that revision: `lead`, `formulator` or `researcher`), `setup_actions_at_most` (the researcher's
+  actions from their first message until the gate opened).
 - Metrics: besides turns, calls and cost, `go_ahead_to_results_s`, the time from the researcher's go-ahead to the lead's
-  first reply after the comparison report written since. `summary.md` lists it under "Go-ahead to ranked results".
+  first reply after the comparison report written since. `summary.md` lists it under "Go-ahead to ranked results". With a
+  `define` step, `setup`: the researcher's actions by kind and rounds, the lead's turns, the formulators' turns, model calls
+  and cost, and `words_to_charter_s`, under "Words to a confirmed charter".
 
 | ID | Scenario | Source | Expected |
 |---|---|---|---|
@@ -178,6 +214,8 @@ Hoseung's approval (`docs/suggestions.md` §0 item 5).
 | S17 | "Propose three strategies for this problem." A 0/1 knapsack, which a dynamic program solves exactly | J1 trap, N11 and N15 | One proposal is an exact method; the reply names the problem's class |
 | S18 | "Implement two methods the lab does not have and compare them: 2 seeds each, 5 minutes per run" | B7 | Exactly one compute request, naming a coding workspace and the runs; no binding by the lead, no run started, no install command for the researcher |
 | S19 | From a confirmed baking-order charter: "Implement earliest due date, swap search and exact enumeration, and compare them", then the go-ahead | Roadmap G2 | One compute request; no binding or run by any agent; every run started by `balsamic`; a comparison report; two researcher actions (ask, approve); the reply ranks by tardiness with the report's numbers; the time from go-ahead to ranked results in the summary. The scripted harness plays it up to the coding workspace; the rest is graded live |
+| S20 | The baking order in words (8 bakes, every duration and due time), "Set the problem up so we can start", then the set-up | Track P (P1) | The gate opens; the confirmed charter minimizes over permutations, is deterministic and holds both lists; at most two researcher actions (the message and the confirmation). Known failure until P2: today's path takes three (Adopt as well) |
+| S21 | A flow reaction in words (yield varies between repeats, the product decomposes above 150 C), "Set the problem up", then the set-up | Track P (P1, P3) | The gate opens; the confirmed charter maximizes and is not deterministic; the formulator saved it (the full path) |
 
 The traps (S12–S15, S17) test judgement, not compliance: in each, the obvious answer is the wrong one.
 Failing ones are expected on today's code; Phases 5–7 are measured by them. Their prompts do not mention the trap.

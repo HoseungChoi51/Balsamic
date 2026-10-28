@@ -53,6 +53,11 @@ PRESETS = {
     # methods are built in a coding workspace and Balsamic installs, adopts, binds and starts them.
     "baking_order": {"objective": "Find the order of bakes that is least late", "compute_budget_seconds": 7200,
                      "validation_reserve_seconds": 0, "charter": "baking-order.json"},
+    # The set-up from the researcher's words (track P): the same campaigns before their charter, with their question only, so
+    # the gate stays closed until a charter is confirmed and its tasks installed.
+    "baking_words": {"objective": "Find the order of bakes that is least late", "compute_budget_seconds": 7200, "validation_reserve_seconds": 0},
+    "reactor_words": {"objective": "Find the conditions of highest isolated yield for this flow reaction", "compute_budget_seconds": 600,
+                      "validation_reserve_seconds": 0},
 }
 ACTIVE = {"queued", "submitted", "running"}
 TOOL_RESULT_BYTES = 256 * 1024
@@ -216,7 +221,13 @@ class Stack:
 
     def _start_fake(self):
         sys.path.insert(0, str(REPO / "tests"))
-        from fake_harness import FakeHarness, http_gateway, serve
+        from fake_harness import STATUS, FakeHarness, http_gateway, serve
+        from optimization_framework.agents import tiers
+        # The scripted harness's model as the lab's tiers, as a researcher sets them on the Models page: a formulator's model
+        # comes from them (problem_import/service.py), and without a dev profile there is none. A campaign's agents follow the
+        # tiers only on a dev profile, so they are unchanged.
+        defaults = tiers.defaults(dict(STATUS["defaults"]))
+        tiers.save(self.workspace.store, tiers.TierSettings(tiers=defaults["tiers"], roles=defaults["roles"]))
         gateway = http_gateway(self.base, self.token)
 
         def play(agent, run, tools):
@@ -319,6 +330,13 @@ class Context:
         self.vars, self.timeline, self.timed_out = {"campaign_id": campaign_id}, [], False
         self.poll = 0.5 if scale >= 1 else 0.1
         self.started = time.monotonic()
+        # What the researcher did, in order: each action with its kind, the round it belongs to (one return of the researcher
+        # to the campaign) and its time since the start. A define step (track P) adds the set-up's own record.
+        self.actions, self.round, self.setup = [], 0, None
+
+    def act(self, kind, *, new_round=False):
+        self.round += new_round
+        self.actions.append({"kind": kind, "round": self.round, "s": round(time.monotonic() - self.started, 2)})
 
     @property
     def lead_id(self):
@@ -385,6 +403,7 @@ def step_say(ctx, text):
     text = ctx.format(text)
     receipt = ctx.stack.command(ctx.campaign_id, "agent.message", {"message": text, "thread_id": ctx.thread_id}, origin={"thread_id": ctx.thread_id})
     ctx.vars["last_run_id"] = "pi_run_" + receipt["id"]
+    ctx.act("message", new_round=True)
     return {"say": text, "run_id": ctx.vars["last_run_id"]}
 
 
@@ -428,6 +447,7 @@ def step_answer_latest_question(ctx, text):
     question = pending[-1]
     receipt = ctx.stack.command(ctx.campaign_id, "agent.message", {"message": ctx.format(text), "question_id": question["id"], "thread_id": ctx.thread_id},
                                 origin={"thread_id": ctx.thread_id})
+    ctx.act("answer", new_round=True)
     return {"answered": question["id"], "run_id": "pi_run_" + receipt["id"]}
 
 
@@ -438,6 +458,7 @@ def step_approve_latest_decision(ctx, comment=""):
     decision = pending[-1]
     ctx.stack.command(ctx.campaign_id, "decision.resolve", {"decision_id": decision["id"], "choice": decision["options"][0]["id"],
                       "comment": comment or "Approved in the eval", "expected_resolution_revision": decision.get("resolution_revision", 0)})
+    ctx.act("approve", new_round=True)
     return {"approved": decision["id"]}
 
 
@@ -445,6 +466,149 @@ def step_pin(ctx, record_id):
     record_id = ctx.format(record_id)
     ctx.stack.command(ctx.campaign_id, "thread.pin", {"thread_id": ctx.thread_id, "record_id": record_id}, origin={"thread_id": ctx.thread_id})
     return {"pinned": record_id}
+
+
+# The set-up (track P): the researcher takes the problem through the definition gate --------------------------------
+REPLY = "Use what you suggest: every number is in my first message."
+REPLIES = 3   # the researcher's replies to a lead that has not finished the note, before the step gives up
+
+
+def setup_imports(ctx):
+    """The campaign's formulators: an import made by each adoption of its note, and one a request on its charter started."""
+    store, note_id = ctx.store, "note_" + ctx.campaign_id
+    found = {row["id"]: row for row in store.list("problem_import") if (row.get("notes") or "").startswith(f"Adopted from problem note {note_id} ")}
+    try:
+        note = store.get(note_id, "problem_note")
+        charter = store.get(note["charter_id"], "problem_charter") if note.get("charter_id") else None
+    except KeyError:
+        charter = None
+    if charter and charter.get("import_id") and charter["import_id"] not in found:
+        try:
+            found[charter["import_id"]] = store.get(charter["import_id"], "problem_import")
+        except KeyError:
+            pass
+    return list(found.values())
+
+
+def setup_busy(ctx):
+    """Whether an agent of the campaign or one of its formulators is at work (a formulator's status is pulled first)."""
+    if any(run["status"] in ACTIVE for run in ctx.runs()):
+        return True
+    imports = getattr(ctx.workspace, "problem_imports", None)
+    for record in setup_imports(ctx):
+        try:
+            record = imports.sync(record["id"]) if imports is not None else record
+        except (KeyError, ValueError):
+            continue
+        if record["status"] == "running":
+            return True
+    return False
+
+
+def setup_charter_step(ctx, note, reply):
+    """On the charter, what "Confirm and set the tasks" needs first, as the page asks it: the open questions answered (with
+    their recommended option), the assumptions accepted; then the confirmation, which installs the tasks. A blocking finding the
+    page does not settle stops the step."""
+    from balsamic.evolution.stages import _charter_of
+    record = _charter_of(ctx.store, note)
+    if record is None:
+        failed = [row for row in setup_imports(ctx) if row["status"] in {"failed", "stopped"}]
+        raise RuntimeError("No charter to confirm" + (f": the formulator {failed[-1]['status']} ({failed[-1].get('error')})" if failed else ""))
+    view = ctx.workspace.charters.view(record["id"])
+    path = f"/api/v1/problem-charters/{record['id']}"
+    open_questions = [q for q in view["charter"]["questions"] if q.get("answer") is None and not q.get("sent")]
+    if open_questions:
+        for question in open_questions:
+            answer = (question.get("options") or [reply])[0]
+            ctx.stack.http.post(path + "/answers", json={"expected_revision": ctx.workspace.charters.get(record["id"])["revision"],
+                                "question_id": question["id"], "answer": answer}).raise_for_status()
+            ctx.act("answer_charter")
+        return ["answer_charter"] * len(open_questions)
+    blocking = [row for row in view["findings"] if row["severity"] == "blocking" and row["code"] != "question.open" and not row.get("waived")]
+    if any(row["code"] == "assumption.unaccepted" for row in blocking):
+        ctx.stack.http.post(path + "/accept-assumptions", json={"expected_revision": view["revision"]}).raise_for_status()
+        ctx.act("accept_assumptions")
+        return ["accept_assumptions"]
+    if blocking:
+        raise RuntimeError("Blocking findings the page does not settle: " + "; ".join(row["message"] for row in blocking)[:1500])
+    ctx.stack.http.post(path + "/confirm", json={"expected_revision": view["revision"]}).raise_for_status()
+    ctx.stack.command(ctx.campaign_id, "campaign.update", {"charter": {"id": record["id"], "revision": view["revision"]},
+                      "rationale": "Confirmed the charter adopted from the problem note"})
+    ctx.act("confirm")
+    return ["confirm"]
+
+
+def setup_act(ctx, step, reply, replied):
+    """The researcher's next action on the gate's step, as the pages offer it; the kinds of what was done."""
+    store, note_id = ctx.store, "note_" + ctx.campaign_id
+    pending = [q for q in store.list("agent_question", ctx.campaign_id) if q["status"] == "pending" and not q["id"].startswith("pi_stalled_")]
+    if pending:
+        ctx.stack.command(ctx.campaign_id, "agent.message", {"message": reply, "question_id": pending[-1]["id"], "thread_id": ctx.thread_id},
+                          origin={"thread_id": ctx.thread_id})
+        ctx.act("answer")
+        return ["answer"]
+    note = store.get(note_id, "problem_note") if step["kind"] != "note" else None
+    if step["kind"] == "sections":
+        proposals = [row for row in store.list("note_skip", ctx.campaign_id) if row["note_id"] == note_id and row["status"] == "open"]
+        if proposals:
+            for row in proposals:
+                ctx.stack.command(ctx.campaign_id, "problem_note.skip", {"skip_id": row["id"],
+                                  "agree": [item["section"] for item in row["items"] if item["status"] == "proposed"]})
+                ctx.act("agree_skips")
+            return ["agree_skips"] * len(proposals)
+    if step["kind"] in {"note", "sections"}:
+        # The lead's turn ended without the note: the researcher answers what it asked in its reply.
+        if replied >= REPLIES:
+            raise RuntimeError(f"The lead did not finish the note after {REPLIES} replies: {step['title']}" + (" (" + ", ".join(step["missing"]) + ")" if step.get("missing") else ""))
+        ctx.stack.command(ctx.campaign_id, "agent.message", {"message": reply, "thread_id": ctx.thread_id}, origin={"thread_id": ctx.thread_id})
+        ctx.act("reply")
+        return ["reply"]
+    if step["kind"] == "adopt":
+        ctx.stack.command(ctx.campaign_id, "problem_note.adopt", {"note_id": note_id, "revision": note["current_revision"]})
+        ctx.act("adopt")
+        return ["adopt"]
+    if step["kind"] == "confirm":
+        return setup_charter_step(ctx, note, reply)
+    if step["kind"] == "tasks":
+        from balsamic.evolution.stages import _charter_of
+        record = _charter_of(store, note)
+        ctx.stack.command(ctx.campaign_id, "campaign.update", {"charter": {"id": record["id"], "revision": record["confirmed_revision"]},
+                          "rationale": "Finished the charter hand-over"})
+        ctx.act("install")
+        return ["install"]
+    raise RuntimeError(f"No action for the step {step['kind']}: {step['title']}")
+
+
+def step_define(ctx, spec=None):
+    """The researcher takes the campaign through the problem-definition gate until it opens, as the pages let them (track P).
+
+    Each time the campaign's agents and its formulators are idle, the gate's step decides the action: a question of the lead
+    gets the scenario's reply, as does a lead whose note is unfinished (at most REPLIES times); proposed skips are agreed; Adopt
+    adopts the current revision; on the charter, open questions get their recommended option, assumptions are accepted, and
+    "Confirm and set the tasks" confirms the revision and installs its tasks (one action, as on the page). The step reads the
+    gate, not the path, so it plays the quick path as it plays the full one."""
+    spec = spec if isinstance(spec, dict) else {}
+    reply = ctx.format(spec.get("reply", REPLY))
+    deadline = time.monotonic() + spec.get("timeout_s", 1800)
+    ctx.setup = {"defined": False, "defined_s": None}
+    replied = quiet = 0
+    step = None
+    while time.monotonic() < deadline:
+        quiet = 0 if setup_busy(ctx) else quiet + 1
+        if quiet < 3:   # three idle polls in a row: a turn a command queued has had time to start
+            time.sleep(ctx.poll)
+            continue
+        gate = ctx.workspace.definition_gate(ctx.store.get(ctx.campaign_id, "campaign"))
+        if gate["ready"]:
+            ctx.setup.update(defined=True, defined_s=round(time.monotonic() - ctx.started, 2))
+            return {"define": "defined", "after_s": ctx.setup["defined_s"], "actions": [a["kind"] for a in ctx.actions]}
+        step = gate["step"]
+        ctx.round += 1
+        done = setup_act(ctx, step, reply, replied)
+        replied += done.count("reply")
+        quiet = 0
+    ctx.timed_out = True
+    return {"define": "timed out", "waiting_for": (step or {}).get("title") or "the first idle moment", "actions": [a["kind"] for a in ctx.actions]}
 
 
 def run_step(ctx, step):
@@ -462,6 +626,8 @@ def run_step(ctx, step):
         return step_approve_latest_decision(ctx, step.get("approve_latest_decision") or "")
     if "pin" in step:
         return step_pin(ctx, step["pin"])
+    if "define" in step:
+        return step_define(ctx, step["define"])
     raise ValueError(f"Unknown step {step}")
 
 
@@ -781,6 +947,56 @@ def check_live_only(ctx, arg):
     return CHECKS[name](ctx, value)
 
 
+def check_definition_ready(ctx, arg):
+    """The problem-definition gate is open (true) or still closed (false) at the end."""
+    gate = ctx.workspace.definition_gate(ctx.store.get(ctx.campaign_id, "campaign"))
+    return gate["ready"] is bool(arg), "the gate is open" if gate["ready"] else f"the gate is closed: {(gate.get('step') or {}).get('title')}"
+
+
+def _matches(value, subset):
+    """subset is in value: a dict's keys recursively, a list's items in order, anything else equal."""
+    if isinstance(subset, dict):
+        return isinstance(value, dict) and all(key in value and _matches(value[key], item) for key, item in subset.items())
+    if isinstance(subset, list):
+        return isinstance(value, list) and len(value) >= len(subset) and all(_matches(item, part) for item, part in zip(value, subset))
+    return value == subset
+
+
+def confirmed_charter(ctx):
+    """(reference, the charter revision record) the campaign's tasks were installed from, or (None, None)."""
+    reference = ctx.store.get(ctx.campaign_id, "campaign").get("charter")
+    if not reference:
+        return None, None
+    return reference, ctx.workspace.charters.revision(reference["id"], reference["revision"])
+
+
+def check_charter_matches(ctx, arg):
+    """The charter the campaign was confirmed from holds `subset` (a JSON subset: keys recursively, list items in order), and
+    each of `values` is the value of one of its quantities, whatever the quantity is called."""
+    reference, revision = confirmed_charter(ctx)
+    if not reference:
+        return False, "the campaign has no confirmed charter"
+    charter = revision["charter"]
+    wrong = [key for key, item in (arg.get("subset") or {}).items() if not (key in charter and _matches(charter[key], item))]
+    values = [quantity.get("value") for quantity in charter.get("quantities", {}).values()]
+    wrong += [f"no quantity of value {value}" for value in arg.get("values") or [] if value not in values]
+    return not wrong, f"{reference['id']} r{reference['revision']}" + (": " + "; ".join(wrong) if wrong else " matches")
+
+
+def check_charter_writer(ctx, arg):
+    """Who saved the revision the campaign was confirmed from: lead, formulator or researcher."""
+    reference, revision = confirmed_charter(ctx)
+    by = revision["by"] if revision else None
+    return by == arg, f"saved by {by}" if by else "the campaign has no confirmed charter"
+
+
+def check_setup_actions_at_most(ctx, arg):
+    """The researcher's actions from their first message to the gate opening, at most this many."""
+    setup = setup_metrics(ctx) or {}
+    count = setup.get("researcher_actions")
+    return count is not None and count <= arg, f"{count} researcher actions: " + (", ".join(f"{kind} {n}" for kind, n in (setup.get("actions") or {}).items()) or "none")
+
+
 CHECKS = {name.removeprefix("check_"): value for name, value in globals().items() if name.startswith("check_")}
 
 
@@ -850,6 +1066,27 @@ def page_agents(ctx):
             "seconds_to_report": round(statistics.fmean(timed), 1) if timed else 0.0}
 
 
+def setup_metrics(ctx):
+    """Track P's measure of the set-up, for a scenario with a define step: the researcher's actions by kind and their rounds
+    (returns to the campaign), from their first message until the gate opened; lead turns; the formulators' turns, model calls
+    and cost, from their imports (not in llm_usage); and the seconds from the first message to the gate opening."""
+    if ctx.setup is None:
+        return None
+    end = ctx.setup["defined_s"]
+    actions = [action for action in ctx.actions if end is None or action["s"] <= end]
+    kinds = {}
+    for action in actions:
+        kinds[action["kind"]] = kinds.get(action["kind"], 0) + 1
+    imports = setup_imports(ctx)
+    usage = [row.get("usage") or {} for row in imports]
+    first = next((action["s"] for action in actions if action["kind"] == "message"), None)
+    return {"defined": ctx.setup["defined"], "researcher_actions": len(actions), "actions": kinds, "rounds": len({action["round"] for action in actions}),
+            "lead_turns": len(ctx.lead_runs()), "formulator_turns": sum(len(row.get("runs") or []) for row in imports),
+            "formulator_model_calls": sum(item.get("calls", 0) for item in usage),
+            "formulator_cost_usd": round(sum(item.get("cost_usd", 0.0) for item in usage), 6),
+            "words_to_charter_s": round(end - first, 1) if end is not None and first is not None else None}
+
+
 def metrics(ctx):
     agents = ctx.agents()
     runs = ctx.runs()
@@ -867,7 +1104,7 @@ def metrics(ctx):
             "unverified_numbers": len(ctx.unverified_numbers()),
             "refusals": len(_refusals(ctx)), "max_tool_result_bytes": max([serialized_bytes(r.get("result")) for r in ctx.receipts()] or [0]),
             **ctx.usage(), "seconds": round(time.monotonic() - ctx.started, 1), "go_ahead_to_results_s": go_ahead_to_results(ctx),
-            "review_roles": review_roles(ctx), "page_agents": page_agents(ctx)}
+            "review_roles": review_roles(ctx), "page_agents": page_agents(ctx), "setup": setup_metrics(ctx)}
 
 
 def transcript(ctx, result):
@@ -1000,6 +1237,15 @@ def summarize(scenario, repeats):
         mean["page_agents"] = {"mode": folded[0]["mode"], **{key: round(statistics.fmean(row[key] for row in folded), 1)
                                                             for key in ("hand_offs", "page_agent_turns", "lead_peak_context_tokens",
                                                                         "requests", "researcher_actions", "seconds_to_report")}}
+    setups = [r["metrics"]["setup"] for r in repeats if r["metrics"].get("setup")]
+    if setups:   # track P's measure of the set-up, the mean over repeats; words_to_charter_s over the runs that got there
+        mean["setup"] = {"defined": f"{sum(row['defined'] for row in setups)}/{len(setups)}",
+                         **{key: round(statistics.fmean(row[key] for row in setups), 4) for key in
+                            ("researcher_actions", "rounds", "lead_turns", "formulator_turns", "formulator_model_calls", "formulator_cost_usd")},
+                         "actions": {kind: round(statistics.fmean((row["actions"] or {}).get(kind, 0) for row in setups), 2)
+                                     for kind in dict.fromkeys(kind for row in setups for kind in row["actions"] or {})}}
+        timed_setup = [row["words_to_charter_s"] for row in setups if row["words_to_charter_s"] is not None]
+        mean["setup"]["words_to_charter_s"] = round(statistics.fmean(timed_setup), 1) if timed_setup else None
     status = "pass" if passed else "xfail" if scenario.get("known_failure") else "fail"
     return {"id": scenario["id"], "source": scenario.get("source"), "scoring": scoring, "known_failure": scenario.get("known_failure"),
             "passes": passes, "repeats": len(repeats), "passed": passed, "status": status, "metrics_mean": mean, "runs": repeats}
@@ -1040,6 +1286,18 @@ def summary_markdown(results, baselines=None):
         lines += ["", "## Go-ahead to ranked results", ""] + [
             f"- {row['id']}: {row['metrics_mean']['go_ahead_to_results_s'] / 60:.1f} min ({row['metrics_mean']['go_ahead_to_results_s']:g} s, "
             f"mean of {sum(run['metrics'].get('go_ahead_to_results_s') is not None for run in row['runs'])} runs)" for row in timed]
+    defined = [row for row in results["scenarios"] if row["metrics_mean"].get("setup")]
+    if defined:
+        lines += ["", "## Words to a confirmed charter", "",
+                  "| Scenario | Defined | Researcher actions | Rounds | Lead turns | Formulator turns | Model calls: agents + formulator | Cost: agents + formulator | Minutes |",
+                  "|---|---|---|---|---|---|---|---|---|"]
+        for row in defined:
+            m, s = row["metrics_mean"], row["metrics_mean"]["setup"]
+            kinds = ", ".join(f"{kind} {count:g}" for kind, count in s["actions"].items())
+            minutes = f"{s['words_to_charter_s'] / 60:.1f}" if s.get("words_to_charter_s") is not None else "—"
+            lines.append(f"| {row['id']} | {s['defined']} | {s['researcher_actions']:g} ({kinds}) | {s['rounds']:g} | {s['lead_turns']:g} | "
+                         f"{s['formulator_turns']:g} | {m.get('model_calls', 0):g} + {s['formulator_model_calls']:g} | "
+                         f"${m.get('cost_usd', 0):.4f} + ${s['formulator_cost_usd']:.4f} | {minutes} |")
     reviewed = [row for row in results["scenarios"] if row["metrics_mean"].get("review_roles")]
     if reviewed:
         lines += ["", f"## Review roles (one-shot roles: {results.get('one_shot_roles') or 'the default'})", "",

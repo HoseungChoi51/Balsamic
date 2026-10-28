@@ -5,7 +5,12 @@ gateway by tests/fake_harness.py. They check the runner's plumbing and its grade
 
 Where a scenario reproduces a failure seen with real models, the script makes the same mistake (S4 states the guidance
 revision it read in an earlier turn), so the fake run shows whether the platform still lets the mistake through (on a7e89b8
-it did: S4 failed there; the revision is pinned on the server since)."""
+it did: S4 failed there; the revision is pinned on the server since).
+
+The set-up scenarios (track P) also play the formulator, a role of its own (turn.role "formulator"): its tools are the
+formulator's (file_read, charter_submit, question_ask), it has no yield_work, and its turn's reply is the script's return."""
+import json
+from pathlib import Path
 import re
 
 
@@ -297,6 +302,71 @@ def charter_to_results(turn):
                        "I will rank them by total tardiness when they finish.", summary="Waiting for the go-ahead", disposition="waiting")
 
 
+# The set-up from the researcher's words (track P) ------------------------------------------------------------------
+CHARTERS = Path(__file__).with_name("charters")
+WORDS = "documents/researcher.md.txt"   # the researcher's own words, as the formulator reads them
+
+
+def charter_from(name, **quantities):
+    """An eval charter as a formulator writes it from the researcher's words: its source is their message."""
+    charter = json.loads((CHARTERS / name).read_text())
+    charter["citations"] = [{"id": 1, "source": WORDS, "location": "the researcher's first message"}]
+    for key, value in quantities.items():
+        charter["quantities"][key]["value"] = value
+    return charter
+
+
+def sections(**texts):
+    return {name: {"text": text} for name, text in texts.items()}
+
+
+BAKING_NOTE = sections(
+    objective="Minimize the total tardiness of 8 bakes in one oven: a bake that ends after its due time is late by the difference.",
+    knobs="The order of the bakes: a permutation of the 8 bakes, each once. Durations 30, 45, 20, 60, 35, 25, 50, 40 minutes; "
+          "due times 210, 130, 200, 110, 190, 100, 40, 120 minutes from the oven's start.",
+    observables="The total tardiness in minutes: the sum over bakes of max(0, end time - due time).",
+    noise="None: the durations and due times are exact, so an order's tardiness is deterministic.",
+    constraints="One bake at a time, back to back from time 0; every bake exactly once.",
+    confounders="None: the objective is computed in closed form.",
+    open_questions="None remaining.")
+REACTOR_NOTE = sections(
+    objective="Maximize the isolated yield of a flow reaction in a 10 mL tubular reactor at 5 bar back pressure.",
+    knobs="Flow rate 0.1-20 mL/min (2 now), which sets the residence time; temperature 20-200 C (80 now); catalyst, ligand and "
+          "additive loadings, scaled to 0-1.",
+    observables="Isolated yield by HPLC, the mean of repeat runs; selectivity as well.",
+    noise="Measurements vary between repeats; each condition is run several times.",
+    constraints="Stay below 150 C, where the product decomposes; the scaled loadings add up to at most 2.",
+    confounders="Solvent viscosity changes with temperature; catalyst batch.",
+    open_questions="How many repeats per condition.")
+
+
+def set_up_from_words(note, charter, *, ask=None):
+    """Today's path from the researcher's message (track P's baseline): the lead writes the note in one turn and asks for Adopt;
+    the formulator reads the researcher's words, asks one round when `ask` is given, and saves the charter."""
+    def play(turn):
+        if turn.role == "formulator":
+            if turn.continuation:   # the extension's reminder to call yield_work, a tool the formulator does not have
+                return ""
+            if ask and not turn.memory.get("asked"):
+                turn.memory["asked"] = True
+                turn.call("file_read", path=WORDS)
+                turn.call("question_ask", questions=[ask])
+                return "One question before the draft."
+            turn.call("file_read", path=WORDS)
+            saved = turn.call("charter_submit", charter=charter)
+            return f"Draft ready: {charter['title']}, {saved.get('blocking', '?')} blocking findings."
+        if turn.role != "lead" or turn.notice:
+            return unrelated_notice(turn)
+        turn.call("problem_note_draft", sections=note, reason="From the researcher's message")
+        return turn.finish("I wrote the problem note from your message ([Problem note](#note)). Adopt it, and the formulator drafts "
+                           "the charter for you to confirm.")
+    return play
+
+
+REPEATS = {"id": "repeats", "question": "How many repeat measurements per condition?", "options": ["3, as in the method (recommended)", "1"],
+           "about": ["repeats"]}
+
+
 def scripted(play):
     """A scenario's script for the turns it is about; other agents' notices get the plain acknowledgement."""
     def turn(t):
@@ -323,4 +393,6 @@ FAKES = {
     "S17-known-exact-algorithm": scripted(known_exact_algorithm),
     "S18-implement-and-compare": scripted(implement_and_compare),
     "S19-charter-to-results": scripted(charter_to_results),
+    "S20-baking-order-in-words": set_up_from_words(BAKING_NOTE, charter_from("baking-order.json")),
+    "S21-flow-reaction-in-words": set_up_from_words(REACTOR_NOTE, charter_from("flow-reactor.json"), ask=REPEATS),
 }

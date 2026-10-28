@@ -41,6 +41,12 @@ def test_every_scenario_runs_and_is_graded_on_the_scripted_harness(tmp_path):
     assert "| Unverified numbers |" in (tmp_path / "summary.md").read_text()
     checks = {check["name"]: check["passed"] for check in rows["S15-locked-confirmation"]["runs"][0]["checks"]}
     assert checks == {"no_reads_of": False, "reply_contains_none": True, "request_closed": True}
+    # Track P's baseline (P1): today's path from the researcher's words, the note adopted and the formulator's charter confirmed.
+    s20, s21 = (rows[key]["runs"][0]["metrics"]["setup"] for key in ("S20-baking-order-in-words", "S21-flow-reaction-in-words"))
+    assert s20["defined"] and s20["actions"] == {"message": 1, "adopt": 1, "confirm": 1} and (s20["rounds"], s20["formulator_turns"]) == (3, 1)
+    assert s21["defined"] and s21["actions"] == {"message": 1, "adopt": 1, "answer_charter": 1, "confirm": 1} and s21["formulator_turns"] == 2
+    assert s20["formulator_model_calls"] == 1 and s20["words_to_charter_s"] is not None
+    assert "| S20-baking-order-in-words | 1/1 | 3 (message 1, adopt 1, confirm 1) | 3 | 1 | 1 |" in (tmp_path / "summary.md").read_text()
 
 
 def test_checks_grade_from_the_store_and_a_baseline_compares(tmp_path):
@@ -135,6 +141,47 @@ def test_a_preset_runs_the_scenarios_that_support_it_on_another_problem_and_name
     assert evals.main(["--fake", "--scenarios", "S6", "--repeats", "1", "--out", str(tmp_path / "own")]) == 0
     results = json.loads((tmp_path / "own" / "results.json").read_text())
     assert results["preset"] is None and results["unsupported"] == [] and results["scenarios"][0]["runs"][0]["preset"] == "formulating"
+
+
+def test_the_define_step_stops_on_what_the_page_cannot_settle_and_says_what_it_waited_for(tmp_path):
+    """Track P's set-up step plays the researcher; where the pages offer nothing to do, it stops and says why."""
+    evals = runner()
+    fakes = evals.load_module(REPO / "evals" / "lead" / "fakes.py", "lead_eval_fakes")
+    broken = fakes.charter_from("baking-order.json", n_bakes=None)   # an input without a value: blocking, and no page settles it
+    say = {"say": "One oven takes 8 bakes; find the order that is least late."}
+    scenario = {"id": "S90-define", "setup": {"preset": "baking_words"}, "steps": [say, {"define": {"timeout_s": 120}}],
+                "checks": [{"definition_ready": True}]}
+    plays = {"S90-define": fakes.set_up_from_words(fakes.BAKING_NOTE, broken)}
+    with evals.Stack(tmp_path / "stack", fake=True, source=REPO, profile=None, secrets_file=None, log=print) as stack:
+        result, ctx = evals.run_scenario(stack, scenario, 1, model=None, scale=evals.FAKE_TIME_SCALE, fakes=plays)
+        assert "Blocking findings the page does not settle: n_bakes has no value" in result["error"]
+        assert [action["kind"] for action in ctx.actions] == ["message", "adopt"] and not result["passed"]
+        # A lead that never writes the note: the researcher replies three times, then the step stops.
+        result, ctx = evals.run_scenario(stack, {**scenario, "id": "S91-define"}, 1, model=None, scale=evals.FAKE_TIME_SCALE, fakes={})
+        assert "The lead did not finish the note after 3 replies: Draft the problem note" in result["error"]
+        assert [action["kind"] for action in ctx.actions] == ["message", "reply", "reply", "reply"]
+        # Out of time before anything was idle.
+        result, ctx = evals.run_scenario(stack, {**scenario, "id": "S92-define", "steps": [{"define": {"timeout_s": 0}}]}, 1, model=None,
+                                         scale=evals.FAKE_TIME_SCALE, fakes={})
+        assert result["timed_out"] and ctx.timeline[-1] == {"define": "timed out", "waiting_for": "the first idle moment", "actions": []}
+        assert result["metrics"]["setup"]["defined"] is False and result["metrics"]["setup"]["words_to_charter_s"] is None
+
+
+def test_the_set_up_checks_read_the_confirmed_charter(tmp_path):
+    evals = runner()
+    charter = {"objective": {"direction": "minimize"}, "variables": [{"name": "order", "representation": "permutation"}],
+               "quantities": {"minutes": {"value": [30, 45]}, "n": {"value": 2}}}
+
+    class Charters:
+        def revision(self, charter_id, number):
+            return {"charter": charter, "by": "lead"}
+    ctx = context(evals)
+    ctx.store = type("S", (), {"get": lambda self, identity, kind=None: {"charter": {"id": "ch", "revision": 3}}})()
+    ctx.workspace = type("W", (), {"charters": Charters()})()
+    assert evals.check_charter_matches(ctx, {"subset": {"variables": [{"representation": "permutation"}]}, "values": [[30, 45]]}) == (True, "ch r3 matches")
+    passed, detail = evals.check_charter_matches(ctx, {"subset": {"objective": {"direction": "maximize"}}, "values": [[30, 46]]})
+    assert not passed and detail == "ch r3: objective; no quantity of value [30, 46]"
+    assert evals.check_charter_writer(ctx, "lead") == (True, "saved by lead") and not evals.check_charter_writer(ctx, "formulator")[0]
 
 
 def test_a_baseline_is_named_by_its_model_and_preset_and_several_compare(tmp_path):
