@@ -71,6 +71,8 @@ function DecisionCard({ decision, version, campaignId, selected, onDone, isNew, 
     } catch (e) { setError(String((e as Error).message || e)); }
   };
   const blocked = new Set(decision.freshness?.blocked_choice_ids || []);
+  // An agent's waiver card (decision 16): the researcher's waiver is recorded with their own reason (V5).
+  const waiver = (decision.approval_request as { kind?: string } | undefined)?.kind === 'waiver';
   return (
     <article className={'card' + (selected ? ' selected' : '')} data-testid="decision" data-record-id={decision.id}>
       <div className="row"><strong className="grow">{decision.title}</strong>{isNew ? NEW : null}{decision.requested_by ? <Pill tone="agent">asked by the {decision.requested_by}</Pill> : null}<span className="faint small">{when(decision.created_at)}</span></div>
@@ -79,10 +81,10 @@ function DecisionCard({ decision, version, campaignId, selected, onDone, isNew, 
       {decision.plan ? <PlanCard plan={decision.plan} /> : null}
       <MandateTerms decision={decision} />
       {decision.freshness?.reason ? <p className="why">{decision.freshness.reason}</p> : null}
-      <textarea placeholder="A note with your choice (optional)" value={comment} onChange={e => setComment(e.target.value)} style={{ width: '100%', minHeight: 40 }} />
+      <textarea placeholder={waiver ? 'Your reason for the waiver (recorded with it; needed to waive)' : 'A note with your choice (optional)'} value={comment} onChange={e => setComment(e.target.value)} style={{ width: '100%', minHeight: 40 }} data-testid="decision-comment" />
       <div className="row wrap" style={{ marginTop: 6 }}>
         {decision.options.map(option => (
-          <button key={option.id} className={'btn' + (option.id === decision.recommendation ? ' primary' : '')} disabled={decision.status !== 'pending' || blocked.has(option.id)} title={option.description} onClick={() => choose(option.id)}>{option.label}</button>
+          <button key={option.id} className={'btn' + (option.id === decision.recommendation ? ' primary' : '')} disabled={decision.status !== 'pending' || blocked.has(option.id) || (waiver && option.id === '0' && !comment.trim())} title={option.description} onClick={() => choose(option.id)}>{option.label}</button>
         ))}
         {decision.status === 'executing' ? <Pill tone="agent">applying your choice…</Pill> : null}
       </div>

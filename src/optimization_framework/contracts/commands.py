@@ -382,9 +382,21 @@ class WorkerCeilingInput(Contract):
 
 
 class WaiverInput(Contract):
-    requirement_id: str
+    """Waive one validation requirement, or, the researcher's alone, a proposal's gate in one step (roadmap V5): its assessment
+    minimums before a stop as inferior (V2), or the fidelity checks its best score has not passed (V3)."""
+    requirement_id: str | None = None
+    tuning_hypothesis_id: str | None = Field(default=None, description="researcher only: instead of requirement_id, the proposal "
+        "whose assessment minimums (decision 14) to waive, so that it can be stopped as inferior on fewer runs")
+    fidelity_hypothesis_id: str | None = Field(default=None, description="researcher only: instead of requirement_id, the proposal "
+        "whose best score's promotion checks to waive, each one it has not passed")
     rationale: str = Field(min_length=1)
     evidence_ids: list[str] = Field(min_length=1)
+
+    @model_validator(mode="after")
+    def one_subject(self):
+        if sum(value is not None for value in (self.requirement_id, self.tuning_hypothesis_id, self.fidelity_hypothesis_id)) != 1:
+            raise ValueError("A waiver names exactly one of requirement_id, tuning_hypothesis_id or fidelity_hypothesis_id")
+        return self
 
 
 class WaiverRevocationInput(Contract):
