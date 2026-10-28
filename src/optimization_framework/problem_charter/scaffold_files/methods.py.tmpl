@@ -14,7 +14,8 @@ A method may return a string saying why it stopped, or the best candidate it fou
 candidate once more, but in Balsamic only what `evaluate` recorded counts, so evaluate it before returning. It may also
 call `objective.objective(problem, candidate)` directly (the comparison caps time for this reason), but such calls are
 not counted. Mark a method whose runs do not depend on the seed with `@deterministic`:
-the comparison runs it once.
+the comparison runs it once, and Balsamic counts one run per configuration before it may be stopped as inferior (its
+conformance check then confirms that seeds 0 and 7 give the same run).
 """
 from __future__ import annotations
 

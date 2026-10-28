@@ -3,6 +3,8 @@
 The rules are the experiment operator's standing instructions, which the researcher can edit: how runs are named,
 where short runs end and long runs begin, how many of the campaign's runs may go at once (the scheduler enforces it,
 inside the workspace's worker ceiling), and how runs are chosen and ordered so that unpromising candidates cost little.
+The assessment minimums (decision 14) are the researcher's alone: how a proposal must have been tried before an agent may stop it
+as inferior (campaigns/assessment.py).
 Hiding a run takes it off the Experiments page and nothing else: its records stay, and findings and reports may cite it.
 """
 from typing import Literal
@@ -53,6 +55,15 @@ class Presentation(Contract):
     rationale: str = Field(default="", max_length=2000, description="Why this suits the problem")
 
 
+class Assessment(Contract):
+    """How a proposal must have been tried before an agent stops it as inferior (decision 14). Fewer needs the researcher's waiver."""
+    min_configurations: int = Field(default=3, ge=1, le=50, description="Distinct configurations (algorithm_config) run to the horizon")
+    min_seeds: int = Field(default=2, ge=1, le=20, description="Seeds per configuration, for a stochastic method or evaluator; a "
+        "deterministic method on a deterministic evaluator needs one run per configuration")
+    min_evaluations: int | None = Field(default=None, ge=1, le=10000000, description="The informative horizon: evaluations a run must "
+        "reach to count, besides completing or running at least short_run_seconds; unset counts no evaluations")
+
+
 class ExperimentRulesInput(Contract):
     """Change some of the rules; what is left out stays as it is."""
     naming: str | None = Field(default=None, min_length=1, max_length=300,
@@ -63,6 +74,7 @@ class ExperimentRulesInput(Contract):
         description="How many of this campaign's runs may go at once; 0 removes the limit. The workspace's worker ceiling still applies")
     strategy: str | None = Field(default=None, min_length=1, max_length=8000, description="How runs are chosen and ordered")
     presentation: Presentation | None = Field(default=None, description="What the list of runs and a run's entry show")
+    assessment: Assessment | None = Field(default=None, description="The assessment minimums before a performance stop; the researcher's alone")
     expected_revision: int = Field(ge=0)
     rationale: str = Field(min_length=1, max_length=2000)
 
@@ -126,7 +138,8 @@ def _problem(store, campaign_id):
 def defaults():
     from optimization_framework.execution.runtime_profile import gate_seconds
     # The runtime gate already separates the runs that need a measured evaluator from the quick ones.
-    return {"naming": NAMING, "short_run_seconds": gate_seconds() or 600.0, "max_concurrent": None, "strategy": STRATEGY}
+    return {"naming": NAMING, "short_run_seconds": gate_seconds() or 600.0, "max_concurrent": None, "strategy": STRATEGY,
+            "assessment": Assessment().model_dump(mode="json", exclude={"schema_version"})}
 
 
 def current(store, campaign_id):
@@ -136,6 +149,8 @@ def current(store, campaign_id):
         rules = store.get(identity(campaign_id), "experiment_rules")
     except KeyError:
         rules = {"id": identity(campaign_id), "campaign_id": campaign_id, "revision": 0, **defaults(), "updated_by": None, "updated_at": None}
+    if not rules.get("assessment"):   # rules saved before the assessment minimums
+        rules = {**rules, "assessment": Assessment().model_dump(mode="json", exclude={"schema_version"})}
     if not rules.get("presentation"):
         rules = {**rules, "presentation": default_presentation(_problem(store, campaign_id)), "presentation_chosen": False}
     return rules
@@ -147,6 +162,11 @@ def update(store, campaign_id, payload, actor):
     if values.expected_revision != rules["revision"]:
         raise ValueError(f"The experiment rules changed (revision {rules['revision']}); read them again")
     changes = {key: getattr(values, key) for key in ("naming", "short_run_seconds", "max_concurrent", "strategy") if getattr(values, key) is not None}
+    if values.assessment is not None:
+        if actor != "researcher":
+            raise ValueError("Only the researcher changes the assessment minimums (decision 14); an agent that cannot meet them "
+                             "asks for a waiver with approval.request kind waiver and tuning_hypothesis_id")
+        changes["assessment"] = values.assessment.model_dump(mode="json", exclude={"schema_version"})
     if values.presentation is not None:
         view = values.presentation.design
         dimensions, _, _ = design_shape(_problem(store, campaign_id))

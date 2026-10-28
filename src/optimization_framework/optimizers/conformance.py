@@ -5,7 +5,8 @@ the same seed gives the same proposals, a checkpoint restored into a fresh optim
 checkpoints and inspection are plain JSON, inspection stays small (it is recorded after every evaluation), and every
 exported artifact has a kind the asset catalog holds. A method may finish on its own (no proposal: MethodFinished); the
 same seed then finishes at the same step, and so does its restored checkpoint. A method that reports a ``bound`` (N13)
-reports one its own best does not beat. Scores are synthetic; no evaluator runs.
+reports one its own best does not beat. A method declared ``stochastic: False`` must give the same proposals for seeds 0
+and 7, since the assessment gate (decision 14) then counts one run per configuration. Scores are synthetic; no evaluator runs.
 
 ``check_function`` checks a plain-function method (``optimizers/functions.py``) on the problem its instance resolves
 to, so the evaluator it runs is the problem's own, a library's included: every candidate valid, the same candidates for
@@ -21,7 +22,7 @@ from optimization_framework.execution.metrics import DIAGNOSTICS_BYTES
 from optimization_framework.contracts.problems import Observation
 from optimization_framework.contracts.base import content_hash
 from .finish import MethodFinished
-from .registry import create
+from .registry import create, stochastic
 
 
 def _score(candidate, step):
@@ -59,11 +60,12 @@ def check(method, instance, *, seeds=(0, 7), steps=6, parameters=None, optimizer
     """Run the contract checks for one method on one problem instance; raise AssertionError on the first failure."""
     parameters = dict(parameters or {})
     make = lambda seed: create(method, instance, parameters, seed, steps + 2, optimizer_plugins=optimizer_plugins)
-    finished = {}
+    finished, proposed = {}, {}
     objective = instance.primary_objective
     for seed in seeds:
         first, second = make(seed), make(seed)
         best = None
+        proposed[seed] = []
         try:
             for step in range(steps):
                 a, b = _next(first, instance), _next(second, instance)
@@ -73,6 +75,7 @@ def check(method, instance, *, seeds=(0, 7), steps=6, parameters=None, optimizer
                     _bound_holds(first, instance, best, f"seed {seed}, at its finish")
                     break
                 assert a[1] == b[1], f"seed {seed}, step {step}: the same seed gave different proposals"
+                proposed[seed].append(a[1])
                 _observe(first, instance, a[0], a[1], step)
                 _observe(second, instance, b[0], a[1], step)
                 best = _score(a[1], step) if objective.better(_score(a[1], step), best) else best
@@ -96,9 +99,23 @@ def check(method, instance, *, seeds=(0, 7), steps=6, parameters=None, optimizer
         finally:
             first.close()
             second.close()
+    deterministic = not stochastic(method, optimizer_plugins)
+    if deterministic:
+        _same_for_every_seed(proposed)
     return {"method": method, "seeds": list(seeds), "steps": steps, **({"finished_at_step": finished} if finished else {}),
             "checks": ["valid candidates", "seeded replay", "checkpoint continuation", "JSON checkpoint and inspection", "bounded inspection",
-                       "catalog export kinds", "bounds its own best does not beat"]}
+                       "catalog export kinds", "bounds its own best does not beat", *(["declared deterministic"] if deterministic else [])]}
+
+
+def _same_for_every_seed(proposed):
+    """A method declared deterministic (stochastic: False) proposes the same for every seed."""
+    (first, reference), *others = proposed.items()
+    for seed, candidates in others:
+        diverged = next((step for step, (a, b) in enumerate(zip(reference, candidates)) if a != b), None)
+        if diverged is None and len(reference) != len(candidates):
+            diverged = min(len(reference), len(candidates))
+        assert diverged is None, (f"declared deterministic (stochastic: false), but seeds {first} and {seed} gave different proposals "
+                                  f"at step {diverged + 1}; declare it stochastic, or draw nothing from the seed")
 
 
 def _function_run(plugin, method_id, instance, parameters, seed, evaluations, evaluator, scores, cap, *, state=None, stop_at=None):
@@ -156,7 +173,7 @@ def check_function(plugin, method_id, instance, *, seeds=(0, 7), max_evaluations
     if registry is None:
         from optimization_framework.evaluation.registry import problems as registry
     parameters = dict(parameters or {})
-    evaluator, scores, ended = registry.evaluator(instance), {}, {}
+    evaluator, scores, ended, proposed = registry.evaluator(instance), {}, {}, {}
     for seed in seeds:
         first, second, continued = [], [], []
         ended[seed], _ = _function_run(plugin, method_id, instance, parameters, seed, first, evaluator, scores, max_evaluations)
@@ -171,6 +188,12 @@ def check_function(plugin, method_id, instance, *, seeds=(0, 7), max_evaluations
             last, _ = _function_run(plugin, method_id, instance, parameters, seed, continued, evaluator, scores, max_evaluations, state=state)
             assert continued == first and last == ended[seed], \
                 f"seed {seed}: continuing from the checkpoint at evaluation {len(first) // 2} did not give the same run"
+        proposed[seed] = first
+    listed = next((method for method in plugin.methods() if method["id"] == method_id), {})
+    deterministic = listed.get("stochastic", True) is False
+    if deterministic:
+        _same_for_every_seed(proposed)
     return {"method": method_id, "seeds": list(seeds), "max_evaluations": max_evaluations,
             "ended": {str(seed): how for seed, how in ended.items()},
-            "checks": ["valid candidates", "seeded replay", "checkpoint continuation", "clean end", "bounds its own best does not beat"]}
+            "checks": ["valid candidates", "seeded replay", "checkpoint continuation", "clean end", "bounds its own best does not beat",
+                       *(["declared deterministic"] if deterministic else [])]}

@@ -4,8 +4,9 @@ from optimization_framework.contracts.validation import ValidationRequirement, V
 
 
 DEFAULT_WAIVABLE = {"solution_fidelity", "learner_diagnostics"}
-# How fast an evaluator runs is not a scientific claim, so a study's frozen list of waivable kinds does not withhold it.
-ALWAYS_WAIVABLE = {"runtime_efficiency"}
+# How fast an evaluator runs is not a scientific claim, so a study's frozen list of waivable kinds does not withhold it; nor is
+# how many configurations a proposal tried before a stop (tuning, V2), which only the researcher waives (decision 16).
+ALWAYS_WAIVABLE = {"runtime_efficiency", "tuning"}
 
 
 class ValidationService:

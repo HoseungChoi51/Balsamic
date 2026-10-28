@@ -6,7 +6,7 @@ from .base import Contract
 
 
 ValidationKind = Literal["implementation_correctness", "evaluator_correctness", "solution_fidelity", "learner_diagnostics", "scientific_confirmation",
-                         "runtime_efficiency"]
+                         "runtime_efficiency", "tuning"]
 
 
 class ValidationRequirement(Contract):

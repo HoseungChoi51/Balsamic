@@ -285,7 +285,9 @@ class Plugin(FunctionPlugin):
   (`find_spec`, then `ast.literal_eval`) and never imports the module, so agent code does not run in the server, and a
   module that imports something only the worker has is still listed. Each entry has `name` and `description`, and may
   have `hypothesis_id`, `parameters` (defaults), `parameter_properties` (their JSON Schema), `representations`,
-  `problem_ids` and `completion_units`. A key must be the name of a public function in the module; `create()` refuses one
+  `problem_ids`, `completion_units` and `stochastic` (false when its runs do not depend on the seed; a function marked
+  `@deterministic` says the same). An undeclared method counts as stochastic: before an agent may stop it as inferior it
+  needs two seeds per configuration (decision 14), and a false declaration fails conformance. A key must be the name of a public function in the module; `create()` refuses one
   that is not.
 - **The worker imports it.** `create()` imports the module, in the worker only, and wraps the function in a
   `FunctionMethod`: each `evaluate` is one proposal and its observation, the checkpoint is the journal of answers, and a
