@@ -8,7 +8,7 @@ from pydantic import Field, model_validator
 from .base import Contract
 from .commands import PlannedRun, StopCondition
 
-MandateClass = Literal["answer", "propose", "review", "implement", "run", "validate", "decide", "record", "configure", "ask"]
+MandateClass = Literal["answer", "propose", "review", "reuse", "implement", "run", "validate", "decide", "record", "configure", "ask"]
 TemplateName = Literal["answer", "explore", "screen", "run_campaign"]
 MandateStatus = Literal["proposed", "active", "exhausted", "expired", "closed"]
 

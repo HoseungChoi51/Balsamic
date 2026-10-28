@@ -2,7 +2,7 @@
 runs it names, a compute and model-spend envelope, a deadline and a stop condition (contracts/mandates.py). Reads are not
 commands and are always allowed; every command operation belongs to one class (CLASSES).
 
-Four templates (decision 10): Answer reads and answers and starts nothing; Explore adds proposals, reviews, runs, validations
+Four templates (decision 10): Answer reads and answers and starts nothing; Explore adds proposals, reviews, reuse of installed methods (L5), runs, validations
 and records up to the researcher's go-ahead threshold in total, with no coding workspace, and is the default when nothing else
 is chosen; Screen adds implementation and decisions for the proposals, workspaces and runs a plan names, with their minutes
 (today's compute go-ahead, B2); Run the campaign allows every class within its envelope and deadline. Answer and Explore may
@@ -59,9 +59,12 @@ CLASSES = {
                      "agent.question_dismiss", "note.resolve"), "answer"),
     **dict.fromkeys(("hypothesis.create", "hypothesis.edit", "research.generate", "reproduction.draft", "draft.save"), "propose"),
     **dict.fromkeys(("hypothesis.review",), "review"),
-    **dict.fromkeys(("implementation.commission", "implementation.attach", "implementation.revalidate", "implementation.bind_builtin",
+    **dict.fromkeys(("implementation.commission", "implementation.attach", "implementation.revalidate",
                      "implementation.resolve_runtime", "implementation.reuse", "implementation.reference", "implementation.control",
-                     "evaluator.commission", "evaluator.attach", "library.apply", "campaign.adopt_problem", "asset.reuse", "asset.import_reference_set"), "implement"),
+                     "evaluator.commission", "evaluator.attach", "campaign.adopt_problem", "asset.reuse", "asset.import_reference_set"), "implement"),
+    # Reuse (roadmap L5, decision 27): binding a proposal to an installed method and applying a strategy whose code is installed
+    # take no coding time, so Explore allows them.
+    **dict.fromkeys(("implementation.bind_builtin", "library.apply"), "reuse"),
     # A batch of interventions is checked by its items' classes (classes_of).
     # The resource planner's plan governs how runs are admitted, within the researcher's level (moved from configure by R3).
     **dict.fromkeys(("trial.create", "trial.continue", "trial.control", "draft.launch", "fixed_mask.run", "inference.run",
@@ -83,9 +86,9 @@ CLASSES = {
                      "thread.merge", "mandate.close"), "configure"),
     **dict.fromkeys(("approval.request", "trial.extension_request", "journal.compaction_request", "note.ask"), "ask"),
 }
-ALL_CLASSES = ("answer", "propose", "review", "implement", "run", "validate", "decide", "record", "configure", "ask")
+ALL_CLASSES = ("answer", "propose", "review", "reuse", "implement", "run", "validate", "decide", "record", "configure", "ask")
 _ANSWER = ("answer", "ask")
-_EXPLORE = (*_ANSWER, "propose", "review", "run", "validate", "record")
+_EXPLORE = (*_ANSWER, "propose", "review", "reuse", "run", "validate", "record")
 _SCREEN = (*_EXPLORE, "implement", "decide")
 TEMPLATES = {"answer": {"classes": _ANSWER, "go_ahead": False}, "explore": {"classes": _EXPLORE, "go_ahead": False},
              "screen": {"classes": _SCREEN, "go_ahead": True}, "run_campaign": {"classes": ALL_CLASSES, "go_ahead": True}}
@@ -95,7 +98,7 @@ OPTIONS = [{"id": "0", "label": "Approve", "description": "The requester starts 
            {"id": "1", "label": "Approve as Explore only", "description": "Only work up to your go-ahead threshold in total, with no coding workspace."},
            {"id": "2", "label": "Decline", "description": "The requester is told and nothing starts."}]
 # The classes of work that start something: a request's first such command records its default, Explore.
-STARTING = {"propose", "review", "implement", "run", "validate", "decide", "record"}
+STARTING = {"propose", "review", "reuse", "implement", "run", "validate", "decide", "record"}
 # What a request may still do once its mandate has ended (decision 11): answer, ask for more, and record what its work found.
 AFTER_END = {"answer", "ask", "record"}
 ENDED = {"expired", "exhausted", "closed"}
@@ -440,6 +443,8 @@ def require(workspace, campaign_id, root, classes, *, what, hypothesis_ids=(), s
     mandate = governing(workspace, campaign_id, root, hypothesis_ids=hypothesis_ids)
     template = mandate.template if mandate is not None else "explore"
     allowed = set(mandate.classes if mandate is not None else TEMPLATES["explore"]["classes"])
+    if template != "answer":
+        allowed.add("reuse")   # a mandate recorded before L5 named no reuse class; every template but Answer allows it
     named = (f"this request's {LABELS[template]} mandate ({mandate.id})" if mandate.root is not None else
              f"the standing {LABELS[template]} mandate ({mandate.id})") if mandate is not None else \
         "this request's default mandate, Explore,"   # it has none of its own

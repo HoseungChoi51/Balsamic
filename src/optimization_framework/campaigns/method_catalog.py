@@ -96,11 +96,44 @@ def development_readiness(store, hypothesis, installed):
     return None
 
 
+def package_of(method_id):
+    """{name, version} of the installed package (a code library) a method comes from; None for a method bundled with Balsamic or
+    one the lab's own plug-ins provide (roadmap L5)."""
+    from optimization_framework.optimizers import plugins
+    origin = plugins.installed.origin(method_id)   # None for a bundled method
+    return {"name": origin["distribution"], "version": origin.get("version")} if origin and origin.get("distribution") and not origin.get("own") else None
+
+
+def reusable(workspace, campaign_id, hypothesis_ids):
+    """The proposals among these that name an installed method which runs on a current task and are not yet bound to it, each
+    {hypothesis_id, method, package, task_id}: binding it (implementation.bind_builtin) is reuse, which needs no coding time
+    (roadmap L5, decision 27)."""
+    from optimization_framework.execution.service import algorithms
+    from optimization_framework.optimizers.registry import capability_reason
+    from optimization_framework.agents.library_validation import refused_reason
+    installed = {method["id"] for method in algorithms() if not method.get("purpose")}
+    tasks = [task for task in workspace.current_tasks(campaign_id) if task.get("problem")]
+    found = []
+    for hypothesis_id in hypothesis_ids:
+        try:
+            hypothesis = workspace.store.get(hypothesis_id, "hypothesis")
+        except KeyError:
+            continue
+        method = hypothesis.get("algorithm")
+        if hypothesis.get("algorithm_chosen") is not True or method not in installed or hypothesis.get("builtin_binding_id") \
+                or hypothesis.get("implementation_version_id") or refused_reason(workspace.store, method):
+            continue
+        task = next((task for task in tasks if capability_reason(method, task["problem"]) is None), None)
+        if task is not None:
+            found.append({"hypothesis_id": hypothesis_id, "method": method, "package": package_of(method), "task_id": task["id"]})
+    return found
+
+
 def catalog(workspace, campaign_id, *, other_limit=40):
     """{tasks, methods, building, other}: every method that matters to this campaign, as described in the module."""
     from optimization_framework.execution.service import algorithms
     from optimization_framework.optimizers import plugins
-    from optimization_framework.optimizers.registry import BUILTIN_IDS, capability_reason
+    from optimization_framework.optimizers.registry import capability_reason
     store = workspace.store
     tasks = workspace.current_tasks(campaign_id)
     task_rows = []
@@ -136,7 +169,7 @@ def catalog(workspace, campaign_id, *, other_limit=40):
         if submission:
             proposals += [{"hypothesis_id": h, "bound": False, "default": False} for h in served(submission)
                           if method["id"] in methods_for(submission, h) and h not in {p["hypothesis_id"] for p in proposals}]
-        origin = plugins.installed.origin(method["id"]) if method["id"] not in BUILTIN_IDS else None
+        origin = plugins.installed.origin(method["id"])   # None for a bundled method
         library = bool(origin) and not origin["own"]   # the lab's own plug-ins ship with it: bundled
         # A procedure (replaying, inferring) is not a search method: listed with the others unless a proposal uses it.
         if not (any(row["runnable"] for row in per_task) or proposals or submission) or (method.get("purpose") and not proposals):

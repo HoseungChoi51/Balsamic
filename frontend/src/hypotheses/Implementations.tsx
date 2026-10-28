@@ -409,8 +409,8 @@ function Algorithms({ campaignId, thread, labels }: { campaignId: string; thread
   const shown = methods.filter(m => m.source !== 'bundled' || m.proposals.length || m.state !== 'runnable');
   const spare = methods.filter(m => !shown.includes(m));
   const where = (m: MethodRow) => m.source === 'bundled' ? 'bundled with Balsamic'
-    : m.source === 'library' ? `library ${m.package?.name || ''} ${m.package?.version || ''}`.trim()
-    : `${m.package?.name ? `library ${m.package.name}, ` : ''}delivered in commit ${(m.package?.commit || '').slice(0, 7)}${m.reported === false ? ' (method ids not reported)' : ''}`;
+    : m.source === 'library' ? `package ${m.package?.name || ''} ${m.package?.version || ''}`.trim()
+    : `${m.package?.name ? `package ${m.package.name}, ` : ''}delivered in commit ${(m.package?.commit || '').slice(0, 7)}${m.reported === false ? ' (method ids not reported)' : ''}`;
   return (
     <Section title="Algorithms" right={<span className="small faint">what this campaign can run, and why the others cannot</span>}>
       <div data-testid="algorithms">

@@ -247,6 +247,20 @@ PUT_EVENTS = {"ready": "development.progress", "agent_start": "development.progr
 ERROR_EVENTS = {"bridge_error", "host_blocked", "budget_reached", "deadline_reached", "harness_error"}
 
 
+def reuse_first(workspace, campaign_id, hypothesis_ids):
+    """Refuse an agent's coding workspace for proposals whose named method is installed and runs on a current task (roadmap L5):
+    binding it is reuse, which needs no coding time."""
+    from optimization_framework.campaigns.method_catalog import reusable
+    found = reusable(workspace, campaign_id, hypothesis_ids)
+    if found:
+        named = "; ".join(f"{row['hypothesis_id']} names {row['method']}"
+                          + (f" (package {row['package']['name']} {row['package']['version'] or ''})".replace(" )", ")") if row["package"] else "")
+                          + f", which runs on task {row['task_id']}" for row in found)
+        raise ValueError(f"The lab already has the method these proposals name: {named}. Bind it instead "
+                         "(implementation.bind_builtin with the proposal, the task and the method); reuse needs no coding time. "
+                         "To build a different method, name the new method on the proposal first: a changed behaviour is a new method name.")
+
+
 class DevelopmentWorkspaces:
     def __init__(self, controller, driver=None):
         self.controller = controller
@@ -371,6 +385,7 @@ class DevelopmentWorkspaces:
             if actor != "researcher":
                 consent = compute_consent.require(self.workspace, campaign_id, "Opening a coding workspace", coding=1, hypothesis_ids=served, root=request)
                 mandate = mandates.require(self.workspace, campaign_id, request, {"implement"}, what="Opening a coding workspace", hypothesis_ids=served)
+                reuse_first(self.workspace, campaign_id, served)
             for evidence_id in values.evidence_ids:
                 self.evidence(campaign_id, evidence_id)
             config = self.controller.configuration(campaign_id)

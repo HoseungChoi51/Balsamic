@@ -64,7 +64,7 @@ def test_every_operation_the_bus_lists_has_a_mandate_class(tmp_path, monkeypatch
 def test_the_templates_follow_decision_10():
     classes = {name: set(template["classes"]) for name, template in mandates.TEMPLATES.items()}
     assert classes["answer"] == {"answer", "ask"}
-    assert classes["explore"] == classes["answer"] | {"propose", "review", "run", "validate", "record"}
+    assert classes["explore"] == classes["answer"] | {"propose", "review", "reuse", "run", "validate", "record"}
     assert classes["screen"] == classes["explore"] | {"implement", "decide"}
     assert classes["run_campaign"] == set(mandates.ALL_CLASSES)
     assert [name for name, template in mandates.TEMPLATES.items() if template["go_ahead"]] == ["screen", "run_campaign"]

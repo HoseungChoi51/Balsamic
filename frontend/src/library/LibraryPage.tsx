@@ -8,7 +8,8 @@ import { Empty, Failed, Kv, Loading, Pill, Section, duration, num, when } from '
 import { formatHash, navigate } from '../router/routes';
 import { useEvolution } from '../evolution/EvolutionPage';
 
-interface Entry { id: string; kind?: 'positive' | 'negative'; origin_campaign_id: string; hypothesis_id: string; strategy: { title: string; mechanism?: string; algorithm?: string }; signature: { problem_id: string | null; objective?: { name?: string; direction?: string }; representation?: string };
+interface Entry { id: string; kind?: 'positive' | 'negative'; origin_campaign_id: string; hypothesis_id: string; strategy: { title: string; mechanism?: string; algorithm?: string };
+  code?: { package: string; version: string | null; method: string } | null; signature: { problem_id: string | null; objective?: { name?: string; direction?: string }; representation?: string };
   evidence: { best_score: number | null; best_basis?: string | null; worker_seconds?: number; seeds_won?: number | null; confirmation_protocol_id?: string | null; fidelity?: Fidelity; evidence_ids?: string[] }; notes?: string; created_at: string;
   stop?: { outcome: string; words: string; reason?: string | null; evidence_ids: string[]; by?: string | null }; assessment?: { basis: 'adequate' | 'waiver' | 'not required'; words?: string; waiver_id?: string; configurations_run?: { configuration_hash: string; seeds: number[] }[] } }
 interface Fidelity { state: string; trial_id?: string | null; checks: { recipe_id: string; state: string; validation_result_id?: string | null; waiver_id?: string | null }[] }
@@ -86,7 +87,10 @@ export default function LibraryPage({ campaignId, route, threadId }: PageProps) 
           ['Assessment', assessmentText(entry)],
           ['Evidence', <>{num(entry.evidence.best_score, 4)} best as measured, {duration(entry.evidence.worker_seconds)} of worker time{entry.stop?.evidence_ids?.length ? `; rests on ${entry.stop.evidence_ids.join(', ')}` : ''}</>],
           ['Why it fits', match.reasons.join('; ') || 'nothing in common with this problem']]
-          : [['Algorithm', entry.strategy.algorithm || 'none'], ['Problem', signatureText(entry)],
+          : [['Algorithm', entry.strategy.algorithm || 'none'],
+          // The winner's code (roadmap L5): applying the entry binds its proposal to this method when the lab has it.
+          ...(entry.code ? [['Code', <span data-testid="library-code">package {entry.code.package} {entry.code.version || ''}, method {entry.code.method}</span>] as [string, React.ReactNode]] : []),
+          ['Problem', signatureText(entry)],
           ['Evidence', <>{num(entry.evidence.best_score, 4)} best ({entry.evidence.best_basis || 'basis unknown'}), {duration(entry.evidence.worker_seconds)} of worker time{entry.evidence.seeds_won != null ? `, ${entry.evidence.seeds_won} seeds won` : ''}{entry.evidence.confirmation_protocol_id ? ', confirmed' : ', not confirmed'}</>],
           ['Fidelity', fidelityText(entry.evidence.fidelity)],
           ['Why it fits', match.reasons.join('; ') || 'nothing in common with this problem']]} />
@@ -107,7 +111,7 @@ export default function LibraryPage({ campaignId, route, threadId }: PageProps) 
           </Section>
         </>)}
       {applying ? <div className="card" data-testid="apply-dialog"><h3>Apply “{applying.strategy.title}”</h3>
-        <p className="small muted">A new root strategy in this campaign, inspired by the entry; the fit is written into its rationale and it is reviewed like any other.</p>
+        <p className="small muted">A new root strategy in this campaign, inspired by the entry; the fit is written into its rationale and it is reviewed like any other.{applying.code ? ` Its code, ${applying.code.method} from package ${applying.code.package}, is bound to it when this lab has that method, so it can run at once.` : ''}</p>
         <textarea style={{ width: '100%', minHeight: 60 }} placeholder="A note for the record (optional)" value={note} onChange={e => setNote(e.target.value)} />
         <div className="row"><button className="btn primary small" onClick={apply}>Apply</button><button className="btn small" onClick={() => setApplying(null)}>Cancel</button></div></div> : null}
       <Section title="Publish from this campaign">

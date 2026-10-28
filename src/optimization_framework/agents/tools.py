@@ -1006,12 +1006,15 @@ class PiTools:
     def methods(self, tasks):
         """Installed optimizers that can run on these tasks, with the parameters algorithm_config accepts."""
         from optimization_framework.optimizers.registry import capability_reason, methods
+        from optimization_framework.campaigns.method_catalog import package_of
         keep = ("type", "enum", "default", "minimum", "maximum", "exclusiveMinimum", "exclusiveMaximum", "description")
         result = []
         for method in methods():
             runs_on = [task["id"] for task in tasks if task.get("problem") and capability_reason(method["id"], task["problem"]) is None]
             if runs_on:
+                package = package_of(method["id"])   # roadmap L5: where an installed method's code comes from
                 result.append({"id": method["id"], "name": method["name"], "description": method["description"], "task_ids": runs_on,
+                    **({"package": package} if package else {}),
                     **({"purpose": method["purpose"]} if method.get("purpose") else {}),
                     "parameters": {name: {key: schema[key] for key in keep if key in schema}
                                    for name, schema in method["parameter_schema"]["properties"].items()}})
