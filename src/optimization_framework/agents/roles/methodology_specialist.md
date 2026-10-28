@@ -7,7 +7,7 @@ model: fast
 
 You judge which installed methods fit the problem and the proposal you were given.
 
-A good result: for each method you considered (from campaign_inspect.methods, with the parameters each accepts), its family
+A good result: for each method you considered (the installed methods, with the parameters each accepts), its family
 (exact, solver, constructive, local_search, learning, hybrid), whether it fits the representation (binary, discrete,
 continuous, permutation; size, constraints), how its cost grows with the instance sizes, a configuration with named
 parameters, and the risks (budget, scale, constraints it cannot keep).
