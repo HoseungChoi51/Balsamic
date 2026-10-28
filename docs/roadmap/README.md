@@ -6,7 +6,7 @@
 | Date | 2026-10-27 |
 | Sources | `docs/charter-to-results-plan.md` (`cc0e693`), which Phase 1 replaces; the design-drift review of 2026-10-27, every suggestion and every lost idea it lists (§4 maps each one to its parts); and the algorithm-family review of 2026-10-27 (§4.1) |
 | Checked against | The code at `cc0e693`. Each part's "Today" says what the code does now |
-| Status | Phases 1–7 are released. Track L (code libraries) was added and completed on 2026-10-28 (`docs/releases/track-l.md`). Decisions 1–27 are settled (§2): 1–3 before this roadmap, 4–21 in Hoseung's review on 2026-10-27 (8 and 14 with changes), 22–24 after the algorithm-family review the same day (22 with a change), 25–27 with track L on 2026-10-28 |
+| Status | Phases 1–7 are released. Track L (code libraries) was added and completed on 2026-10-28 (`docs/releases/track-l.md`). Track P (the quick charter) was added on 2026-10-28 and is in progress. Decisions 1–32 are settled (§2): 1–3 before this roadmap, 4–21 in Hoseung's review on 2026-10-27 (8 and 14 with changes), 22–24 after the algorithm-family review the same day (22 with a change), 25–27 with track L and 28–32 with track P on 2026-10-28 |
 | How to work | One part = one branch = one PR into `workspace-rebuild`. Each phase file lists its parts, what each depends on and which can run in parallel |
 
 The diagnosis behind Phases 2 to 7, in one paragraph: Balsamic enforces in code what agents may *do* (commands, compute,
@@ -29,13 +29,14 @@ and domain knowledge moved out of the core into problem packs.
 | 6 | **Problem packs.** Domain knowledge out of the core; problem-agnostic constraints (M5); every algorithm family on fair terms | 15: N1–N15 | — (N9, N10 after G1 and decision 20; N11 after N2) | [phase-6-problem-packs.md](phase-6-problem-packs.md) |
 | 7 | **Fewer standing agents, claims that resolve.** Roles as calls with assembled context; numbers that point at receipts; findings that say what they state | 8: T1–T4, K1–K4 | the Phase 2 baseline; V4 for T1; V1, V2 for K4 | [phase-7-agents-and-claims.md](phase-7-agents-and-claims.md) |
 | L | **Code libraries that last.** Each library is versioned in its own repository; an install keeps what campaigns use; workspaces build on the latest version; reuse first | 6: L1–L6 | Phase 4; L1 first | [track-l-code-libraries.md](track-l-code-libraries.md) |
+| P | **Problem set-up in one pass.** For a simple problem the lead writes the charter, the note is rendered from it, one reading of the researcher's own words checks it, and the researcher confirms once; otherwise the full path, with the lead's draft | 6: P1–P6 | Phase 7, track L; P1 first | [track-p-quick-charter.md](track-p-quick-charter.md) |
 
-84 parts (78 in Phases 1–7, 6 in track L). Size: S is under about 200 changed lines including tests, M about 200–600, L more.
+90 parts (78 in Phases 1–7, 6 in track L, 6 in track P). Size: S is under about 200 changed lines including tests, M about 200–600, L more.
 
 **Names.** A part is a letter and a number (A1); the letter is its track, and a phase holds one or two tracks. A line
-number is written L123 (track L's parts are L1–L6, never a line number). Decisions are numbered 1–27 and written "decision 7" (the first version of this plan called 4–9
+number is written L123 (track L's parts are L1–L6, never a line number). Decisions are numbered 1–32 and written "decision 7" (the first version of this plan called 4–9
 "D4–D9"). Other series keep their own names, and the roadmap names their file when it cites them: the harness plan's
-D1–D9, `docs/suggestions.md`'s findings R1–R6, suggestions S1–S7 and questions Q1–Q8, and the eval scenarios S1–S16.
+D1–D9, `docs/suggestions.md`'s findings R1–R6, suggestions S1–S7 and questions Q1–Q8, and the eval scenarios S1–S21.
 Entries of `docs/lead-agent-readiness.md` are "Part A" to "Part S", a separate series from before this roadmap; each part
 of the roadmap has its own entry, `docs/readiness/<id>.md`.
 
@@ -196,6 +197,21 @@ Hoseung took all three recommendations.
 
 On screen a code library is a **package** (the Packages page), because "Library" is the strategy library.
 
+### 2.5 Settled with track P (Hoseung, 2026-10-28)
+
+Hoseung found the set-up too slow for a simple problem and asked whether the lead could write the note and the charter in
+one shot. The opinion written for it recommended that the lead write the charter itself, with the note rendered from it
+([track P](track-p-quick-charter.md)); it named its questions Q1–Q5, and Hoseung's "Go ahead" took the recommended answer
+to each.
+
+| # | Decision | Settled | Parts |
+|---|---|---|---|
+| 28 | Who writes the charter of a simple problem | The lead, in the conversation, with the formulator's charter checks; not a formulator run after Adopt | P2 |
+| 29 | The problem note on the quick path | Rendered read-only from the charter, with confounders and open questions; nothing to agree separately, no Adopt | P2, P5 |
+| 30 | What replaces the formulator's second reading | A one-shot check of the researcher's own words against the charter; the researcher settles each mismatch before confirming | P4 |
+| 31 | Who decides that a problem is simple | Code criteria on the lead's draft; the lead tries the quick path and falls back to the formulator, with its draft, when one fails; the researcher can ask for the full path at any time | P3 |
+| 32 | The researcher's actions on the quick path | One: confirm the charter, which accepts the assumptions it lists and installs the tasks. Not a separate Adopt, and not folded into the first compute go-ahead | P2, P5 |
+
 ---
 
 ## 3. Order across phases
@@ -210,6 +226,7 @@ Then    Phase 4 (after F3, F4)                                      Phase 6 (N2�
                                                                     and decision 20)
 Last    Phase 7: T1–T4 judged against the Phase 2 baseline (K1–K3 may start any time; K4 after V1, V2)
 After   Track L: L1, then L2, then L3 · L4 · L5, then L6
+        Track P: P1, then P2, then P3 · P4, then P5, then P6
 ```
 
 This follows the design review's order (measure, mandates, coding box, gates and packs, topology and claims), with Phase 1
