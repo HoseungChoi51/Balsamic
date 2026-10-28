@@ -20,7 +20,7 @@ interface Question { id: string; question: string; options?: string[]; unrunnabl
 interface Change { part: string; name: string; change: string; before?: unknown; after?: unknown }
 interface ProposalOption { label?: string; summary?: string; reason?: string; changes?: unknown[]; blocking_reason?: string | null; diff?: Change[]; findings?: { message: string }[] }
 interface Proposal { id: string; status: string; request?: string; asked?: string | null; created_at?: string; accepted_option?: number | null; options?: ProposalOption[] }
-interface CharterView { id: string; title?: string; status: string; revision: number; blocking: number; formulator?: { status: string | null; listening: boolean }; question_rounds?: number; question_rounds_max?: number; findings: Finding[]; values: Record<string, number | null>; errors?: Record<string, string>;
+interface CharterView { id: string; title?: string; status: string; revision: number; blocking: number; formulator?: { status: string | null; listening: boolean }; writer?: string | null; confirmed_revision?: number | null; question_rounds?: number; question_rounds_max?: number; findings: Finding[]; values: Record<string, number | null>; errors?: Record<string, string>;
   rendered?: Record<string, string>; access?: Access | null; units_elsewhere?: { about: string[]; message: string }[]; proposals: Proposal[]; charter: { title?: string; text?: string; summary?: string; quantities: Record<string, Quantity>; variables: Variable[]; constraints?: Rule[]; questions: Question[]; assumptions: { statement: string; accepted?: boolean }[]; waivers: { key: string; reason: string }[] } }
 
 /** How methods reach the objective and what they are compared on (N11): the charter's choice, else the problem's own. */
@@ -58,7 +58,8 @@ const condition = (k: Rule) => k.form === 'linear' ? `${(k.terms || []).map(t =>
 const checkLabel = (code: string) => CHECKS[code] || (code.startsWith('evaluator.') ? 'evaluator' : code.startsWith('instance.') ? 'instance' : code);
 const inUnits = (units?: string) => units && units.trim() && units.trim() !== '1' ? `, in ${units.trim()}` : '';
 
-export function CharterPanel({ charterId, campaignId, version, onChanged, formulator, formulatorModel }: { charterId: string; campaignId: string; version?: number; onChanged: () => unknown; formulator?: string | null; formulatorModel?: { name: string; tier: string | null; calls: number | null } | null }) {
+/** quickNote: the note's id when it is on the quick path (roadmap P2): the lead wrote this charter, and one command confirms it. */
+export function CharterPanel({ charterId, campaignId, version, onChanged, formulator, formulatorModel, quickNote }: { charterId: string; campaignId: string; version?: number; onChanged: () => unknown; formulator?: string | null; formulatorModel?: { name: string; tier: string | null; calls: number | null } | null; quickNote?: string }) {
   // Read more often while the formulator works, so inputs open as soon as its revision is saved.
   const [waiting, setWaiting] = useState(false);
   const charter = useRead<CharterView>(['charter', charterId], `/api/v1/problem-charters/${charterId}`, { refetchInterval: waiting ? 2000 : 8000 });
@@ -107,8 +108,12 @@ export function CharterPanel({ charterId, campaignId, version, onChanged, formul
   const confirm = async () => {
     setError(null); setBusy(true);
     try {
-      await api(`/api/v1/problem-charters/${charterId}/confirm`, { method: 'POST', body: JSON.stringify({ expected_revision: c.revision }) });
-      if (version !== undefined) await send({ operation: 'campaign.update', campaignId, expectedRevision: version, payload: { charter: { id: charterId, revision: c.revision }, rationale: 'Confirmed the charter adopted from the problem note' } });
+      // On the quick path one command accepts the assumptions of the revision shown, confirms it and installs its tasks.
+      if (quickNote) { if (version !== undefined) await send({ operation: 'problem_note.confirm', campaignId, expectedRevision: version, payload: { note_id: quickNote, charter_id: charterId, revision: c.revision } }); }
+      else {
+        await api(`/api/v1/problem-charters/${charterId}/confirm`, { method: 'POST', body: JSON.stringify({ expected_revision: c.revision }) });
+        if (version !== undefined) await send({ operation: 'campaign.update', campaignId, expectedRevision: version, payload: { charter: { id: charterId, revision: c.revision }, rationale: 'Confirmed the charter adopted from the problem note' } });
+      }
       // The next-step callout on every page reads the campaigns list: refresh it too, so "confirm the charter" goes at once.
       await Promise.all([refresh(), queryClient.invalidateQueries({ queryKey: ['summary', campaignId] }), queryClient.invalidateQueries({ queryKey: ['campaigns'] })]);
       onChanged();
@@ -137,7 +142,13 @@ export function CharterPanel({ charterId, campaignId, version, onChanged, formul
   // Facts the checks found that need nothing from anyone, such as an installed library providing the declared problem.
   const notes = c.findings.filter(f => f.severity === 'info');
   const confirmed = c.status === 'confirmed';
-  const why = confirmed ? null : blocking.length ? `${blocking.length} check${blocking.length === 1 ? '' : 's'} to pass first` : openQuestions.length ? `${openQuestions.length} question${openQuestions.length === 1 ? '' : 's'} from the formulator to answer first` : null;
+  // Who writes the charter and hears your answers: the lead on the quick path until it is first confirmed, else the formulator.
+  const writer = c.writer === 'lead' && c.confirmed_revision == null ? 'lead' : 'formulator';
+  // On the quick path confirming accepts the assumptions, so only the other checks wait.
+  const accepts = quickNote ? blocking.filter(f => f.code === 'assumption.unaccepted') : [];
+  const unsettled = blocking.filter(f => !accepts.includes(f));
+  const why = confirmed ? null : unsettled.length ? `${unsettled.length} check${unsettled.length === 1 ? '' : 's'} to pass first` : openQuestions.length ? `${openQuestions.length} question${openQuestions.length === 1 ? '' : 's'} from the ${writer} to answer first`
+    : quickNote && leftQuestions.length ? `The ${writer} is deciding the ${leftQuestions.length === 1 ? 'question' : leftQuestions.length + ' questions'} you left to it` : null;
   const variableIndex = (name: string) => doc.variables.findIndex(v => v.name === name);
   // What the unit checks and the other campaigns' charters say about a name, shown with its meaning where it is settled.
   const unitNotes: Record<string, string[]> = {};
@@ -148,11 +159,12 @@ export function CharterPanel({ charterId, campaignId, version, onChanged, formul
         {busy ? <span data-testid="charter-saving"><Pill live>saving your change…</Pill></span> : null}
         <Pill tone={confirmed ? 'clear' : blocking.length ? 'attention' : ''}>{confirmed ? 'confirmed' : blocking.length ? `${blocking.length} blocking` : 'ready to confirm'} · r{c.revision}</Pill>
         <button className="btn small" onClick={exportProject} data-testid="export-charter" disabled={busy} title={`Downloads revision ${c.revision} as a Python project for your own tools: the data, the tests and a comparison script; you write the objective and the methods`}>Export as Python project</button>
-        {!confirmed ? <button className="btn primary small" onClick={confirm} data-testid="confirm-charter" disabled={locked || !!why} title={working ? 'The formulator is revising the charter; confirm the revision it saves' : why || 'Compiles the tasks and sets the campaign\'s charter revision'}>Confirm and set the tasks</button> : null}</div>}>
+        {!confirmed ? <button className="btn primary small" onClick={confirm} data-testid="confirm-charter" disabled={locked || !!why} title={working ? 'The formulator is revising the charter; confirm the revision it saves' : why || (quickNote ? 'Accepts the assumptions it lists, confirms this revision and installs its tasks' : 'Compiles the tasks and sets the campaign\'s charter revision')}>Confirm and set the tasks</button> : null}</div>}>
         {working ? <div className="finding small" role="status" data-testid="formulator-busy"><span className="finding-code">formulator</span>
           <span className="grow">The formulator is revising the charter. What you see here may change, so answers, values and choices wait until it has saved its revision; this page updates by itself.</span><Pill tone="agent">working</Pill></div> : null}
         {error ? <div className="pill bad" role="alert" data-testid="charter-error">{error}</div> : null}
         {why && !confirmed ? <p className="small muted" data-testid="confirm-why">{why}. Settle each item below; nothing commits until you confirm.</p> : null}
+        {accepts.length && !why && !confirmed ? <p className="small muted" data-testid="confirm-accepts">The {writer} wrote this charter from your words. Confirming accepts the {accepts.length === 1 ? 'assumption' : `${accepts.length} assumptions`} listed below and installs its tasks.</p> : null}
         {doc.summary ? <p className="lede" data-testid="charter-summary">{c.rendered?.summary || doc.summary}</p> : null}
         {notes.map(f => <div key={f.key} className="finding small" data-testid="charter-note" data-code={f.code}><span className="finding-code">{checkLabel(f.code)}</span> <span className="grow">{f.message}</span></div>)}
         {formulatorModel ? <div className="row small faint" data-testid="formulator-model" style={{ marginTop: 4 }}><span className="finding-code">formulator</span>
@@ -168,16 +180,16 @@ export function CharterPanel({ charterId, campaignId, version, onChanged, formul
         </div>
       </Section> : null}
 
-      {doc.questions.length ? <Section title="Questions from the formulator" right={<span className="small faint" data-testid="questions-state">
-          {roundLabel}{openQuestions.length ? `${openQuestions.length} of ${doc.questions.length} open` : working ? (leftQuestions.length ? `${leftQuestions.length} left to the formulator · it is revising the charter` : 'all answered · the formulator is revising the charter') : leftQuestions.length ? `${leftQuestions.length} left to the formulator` : 'all answered'}</span>}>
+      {doc.questions.length ? <Section title={`Questions from the ${writer}`} right={<span className="small faint" data-testid="questions-state">
+          {roundLabel}{openQuestions.length ? `${openQuestions.length} of ${doc.questions.length} open` : working ? (leftQuestions.length ? `${leftQuestions.length} left to the formulator · it is revising the charter` : 'all answered · the formulator is revising the charter') : leftQuestions.length ? `${leftQuestions.length} left to the ${writer}` : 'all answered'}</span>}>
         {openQuestions.length ? <p className="small muted" data-testid="questions-lead"><strong>A question is a decision the formulator could not make from the sources</strong> and asks you to make. Unlike a check, an answer changes nothing in the charter by itself: the answers go to the formulator, which revises the charter, and that revision can settle checks above or raise new ones. Answer what you can; its recommendation comes first. You are not expected to know every answer: send the rest unanswered, and the formulator decides them from your answers and the sources and records each as an assumption you can change later, once a run has shown what it meant.
           {lastRound ? ' This is the last round: no further questions can follow.' : ` At most ${rounds.max - rounds.done} more round${rounds.max - rounds.done === 1 ? '' : 's'} of questions can follow, only for what no answer or source can decide.`}</p> : null}
         {!openQuestions.length && working ? <div className="finding small" data-testid="formulator-working"><span className="finding-code">formulator</span>Revising the charter from your answers{leftQuestions.length ? `, deciding the ${leftQuestions.length} you left to it` : ''}. {lastRound ? 'No further questions can follow; what stays open becomes assumptions or values for you to settle.' : 'At most one more round of questions can follow, only for what no answer or source can decide.'}<Pill tone="agent">working</Pill></div> : null}
         {openQuestions.length ? <div className="col" data-testid="open-questions">{openQuestions.map(q => <QuestionRow key={q.id} question={q} doc={doc} values={c.values} notes={unitNotes} busy={locked} post={post} working={working} next={q.id === nextId} />)}
           <div className="row" style={{ marginTop: 4 }}><button className="btn small" disabled={locked} data-testid="questions-send" title="Sends the round now. Unanswered questions go to the formulator, which decides each from your answers and the sources and records it as an assumption you can change later."
-            onClick={() => post('send-answers', {})}>{unsentAnswers.length ? `Send ${unsentAnswers.length} answer${unsentAnswers.length === 1 ? '' : 's'}, leave ${openQuestions.length} to the formulator` : `Leave all ${openQuestions.length} to the formulator`}</button>
+            onClick={() => post('send-answers', {})}>{unsentAnswers.length ? `Send ${unsentAnswers.length} answer${unsentAnswers.length === 1 ? '' : 's'}, leave ${openQuestions.length} to the ${writer}` : `Leave all ${openQuestions.length} to the ${writer}`}</button>
             <span className="small faint">or answer the rest; the round goes by itself once nothing is open</span></div></div> : null}
-        {leftQuestions.length ? <div className="col" data-testid="left-questions">{leftQuestions.map(q => <QuestionRow key={q.id} question={q} doc={doc} values={c.values} notes={unitNotes} busy={locked} post={post} working={working} />)}</div> : null}
+        {leftQuestions.length ? <div className="col" data-testid="left-questions">{leftQuestions.map(q => <QuestionRow key={q.id} question={q} doc={doc} values={c.values} notes={unitNotes} busy={locked} post={post} working={working} writer={writer} />)}</div> : null}
         {answeredQuestions.length ? <details className="fold" data-testid="answered-questions" style={{ marginTop: openQuestions.length ? 8 : 0, borderBottom: 'none' }}>
           <summary><span className="fold-title small">{answeredQuestions.length} answered{working ? ' · the formulator is working on the answers' : ''}</span></summary>
           <div className="col" style={{ marginTop: 6 }}>{answeredQuestions.map(q => <QuestionRow key={q.id} question={q} doc={doc} values={c.values} notes={unitNotes} busy={locked} post={post} working={working} />)}</div>
@@ -454,7 +466,7 @@ function VariableRow({ index, variable: v, busy, edit }: { index: number; variab
   </tr>;
 }
 
-function QuestionRow({ question: q, doc, values, notes, busy, post, working, next }: { question: Question; doc: CharterView['charter']; values: Record<string, number | null>; notes: Record<string, string[]>; busy: boolean; post: (path: string, body: Record<string, unknown>) => Promise<unknown>; working?: boolean; next?: boolean }) {
+function QuestionRow({ question: q, doc, values, notes, busy, post, working, next, writer = 'formulator' }: { question: Question; doc: CharterView['charter']; values: Record<string, number | null>; notes: Record<string, string[]>; busy: boolean; post: (path: string, body: Record<string, unknown>) => Promise<unknown>; working?: boolean; next?: boolean; writer?: string }) {
   const [text, setText] = useState('');
   const local = useLocalError();
   const answer = (value: string) => local.guard(() => post('answers', { question_id: q.id, answer: value }));
@@ -462,9 +474,9 @@ function QuestionRow({ question: q, doc, values, notes, busy, post, working, nex
   const left = !answered && !!q.sent;   // sent without an answer: the formulator decides it and records an assumption
   return <article className={'finding ' + (answered || left ? 'answered' : 'blocking') + (next ? ' next' : '')} data-testid="question" data-question-id={q.id} data-answered={answered ? '1' : undefined} data-left={left ? '1' : undefined} data-next={next ? '1' : undefined}>
     <div className="row">{next ? <Pill tone="you">next</Pill> : null}<span className="finding-code">question</span><span className={'grow' + (answered || left ? ' faint' : '')}><Names text={q.question} doc={doc} /></span>
-      {answered ? <Pill tone={working ? 'agent' : 'clear'}>{working ? 'formulator working' : 'answered'}</Pill> : left ? <Pill tone="agent">{working ? 'formulator deciding' : 'left to the formulator'}</Pill> : null}</div>
+      {answered ? <Pill tone={working ? 'agent' : 'clear'}>{working ? 'formulator working' : 'answered'}</Pill> : left ? <Pill tone="agent">{working ? 'formulator deciding' : `left to the ${writer}`}</Pill> : null}</div>
     {!answered && !left ? <Meanings names={q.about || []} doc={doc} values={values} notes={notes} /> : null}
-    {answered ? <div className="small faint" style={{ marginTop: 4 }}>Your answer: {q.answer}</div> : left ? <div className="small faint" style={{ marginTop: 4 }}>Left to the formulator: it decides from your answers and the sources and records an assumption you can change later.</div> : <>
+    {answered ? <div className="small faint" style={{ marginTop: 4 }}>Your answer: {q.answer}</div> : left ? <div className="small faint" style={{ marginTop: 4 }}>Left to the {writer}: it decides from your answers and the sources and records an assumption you can change later.</div> : <>
       {q.options?.length ? <div className="row wrap" style={{ marginTop: 6 }}>{q.options.map((o, i) => {
         // The first option is the formulator's recommendation, unless nothing could run under it.
         const unrunnable = (q.unrunnable_options || []).includes(i);

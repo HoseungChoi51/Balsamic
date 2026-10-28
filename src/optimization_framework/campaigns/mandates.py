@@ -75,7 +75,7 @@ CLASSES = {
     # Stops, nominations, finalists, and what settles a result or a requirement.
     **dict.fromkeys(("hypothesis.status", "hypothesis.nominate", "study.nominate", "finalist.set", "study.race.decide",
                      "confirmation.release", "validation.waive", "validation.revoke_waiver", "decision.resolve",
-                     "problem_note.adopt"), "decide"),
+                     "problem_note.adopt", "problem_note.confirm"), "decide"),
     # An agent closing an inbox issue records that its condition no longer holds (moved from configure by R3).
     **dict.fromkeys(("finding.record", "comparison.report", "bundle.export", "bundle.publish", "library.publish", "asset.snapshot",
                      "source.record", "source.ingest", "cost.reconcile", "problem_note.revise", "study.freeze_template", "issue.resolve"), "record"),

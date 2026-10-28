@@ -135,6 +135,8 @@ def propose(workspace, campaign_id, values: ProposeInput, *, key, run_id=None, t
         except KeyError:
             pass
         note = ensure_note(workspace, campaign_id, thread_id=thread_id)
+        if note.get("path") == "quick":
+            raise ValueError("The note is on the quick path: its sections are read from the charter, so none is written or skipped")
         sections, charter = _sections(workspace, note), confirmed_charter(workspace, note)
         for item in values.skips:
             _check(workspace, note, item, sections, charter)

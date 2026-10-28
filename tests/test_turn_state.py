@@ -102,7 +102,7 @@ def test_manifest_is_static_across_campaign_state(env):
 def test_turn_state_reflects_changes_immediately(env):
     agents = team(env)
     _, state = snapshot(env, agents)
-    assert state["lead"].startswith(HEADER) and "Gate: closed. Next: complete the problem note (#note). Not written yet: Knobs" in state["lead"]
+    assert state["lead"].startswith(HEADER) and "Gate: closed on the full path. Next: complete the problem note (#note). Not written yet: Knobs" in state["lead"]
     assert "Autopilot: off." in state["lead"] and "Library" not in state["lead"] and "Turn: a request" in state["lead"]
     assert "experiment rules (revision 0)" in state["experiment_operator"] and "balanced resource level" in state["resource_planner"]
     rule = ("Compute thresholds (the researcher's): work up to 60 s starts freely; up to 5 min, it starts with a notice to them; "

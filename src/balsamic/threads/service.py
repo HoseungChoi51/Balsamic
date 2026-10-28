@@ -518,7 +518,7 @@ def register(workspace):
 # Lab events ------------------------------------------------------------------------------------------------
 LAB_EVENT_OPERATIONS = {"trial.create", "draft.launch", "trial.control", "trial.continue", "hypothesis.create", "hypothesis.status", "hypothesis.nominate",
                         "hypothesis.allocate", "intervention.batch", "study.race.create", "study.race.decide", "research.generate", "finding.record",
-                        "problem_note.adopt", "report.write", "autopilot.set", "library.publish"}
+                        "problem_note.adopt", "problem_note.confirm", "report.write", "autopilot.set", "library.publish"}
 
 
 def post_lab_event(workspace, record):

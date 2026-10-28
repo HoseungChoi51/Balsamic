@@ -4,12 +4,15 @@ confirmation and forks.
 A charter record is mutable and points at its current revision. Every revision is kept as an
 immutable snapshot, so a campaign can name exactly the revision it was created from. The formulator
 (the formulator agent) writes drafts and proposals; only the researcher edits values directly,
-accepts proposals, waives findings and confirms.
+accepts proposals, waives findings and confirms. On the quick path (roadmap track P) a campaign's lead
+writes the charter of a simple problem itself (writer "lead"): the researcher's answers and requests then
+go to the lead, through a hook of the service layer (workspace.charter_lead), until the charter is first
+confirmed.
 """
 from __future__ import annotations
 
 from optimization_framework.contracts.base import content_hash
-from optimization_framework.contracts.problem_charter import ProblemCharter
+from optimization_framework.contracts.problem_charter import ProblemCharter, Question
 from optimization_framework.storage.sqlite import identifier, now
 
 from . import charter as mechanics
@@ -26,10 +29,22 @@ def core_hash(charter: dict) -> str:
 # Questions come in rounds: all at once, sent together. The researcher answers what they can; the rest the formulator decides
 # and records as assumptions. A charter takes at most this many rounds, so the researcher knows when the asking ends.
 QUESTION_ROUNDS = 2
+# The lead's charter on the quick path asks at most one round, of at most two questions (roadmap P2).
+QUICK_ROUNDS, QUICK_QUESTIONS = 1, 2
+WRITERS = {"formulator", "lead"}
 
 
 def question_rounds(record) -> int:
-    return sum(1 for row in record.get("history", []) if row.get("by") == "formulator" and str(row.get("rationale", "")).startswith("Asked "))
+    return sum(1 for row in record.get("history", []) if row.get("by") in WRITERS and str(row.get("rationale", "")).startswith("Asked "))
+
+
+def lead_writes(record) -> bool:
+    """The lead writes this charter (the quick path) and it was never confirmed: answers and requests go to the lead."""
+    return record.get("writer") == "lead" and record.get("confirmed_revision") is None
+
+
+def rounds_max(record) -> int:
+    return QUICK_ROUNDS if lead_writes(record) else QUESTION_ROUNDS
 
 
 # While the formulator works on a charter the researcher's inputs wait: a value, an answer or a choice made on what the page
@@ -69,7 +84,8 @@ class Charters:
                                                                       if row["part"] in {"value", "relation", "quantity"}]}
         return {**record, **mechanics.describe(record["charter"], self.registry), "lineage": lineage,
                 "units_elsewhere": mechanics.units_elsewhere(record["charter"], self._in_use(charter_id)),
-                "formulator": self.formulator(record), "question_rounds": rounds, "question_rounds_max": QUESTION_ROUNDS,
+                "formulator": self.formulator(record), "writer": record.get("writer") or ("formulator" if record.get("import_id") else None),
+                "question_rounds": rounds, "question_rounds_max": rounds_max(record),
                 "proposals": sorted(proposals, key=lambda row: row["created_at"], reverse=True)[:20],
                 "history": record["history"][-50:]}
 
@@ -99,9 +115,10 @@ class Charters:
         self.store.put(KIND, record)
         return record
 
-    def create(self, charter: dict, *, source: dict, by: str = "researcher", rationale: str = "Started", import_id=None):
+    def create(self, charter: dict, *, source: dict, by: str = "researcher", rationale: str = "Started", import_id=None, writer=None):
         record = {"id": identifier("problem_charter"), "source": source, "import_id": import_id, "campaign_ids": [],
-                  "confirmed": [], "confirmed_revision": None, "history": [], "revision": 0, "created_at": now()}
+                  "confirmed": [], "confirmed_revision": None, "history": [], "revision": 0, "created_at": now(),
+                  **({"writer": writer} if writer else {})}
         with self.workspace.lock, self.store.transaction():
             return self._save(record, charter, by, rationale)
 
@@ -276,15 +293,16 @@ class Charters:
         return self._send_round(record)
 
     def _send_round(self, record):
-        if not record.get("import_id"):
+        lead = lead_writes(record)
+        if not record.get("import_id") and not lead:
             return record
         questions = record["charter"]["questions"]
         answered = [q for q in questions if q["answer"] is not None and not q.get("sent")]
         left = [q for q in questions if q["answer"] is None and not q.get("sent")]
         if not answered and not left:
             return record
-        rounds = question_rounds(record)
-        text = f"The researcher answered your questions (round {rounds} of {QUESTION_ROUNDS}):\n"
+        rounds, limit = question_rounds(record), rounds_max(record)
+        text = f"The researcher answered your questions on charter {record['id']} (round {rounds} of {limit}):\n"
         if answered:
             text += "\n".join(f"- {q['question']}\n  Answer: {q['answer']}" for q in answered) + "\n"
         else:
@@ -298,12 +316,12 @@ class Charters:
                      "\n".join(f"- {q['question']} (options: {'; '.join(q.get('options') or []) or 'none given'})" for q in left) + "\n")
         follow = ("Ask again only for a decision no answer, source or convention can make, in one round with every question "
                   "together; do not ask again what the answers already cover, and prefer an assumption with a note to a question."
-                  if rounds < QUESTION_ROUNDS else
+                  if rounds < limit else
                   "No more questions can be asked on this charter. Record what is still open as assumptions (origin 'assumed', "
                   "with a note naming the answer each rests on) for the researcher to accept or change, or leave it as a "
                   "blocking finding the researcher settles on the page.")
-        self._tell_formulator(record, text + "Revise the charter with charter_submit so it follows these answers and decisions, "
-                              "then report briefly: say what you decided for the researcher and why. " + follow)
+        self._tell_writer(record, text + f"Revise the charter with {'charter_write' if lead else 'charter_submit'} so it follows these "
+                          "answers and decisions, then report briefly: say what you decided for the researcher and why. " + follow)
         with self.workspace.lock:
             record = self.get(record["id"])
             for q in record["charter"]["questions"]:
@@ -331,8 +349,9 @@ class Charters:
             [q for q in answered.values() if q["id"] not in {p["id"] for p in proposed["questions"]}]
         return proposed
 
-    def submit(self, charter_id, charter: dict, *, run_id: str):
-        """A whole draft from the formulator. Values the researcher set, answers and waivers are kept as they are."""
+    def submit(self, charter_id, charter: dict, *, run_id: str, by: str = "formulator"):
+        """A whole draft from the charter's writer: the formulator, or the lead on the quick path. Values the researcher set,
+        answers and waivers are kept as they are."""
         with self.workspace.lock, self.store.transaction():
             record = self.get(charter_id)
             current, proposed = record["charter"], ProblemCharter.model_validate(charter).model_dump(mode="json")
@@ -341,36 +360,45 @@ class Charters:
                     continue
                 other = proposed["quantities"].get(name)
                 if other is None or (other.get("value"), other.get("expression")) != (quantity.get("value"), quantity.get("expression")):
-                    raise ValueError(f"{name} was set by the researcher; keep it as it is, or use charter_propose to suggest a change")
+                    raise ValueError(f"{name} was set by the researcher; keep it as it is, or " + (
+                        "use charter_propose to suggest a change" if by == "formulator" else "ask them to change it on the Charter tab"))
                 other["origin"] = "researcher"
-            return self._save(record, self.from_formulator(current, proposed), "formulator", f"Draft from the formulator ({run_id})")
+            return self._save(record, self.from_formulator(current, proposed), by, f"Draft from the {by} ({run_id})")
 
-    def ask(self, charter_id, questions: list[dict]):
+    def ask(self, charter_id, questions: list[dict], *, by: str = "formulator"):
         with self.workspace.lock, self.store.transaction():
             record = self.get(charter_id)
             rounds = question_rounds(record)
-            if rounds >= QUESTION_ROUNDS:
+            if rounds >= rounds_max(record):
                 raise ValueError(f"The researcher has answered {rounds} rounds of questions; no more can be asked on this charter. "
                                  "Record what is still open as assumptions (origin 'assumed', with a note naming the answer each rests on) "
                                  "for the researcher to accept or change, or leave it as a blocking finding the researcher settles on the page.")
             charter = record["charter"]
-            taken = {q["id"] for q in charter["questions"]}
-            for question in questions:
-                if question["id"] in taken:
-                    raise ValueError(f"A question named {question['id']} exists; choose another name")
-                options, unrunnable = question.get("options") or [], set(question.get("unrunnable_options") or [])
-                if any(index >= len(options) for index in unrunnable):
-                    raise ValueError(f"Question {question['id']}: unrunnable_options names an option it does not have")
-                # The page shows the first option as recommended: it must be one the lab can run, when there is one.
-                if 0 in unrunnable and len(unrunnable) < len(options):
-                    raise ValueError(f"Question {question['id']}: its first option, shown as recommended, leaves nothing able to run "
-                                     "while another option runs. Put a runnable option first and recommend it; the unrunnable one goes "
-                                     "last, says what stays blocked and until when, and is never called recommended.")
-                if any("recommend" in options[index].lower() for index in unrunnable):
-                    raise ValueError(f"Question {question['id']}: an option under which nothing can run is never recommended; "
-                                     "take the word out of it.")
-                charter["questions"].append({**question, "answer": None, "answered_at": None})
-            return self._save(record, charter, "formulator", f"Asked {len(questions)} question{'s' if len(questions) != 1 else ''}")
+            charter["questions"] += self.asked(charter, questions)
+            return self._save(record, charter, by, f"Asked {len(questions)} question{'s' if len(questions) != 1 else ''}")
+
+    @staticmethod
+    def asked(charter: dict, questions: list[dict]) -> list[dict]:
+        """The questions as the charter will hold them, checked against it; a refusal says what to change, before anything is saved."""
+        taken, rows = {q["id"] for q in charter["questions"]}, []
+        for question in questions:
+            question = Question.model_validate({**question, "answer": None, "answered_at": None}).model_dump(mode="json")
+            if question["id"] in taken:
+                raise ValueError(f"A question named {question['id']} exists; choose another name")
+            options, unrunnable = question["options"], set(question["unrunnable_options"])
+            if any(index >= len(options) for index in unrunnable):
+                raise ValueError(f"Question {question['id']}: unrunnable_options names an option it does not have")
+            # The page shows the first option as recommended: it must be one the lab can run, when there is one.
+            if 0 in unrunnable and len(unrunnable) < len(options):
+                raise ValueError(f"Question {question['id']}: its first option, shown as recommended, leaves nothing able to run "
+                                 "while another option runs. Put a runnable option first and recommend it; the unrunnable one goes "
+                                 "last, says what stays blocked and until when, and is never called recommended.")
+            if any("recommend" in options[index].lower() for index in unrunnable):
+                raise ValueError(f"Question {question['id']}: an option under which nothing can run is never recommended; "
+                                 "take the word out of it.")
+            taken.add(question["id"])
+            rows.append(question)
+        return rows
 
     def propose(self, charter_id, request: str, options: list[dict], *, run_id: str, asked: str | None = None):
         """Options of changes, each computed and checked here; the formulator's own numbers are never taken.
@@ -425,14 +453,30 @@ class Charters:
             return self._save(record, updated, "researcher", f"Accepted “{chosen['label']}” for: {proposal['request'][:300]}")
 
     def request(self, charter_id, text: str):
-        """The researcher asks for a change in words; the formulator answers with a proposal."""
+        """The researcher asks for a change in words; the formulator answers with a proposal, the lead on the quick path with
+        a revision."""
         self._listening(charter_id)
         record = self.get(charter_id)
-        prompt = (f"Researcher request about charter {charter_id} (revision {record['revision']}):\n{text}\n\n"
-                  "Answer with charter_propose: one to three options of changes. Use solve for a wanted derived value and "
-                  "expressions for computed values; never state a computed number yourself. Then report briefly.")
-        self._tell_formulator(record, prompt, create=True, request=text)
+        if lead_writes(record):
+            prompt = (f"Researcher request about your charter {charter_id} (revision {record['revision']}), from the Charter tab:\n{text}\n\n"
+                      "Revise the charter with charter_write if the request changes it; use expressions for computed values and never "
+                      "state a computed number yourself. Then reply briefly.")
+        else:
+            prompt = (f"Researcher request about charter {charter_id} (revision {record['revision']}):\n{text}\n\n"
+                      "Answer with charter_propose: one to three options of changes. Use solve for a wanted derived value and "
+                      "expressions for computed values; never state a computed number yourself. Then report briefly.")
+        self._tell_writer(record, prompt, create=True, request=text)
         return self.get(charter_id)
+
+    def _tell_writer(self, record, text, *, create=False, request=None):
+        """The charter's writer hears the researcher: the lead while it writes the charter on the quick path (a turn of the lead,
+        started by the service layer's hook), otherwise the formulator."""
+        lead = getattr(self.workspace, "charter_lead", None)   # installed by the service layer; the core never imports it
+        if lead_writes(record):
+            if lead is None:
+                raise ValueError("The lead writes this charter and the lead is not available in this workspace")
+            return lead(record, text)
+        return self._tell_formulator(record, text, create=create, request=request)
 
     def _tell_formulator(self, record, text, *, create=False, request=None):
         imports = getattr(self.workspace, "problem_imports", None)

@@ -19,7 +19,8 @@ interface SectionData { text: string; items: string[]; latex: string[] }
 interface Revision { id: string; revision: number; sections: Record<string, SectionData>; glossary: { term: string; definition: string }[]; title: string; author: string; reason: string; created_at: string }
 interface Annotation { id: string; anchor: { revision: number; section: string; item_index?: number | null; start: number; end: number; quote: string }; kind: string; question: string; tier: string;
   escalated_from_tier?: string | null; escalation_reason?: string; answer: { text: string; answered_by: string; cost_usd?: number | null } | null; proposed_edit: Record<string, unknown> | null; visual_id?: string | null; status: string; created_at: string }
-interface NoteView { note: { id: string; title: string; current_revision: number; adopted_revision: number | null; charter_id: string | null; import_id: string | null; status: string }; revision: Revision | null;
+// path: quick once the lead wrote the charter itself and the note is read from it (roadmap P2), full once the note is written or adopted.
+interface NoteView { note: { id: string; title: string; current_revision: number; adopted_revision: number | null; charter_id: string | null; import_id: string | null; status: string; path?: 'quick' | 'full' | null }; revision: Revision | null;
   revisions: { id: string; revision: number; author: string; reason: string; created_at: string }[]; annotations: Annotation[]; charter: { import_id?: string; status?: string; error?: string | null; charter_id?: string | null; reply?: string | null; model?: { provider?: string | null; model?: string | null; effort?: string | null } | null; tier?: string | null; usage?: { calls?: number; cost_usd?: number } | null; charter?: Record<string, unknown> } | null; sections: string[]; titles: Record<string, string>; skips: Skips;
   writing?: { run_id: string; status: string } | null; installed?: { problem_id: string; name: string }[] }
 
@@ -36,6 +37,9 @@ function guide(data: NoteView, missing: string[]): { state: string; title: strin
   const write = installed ? 'The campaign runs on an installed problem, which states them: ask the lead to write them from it; it asks you only what the problem leaves open.'
     : 'Ask the lead in the chat to write them, write one yourself with Edit, or ask which can be skipped.';
   if (data.writing) return { state: 'writing', title: 'The lead is writing the note' + (installed ? ' from the installed problem.' : '.'), text: 'Nothing is needed from you yet: the lead says in the chat when the note is ready, or what it needs from you.' };
+  if (data.note.path === 'quick') return (data.charter?.charter as { status?: string } | undefined)?.status === 'confirmed'
+    ? { state: 'done', title: 'The lead wrote the charter from your words, and you confirmed it.', text: 'This note is read from the charter: a change is made to the charter, on the Charter tab.' }
+    : { state: 'quick-confirm', title: 'The lead wrote the charter from your words (the quick path); this note is read from it.', text: 'Confirm the charter on the Charter tab: confirming accepts the assumptions it lists and installs its tasks. Nothing is adopted on this path.' };
   const questions = data.revision?.sections.open_questions?.items?.length || 0;
   if (data.note.status === 'drafting') {
     if (missing.length) return { state: 'incomplete', title: `Not complete: ${missing.length} of ${data.sections.length} sections still to write.`, text: write };
@@ -148,21 +152,24 @@ export default function ProblemNotePage({ campaignId, route, threadId }: PagePro
   const open = data.annotations.filter(a => a.status !== 'rejected');
   const unwritten = data.revision ? data.sections.filter(name => !written(data.revision!.sections[name]) && !skipped(name)).map(name => data.titles[name]) : data.sections;
   const next = guide(data, unwritten);
+  // On the quick path the sections are read from the lead's charter: nothing here is edited, asked about, skipped or adopted.
+  const quick = data.note.path === 'quick';
   // The formulator writes the charter from the whole note: adopting a part of it only brings its questions back to you.
   const adoptWaits = data.writing ? 'The lead is still writing the note; adopt it once it is written'
     : unwritten.length ? `Write ${unwritten.join(', ')} first, or skip with your agreement: the formulator writes the charter from the whole note` : null;
   return (
     <div className="col">
       <div className="stage-head"><h1>{data.note.title}</h1><Pill tone={data.note.status === 'confirmed' ? 'clear' : data.note.status === 'adopted' ? 'agent' : ''}>{data.note.status}</Pill>
-        <span className="muted small">revision {revision?.revision ?? 0}{shownRevision ? ' (viewing an older one)' : ''}</span>
-        {data.note.status === 'drafting' && data.revision ? <button className="btn primary small" onClick={adopt} data-testid="adopt" disabled={!!adoptWaits} title={adoptWaits || 'Hand the note to the formulator, which writes the charter you then confirm'}>Adopt</button> : null}</div>
+        {quick && !shownRevision ? <><Pill tone="agent" title="The lead wrote the charter itself from your words; the note is read from it">quick path</Pill><span className="muted small" data-testid="note-source">read from charter revision {revision?.revision ?? 0}</span></>
+          : <span className="muted small">revision {revision?.revision ?? 0}{shownRevision ? ' (viewing an older one)' : ''}</span>}
+        {data.note.status === 'drafting' && data.revision && !quick ? <button className="btn primary small" onClick={adopt} data-testid="adopt" disabled={!!adoptWaits} title={adoptWaits || 'Hand the note to the formulator, which writes the charter you then confirm'}>Adopt</button> : null}</div>
       <nav className="tabs">{tabs.map(([key, label]) => <a key={key} href={formatHash({ page: 'note', sub: key || null }, route.thread)} className={(sub || '') === key ? 'active' : ''}>{label}</a>)}</nav>
       {error ? <div className="pill bad">{error}</div> : null}
       {!sub ? <>
         {(revision || data.writing) && data.note.status !== 'confirmed' && !shownRevision ? <div className="callout" role="note" data-testid="note-guide" data-state={next.state}><span className="callout-mark" aria-hidden="true">→</span><div className="grow small">
           <strong>{next.title}</strong>
-          <div>{next.state === 'confirm' ? <><a href={formatHash({ page: 'note', sub: 'charter' }, route.thread)}>Open the Charter tab</a>. {next.text}</> : next.text}</div>
-          {data.note.status === 'drafting' && next.state !== 'writing' ? <div className="faint">{HOW}</div> : null}
+          <div>{next.state === 'confirm' || next.state === 'quick-confirm' ? <><a href={formatHash({ page: 'note', sub: 'charter' }, route.thread)}>Open the Charter tab</a>. {next.text}</> : next.text}</div>
+          {data.note.status === 'drafting' && next.state !== 'writing' && !quick ? <div className="faint">{HOW}</div> : null}
         </div></div> : null}
         {!revision ? <Empty>No note yet. Describe the problem to the lead in the conversation, or type /note.</Empty> : <>
         {(() => {
@@ -176,7 +183,7 @@ export default function ProblemNotePage({ campaignId, route, threadId }: PagePro
               title={{ written: 'Written', skipped: 'Left unwritten with your agreement', proposed: 'The lead proposes leaving it unwritten; agree or decline in the section', missing: 'Not written yet: the problem is not defined until it is written or skipped with your agreement' }[state(name)]} onClick={e => { e.preventDefault(); toggle(name, true); document.getElementById(`section-${name}`)?.scrollIntoView({ behavior: 'smooth', block: 'start' }); }}>
               {data.titles[name]}{open.some(a => a.anchor.section === name) ? <span className="faint">· {open.filter(a => a.anchor.section === name).length}</span> : null}</a>)}
             <span className="small faint grow">{missing.length ? `${missing.length} of ${data.sections.length} still to write` + (waiting ? `, ${waiting} with a skip proposed` : '') : Object.keys(data.skips?.skipped || {}).some(skipped) ? 'every section is written or skipped' : 'every section is written'}</span>
-            {missing.length > waiting && data.note.status !== 'confirmed' && !shownRevision && !data.writing ? <button className="btn small" onClick={askSkips} disabled={asked || !threadId} data-testid="ask-skips"
+            {missing.length > waiting && data.note.status !== 'confirmed' && !shownRevision && !data.writing && !quick ? <button className="btn small" onClick={askSkips} disabled={asked || !threadId} data-testid="ask-skips"
               title={data.installed?.length ? 'The lead writes the empty sections from the installed problem the campaign runs on, and asks you only what it leaves open'
                 : 'The lead says which empty sections the confirmed charter already states or that do not apply here, with its reasons, and asks you about the rest; you agree to each skip'}>
               {asked ? 'Asked the lead (see the chat)' : data.installed?.length ? 'Ask the lead to write them' : 'Ask which can be skipped'}</button> : null}
@@ -190,7 +197,7 @@ export default function ProblemNotePage({ campaignId, route, threadId }: PagePro
           const empty = !(section?.text?.trim() || section?.items?.length || section?.latex?.length);
           const skip = empty ? data.skips?.skipped[name] : undefined;
           const offer = empty && (!skip || skip.lapsed) ? proposed(name) : null;
-          const editable = data.note.status !== 'confirmed' && !shownRevision;
+          const editable = data.note.status !== 'confirmed' && !shownRevision && !quick;
           const isFolded = folded.has(name) && editing !== name;
           return (
             <section key={name} id={`section-${name}`} className={'card' + (empty ? ' unwritten' : '') + (isFolded ? ' folded' : '')} data-testid={`section-${name}`} data-empty={empty ? '1' : undefined} data-folded={isFolded ? '1' : undefined} onMouseUp={e => capture(name, e)}>
@@ -286,6 +293,6 @@ function CharterTab({ data, campaignId, version, onChanged }: { data: NoteView; 
   const charterId = data.charter?.charter_id || data.note.charter_id;
   if (data.note.status === 'drafting' && !charterId) return <Empty>Adopt the note first: the formulator writes the charter from it, and you confirm the charter here.</Empty>;
   if (!charterId) return <div className="card"><Pill tone="agent">formulator {data.charter?.status || 'starting'}</Pill> {data.charter?.error ? <span className="pill bad">{data.charter.error}</span> : <span className="small muted">The formulator is writing the charter from the adopted note.</span>}</div>;
-  return <CharterPanel charterId={charterId} campaignId={campaignId} version={version} onChanged={onChanged} formulator={data.charter?.status}
+  return <CharterPanel charterId={charterId} campaignId={campaignId} version={version} onChanged={onChanged} formulator={data.charter?.status} quickNote={data.note.path === 'quick' ? data.note.id : undefined}
     formulatorModel={data.charter?.model?.model ? { name: `${data.charter.model.provider}/${data.charter.model.model}${data.charter.model.effort ? ` · ${data.charter.model.effort}` : ''}`, tier: data.charter.tier || null, calls: data.charter.usage?.calls ?? null } : null} />;
 }

@@ -53,9 +53,12 @@ def definition(workspace, campaign):
     """The problem-definition gate: what still stands between this campaign and work on it (proposals, allocations, autopilot).
 
     A campaign with a problem note must have every section of the note written (or skipped with the researcher's agreement,
-    balsamic.notes.skips), the note adopted at its current revision, the charter confirmed and the tasks installed. A campaign that was never formulated (tasks from a problem adapter or
+    balsamic.notes.skips), the note adopted at its current revision, the charter confirmed and the tasks installed. On the
+    quick path (roadmap track P) the lead wrote the charter and the note is read from it, so the sections and Adopt are not
+    steps: the charter is confirmed, then the tasks installed. A campaign that was never formulated (tasks from a problem adapter or
     a confirmed charter, no note) is defined by its charter. Returns {ready, step, missing} where step is the next_step
-    dict (None when ready) and missing lists the titles of the unwritten sections."""
+    dict (None when ready) and missing lists the titles of the unwritten sections. A step names the note's path once one is
+    taken (quick or full), and says when the quick path is still open (quick_open: no tasks, nothing adopted, no path taken)."""
     from balsamic.notes.service import SECTIONS, TITLES, revision_of
     from balsamic.notes import skips
     store = workspace.store
@@ -68,8 +71,20 @@ def definition(workspace, campaign):
     if note is None:
         if tasks:
             return {"ready": True, "step": None, "missing": []}
-        return {"ready": False, "missing": [], "step": {**base, "kind": "note", "title": "Draft the problem note", "page": "#note",
+        return {"ready": False, "missing": [], "step": {**base, "path": None, "quick_open": True, "kind": "note", "title": "Draft the problem note", "page": "#note",
                 "text": "Ask the lead to write the problem note (/note). Adopting it drafts the charter that experiments run under."}}
+    base["path"] = note.get("path")
+    if note.get("path") == "quick":
+        charter = store.get(note["charter_id"]) if _exists(store, note.get("charter_id")) else None
+        if charter is None or charter.get("status") != "confirmed":
+            return {"ready": False, "missing": [], "step": {**base, "kind": "confirm", "title": "Confirm the charter", "page": "#note/charter",
+                    "text": "The lead wrote the charter from your words (the quick path), and the note is read from it. Review it on the Charter "
+                            "page and confirm it: confirming accepts the assumptions it lists and installs its tasks."}}
+        if not tasks:
+            return {"ready": False, "missing": [], "step": {**base, "kind": "tasks", "title": "Finish the charter hand-over", "page": "#note/charter",
+                    "text": "The charter is confirmed but its tasks are not installed yet; open the Charter page to finish."}}
+        return {"ready": True, "step": None, "missing": []}
+    base["quick_open"] = not tasks and note.get("path") is None and not note.get("import_id") and note.get("adopted_revision") is None
     try:
         revision = revision_of(workspace, note["id"], note["current_revision"]) if note.get("current_revision") else None
     except KeyError:

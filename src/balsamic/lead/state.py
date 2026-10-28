@@ -17,9 +17,13 @@ def gate_line(workspace, campaign):
     if gate["ready"]:
         return ["Gate: open; the problem is defined."]
     step = gate["step"]
-    return [f"Gate: closed. Next: {step['title'].lower()} ({step['page']})." + (" Not written yet: " + ", ".join(step["missing"]) + "." if step.get("missing") else "")
+    # The path once one is taken (track P): quick, the lead's charter with the note read from it; full, the note, Adopt and the
+    # formulator. Before either, a simple problem may still take the quick path.
+    path = f" on the {step['path']} path" if step.get("path") else ""
+    return [f"Gate: closed{path}. Next: {step['title'].lower()} ({step['page']})." + (" Not written yet: " + ", ".join(step["missing"]) + "." if step.get("missing") else "")
             + (" Skipped with the researcher's agreement: " + ", ".join(step["skipped"]) + "." if step.get("skipped") else "")
-            + (" Your skip proposal waits for the researcher: " + ", ".join(step["proposed_skips"]) + "." if step.get("proposed_skips") else "")]
+            + (" Your skip proposal waits for the researcher: " + ", ".join(step["proposed_skips"]) + "." if step.get("proposed_skips") else "")
+            + (" A simple problem may take the quick path instead: write its charter yourself (procedure quick-charter)." if step.get("quick_open") else "")]
 
 
 def evaluator_line(workspace, campaign):

@@ -41,12 +41,14 @@ def test_every_scenario_runs_and_is_graded_on_the_scripted_harness(tmp_path):
     assert "| Unverified numbers |" in (tmp_path / "summary.md").read_text()
     checks = {check["name"]: check["passed"] for check in rows["S15-locked-confirmation"]["runs"][0]["checks"]}
     assert checks == {"no_reads_of": False, "reply_contains_none": True, "request_closed": True}
-    # Track P's baseline (P1): today's path from the researcher's words, the note adopted and the formulator's charter confirmed.
+    # Track P: the simple problem takes the quick path (P2), the lead's charter confirmed in one action after the message; the
+    # reactor stays on today's path (P1's baseline), the note adopted and the formulator's charter confirmed.
     s20, s21 = (rows[key]["runs"][0]["metrics"]["setup"] for key in ("S20-baking-order-in-words", "S21-flow-reaction-in-words"))
-    assert s20["defined"] and s20["actions"] == {"message": 1, "adopt": 1, "confirm": 1} and (s20["rounds"], s20["formulator_turns"]) == (3, 1)
+    assert rows["S20-baking-order-in-words"]["status"] == "pass"
+    assert s20["defined"] and s20["actions"] == {"message": 1, "confirm": 1} and (s20["rounds"], s20["lead_turns"], s20["formulator_turns"]) == (2, 1, 0)
     assert s21["defined"] and s21["actions"] == {"message": 1, "adopt": 1, "answer_charter": 1, "confirm": 1} and s21["formulator_turns"] == 2
-    assert s20["formulator_model_calls"] == 1 and s20["words_to_charter_s"] is not None
-    assert "| S20-baking-order-in-words | 1/1 | 3 (message 1, adopt 1, confirm 1) | 3 | 1 | 1 |" in (tmp_path / "summary.md").read_text()
+    assert s20["formulator_model_calls"] == 0 and s20["words_to_charter_s"] is not None
+    assert "| S20-baking-order-in-words | 1/1 | 2 (message 1, confirm 1) | 2 | 1 | 0 |" in (tmp_path / "summary.md").read_text()
 
 
 def test_checks_grade_from_the_store_and_a_baseline_compares(tmp_path):
@@ -156,6 +158,11 @@ def test_the_define_step_stops_on_what_the_page_cannot_settle_and_says_what_it_w
         result, ctx = evals.run_scenario(stack, scenario, 1, model=None, scale=evals.FAKE_TIME_SCALE, fakes=plays)
         assert "Blocking findings the page does not settle: n_bakes has no value" in result["error"]
         assert [action["kind"] for action in ctx.actions] == ["message", "adopt"] and not result["passed"]
+        # The same on the quick path (P2): the lead's charter, and nothing for the researcher to do but the message.
+        quick = {"S93-define": fakes.quick_charter(fakes.charter_from("baking-order.json", source=fakes.SAID, n_bakes=None))}
+        result, ctx = evals.run_scenario(stack, {**scenario, "id": "S93-define"}, 1, model=None, scale=evals.FAKE_TIME_SCALE, fakes=quick)
+        assert "Blocking findings the page does not settle: n_bakes has no value" in result["error"]
+        assert [action["kind"] for action in ctx.actions] == ["message"] and ctx.store.get("note_" + ctx.campaign_id, "problem_note")["path"] == "quick"
         # A lead that never writes the note: the researcher replies three times, then the step stops.
         result, ctx = evals.run_scenario(stack, {**scenario, "id": "S91-define"}, 1, model=None, scale=evals.FAKE_TIME_SCALE, fakes={})
         assert "The lead did not finish the note after 3 replies: Draft the problem note" in result["error"]
@@ -181,7 +188,10 @@ def test_the_set_up_checks_read_the_confirmed_charter(tmp_path):
     assert evals.check_charter_matches(ctx, {"subset": {"variables": [{"representation": "permutation"}]}, "values": [[30, 45]]}) == (True, "ch r3 matches")
     passed, detail = evals.check_charter_matches(ctx, {"subset": {"objective": {"direction": "maximize"}}, "values": [[30, 46]]})
     assert not passed and detail == "ch r3: objective; no quantity of value [30, 46]"
-    assert evals.check_charter_writer(ctx, "lead") == (True, "saved by lead") and not evals.check_charter_writer(ctx, "formulator")[0]
+    # Who wrote the charter: the record's writer (the quick path's lead), its formulator, else who saved the confirmed revision.
+    assert evals.check_charter_writer(ctx, "lead") == (True, "written by lead") and not evals.check_charter_writer(ctx, "formulator")[0]
+    ctx.store = type("S", (), {"get": lambda self, identity, kind=None: {"charter": {"id": "ch", "revision": 3}, "import_id": "import_1"}})()
+    assert evals.check_charter_writer(ctx, "formulator") == (True, "written by formulator")
 
 
 def test_a_baseline_is_named_by_its_model_and_preset_and_several_compare(tmp_path):

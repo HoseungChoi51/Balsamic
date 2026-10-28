@@ -68,6 +68,28 @@ def register(workspace=None):
                           author="lead", source_message_id=(run.get("origin") or {}).get("message_id"), run_id=run["id"], reason=args.get("reason") or "lead draft")
         return {"note_id": note["id"], "revision": revision["revision"], "link": "#note", "sections": list(revision["sections"])}
 
+    def charter_write(tools, agent, run, args, identity):
+        from balsamic.notes.service import write_charter
+        thread = thread_of_run(tools, run)
+        return {**write_charter(tools.workspace, agent["campaign_id"], args["charter"], confounders=args.get("confounders"), questions=args.get("questions") or [],
+                                reason=args.get("reason") or "", run_id=run["id"], thread_id=thread["id"] if thread else None),
+                "next": "Resolve each blocking finding from the researcher's words (write again; no check needed); what they leave open is a question "
+                        "(at most two, once) or an assumption with a note. Then reply: what the charter states, one line per assumption, and the "
+                        "link for the researcher to confirm it."}
+
+    def charter_read(tools, agent, run, args, identity):
+        from balsamic.notes.service import note_id
+        try:
+            note = tools.store.get(note_id(agent["campaign_id"]), "problem_note")
+        except KeyError:
+            note = {}
+        charter_id = note.get("charter_id") or (tools.store.get(agent["campaign_id"], "campaign").get("charter") or {}).get("id")
+        if not charter_id:
+            raise ValueError("The campaign has no charter yet: write one with charter_write (procedure quick-charter), or adopt the note for the formulator to write it")
+        view = tools.workspace.charters.view(charter_id)
+        return {**{key: view[key] for key in ("id", "revision", "status", "confirmed_revision", "writer", "charter", "values", "errors", "rendered", "findings",
+                                               "question_rounds", "question_rounds_max")}, "path": note.get("path"), "link": "#note/charter"}
+
     def problem_note_propose(tools, agent, run, args, identity):
         from balsamic.notes.service import propose_edit
         annotation = propose_edit(tools.workspace, args["annotation_id"], answer=args["answer"], proposed_edit=args.get("proposed_edit"), author="lead", run_id=run["id"])
@@ -139,5 +161,14 @@ def register(workspace=None):
                       "section": {"enum": ["knobs", "observables", "noise", "constraints", "confounders", "open_questions"]},
                       "basis": {"enum": ["charter", "not_applicable"]}, "charter_refs": {"type": "array", "items": S, "maxItems": 12},
                       "reason": S, "confirm": S}, ["section", "basis", "reason", "confirm"])}}, ["skips"]), problem_note_skip)
+    question = obj({"id": {"type": "string", "pattern": "^[a-z][a-z0-9_]{0,63}$"}, "question": S, "options": {"type": "array", "items": S, "minItems": 2, "maxItems": 4},
+                    "about": {"type": "array", "items": S, "maxItems": 20}, "blocking": {"type": "boolean"}}, ["id", "question", "options"])
+    register_tool("charter_write", "The quick path (procedure quick-charter): write the campaign's problem charter yourself, as a whole charter; a later call "
+                  "revises it. The problem note is then read from it. confounders: the note's confounders section. questions: at most two, in one round, "
+                  "options recommended first. Returns computed values and findings. Refused once the note is adopted or the charter confirmed.",
+                  obj({"charter": {"type": "object"}, "confounders": obj({"text": S, "items": {"type": "array", "items": S, "maxItems": 20}}),
+                       "questions": {"type": "array", "items": question, "maxItems": 2}, "reason": S}, ["charter"]), charter_write)
+    register_tool("charter_read", "The campaign's problem charter as it stands (the researcher may have changed it): its values, texts with values and findings.",
+                  obj(), charter_read)
     register_tool("problem_note_propose", "Answer a question the researcher asked on the note (annotation_id) and, when the note should change, propose the edit; the researcher accepts it.",
                   obj({"annotation_id": S, "answer": S, "proposed_edit": {"type": "object"}}, ["annotation_id", "answer"]), problem_note_propose)

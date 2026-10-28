@@ -307,10 +307,11 @@ CHARTERS = Path(__file__).with_name("charters")
 WORDS = "documents/researcher.md.txt"   # the researcher's own words, as the formulator reads them
 
 
-def charter_from(name, **quantities):
-    """An eval charter as a formulator writes it from the researcher's words: its source is their message."""
+def charter_from(name, *, source=WORDS, **quantities):
+    """An eval charter as it is written from the researcher's words: its source is their message, read by the formulator as a
+    document (WORDS) or by the lead in the conversation (the quick path)."""
     charter = json.loads((CHARTERS / name).read_text())
-    charter["citations"] = [{"id": 1, "source": WORDS, "location": "the researcher's first message"}]
+    charter["citations"] = [{"id": 1, "source": source, "location": "the researcher's first message"}]
     for key, value in quantities.items():
         charter["quantities"][key]["value"] = value
     return charter
@@ -363,6 +364,23 @@ def set_up_from_words(note, charter, *, ask=None):
     return play
 
 
+def quick_charter(charter, *, confounders="None: the objective is computed exactly from the given data."):
+    """The quick path (P2): the lead writes the charter itself from the researcher's message, in one turn, and replies with what
+    it states, its assumptions and the link to confirm it; the note is read from the charter."""
+    def play(turn):
+        if turn.role != "lead" or turn.notice:
+            return unrelated_notice(turn)
+        written = turn.call("charter_write", charter=charter, confounders={"text": confounders}, reason="From the researcher's message")
+        assumptions = [row["message"] for row in written.get("findings", []) if row.get("code") == "assumption.unaccepted"]
+        return turn.finish(f"I wrote the charter from your message: {charter['title']}, {charter['objective']['direction']} "
+                           f"{charter['objective']['name']}. " + ("Assumptions: " + "; ".join(assumptions) + ". " if assumptions else "No assumptions. ")
+                           + "Confirm it on the [Charter](#note/charter) tab; confirming installs its tasks.")
+    return play
+
+
+SAID = "the researcher's message"   # the quick path's citation: the lead reads the words in the conversation
+
+
 REPEATS = {"id": "repeats", "question": "How many repeat measurements per condition?", "options": ["3, as in the method (recommended)", "1"],
            "about": ["repeats"]}
 
@@ -393,6 +411,6 @@ FAKES = {
     "S17-known-exact-algorithm": scripted(known_exact_algorithm),
     "S18-implement-and-compare": scripted(implement_and_compare),
     "S19-charter-to-results": scripted(charter_to_results),
-    "S20-baking-order-in-words": set_up_from_words(BAKING_NOTE, charter_from("baking-order.json")),
+    "S20-baking-order-in-words": quick_charter(charter_from("baking-order.json", source=SAID)),
     "S21-flow-reaction-in-words": set_up_from_words(REACTOR_NOTE, charter_from("flow-reactor.json"), ask=REPEATS),
 }

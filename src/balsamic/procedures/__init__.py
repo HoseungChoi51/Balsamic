@@ -20,7 +20,7 @@ BODY_BYTES = 24 * 1024
 NAME = re.compile(r"[a-z0-9]+(-[a-z0-9]+)*")
 # The tool, or the command, that starts a workflow, and the procedure for it.
 TOOL_HINTS = {"report_write": "report-brief", "problem_note_draft": "problem-formulation", "implementation_workspace_create": "implementation-supervision",
-              "panel_render": "panels"}
+              "panel_render": "panels", "charter_write": "quick-charter"}
 COMMAND_HINTS = {"hypothesis.create": "proposal-fields", "hypothesis.edit": "proposal-fields", "journal.compaction_request": "journal-cleanup",
                  "finding.record": "recording-findings", "runtime.profile": "runtime-profiling"}
 

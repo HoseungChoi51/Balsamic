@@ -1,6 +1,6 @@
 {
   "id": "S20-baking-order-in-words",
-  "source": "Track P (P1): a simple problem set up from the researcher's words to a confirmed charter, measured. Every number is in the first message; the target is one researcher action after it, the confirmation",
+  "source": "Track P (P1, P2): a simple problem set up from the researcher's words to a confirmed charter, measured. Every number is in the first message; on the quick path the lead writes the charter itself and the researcher's one action after the message is the confirmation",
   "setup": {"preset": "baking_words", "llm_budget_usd": 1.0},
   "steps": [
     {"say": "One oven takes 8 bakes, one after another. Their durations in minutes, bake 0 to 7: 30, 45, 20, 60, 35, 25, 50, 40. Their due times, in minutes from the oven's start: 210, 130, 200, 110, 190, 100, 40, 120. A bake that ends after its due time is late by the difference. Find the order that minimizes the total lateness. Set the problem up so we can start."},
@@ -10,8 +10,8 @@
     {"definition_ready": true},
     {"charter_matches": {"subset": {"objective": {"direction": "minimize"}, "variables": [{"representation": "permutation"}], "evaluator": {"deterministic": true}},
                          "values": [[30, 45, 20, 60, 35, 25, 50, 40], [210, 130, 200, 110, 190, 100, 40, 120]]}},
-    {"setup_actions_at_most": 2}
+    {"setup_actions_at_most": 2},
+    {"charter_writer": "lead"}
   ],
-  "known_failure": "Today's path takes the note's Adopt and the formulator's charter before the confirmation: three researcher actions, until P2",
   "repeats": 1
 }
