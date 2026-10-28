@@ -61,6 +61,11 @@ class AskTellAdapter:
     def inspect(self):
         return self.optimizer.diagnostics()
 
+    def open_objective(self, objective):
+        """A white-box problem's objective (N11), for a bundled method that uses it (enumerate); the others ignore it."""
+        if hasattr(self.optimizer, "open_objective"):
+            self.optimizer.open_objective(objective)
+
     def export_artifacts(self):
         return self.optimizer.export_artifacts() if hasattr(self.optimizer, "export_artifacts") else []
 

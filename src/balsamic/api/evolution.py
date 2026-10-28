@@ -29,7 +29,9 @@ def install(app, workspace):
                                                           "worker_seconds_spent", "worker_seconds_cap", "configurations", "decisions")})
         body = {"campaign_id": campaign_id, "event_cursor": cursor, "unchanged": False, "nodes": rows, "layout": nodes, "edges": lineage.edges_of(rows), "rounds": last_round,
                 "races": races, "finalists": workspace.store.list("finalist_selection", campaign_id), "confirmations": workspace.store.list("confirmation_protocol", campaign_id),
-                "stage": campaign_stage(workspace, campaign), "interventions": workspace.store.list("intervention", campaign_id)[-20:]}
+                "stage": campaign_stage(workspace, campaign), "interventions": workspace.store.list("intervention", campaign_id)[-20:],
+                # Per task: best value, best bound, gap, and whether a claim of optimality is checked (N13).
+                "optimality": ledger.optimality(workspace, campaign_id)}
         if progress:
             live = workspace.store.list_trials_in_status({"queued", "running", "pausing", "stopping"}, campaign_id)
             # The best under the campaign's direction; none when its strategies disagree on direction.

@@ -164,7 +164,7 @@ def test_check_function_passes_for_a_seeded_method(library):
     assert one_shot["ended"] == {"0": "returned", "7": "returned"}
     endless = conformance.check_function(plugin(package), "walk", instance(), max_evaluations=12)
     assert endless["ended"] == {"0": "cap", "7": "cap"}
-    assert endless["checks"] == ["valid candidates", "seeded replay", "checkpoint continuation", "clean end"]
+    assert endless["checks"] == ["valid candidates", "seeded replay", "checkpoint continuation", "clean end", "bounds its own best does not beat"]
 
 
 def test_check_function_uses_the_problems_own_evaluator(library):
