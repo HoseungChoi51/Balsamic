@@ -60,7 +60,7 @@ class PreparedWorkspace:
     def capability(self):
         return {"available": True, "image": self.image}
 
-    def prepare(self, record, brief, evidence, ticket=None):
+    def prepare(self, record, brief, evidence, ticket=None, references=()):
         from optimization_framework.agents.development_runtime import write_ticket
         root = self.root(record)
         for name in ("incoming/commands", "incoming/results", "outgoing/events"):
