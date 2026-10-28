@@ -1,0 +1,496 @@
+{
+  "charter_id": "problem_charter_a91789d0313f4227",
+  "revision": 8,
+  "content_hash": "f1f16d28019d5118e84d7f2a47e1eed1060485e62dbceba0065f91c9a5723f5b",
+  "charter": {
+    "schema_version": 1,
+    "title": "단일 오븐 주문 순서의 총 픽업 지연 최소화",
+    "summary": "고정된 주문 {n_orders}개의 굽기 순서를 선택하여 총 픽업 지연시간을 최소화한다. 단일 오븐에서 중단이나 유휴시간 없이 처리하며, 조기 완료에는 보상이나 벌점이 없다.",
+    "text": "주문 {n_orders}개를 단일 오븐에서 처리하는 순열을 설계한다. 시작 시각은 자정 이후 {start_minutes}이며, 모든 완료·픽업 시각은 이 시작을 원점으로 하는 분 단위로 비교한다. 주문별 굽는 시간과 픽업 시각은 고정 입력이다.\n\n첫 주문을 즉시 시작하고 각 주문이 끝나면 다음 주문을 즉시 시작한다. 중단, 분할, 동시 굽기, 취소, 다른 오븐 사용은 허용하지 않는다. 별도의 예열·교체·냉각·포장 시간이나 작업 가능 시각, 선후관계는 포함하지 않는다.\n\n순서대로 굽는 시간을 누적하여 완료 시각을 구하고, 주문마다 완료 시각에서 픽업 시각을 뺀 값과 영 중 큰 값을 지연으로 계산한 뒤 합산한다. 픽업 시각은 실행 가능성 제약이 아니다. 총 지연이 같은 순서는 동등하며, 최종 완료 시각 단축이나 신선도는 별도 목적이 아니다. 최종 순서와 주문별 시작·완료·픽업·지연을 기록한다. 기준 순서는 {order_names}의 나열 순서이며 동일한 규칙으로 비교한다.",
+    "quantities": {
+      "n_orders": {
+        "description": "주문 수",
+        "kind": "integer",
+        "role": "input",
+        "value": 8,
+        "expression": null,
+        "units": "1",
+        "range": [
+          1.0,
+          null
+        ],
+        "origin": "source",
+        "citation": 1,
+        "accepted": false,
+        "note": ""
+      },
+      "minutes_per_hour": {
+        "description": "시간을 분으로 변환하는 계수",
+        "kind": "integer",
+        "role": "input",
+        "value": 60,
+        "expression": null,
+        "units": "min/h",
+        "range": [
+          1.0,
+          null
+        ],
+        "origin": "researcher",
+        "citation": 5,
+        "accepted": false,
+        "note": "첫 질문 라운드에서 연구자가 표준 시간 환산을 승인했다."
+      },
+      "start_minutes": {
+        "description": "자정 이후 굽기 시작 시각",
+        "kind": "number",
+        "role": "derived",
+        "value": null,
+        "expression": "6 * minutes_per_hour",
+        "units": "min",
+        "range": null,
+        "origin": "computed",
+        "citation": 1,
+        "accepted": false,
+        "note": ""
+      },
+      "order_names": {
+        "description": "순열 인덱스에 대응하는 주문 이름",
+        "kind": "data",
+        "role": "input",
+        "value": [
+          "식빵",
+          "바게트",
+          "크루아상",
+          "케이크",
+          "머핀",
+          "쿠키",
+          "타르트",
+          "베이글"
+        ],
+        "expression": null,
+        "units": "",
+        "range": null,
+        "origin": "source",
+        "citation": 2,
+        "accepted": false,
+        "note": ""
+      },
+      "p_bread": {
+        "description": "식빵 굽는 시간",
+        "kind": "number",
+        "role": "input",
+        "value": 40,
+        "expression": null,
+        "units": "min",
+        "range": [
+          1.0,
+          null
+        ],
+        "origin": "source",
+        "citation": 2,
+        "accepted": false,
+        "note": ""
+      },
+      "p_baguette": {
+        "description": "바게트 굽는 시간",
+        "kind": "number",
+        "role": "input",
+        "value": 30,
+        "expression": null,
+        "units": "min",
+        "range": [
+          1.0,
+          null
+        ],
+        "origin": "source",
+        "citation": 2,
+        "accepted": false,
+        "note": ""
+      },
+      "p_croissant": {
+        "description": "크루아상 굽는 시간",
+        "kind": "number",
+        "role": "input",
+        "value": 25,
+        "expression": null,
+        "units": "min",
+        "range": [
+          1.0,
+          null
+        ],
+        "origin": "source",
+        "citation": 2,
+        "accepted": false,
+        "note": ""
+      },
+      "p_cake": {
+        "description": "케이크 굽는 시간",
+        "kind": "number",
+        "role": "input",
+        "value": 60,
+        "expression": null,
+        "units": "min",
+        "range": [
+          1.0,
+          null
+        ],
+        "origin": "source",
+        "citation": 2,
+        "accepted": false,
+        "note": ""
+      },
+      "p_muffin": {
+        "description": "머핀 굽는 시간",
+        "kind": "number",
+        "role": "input",
+        "value": 20,
+        "expression": null,
+        "units": "min",
+        "range": [
+          1.0,
+          null
+        ],
+        "origin": "source",
+        "citation": 2,
+        "accepted": false,
+        "note": "베이글과 값이 같지만 별도 주문의 독립된 고정 입력이다."
+      },
+      "p_cookie": {
+        "description": "쿠키 굽는 시간",
+        "kind": "number",
+        "role": "input",
+        "value": 15,
+        "expression": null,
+        "units": "min",
+        "range": [
+          1.0,
+          null
+        ],
+        "origin": "source",
+        "citation": 2,
+        "accepted": false,
+        "note": ""
+      },
+      "p_tart": {
+        "description": "타르트 굽는 시간",
+        "kind": "number",
+        "role": "input",
+        "value": 35,
+        "expression": null,
+        "units": "min",
+        "range": [
+          1.0,
+          null
+        ],
+        "origin": "source",
+        "citation": 2,
+        "accepted": false,
+        "note": ""
+      },
+      "p_bagel": {
+        "description": "베이글 굽는 시간",
+        "kind": "number",
+        "role": "input",
+        "value": 20,
+        "expression": null,
+        "units": "min",
+        "range": [
+          1.0,
+          null
+        ],
+        "origin": "source",
+        "citation": 2,
+        "accepted": false,
+        "note": "머핀과 값이 같지만 별도 주문의 독립된 고정 입력이다."
+      },
+      "d_bread": {
+        "description": "식빵 픽업 시각, 시작 기준",
+        "kind": "number",
+        "role": "derived",
+        "value": null,
+        "expression": "9 * minutes_per_hour + 5 - start_minutes",
+        "units": "min",
+        "range": null,
+        "origin": "computed",
+        "citation": 2,
+        "accepted": false,
+        "note": ""
+      },
+      "d_baguette": {
+        "description": "바게트 픽업 시각, 시작 기준",
+        "kind": "number",
+        "role": "derived",
+        "value": null,
+        "expression": "9 * minutes_per_hour + 50 - start_minutes",
+        "units": "min",
+        "range": null,
+        "origin": "computed",
+        "citation": 2,
+        "accepted": false,
+        "note": ""
+      },
+      "d_croissant": {
+        "description": "크루아상 픽업 시각, 시작 기준",
+        "kind": "number",
+        "role": "derived",
+        "value": null,
+        "expression": "8 * minutes_per_hour + 30 - start_minutes",
+        "units": "min",
+        "range": null,
+        "origin": "computed",
+        "citation": 2,
+        "accepted": false,
+        "note": ""
+      },
+      "d_cake": {
+        "description": "케이크 픽업 시각, 시작 기준",
+        "kind": "number",
+        "role": "derived",
+        "value": null,
+        "expression": "8 * minutes_per_hour + 55 - start_minutes",
+        "units": "min",
+        "range": null,
+        "origin": "computed",
+        "citation": 2,
+        "accepted": false,
+        "note": ""
+      },
+      "d_muffin": {
+        "description": "머핀 픽업 시각, 시작 기준",
+        "kind": "number",
+        "role": "derived",
+        "value": null,
+        "expression": "10 * minutes_per_hour - start_minutes",
+        "units": "min",
+        "range": null,
+        "origin": "computed",
+        "citation": 2,
+        "accepted": false,
+        "note": ""
+      },
+      "d_cookie": {
+        "description": "쿠키 픽업 시각, 시작 기준",
+        "kind": "number",
+        "role": "derived",
+        "value": null,
+        "expression": "8 * minutes_per_hour + 20 - start_minutes",
+        "units": "min",
+        "range": null,
+        "origin": "computed",
+        "citation": 2,
+        "accepted": false,
+        "note": ""
+      },
+      "d_tart": {
+        "description": "타르트 픽업 시각, 시작 기준",
+        "kind": "number",
+        "role": "derived",
+        "value": null,
+        "expression": "6 * minutes_per_hour + 45 - start_minutes",
+        "units": "min",
+        "range": null,
+        "origin": "computed",
+        "citation": 2,
+        "accepted": false,
+        "note": ""
+      },
+      "d_bagel": {
+        "description": "베이글 픽업 시각, 시작 기준",
+        "kind": "number",
+        "role": "derived",
+        "value": null,
+        "expression": "8 * minutes_per_hour + 15 - start_minutes",
+        "units": "min",
+        "range": null,
+        "origin": "computed",
+        "citation": 2,
+        "accepted": false,
+        "note": ""
+      }
+    },
+    "tables": {},
+    "variables": [
+      {
+        "name": "baking_order",
+        "description": "모든 주문을 각각 한 번만 포함하는 굽기 순서",
+        "representation": "permutation",
+        "shape": [
+          "n_orders"
+        ],
+        "lower": null,
+        "upper": null,
+        "values": [],
+        "units": "1",
+        "meaning": "order_names 배열의 인덱스 순열; 각 주문은 정확히 한 번 등장한다.",
+        "layout": "처리 순서대로 나열한 영 기반 인덱스; 연구자 승인(인용 5)."
+      }
+    ],
+    "constraints": [
+      {
+        "id": "serial_nonpreemptive_no_idle",
+        "statement": "평가기의 누적합 일정 구성으로 시작 원점에서 첫 주문을 시작하고 단일 오븐에서 분할·중단·동시 처리·유휴시간 없이 모든 주문을 처리한다. 평가기는 순열 유효성도 검사해야 한다.",
+        "kind": "hard",
+        "form": "evaluator",
+        "test": null,
+        "terms": [],
+        "relation": null,
+        "bound": null,
+        "citation": 3
+      }
+    ],
+    "objective": {
+      "name": "total_pickup_tardiness",
+      "direction": "minimize",
+      "units": "min",
+      "definition": "각 순열 위치 k에서 C[pi[k]]=sum(p[pi[l]] for l<=k), T[j]=max(0,C[j]-d[j]); 목표는 모든 주문의 T[j] 합계다. 입력 시각은 시작 원점 기준이며 조기 완료의 음수 차이는 다른 주문 지연에서 차감하지 않는다. 가중치나 반복 평균 없이 결정적으로 계산한다.",
+      "citation": 1
+    },
+    "metrics": [
+      {
+        "name": "schedule",
+        "units": "1",
+        "direction": null,
+        "definition": "최종 순열과 주문명 대응을 기록한다."
+      },
+      {
+        "name": "start_times",
+        "units": "min",
+        "direction": null,
+        "definition": "각 주문의 시작 시각, 시작 원점 기준."
+      },
+      {
+        "name": "completion_times",
+        "units": "min",
+        "direction": null,
+        "definition": "각 주문의 완료 시각, 시작 원점 기준."
+      },
+      {
+        "name": "pickup_times",
+        "units": "min",
+        "direction": null,
+        "definition": "각 주문의 고정 픽업 시각, 시작 원점 기준."
+      },
+      {
+        "name": "tardiness_by_order",
+        "units": "min",
+        "direction": null,
+        "definition": "각 주문의 max(0, 완료 시각 - 픽업 시각)."
+      }
+    ],
+    "evaluator": {
+      "kind": "declared",
+      "problem_id": "single_oven_total_tardiness",
+      "configuration": {
+        "n_orders": "n_orders",
+        "order_names": "order_names",
+        "start_minutes": "start_minutes",
+        "p_bread": "p_bread",
+        "p_baguette": "p_baguette",
+        "p_croissant": "p_croissant",
+        "p_cake": "p_cake",
+        "p_muffin": "p_muffin",
+        "p_cookie": "p_cookie",
+        "p_tart": "p_tart",
+        "p_bagel": "p_bagel",
+        "d_bread": "d_bread",
+        "d_baguette": "d_baguette",
+        "d_croissant": "d_croissant",
+        "d_cake": "d_cake",
+        "d_muffin": "d_muffin",
+        "d_cookie": "d_cookie",
+        "d_tart": "d_tart",
+        "d_bagel": "d_bagel"
+      },
+      "fidelity": {},
+      "deterministic": true,
+      "notes": "설치된 평가기 중 이 순열 일정을 계산하는 것은 없다. 제공 코드도 없다. 구현 명세: documents/statement.md.txt lines 5-16, 20-25, 36-41 및 documents/researcher.md.txt lines 25-45. baking_order를 order_names의 영 기반 인덱스 순열로 받아 길이, 범위, 중복·누락을 검사한다. 인용 5의 연구자 답변에 따라 영 기반 인덱스와 주문명 대응 기록을 사용한다. n_orders와 주문 데이터 길이가 일치하는지 검사한다. p 및 d 필드를 이름 배열의 순서로 대응한다. elapsed를 영으로 시작하여 각 주문 시작을 elapsed로 기록하고 p를 더하여 완료 시각을 기록한다. T=max(0,elapsed-d)를 계산하여 합계를 반환하며 최종 순서와 주문별 시작·완료·픽업·지연도 반환한다. 시계 시각을 표시할 때만 start_minutes를 더한다. 기준 순서는 order_names의 나열 순서로 생성하고 같은 계산으로 별도 평가한다. 독립 검산은 누적합 및 주문별 양의 지연을 직접 대조한다. 기준 점수와 최적값은 아직 알려진 결과가 아니며 구현 시 새로 측정한다. 최적성 주장에는 별도 검증 근거가 필요하다. 고정 입력의 정확한 산술 계산으로 근사 솔버 설정이나 확률 반복은 없다."
+    },
+    "instances": [
+      {
+        "name": "주어진 당일 주문",
+        "split": "development",
+        "values": {},
+        "note": "연구자가 제공한 고정 주문 집합. 별도 미공개 조건은 없다."
+      }
+    ],
+    "references": [
+      {
+        "statement": "기준 순서는 주문 데이터의 나열 순서이며, 채택된 문제 노트 시점에는 기준 점수 평가나 최적 순서 탐색이 수행되지 않았다.",
+        "value": null,
+        "units": "",
+        "holds_at": {},
+        "citation": 4
+      }
+    ],
+    "citations": [
+      {
+        "id": 1,
+        "source": "documents/statement.md.txt",
+        "location": "lines 5-16",
+        "quote": "시간 원점은 오전 6:00이며 ... min ΣT, C는 누적 굽는 시간, T=max(0,C-d)."
+      },
+      {
+        "id": 2,
+        "source": "documents/researcher.md.txt",
+        "location": "lines 25-45",
+        "quote": "식빵 40분 9:05; 바게트 30분 9:50; 크루아상 25분 8:30; 케이크 60분 8:55; 머핀 20분 10:00; 쿠키 15분 8:20; 타르트 35분 6:45; 베이글 20분 8:15."
+      },
+      {
+        "id": 3,
+        "source": "documents/statement.md.txt",
+        "location": "lines 29-50",
+        "quote": "한 번에 주문 하나 ... 이전 주문이 끝나는 즉시 다음 주문을 시작 ... 별도의 예열·교체·냉각·포장 시간은 더하지 않는다."
+      },
+      {
+        "id": 4,
+        "source": "documents/statement.md.txt",
+        "location": "lines 22-25, 55-59",
+        "quote": "아직 기준 순서의 수치 평가나 최적 순서 탐색은 수행하지 않았다. ... 필요한 입력상의 미해결 질문은 없다."
+      },
+      {
+        "id": 5,
+        "source": "Researcher answers, round 1",
+        "location": "time_unit_convention; permutation_index_convention",
+        "quote": "표준 환산(1시간 = 60분)을 승인한다. 원문의 시각을 정확하게 분으로 변환한다. / 영 기반 인덱스 순열을 승인한다. 주문명과의 대응을 함께 기록한다."
+      }
+    ],
+    "assumptions": [],
+    "questions": [
+      {
+        "id": "time_unit_convention",
+        "question": "시각을 시작 기준 분으로 환산할 때 표준 시간 단위 환산을 적용하도록 초안에 표시했습니다. 이를 승인할까요?",
+        "options": [
+          "표준 환산(1시간 = 60분)을 승인한다. 원문의 시각을 정확하게 분으로 변환한다.",
+          "원문 시각을 유지하여 평가기 내부에서 같은 표준 환산을 수행하도록 바꾼다."
+        ],
+        "unrunnable_options": [],
+        "about": [
+          "minutes_per_hour"
+        ],
+        "blocking": true,
+        "answer": "표준 환산(1시간 = 60분)을 승인한다. 원문의 시각을 정확하게 분으로 변환한다.",
+        "answered_at": "2026-10-28T02:08:21.311706+00:00",
+        "sent": true
+      },
+      {
+        "id": "permutation_index_convention",
+        "question": "평가기와 순열 사이의 구현 관례로, 주문 목록의 첫 항목을 인덱스 0으로 표현하도록 했습니다. 어떤 표현을 사용할까요? 허용되는 실제 굽기 순서와 점수는 동일합니다.",
+        "options": [
+          "영 기반 인덱스 순열을 승인한다. 주문명과의 대응을 함께 기록한다.",
+          "일 기반 인덱스 순열을 사용한다. 평가기에서 주문 목록과 대응시킨다."
+        ],
+        "unrunnable_options": [],
+        "about": [
+          "baking_order",
+          "order_names"
+        ],
+        "blocking": true,
+        "answer": "영 기반 인덱스 순열을 승인한다. 주문명과의 대응을 함께 기록한다.",
+        "answered_at": "2026-10-28T02:08:26.966812+00:00",
+        "sent": true
+      }
+    ],
+    "waivers": [],
+    "forked_from": null
+  }
+}
