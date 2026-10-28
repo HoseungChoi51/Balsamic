@@ -73,7 +73,7 @@ class Box:
     def capability(self):
         return {"available": True}
 
-    def prepare(self, record, brief, evidence, library=None, ticket=None):
+    def prepare(self, record, brief, evidence, library=None, ticket=None, references=()):
         root = self.root(record)
         for name in ("incoming/commands", "incoming/results", "outgoing/events"):
             (root / name).mkdir(parents=True, exist_ok=True)

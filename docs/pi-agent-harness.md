@@ -178,7 +178,9 @@ what that work produced. Four things follow from this.
   full reply, its saved documents and its verdicts, and the response of whoever asked. A table
   above the rounds gives, for every proposal and its revisions, the verdicts in order. A Graph view of the
   same records (`#hypotheses/rounds/graph`) draws who asked whom, the verdicts, and how each proposal was
-  created (the round whose turn ran its `hypothesis.create`) and revised.
+  created (the round whose turn ran its `hypothesis.create`) and revised. A round the moderator ran shows its
+  synthesis (`review_synthesis`) beside the reviewers' tally of each proposal's exact revision, with a badge on each
+  standing, and each status the moderator set, that goes against the verdicts (roadmap T2).
 - **No agent panel above the pages.** The lead is in the chat. Pausing, stopping, sign-in and the
   list of agents are on the Agents page (`#agents`), with the models, the guidance, the usage and the
   log as its tabs. The lead's questions are kept above the chat's message box, to answer or dismiss
@@ -192,7 +194,7 @@ the researcher or the lead writes to it, and acts on nothing else.
 
 | Agent | Page | Commands (`ROLE_OPERATIONS`) | Also |
 |---|---|---|---|
-| Discussion moderator | Hypotheses | `hypothesis.create`, `.review`, `.status`; `approval.request` | `delegate` to specialists and reviewers only; their results come back to it |
+| Discussion moderator | Hypotheses | `hypothesis.create`, `.review`, `.status`; `approval.request` | `delegate` to specialists and reviewers only; their results come back to it. A round with reviewers completes only after `review_synthesis` |
 | Experiment operator | Experiments | `draft.save`, `draft.launch`, `trial.create`, `trial.control`, `trial.extension_request`, `trial.continue`, `runtime.profile`, `comparison.report`; `approval.request` | in campaigns on a problem whose pack adds commands, those it names (MEENT's `fixed_mask.run`) |
 | Implementation lead | Implementations | `implementation.commission`, `.attach`, `.revalidate`, `.bind_builtin`, `.resolve_runtime`; `evaluator.commission`, `.attach`, `.equivalence`; `approval.request` | the `implementation_workspace_*` tools |
 
