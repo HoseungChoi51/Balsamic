@@ -10,7 +10,7 @@ import math
 import re
 from typing import Any
 
-from optimization_framework.contracts.problem_charter import REFERENCE, ProblemCharter
+from optimization_framework.contracts.problem_charter import NAME, REFERENCE, ProblemCharter
 
 from .expressions import ExpressionError, degree_arguments, evaluate, names
 
@@ -458,6 +458,8 @@ def findings(charter, registry=None) -> list[dict]:
                 out.append(finding("variable.bounds", "blocking", variable.name, f"{variable.name}'s lower bound is not below its upper bound.", [variable.name]))
         if variable.representation == "discrete" and not variable.values:
             out.append(finding("variable.values", "blocking", variable.name, f"{variable.name} is discrete and needs its permitted values.", [variable.name]))
+        if variable.representation == "structured":
+            out.extend(structured_findings(variable, charter))
         if variable.representation == "permutation":
             if len(variable.shape) != 1:
                 out.append(finding("variable.shape", "blocking", variable.name, f"{variable.name} is an order and needs a "
@@ -625,6 +627,12 @@ def constraint_findings(charter, values, tables, sizes):
                 out.append(finding("constraint.variable", "blocking", constraint.id, f"Constraint {constraint.id} uses {', '.join(missing)}, "
                     "which are not decision variables.", missing))
                 continue
+            owned = [term.variable for term in constraint.terms if variables[term.variable].representation == "structured"]
+            if owned:
+                out.append(finding("constraint.structured", "blocking", constraint.id, f"Constraint {constraint.id} is linear in "
+                    f"{', '.join(owned)}, a structured value; the lab cannot weigh it. State it as a rule the library checks (form "
+                    "evaluator) or a design constraint over its fields.", owned))
+                continue
             ordered = [term.variable for term in constraint.terms if variables[term.variable].representation == "permutation"]
             if ordered:
                 out.append(finding("constraint.permutation", "blocking", constraint.id, f"Constraint {constraint.id} is linear in "
@@ -648,25 +656,62 @@ def constraint_findings(charter, values, tables, sizes):
     return out
 
 
+def structured_findings(variable, charter) -> list[dict]:
+    """A structured variable (N12) is the candidate alone, says what it is and how it is laid out, and has no bounds."""
+    out = []
+    if len(charter.variables) > 1:
+        out.append(finding("variable.structured", "blocking", variable.name, f"{variable.name} is structured: its value is the whole "
+            "candidate, owned by the problem's library, so it is the only decision variable. Make the others part of it, or inputs "
+            "of each instance.", [variable.name]))
+    if variable.shape or variable.lower is not None or variable.upper is not None or variable.values:
+        out.append(finding("variable.structured", "blocking", f"{variable.name}:domain", f"{variable.name} is structured and takes "
+            "no shape, bounds or permitted values: its library says what a valid value is. Remove them.", [variable.name]))
+    missing = [part for part in ("meaning", "layout") if not getattr(variable, part).strip()]
+    if missing:
+        out.append(finding("variable.structured", "blocking", f"{variable.name}:prose", f"{variable.name} is structured: say "
+            f"{' and '.join(missing)} in words (what the value stands for, and how it is laid out, e.g. a list of job orders, one "
+            "per machine).", [variable.name]))
+    bad = [name for name in variable.fields if not re.fullmatch(NAME, name)]
+    clash = sorted(set(variable.fields) & set(charter.quantities))
+    if bad or clash or len(set(variable.fields)) != len(variable.fields):
+        out.append(finding("variable.structured", "blocking", f"{variable.name}:fields", f"The fields of {variable.name} need "
+            "distinct names of lowercase letters, digits and _ that are not quantities" + (f" ({', '.join(bad + clash)})" if bad or clash
+            else "") + ".", [variable.name]))
+    return out
+
+
+def structure_fields(charter) -> set[str]:
+    return {name for variable in charter.variables if variable.representation == "structured" for name in variable.fields}
+
+
 def design_findings(constraint, charter, values, tables, sizes):
-    """A design constraint names decision variables (and number quantities), and gives true or false on designs."""
+    """A design constraint names decision variables (and number quantities), and gives true or false on designs. On a
+    structured candidate (N12) it reads the fields its library derives, and only the library can compute them."""
     variables = {variable.name: variable for variable in charter.variables}
+    fields = structure_fields(charter)
     try:
         read = names(constraint.test)
     except ExpressionError as exc:
         return [finding("constraint.test", "blocking", constraint.id, f"Constraint {constraint.id}: {exc}.", [])]
-    unknown = sorted(name for name in read if name not in variables and name not in charter.quantities)
+    structured = [name for name in read if name in variables and variables[name].representation == "structured"]
+    if structured:
+        return [finding("constraint.design_name", "blocking", constraint.id, f"Constraint {constraint.id} reads {', '.join(structured)}, "
+            "a structured value; a design constraint reads the fields its library names.", structured)]
+    unknown = sorted(name for name in read if name not in variables and name not in charter.quantities and name not in fields)
     if unknown:
         return [finding("constraint.design_name", "blocking", constraint.id, f"Constraint {constraint.id} reads {', '.join(unknown)}, "
-            "which are neither decision variables nor quantities.", unknown)]
+            "which are neither decision variables nor quantities" + (" nor fields of the structured candidate" if fields else "") + ".",
+            unknown)]
     wrong = sorted(name for name in read if name in charter.quantities and charter.quantities[name].kind not in {"number", "integer", "boolean"})
     if wrong:
         return [finding("constraint.design_name", "blocking", constraint.id, f"Constraint {constraint.id} reads {', '.join(wrong)}, which "
             "are not numbers; a design constraint reads decision variables and number quantities.", wrong)]
     used = sorted(name for name in read if name in variables)
-    if not used:
+    if not used and not read & fields:
         return [finding("constraint.design_name", "blocking", constraint.id, f"Constraint {constraint.id} reads no decision variable; "
             "a condition on quantities alone is a test on quantities.", [])]
+    if read & fields:
+        return []   # the fields come from the library's code: the library checks the condition on every candidate
     if any(name not in sizes for name in used):
         return []   # a variable's size is unknown; its own finding says why
     constants = {name: values.get(name) for name in read if name in charter.quantities}
@@ -913,6 +958,10 @@ def compare_provided(manifest, instance) -> list[dict]:
     want, have = manifest.candidate_schema, instance.candidate_schema
     if want.representation != have.representation:
         differ("representation", want.representation, have.representation)
+    if want.structure is not None and have.structure is not None:
+        for part in ("owner", "meaning", "layout", "fields"):
+            if getattr(want.structure, part) != getattr(have.structure, part):
+                differ(f"structure {part}", str(getattr(want.structure, part)), str(getattr(have.structure, part)))
     if want.dimensions != have.dimensions:
         differ("dimensions", f"{want.dimensions} values", f"{have.dimensions} values")
     if not close(want.bounds, have.bounds):
@@ -1259,7 +1308,8 @@ def compile_setups(charter, registry=None) -> list[dict]:
 def manifest(charter, values):
     """The declared problem a charter describes, for an evaluator to be built."""
     from optimization_framework.contracts.evaluators import EvaluatorManifest
-    from optimization_framework.contracts.problems import CandidateSchema, Constraint, DesignConstraint, Objective, SchemaVariable
+    from optimization_framework.contracts.problems import (CandidateSchema, Constraint, DesignConstraint, Objective, SchemaVariable,
+                                                            Structure)
     tables = {name: table.points for name, table in charter.tables.items()}
     sizes = {variable.name: size(variable, values) for variable in charter.variables}
     kinds = {variable.representation for variable in charter.variables}
@@ -1301,8 +1351,14 @@ def manifest(charter, values):
     checks = [DesignConstraint(name=constraint.id, expression=constraint.test,
                                constants={name: values[name] for name in names(constraint.test) if name in charter.quantities})
               for constraint in design]
-    candidate = CandidateSchema(representation=representation, dimensions=at, bounds=bounds, values=discrete, constraints=linear,
-                                variables=named, design=checks)
+    if representation == "structured":   # the library owns the value (N12); its rules are given the instance's configuration
+        variable = charter.variables[0]
+        candidate = CandidateSchema(representation="structured", dimensions=1, design=checks, structure=Structure(
+            owner=charter.evaluator.problem_id, meaning=variable.meaning, layout=variable.layout, fields=variable.fields,
+            context={f: values[n] for f, n in charter.evaluator.configuration.items()}))
+    else:
+        candidate = CandidateSchema(representation=representation, dimensions=at, bounds=bounds, values=discrete, constraints=linear,
+                                    variables=named, design=checks)
 
     def schema(fields):
         properties = {}

@@ -8,7 +8,8 @@ A method is `method(problem, evaluate, rng)`:
 - `problem` is a `Problem` (problem.py): the instance's values, the decision variables, their bounds and constraints;
 - `evaluate(candidate)` returns the objective of a candidate (a sequence of `problem.dimensions` numbers) and raises
   `StopSearch` when the run's time or evaluations are spent: let it propagate. It refuses a candidate the charter
-  does not allow;
+  does not allow. On a structured problem a candidate is one JSON value, as `structure.py` describes it, and
+  `problem.random_candidate(rng)` is `structure.random_candidate`;
 - `rng` is a `numpy.random.Generator` seeded for the run: draw every random number from it, so a seed repeats its run.
 A method may return a string saying why it stopped, or the best candidate it found: the harness evaluates a returned
 candidate once more, but in Balsamic only what `evaluate` recorded counts, so evaluate it before returning. It may also

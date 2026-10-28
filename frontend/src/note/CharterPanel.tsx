@@ -11,7 +11,7 @@ import { Markdown } from '../chat/render/Markdown';
 import { Empty, Failed, Loading, Pill, Section } from '../primitives/ui';
 
 interface Quantity { description?: string; kind?: string; role: 'input' | 'derived' | string; value: number | null; expression: string | null; units?: string; range?: [number | null, number | null] | null; origin?: string; accepted?: boolean; note?: string }
-interface Variable { name: string; description?: string; representation: string; lower: number | null; upper: number | null; values: unknown[]; units?: string; shape?: unknown[] }
+interface Variable { name: string; description?: string; representation: string; lower: number | null; upper: number | null; values: unknown[]; units?: string; shape?: unknown[]; meaning?: string; layout?: string }
 interface Term { variable: string; weight?: number | string; weights?: number[] | null }
 interface Rule { id: string; statement: string; kind?: string; form: string; test?: string | null; terms?: Term[]; relation?: string | null; bound?: number | string | null }
 interface Suggestion { label: string; action: 'waive' | 'request' | 'edit' | string; reason?: string; text?: string; changes?: Record<string, unknown>[]; rationale?: string }
@@ -311,6 +311,7 @@ function Meaning({ name, doc, values, notes }: { name: string; doc: CharterView[
   const bound = (b: unknown) => typeof b === 'number' ? amount(b) : typeof b === 'string' ? <>{b}{typeof values[b] === 'number' ? <> = {amount(values[b] as number)}</> : null}</> : 'none yet';
   const now = q ? (typeof values[name] === 'number' ? <>now {amount(values[name] as number)}</> : numeric ? 'no value yet' : null)
     : v?.representation === 'discrete' ? (v.values.length ? `one of ${v.values.map(String).join(', ')}` : 'no values yet')
+    : v?.representation === 'structured' ? `a value the problem's library checks: ${v.layout || 'no layout yet'}`
     : v?.representation === 'permutation' ? <>{order(v)}{typeof v.shape?.[0] === 'string' && typeof values[v.shape[0]] === 'number' ? <> ({v.shape[0]} = {grouped(values[v.shape[0]] as number)})</> : null}</>
     : v ? <>from {bound(v.lower as unknown)} to {bound(v.upper as unknown)}</> : null;
   return <div data-testid="meaning" data-name={name}>
@@ -442,7 +443,9 @@ function VariableRow({ index, variable: v, busy, edit }: { index: number; variab
   return <tr data-testid="variable" data-name={v.name}>
     <td><strong>{v.name}</strong>{v.description ? <div className="small faint">{v.description}</div> : null}</td>
     <td className="small">{v.representation}{v.shape?.length && v.representation !== 'permutation' ? <span className="faint"> × {v.shape.map(String).join(' × ')}</span> : null}</td>
-    <td>{v.representation === 'permutation' ? <span className="small" data-testid={`order-${v.name}`}>{order(v)}</span> : continuous ? <NumberField initial={v.lower} onSet={x => edit([{ op: 'set', path: `variables.${index}.lower`, value: x }], `Set the lower bound of ${v.name}`)} busy={busy} width={110} testId={`lower-${v.name}`} /> : <span className="faint small">{v.values.length ? v.values.map(String).join(', ') : 'no values'}</span>}</td>
+    <td>{v.representation === 'permutation' ? <span className="small" data-testid={`order-${v.name}`}>{order(v)}</span>
+      : v.representation === 'structured' ? <span className="small" data-testid={`structure-${v.name}`} title={v.meaning || ''}>{v.layout || 'no layout yet'}; its library checks it</span>
+      : continuous ? <NumberField initial={v.lower} onSet={x => edit([{ op: 'set', path: `variables.${index}.lower`, value: x }], `Set the lower bound of ${v.name}`)} busy={busy} width={110} testId={`lower-${v.name}`} /> : <span className="faint small">{v.values.length ? v.values.map(String).join(', ') : 'no values'}</span>}</td>
     <td>{continuous ? <NumberField initial={v.upper} onSet={x => edit([{ op: 'set', path: `variables.${index}.upper`, value: x }], `Set the upper bound of ${v.name}`)} busy={busy} width={110} testId={`upper-${v.name}`} /> : null}</td>
     <td className="small">{v.units || ''}</td>
   </tr>;

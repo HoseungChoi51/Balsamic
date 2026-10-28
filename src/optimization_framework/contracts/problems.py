@@ -2,7 +2,9 @@
 from __future__ import annotations
 
 import bisect
+import json
 import math
+import re
 from typing import Any, Literal, Protocol, runtime_checkable
 
 from pydantic import BaseModel, ConfigDict, Field, model_serializer, model_validator
@@ -120,21 +122,124 @@ class DesignConstraint(BaseModel):
         return None if result else self.name
 
 
+PROBLEM_ID = r"^[a-z][a-z0-9_]{1,99}$"
+
+
+class Structure(BaseModel):
+    """A candidate the problem's own code owns (N12): a JSON value (an order per machine, several orders, a sequence of
+    variable length, a graph) that the problem's library canonicalizes and checks. ``owner`` is the problem's id; the
+    library registers its rules under it (``register_structure``). ``meaning`` and ``layout`` say, in prose, what the
+    value is and how it is laid out; ``fields`` are the names the library derives from a candidate (``fields()``), which
+    design constraints may read; ``context`` is the instance's public configuration, which the rules are given."""
+    model_config = ConfigDict(extra="forbid", allow_inf_nan=False, frozen=True)
+    owner: str = Field(pattern=PROBLEM_ID)
+    meaning: str = Field(min_length=1, max_length=500)
+    layout: str = Field(min_length=1, max_length=300)
+    fields: list[str] = Field(default_factory=list, max_length=100)
+    context: dict[str, Any] = Field(default_factory=dict)
+
+    @model_validator(mode="after")
+    def field_names(self):
+        bad = [name for name in self.fields if not re.fullmatch(VARIABLE_NAME, name)]
+        if bad or len(set(self.fields)) != len(self.fields):
+            raise ValueError("A structure's fields need distinct names of lowercase letters, digits and _")
+        return self
+
+    @model_serializer(mode="wrap")
+    def compatible_serialization(self, handler):
+        result = handler(self)
+        for name in ("fields", "context"):
+            if not getattr(self, name):
+                result.pop(name, None)
+        return result
+
+
+@runtime_checkable
+class StructureRules(Protocol):
+    """What a problem's library provides for its ``structured`` candidates (N12). ``context`` is the instance's public
+    configuration. ``canonicalize`` gives the one form of a candidate (raising ``ValueError`` if it cannot read it);
+    ``is_valid`` the rules a canonical candidate breaks, empty when it breaks none. ``describe(candidate, context)`` (a
+    line for pages) and ``fields(candidate, context)`` (named numbers or vectors for design constraints) are optional."""
+    def canonicalize(self, candidate: Any, context: dict) -> Any: ...
+    def is_valid(self, candidate: Any, context: dict) -> list[str]: ...
+
+
+_STRUCTURES: dict[str, StructureRules] = {}
+
+
+def register_structure(owner: str, rules: StructureRules) -> None:
+    """Make a problem's rules for its structured candidates known in this process; the last registration wins."""
+    if not callable(getattr(rules, "canonicalize", None)) or not callable(getattr(rules, "is_valid", None)):
+        raise ValueError(f"The rules of {owner} need canonicalize(candidate, context) and is_valid(candidate, context)")
+    _STRUCTURES[owner] = rules
+
+
+def structure_rules(owner: str) -> StructureRules:
+    """The registered rules of a problem's structured candidates. A problem not registered in this process is looked up
+    among the installed problems, whose adapter registers its rules when asked (``structure()``)."""
+    if owner not in _STRUCTURES:
+        try:
+            from optimization_framework.evaluation.registry import problems
+            adapter = problems.get(owner) if owner in problems.ids() else None
+        except Exception:   # noqa: BLE001 - a registry that cannot load says only that the rules are not here
+            adapter = None
+        if adapter is not None and callable(getattr(adapter, "structure", None)):
+            register_structure(owner, adapter.structure())
+    if owner not in _STRUCTURES:
+        raise ValueError(f"The candidates of {owner} are structured, and its library's rules for them are not loaded here; "
+                         "the problem's library checks them")
+    return _STRUCTURES[owner]
+
+
+def json_value(value: Any, what: str = "Candidate") -> Any:
+    """``value`` as plain JSON data (arrays and tuples become lists, numpy scalars Python numbers), or ValueError."""
+    def plain(item):
+        if hasattr(item, "tolist"):
+            return item.tolist()
+        raise TypeError(f"{type(item).__name__} is not JSON")
+    try:
+        return json.loads(json.dumps(plain(value) if hasattr(value, "tolist") else value, allow_nan=False, default=plain))
+    except (TypeError, ValueError) as exc:
+        raise ValueError(f"{what} must be a JSON value of finite numbers, strings, lists and objects ({exc})") from None
+
+
 class CandidateSchema(Contract):
     """A permutation candidate is an order of the items 0 … dimensions−1 (indices into the instance's data), each exactly once.
 
     ``variables`` name the parts of the candidate and may give each its own permitted values; ``design`` holds the
-    conditions on them (N9). Both are left out of the dump while empty, so schemas made before them keep their digests."""
-    representation: Literal["binary", "discrete", "continuous", "permutation"]
+    conditions on them (N9). Both are left out of the dump while empty, so schemas made before them keep their digests.
+
+    A ``structured`` candidate (N12) is one JSON value whose rules the problem's library owns (``structure``): the schema
+    stores and hashes the value the library canonicalizes and checks nothing else, beyond its design constraints over the
+    fields the library names. Its dimensions are 1."""
+    representation: Literal["binary", "discrete", "continuous", "permutation", "structured"]
     dimensions: int = Field(ge=1, le=1000000)
     bounds: list[tuple[float, float]] = Field(default_factory=list)
     values: list[float] = Field(default_factory=list)
     constraints: list[Constraint] = Field(default_factory=list)
     variables: list[SchemaVariable] = Field(default_factory=list, max_length=100)
     design: list[DesignConstraint] = Field(default_factory=list, max_length=100)
+    structure: Structure | None = None
 
     @model_validator(mode="after")
     def valid_domain(self):
+        if (self.representation == "structured") != (self.structure is not None):
+            raise ValueError("A structured candidate, and only one, names the structure its problem owns")
+        if self.representation == "structured":
+            if self.dimensions != 1 or self.bounds or self.values or self.constraints or self.variables:
+                raise ValueError("A structured candidate is one value: it takes no bounds, permitted values, linear "
+                                 "constraints or variables")
+            known = set(self.structure.fields)
+            for constraint in self.design:
+                read = constraint.names()
+                if unknown := sorted(read - known - set(constraint.constants)):
+                    raise ValueError(f"Design constraint {constraint.name} reads {', '.join(unknown)}, which are not "
+                                     "fields of the structure")
+                if not read & known:
+                    raise ValueError(f"Design constraint {constraint.name} reads no field of the structure")
+            if len({c.name for c in self.design}) != len(self.design):
+                raise ValueError("Constraint names must be distinct")
+            return self
         if self.representation == "continuous":
             if len(self.bounds) != self.dimensions or any(a >= b for a, b in self.bounds):
                 raise ValueError("Continuous candidates need one finite increasing bound per dimension")
@@ -178,7 +283,7 @@ class CandidateSchema(Contract):
     @model_serializer(mode="wrap")
     def compatible_serialization(self, handler):
         result = handler(self)
-        for name in ("variables", "design"):
+        for name in ("variables", "design", "structure"):
             if not getattr(self, name):
                 result.pop(name, None)
         return result
@@ -212,8 +317,16 @@ class CandidateSchema(Contract):
             out.extend([values] * size)
         return out
 
-    def named(self, candidate: list) -> dict[str, Any]:
-        """The candidate by variable name: a number for a variable of one entry, a list otherwise."""
+    def named(self, candidate: Any) -> dict[str, Any]:
+        """The candidate by variable name: a number for a variable of one entry, a list otherwise. A structured
+        candidate's fields, as its library derives them."""
+        if self.representation == "structured":
+            fields = getattr(self.rules(), "fields", None)
+            named = json_value(fields(candidate, self.structure.context), "A structure's fields") if callable(fields) else {}
+            if not isinstance(named, dict) or set(named) != set(self.structure.fields):
+                raise ValueError(f"The library of {self.structure.owner} gives fields {sorted(named) if isinstance(named, dict) else named}, "
+                                 f"not {sorted(self.structure.fields)}")
+            return named
         return {variable.name: candidate[offset] if variable.size == 1 else list(candidate[offset:offset + variable.size])
                 for offset, variable in self._parts()}
 
@@ -224,6 +337,25 @@ class CandidateSchema(Contract):
         named = self.named(candidate)
         return [failure for constraint in self.design if (failure := constraint.failure(named)) is not None]
 
+    def rules(self) -> StructureRules:
+        """The library's rules of a structured candidate."""
+        if self.structure is None:
+            raise ValueError(f"A {self.representation} candidate has no library rules")
+        return structure_rules(self.structure.owner)
+
+    def broken(self, candidate: Any) -> list[str]:
+        """Why ``canonicalize`` refuses a candidate, as a list of reasons; empty when it accepts it."""
+        try:
+            self.canonicalize(candidate)
+        except ValueError as exc:
+            return [str(exc)]
+        return []
+
+    def describe(self, candidate: Any) -> str:
+        """One line about a candidate for pages: the library's own for a structured candidate, else the values."""
+        describe = getattr(self.rules(), "describe", None) if self.representation == "structured" else None
+        return str(describe(candidate, self.structure.context)) if callable(describe) else json.dumps(json_value(candidate))
+
     def feasible(self, candidate: Any) -> bool:
         """Whether ``canonicalize`` accepts the candidate: a method's check for its own proposals."""
         try:
@@ -232,7 +364,9 @@ class CandidateSchema(Contract):
             return False
         return True
 
-    def canonicalize(self, candidate: Any) -> list[int | float]:
+    def canonicalize(self, candidate: Any) -> Any:
+        if self.representation == "structured":
+            return self._structured(candidate)
         if hasattr(candidate, "tolist"):
             candidate = candidate.tolist()
         if not isinstance(candidate, (list, tuple)) or len(candidate) != self.dimensions:
@@ -266,6 +400,23 @@ class CandidateSchema(Contract):
         if failed:
             raise ValueError("Candidate violates constraints: " + ", ".join(failed))
         return result
+
+    def _structured(self, candidate: Any) -> Any:
+        """The library's canonical value of a structured candidate, refused when it breaks one of the library's rules or a
+        design constraint over its fields."""
+        rules, context = self.rules(), self.structure.context
+        value = json_value(rules.canonicalize(json_value(candidate), context), "A canonical structured candidate")
+        broken = rules.is_valid(value, context)
+        if not isinstance(broken, (list, tuple)) or not all(isinstance(rule, str) for rule in broken):
+            raise ValueError(f"The library of {self.structure.owner} must give is_valid() as a list of the broken rules")
+        if broken:
+            raise ValueError("Candidate breaks the problem's rules: " + "; ".join(broken))
+        if self.design:
+            named = self.named(value)
+            failed = [failure for constraint in self.design if (failure := constraint.failure(named)) is not None]
+            if failed:
+                raise ValueError("Candidate violates constraints: " + ", ".join(failed))
+        return value
 
     def _name_at(self, offset: int) -> str:
         return next(variable.name for start, variable in self._parts() if start == offset)

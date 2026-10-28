@@ -6,6 +6,10 @@ code. The definition and every instance come from the charter the library holds 
 ``compare_provided()`` finds no difference by construction, and a charter whose data was edited is refused. Describing
 and resolving read only ``data.py``; the library's own problem and objective are imported when an evaluator or a
 method's problem is wanted, which happens in the worker.
+
+A structured candidate (N12) is the library's own: ``structure.py`` canonicalizes and checks it. ``CharterProblem``
+registers those rules under the problem's id when its code is first wanted (``structure()``), so the candidate schema
+can check a candidate wherever the library's code runs.
 """
 from __future__ import annotations
 
@@ -15,7 +19,7 @@ from importlib.util import find_spec
 from pathlib import Path
 
 from optimization_framework.contracts.base import content_hash
-from optimization_framework.contracts.problems import Evaluation, ProblemInstance
+from optimization_framework.contracts.problems import Evaluation, ProblemInstance, register_structure
 
 from .charter import manifest, parse, resolve
 from .scaffold import instance_data
@@ -60,10 +64,27 @@ class CharterProblem:
     def resolve(self, configuration, fidelity=None) -> ProblemInstance:
         return self.manifest(configuration, fidelity).resolve(self.version, configuration, fidelity)
 
+    @property
+    def structured(self) -> bool:
+        return self.data.REPRESENTATION == "structured"
+
+    def structure(self):
+        """The library's rules for its structured candidates (N12), registered under the problem's id."""
+        if not self.structured:
+            raise ValueError(f"{self.binding.problem_id} has no structured candidates")
+        rules = CharterStructure(self)
+        register_structure(self.binding.problem_id, rules)
+        return rules
+
     def problem(self, instance):
         """The library's own ``Problem`` for an instance: the charter's instance of the same values when there is one."""
+        if self.structured:
+            self.structure()
+        return self.problem_at(instance.configuration, instance.fidelity)
+
+    def problem_at(self, configuration, fidelity=None):
         problems, _ = self.code()
-        inputs, values = self.values(instance.configuration, instance.fidelity)
+        inputs, values = self.values(configuration, fidelity)
         for name, row in self.data.INSTANCES.items():
             if row["values"] == values:
                 return problems.PROBLEMS[name]
@@ -76,6 +97,40 @@ class CharterProblem:
         return CharterEvaluator(instance, self.problem(instance), self.code()[1].objective)
 
 
+class CharterStructure:
+    """A generated library's ``structure.py`` as the rules a candidate schema calls: each is given the library's
+    ``Problem`` at the instance's configuration (the schema's ``context``)."""
+
+    def __init__(self, library: CharterProblem):
+        self.library, self.problems = library, {}
+
+    def problem(self, context):
+        key = content_hash(context)
+        if key not in self.problems:
+            self.problems[key] = self.library.problem_at(context)
+        return self.problems[key]
+
+    def module(self):
+        from importlib import import_module
+        return import_module(f"{self.library.package}.structure")
+
+    def canonicalize(self, candidate, context):
+        try:
+            return self.module().canonicalize(self.problem(context), candidate)
+        except (TypeError, KeyError, IndexError) as exc:
+            raise ValueError(f"The library cannot read the candidate ({type(exc).__name__}: {exc})") from None
+
+    def is_valid(self, candidate, context):
+        return [str(rule) for rule in self.module().is_valid(self.problem(context), candidate)]
+
+    def describe(self, candidate, context):
+        return self.module().describe(self.problem(context), candidate)
+
+    def fields(self, candidate, context):
+        fields = getattr(self.module(), "fields", None)
+        return fields(self.problem(context), candidate) if callable(fields) else {}
+
+
 class CharterEvaluator:
     """Evaluates a candidate with the library's ``objective(problem, candidate)``."""
 
@@ -84,9 +139,11 @@ class CharterEvaluator:
         self.evaluations = 0
 
     def evaluate(self, candidate):
+        import copy
         import numpy as np
         candidate = self.instance.candidate_schema.canonicalize(candidate)
-        value = float(self.objective(self.problem, np.asarray(candidate, dtype=float)))
+        given = copy.deepcopy(candidate) if self.instance.candidate_schema.representation == "structured" else np.asarray(candidate, dtype=float)
+        value = float(self.objective(self.problem, given))
         if not math.isfinite(value):
             raise ValueError(f"The objective gave {value} for a valid candidate")
         self.evaluations += 1

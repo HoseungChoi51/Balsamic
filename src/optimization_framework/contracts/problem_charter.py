@@ -80,7 +80,9 @@ class DecisionVariable(Part):
     """What the optimizer changes. Its size is the product of ``shape`` (numbers or integer quantities)."""
     name: str = Field(pattern=NAME)
     description: str = Field(min_length=1, max_length=1000)
-    representation: Literal["binary", "discrete", "continuous", "permutation"]
+    representation: Literal["binary", "discrete", "continuous", "permutation", "structured"] = Field(description=(
+        "structured: one JSON value whose form and rules the problem's library owns (an order per machine, several orders, "
+        "a sequence of variable length, a graph); it is the only decision variable, and its meaning and layout say what it is"))
     shape: list[int | str] = Field(default_factory=list, max_length=6,
                                    description="Empty for a single value; for a permutation, one entry: the number of items")
     lower: float | str | None = Field(default=None, description="A number or an expression; continuous variables")
@@ -89,6 +91,16 @@ class DecisionVariable(Part):
     units: str = Field(default="1", max_length=40)
     meaning: str = Field(default="", max_length=500, description="What a value stands for, e.g. what 1 and 0 mean")
     layout: str = Field(default="", max_length=300, description="How elements are ordered, e.g. row by row")
+    fields: list[str] = Field(default_factory=list, max_length=100, description=(
+        "structured only: the names of the numbers or vectors the library derives from a candidate (e.g. a load per machine), "
+        "which design constraints may read"))
+
+    @model_serializer(mode="wrap")
+    def compatible_serialization(self, handler):
+        result = handler(self)
+        if not self.fields:
+            result.pop("fields", None)
+        return result
 
 
 class LinearTerm(Part):

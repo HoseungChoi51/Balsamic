@@ -42,7 +42,8 @@ Each variable has:
   `lower` and `upper`) or `permutation` (an order of items, with a one-entry shape: the number of items);
   binary, discrete and continuous variables can sit side by side, each discrete one with its own
   `values` (a whole number of fins is `discrete` with the values 2, 3, …, 12 beside continuous
-  widths); an order of items cannot share the candidate with other variables;
+  widths); an order of items cannot share the candidate with other variables; or `structured`
+  (see below);
 - a **shape**;
 - a **meaning** (what a value stands for);
 - for arrays, a **layout**.
@@ -57,6 +58,7 @@ Each variable has:
 | Machine learning | Learning rate; batch size | continuous (say if log-scaled); discrete |
 | Aerodynamics | Offsets of an airfoil's control points | continuous, with bounds |
 | Scheduling | The order in which jobs are processed | permutation, shape `["n_jobs"]` |
+| Scheduling | Which machine runs each job, and in what order | structured, with a meaning and a layout |
 
 - **Shapes follow the inputs.** Write a shape in terms of integer inputs (`["grid_y", "grid_x"]`),
   not as numbers, so it follows when those inputs change.
@@ -66,6 +68,15 @@ Each variable has:
   the problem in that parameterization.
 - **An order is a permutation.** An order or a ranking (of jobs, bakes, visits) is a permutation:
   each item once, as indices into the instance's data. Do not encode it as discrete values.
+- **A structure no vector states is `structured`.** An order of jobs per machine, several orders,
+  a sequence of variable length, a set, a tree or a graph: declare one `structured` variable. It
+  is then the only decision variable, with no shape, bounds or values. Its `meaning` and `layout`
+  are required, and say in words what the value is and how it is laid out ("a list with one list
+  per machine, each the jobs it runs in order"). The problem's library checks its rules: state each
+  one as a constraint of form `evaluator`. Name in `fields` any numbers the library derives from a
+  candidate (a load per machine), so that a `design` constraint can read them (`max(loads) <=
+  horizon`). A single order of items is still a permutation, so prefer the plain kinds when they
+  fit.
 - **Mixed kinds stay separate.** When the design mixes kinds (a solvent and a temperature), state
   them as separate variables. The checks say whether the evaluator accepts them.
 

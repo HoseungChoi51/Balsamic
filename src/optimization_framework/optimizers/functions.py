@@ -19,7 +19,10 @@ the worker gives the descriptor an ``objective(candidate)`` (``WhiteBoxProblem``
 its ``objective.py`` may offer the same. Such calls are not observations and are not counted; only what ``evaluate``
 records is known to Balsamic, and the run is judged by its time (N11). On an oracle problem the descriptor has no
 ``objective``. Either way it has ``feasible(candidate)`` (N9): the framework's own check of the problem's linear and
-design constraints, so a method can skip a candidate the evaluation would refuse.
+design constraints, so a method can skip a candidate the evaluation would refuse. Like a library's own ``Problem`` it
+also has ``is_valid(candidate)`` (the same answer), ``violations(candidate)`` (the reasons it is refused, empty when it
+is not) and ``canonicalize(candidate)`` (the form it is recorded in): on a ``structured`` problem (N12) these are the
+problem library's own rules.
 
 ``FunctionPlugin`` offers a library's function methods as plug-in methods. It lists them from the ``METHODS`` literal in
 the methods module's source, without importing the module, so agent code never runs in the server; only ``create()``,
@@ -75,6 +78,18 @@ class CheckedProblem(Mapping):
 
     def feasible(self, candidate) -> bool:
         return self._schema.feasible(plain(candidate))
+
+    def violations(self, candidate) -> list[str]:
+        """Why the framework refuses the candidate: the rules it breaks, empty when it breaks none."""
+        return self._schema.broken(plain(candidate))
+
+    def is_valid(self, candidate) -> bool:
+        """Whether the framework accepts the candidate, as a library's own ``Problem.is_valid`` says."""
+        return not self.violations(candidate)
+
+    def canonicalize(self, candidate):
+        """The candidate as it is recorded; ``ValueError`` if it is refused."""
+        return self._schema.canonicalize(plain(candidate))
 
     def __getitem__(self, key):
         return self._descriptor[key]
