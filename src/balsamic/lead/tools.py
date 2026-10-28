@@ -88,10 +88,15 @@ def register(workspace=None):
         from balsamic.library.service import search
         result = search(tools.workspace, campaign_id=agent["campaign_id"], q=args.get("query", ""), limit=int(args.get("limit", 10)))
         return {"signature": result["signature"], "entries": [{"entry_id": row["entry"]["id"], "title": row["entry"]["strategy"].get("title"), "algorithm": row["entry"]["strategy"].get("algorithm"),
-                 "best_score": row["entry"]["evidence"].get("best_score"), "origin_campaign_id": row["entry"]["origin_campaign_id"], "match": row["match"]} for row in result["entries"]],
-                "note": "Apply one with campaign_command library.apply {entry_id, note}: a new root strategy inspired by it, reviewed like any other."}
+                 "best_score": row["entry"]["evidence"].get("best_score"), "origin_campaign_id": row["entry"]["origin_campaign_id"], "match": row["match"],
+                 "kind": row.get("kind", "positive"), **({"label": row["label"], "stop_outcome": (row["entry"].get("stop") or {}).get("outcome"),
+                                                         "stop_reason": (row["entry"].get("stop") or {}).get("reason")} if row.get("kind") == "negative" else {})}
+                for row in result["entries"]],
+                "note": "Apply one with campaign_command library.apply {entry_id, note}: a new root strategy inspired by it, reviewed like any other. "
+                        "A negative entry was assessed and stopped where its signature says; applying it carries that into the rationale."}
 
-    register_tool("library_search", "Strategies that won earlier campaigns of this problem (the library), ranked by how well their problem signature matches this campaign's.",
+    register_tool("library_search", "Strategies from earlier campaigns of this problem (the library): ones that won, and ones assessed and stopped (kind negative, with the stop outcome), "
+                  "ranked by how well their problem signature matches this campaign's.",
                   obj({"query": S, "limit": {"type": "integer", "minimum": 1, "maximum": 50}}), library_search)
     register_tool("merge_note_draft", "Write the merge note the researcher asked for: what this branch concluded, as the request the target conversation reads. The researcher edits it and merges.",
                   obj({"text": S}, ["text"]), merge_note_draft)

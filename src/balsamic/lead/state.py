@@ -52,9 +52,16 @@ def library_line(workspace, campaign):
         matches = []
     if not matches:
         return []
-    return ["Library (strategies that won earlier campaigns of this problem): " + "; ".join(
+    won = [row for row in matches if row.get("kind", "positive") == "positive"]
+    stopped = [row for row in matches if row.get("kind") == "negative"]
+    lines = ["Library (strategies that won earlier campaigns of this problem): " + "; ".join(
         f"{row['entry']['strategy'].get('title')} ({row['entry']['id']}, best {row['entry']['evidence'].get('best_score')}, {', '.join(row['match']['reasons'])})"
-        for row in matches) + "."]
+        for row in won) + "."] if won else []
+    if stopped:
+        # Negative entries (K4): methods another campaign of the problem assessed and stopped, with the outcome.
+        lines.append("Library, assessed and stopped elsewhere (know why before trying again): " + "; ".join(
+            f"{row['entry']['strategy'].get('title')} ({row['entry']['id']}, {row['label']}, {', '.join(row['match']['reasons'])})" for row in stopped) + ".")
+    return lines
 
 
 def pin_lines(workspace, run):
