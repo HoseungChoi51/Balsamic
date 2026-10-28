@@ -11,7 +11,7 @@ from optimization_framework.storage.sqlite import now
 from optimization_framework.campaigns.guidance import WALKED, linked_ids
 from optimization_framework.campaigns.record_view import view_record
 from optimization_framework.campaigns.proposals import STANDINGS
-from .models import ROLES, LEAD, PAGE_AGENTS, RETIRED_ROLES, STANDING, DISCUSSION_ROLES
+from .models import ROLES, LEAD, PAGE_AGENTS, RETIRED_ROLES, STANDING, DISCUSSION_ROLES, FOLDABLE
 from .capabilities import implementation_execution
 from . import calls
 from .roles import ROLE_BRIEFS, ROLE_OUTPUT_SCHEMAS, SPECIALIST_CONTRACT, SPECIALIST_TOOL_CALLS
@@ -85,6 +85,19 @@ specification (its tests), does it perform well (experiments)? Answer the one as
 """
 
 
+# What the lead is told instead of the page agents' paragraph when the moderator and the operator are folded into it (T4).
+LEAD_FOLDED_CONTRACT = """You are the lead agent. In this campaign you do the work of two pages yourself: review rounds over proposals
+(#hypotheses; procedure review-rounds) and the experiments: designing, starting, watching, extending and stopping runs
+(#experiments; procedure running-experiments). Read the procedure before starting that work. The researcher's requests on those
+pages come to you and your replies are shown there. Two agents are still in charge of a page for the whole campaign: the
+implementation lead (building and checking implementations; #hypotheses/implementations) and the resource planner (how many
+runs go at once and why runs wait). Hand their work to them with page_agent_message, link the page, and call yield_work(waiting).
+campaign_command refuses you their operations and names whom to ask.
+Reads are yours: experiment_progress, resource_inspect, campaign_inspect.page_agents. Delegate to a specialist only for work that
+needs its own context.
+"""
+
+
 # Extension calls: the arguments and the part of a result a receipt keeps; how long an extension's dialog waits by default (D9).
 EXTERNAL_ARGUMENT_BYTES = 8 * 1024
 EXTERNAL_EXCERPT_BYTES = 24 * 1024
@@ -138,6 +151,8 @@ STEPS = {"campaign_inspect": "Reading the campaign's state", "resource_inspect":
     "compute": "Computing a number"}
 PAGE_AGENT_NAMES = {"discussion_moderator": "the discussion moderator", "experiment_operator": "the experiment operator", "implementation_lead": "the implementation lead",
                     "resource_planner": "the resource planner"}
+# The procedure the lead reads for the work of a page agent folded into it (T4; balsamic/procedures).
+FOLDED_PROCEDURES = {"discussion_moderator": "review-rounds", "experiment_operator": "running-experiments"}
 # Record identities begin with their kind; the first matching prefix names what is being read.
 RECORD_NAMES = (("hypothesis", "hypothesis"), ("trial", "experiment"), ("artifact", "saved document"), ("campaign", "the campaign record"),
     ("task", "the problem definition"), ("pi_command", "command receipt"), ("pi_", "an agent turn's record"), ("assignment", "an assistant's reply"),
@@ -399,6 +414,12 @@ class PiTools:
             # A status read is the lead's own (experiment_progress); a decision about runs goes to the operator.
             names |= {"delegate", "agent_message", "agent_cancel", "command_schema", "campaign_command", "researcher_ask", "report_write", "report_answer",
                       "page_agent_message", "experiment_progress", "mandate_propose", *implementation}
+            # The tools of the page agents folded into the lead (T4).
+            folded = self.folded(agent)
+            if "experiment_operator" in folded:
+                names.add("config_suggest")
+            if "discussion_moderator" in folded:
+                names.add("review_synthesis")
         if agent["role"] in PAGE_AGENTS:
             # Each page agent runs the commands of its page (ROLE_OPERATIONS), and can ask the researcher or the lead.
             names |= {"command_schema", "campaign_command", "researcher_ask", "lead_ask", "mandate_propose"}
@@ -421,6 +442,18 @@ class PiTools:
         names |= {name for name, tool in EXTRA_TOOLS.items() if agent["role"] in tool["roles"] and tool.get("pack") in {None, *packages}}
         return names
 
+    def folded(self, agent):
+        """The page agents whose work this agent does: for the lead, those its campaign folds into it (T4's page_agents: lead)."""
+        return self.controller.folded(agent["campaign_id"]) if agent["role"] == LEAD and agent.get("campaign_id") else frozenset()
+
+    def lead_operations(self, agent):
+        """The lead's commands: all but the pages' own work, with the work of the page agents folded into it (T4)."""
+        folded = self.folded(agent)
+        extra = set(getattr(self.workspace, "lead_operations", ()) or ())
+        packed = {operation for operation, entry in self.pack_operations(agent).items() if entry["role"] in folded}
+        excluded = {operation for operation, owner in LEAD_PAGE_WORK.items() if owner not in folded}
+        return (OPERATIONS | extra) - excluded | packed | set().union(*(ROLE_OPERATIONS[role] for role in folded))
+
     def packages(self, agent):
         """The packages of the problem packs of the agent's campaign (evaluation/packs.py)."""
         packs = getattr(self.workspace, "packs", None)
@@ -438,13 +471,14 @@ class PiTools:
         schema = TOOLS[name][1]
         if name in {"campaign_command", "command_schema"}:
             # The service layer may give this workspace's lead more operations (workspace.lead_operations); the enum is read per manifest.
-            extra = set(getattr(self.workspace, "lead_operations", ()) or ())
             # A pack's commands are its page agent's work, in the campaigns that have the pack.
             packed = {operation for operation, entry in self.pack_operations(agent).items() if entry["role"] == agent["role"]}
             schema = deepcopy(schema); schema["properties"]["operation"]["enum"] = sorted(ROLE_OPERATIONS[agent["role"]] | packed if agent["role"] in ROLE_OPERATIONS
-                                                                                          else (OPERATIONS | extra) - LEAD_EXCLUDED_OPERATIONS)
+                                                                                          else self.lead_operations(agent))
         if name == "delegate" and agent["role"] == "discussion_moderator":
             schema = deepcopy(schema); schema["properties"]["role"]["enum"] = list(DISCUSSION_ROLES)
+        if name == "page_agent_message" and self.folded(agent):
+            schema = deepcopy(schema); schema["properties"]["page_agent"]["enum"] = sorted(set(PAGE_AGENTS) - self.folded(agent))
         return schema
 
     def manifest(self, agent_id, run_id):
@@ -455,7 +489,14 @@ class PiTools:
         if specialist:
             instructions += "\n" + ROLE_BRIEFS[agent["role"]]["brief"]
         if agent["role"] == LEAD:
-            instructions += "\n" + LEAD_CONTRACT.rstrip()
+            folded = self.folded(agent)
+            if folded:
+                # The moderator's and the operator's pages are the lead's (T4): their instructions are procedures it reads.
+                instructions += "\n" + LEAD_FOLDED_CONTRACT + LEAD_CONTRACT[LEAD_CONTRACT.index("Availability"):].rstrip()
+                if "experiment_operator" in folded:
+                    instructions += "\n" + self.workspace.devices.guidance()
+            else:
+                instructions += "\n" + LEAD_CONTRACT.rstrip()
         if agent["role"] in PAGE_AGENTS:
             page = PAGE_AGENTS[agent["role"]]
             instructions += (f"\nYou are {PAGE_AGENT_NAMES[agent['role']]}, in charge of the {page.capitalize()} page (#{page}). The researcher writes to you "
@@ -486,7 +527,7 @@ class PiTools:
             instructions += self.workspace_instructions(agent)
         procedures = getattr(self.workspace, "procedures", None)
         if procedures is not None:
-            instructions += procedures.catalog_text(agent["role"])
+            instructions += procedures.catalog_text(agent["role"], self.folded(agent))
         from .extensions import for_agent, hosts_extensions
         return {"instructions": instructions, "tools": [{"name": name, "description": EXTRA_TOOLS[name]["description"] if name in EXTRA_TOOLS else TOOLS[name][0],
                                                           "input_schema": self.schema(agent, name)} for name in sorted(self.names(agent))],
@@ -685,7 +726,7 @@ class PiTools:
         if agent["role"] != LEAD or name not in {"campaign_command", "command_schema"}:
             return ""
         owner = LEAD_PAGE_WORK.get(operation) or (self.pack_operations(agent).get(operation) or {}).get("role")
-        if owner is None:
+        if owner is None or owner in self.folded(agent):
             return ""
         return (f"{operation} is the work of {PAGE_AGENT_NAMES[owner]}: ask it with page_agent_message (page_agent: {owner}), saying what to do "
                 f"and naming the records; its result comes back to you, and the researcher follows it on #{PAGE_AGENTS[owner]}.")
@@ -737,6 +778,9 @@ class PiTools:
         """The lead's request to a page agent, kept as a message on that agent's page; the result comes back to the lead."""
         if agent["role"] != LEAD:
             raise ValueError("Only the lead agent writes to the agents in charge of pages")
+        if target["role"] in self.folded(agent):
+            raise ValueError(f"In this campaign you do the {target['role'].replace('_', ' ')}'s work yourself (page_agents: lead): "
+                             f"read its procedure ({FOLDED_PROCEDURES[target['role']]}) and do it")
         for ref in evidence_ids:
             self.record(agent, ref)
         root = self.assignment_origin(agent, run)
@@ -754,15 +798,18 @@ class PiTools:
                 "next": "It works by itself and its result comes back to you. Say where the researcher can follow it, and call yield_work(waiting)."}
 
     def review_round(self, agent):
-        """When the moderator's current request opened, and the reviewers it asked since (T2)."""
+        """When the moderator's current request opened, and the reviewers it asked since (T2); the lead's, when it does the
+        moderator's work (T4)."""
         agent = self.store.get(agent["id"], "agent_session")
-        since = agent.get("request_changed_at") or ""
+        since = (self.controller.configuration(agent["campaign_id"]) or {}).get("request_changed_at") if agent["role"] == LEAD \
+            else agent.get("request_changed_at")
+        since = since or ""
         return since, [other for other in self.store.list("agent_session", agent["campaign_id"]) if other.get("parent_agent_id") == agent["id"]
                        and other["role"] == "proposal_reviewer" and (other.get("created_at") or "") >= since]
 
     def synthesis_missing(self, agent):
         """Why the moderator cannot yet call a round complete: it asked reviewers and recorded no synthesis since."""
-        if agent["role"] != "discussion_moderator":
+        if agent["role"] != "discussion_moderator" and "discussion_moderator" not in self.folded(agent):
             return ""
         _, reviewers = self.review_round(agent)
         if not reviewers:
@@ -1030,7 +1077,10 @@ class PiTools:
                 "request_open": bool(a.get("request_open")), "asked_by": {"researcher": "researcher", None: None}.get(a.get("requested_by"), "lead"),
                 "last_summary": (a.get("disposition") or {}).get("summary"),
                 "last_run_id": (self.store.list_agent_runs(a["id"]) or [{}])[-1].get("id")}
-                for a in self.store.list("agent_session", campaign_id) if a["role"] in PAGE_AGENTS],
+                for a in self.store.list("agent_session", campaign_id) if a["role"] in PAGE_AGENTS and a["role"] not in self.folded(agent)]
+                # Pages whose agent is folded into the lead (T4): it answers there itself.
+                + [{"role": role, "page": "#" + PAGE_AGENTS[role], "answered_by": "lead", "procedure": FOLDED_PROCEDURES[role]}
+                   for role in sorted(self.folded(agent))],
             "latest_researcher_requests": [{"id": r["id"], "status": r["status"], "message": r["request"]["message"]}
                 for r in self.store.list("manager_command", campaign_id)[-5:]],
             "latest_researcher_messages": [{"id": r["id"], "content": r.get("content", "")[:12000]}
@@ -1048,7 +1098,10 @@ class PiTools:
         packed = {entry["purpose"]: operation if entry["role"] == agent["role"] else f"{PAGE_AGENT_NAMES[entry['role']]} ({operation})"
                   for operation, entry in self.pack_operations(agent).items()}
         if agent["role"] == LEAD:
-            return {"experiment": "the experiment operator (page_agent_message): drafts, runs, continuations, profiles; experiment_progress reads how runs go",
+            experiment = ("draft.save then draft.launch; trial.create; continuations and profiles too (procedure running-experiments); "
+                          "experiment_progress reads how runs go") if "experiment_operator" in self.folded(agent) else \
+                "the experiment operator (page_agent_message): drafts, runs, continuations, profiles; experiment_progress reads how runs go"
+            return {"experiment": experiment,
                     "fixed_design_check": FIXED_DESIGN_CHECK, **packed, "implementation": "a library built in a coding workspace (procedure implementation-supervision): Balsamic installs it, binds its proposals and starts the approved runs; or the implementation lead (implementation.commission)"}
         return {"fixed_design_check": "the lead agent (lead_ask): " + FIXED_DESIGN_CHECK, **packed, "implementation": "a library built in a coding workspace (procedure implementation-supervision): Balsamic installs it, binds its proposals (implementation.bind_builtin for one it skipped) and starts the approved runs; or implementation.commission", "experiment": "draft.save then draft.launch; trial.create"}
 
@@ -1199,7 +1252,7 @@ class PiTools:
                 origin=CommandOrigin(thread_id=origin.get("thread_id"), message_id=origin.get("message_id"), actor=actor, agent_id=agent["id"], run_id=run["id"],
                                      rationale=(args.get("rationale") or None)))
             result = self.receipt(self.workspace.commands.execute(command, actor="autopilot" if actor == "autopilot" else "manager", ignored_fields=ignored))
-            if agent["role"] == "discussion_moderator" and args["operation"] == "hypothesis.status":
+            if (agent["role"] == "discussion_moderator" or "discussion_moderator" in self.folded(agent)) and args["operation"] == "hypothesis.status":
                 # A status that goes against the reviewers' verdicts is recorded with them, not refused (T2).
                 from optimization_framework.campaigns.proposals import status_overridden, tally
                 hypothesis = self.store.get(payload["hypothesis_id"], "hypothesis")

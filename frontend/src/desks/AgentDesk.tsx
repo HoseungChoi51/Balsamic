@@ -25,7 +25,7 @@ export function deskRole(route: Pick<Route, 'page' | 'sub'>): string | null {
   return byPage ? byPage[0] : null;
 }
 
-interface Desk { role: string; page: string; agent: { id: string; status: string; activity?: string; model?: string } | null; messages: Message[]; truncated: boolean; dialogs?: Question[] }
+interface Desk { role: string; answered_by?: string; page: string; agent: { id: string; status: string; activity?: string; model?: string } | null; messages: Message[]; truncated: boolean; dialogs?: Question[] }
 
 export function DeskPanel({ campaignId, role, mode }: { campaignId: string; role: string; mode: 'docked' | 'column' }) {
   const queryClient = useQueryClient();
@@ -38,7 +38,9 @@ export function DeskPanel({ campaignId, role, mode }: { campaignId: string; role
   useEffect(() => { scroller.current?.scrollTo({ top: scroller.current.scrollHeight }); }, [desk.data?.messages.length, open]);
   const agent = desk.data?.agent;
   const enabled = !!team.data?.configuration?.enabled;
-  const name = NAMES[role] || role.replaceAll('_', ' ');
+  // In a campaign that folds this page's agent into the lead (page_agents: lead), the lead answers here.
+  const byLead = desk.data?.answered_by === 'lead';
+  const name = byLead ? 'Lead agent' : NAMES[role] || role.replaceAll('_', ' ');
   const busy = agent?.status === 'running' || agent?.status === 'queued';
   const ask = async (text: string) => {
     const campaign = summary.data?.campaign; if (!campaign) throw new Error('The campaign is still loading');
@@ -48,7 +50,7 @@ export function DeskPanel({ campaignId, role, mode }: { campaignId: string; role
   };
   const messages = desk.data?.messages || [];
   return (
-    <section className={'desk ' + mode + (open ? ' open' : '')} data-testid={`desk-${role}`} data-mode={mode} aria-label={`${name} desk`}>
+    <section className={'desk ' + mode + (open ? ' open' : '')} data-testid={`desk-${role}`} data-answered-by={byLead ? 'lead' : role} data-mode={mode} aria-label={`${name} desk`}>
       <header className="desk-head" onClick={mode === 'docked' ? () => setOpen(o => !o) : undefined} role={mode === 'docked' ? 'button' : undefined} data-testid="desk-head">
         <span className="desk-dot" data-busy={busy ? '1' : undefined} />
         <strong className="grow">{name}</strong>
@@ -61,7 +63,8 @@ export function DeskPanel({ campaignId, role, mode }: { campaignId: string; role
           {messages.length ? messages.map(m => <article key={m.id} className={'turn ' + (m.role === 'user' ? 'user' : 'agent')} data-testid="desk-turn">
             <div className="meta"><Pill tone={m.role === 'user' ? 'you' : 'agent'}>{m.role === 'user' ? 'You' : name}</Pill><span>{when(m.created_at)}</span></div>
             <Markdown text={m.content} thread={null} />
-          </article>) : <p className="small muted">{agent?.activity || `The ${name.toLowerCase()} takes requests from you here and from the lead, and acts on nothing else.`}</p>}
+          </article>) : <p className="small muted">{byLead ? `In this campaign the lead agent does the ${(NAMES[role] || role).toLowerCase()}'s work: it answers your requests here.`
+            : agent?.activity || `The ${name.toLowerCase()} takes requests from you here and from the lead, and acts on nothing else.`}</p>}
         </div>
         {(desk.data?.dialogs || []).map(q => <ExtensionDialog key={q.id} question={q} campaignId={campaignId} version={summary.data?.campaign?.version} who={`The ${name.toLowerCase()}`}
           onDone={() => queryClient.invalidateQueries({ queryKey: ['desk', campaignId, role] })} />)}

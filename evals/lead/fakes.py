@@ -92,9 +92,20 @@ def experiment_status(turn):
     return turn.finish(f"{len(rows)} runs: {lines}. See [Experiments](#experiments).")
 
 
+def folded(turn, role):
+    """Whether this campaign folds the page agent role into the lead (roadmap T4's page_agents: lead)."""
+    if "folded" not in turn.memory:
+        pages = turn.call("campaign_inspect").get("page_agents") or []
+        turn.memory["folded"] = sorted(page["role"] for page in pages if page.get("answered_by") == "lead")
+    return role in turn.memory["folded"]
+
+
 def two_short_runs(turn):
-    """The lead hands experiments to the operator; the operator starts them and reports when they have ended."""
-    if turn.role == "experiment_operator":
+    """The lead hands experiments to the operator; the operator starts them and reports when they have ended. Under page_agents
+    lead the lead does the operator's part itself."""
+    if turn.role == "experiment_operator" or turn.role == "lead" and folded(turn, "experiment_operator"):
+        if turn.role == "lead" and turn.notice and not turn.memory.get("started"):
+            return unrelated_notice(turn)
         if not turn.memory.get("started"):
             task = turn.call("campaign_inspect")["tasks"][0]["id"]
             for seed in (1, 2):
@@ -130,7 +141,8 @@ def prose_answer(turn):
 
 
 def review_round(turn):
-    """The lead asks the moderator for a review; the moderator asks a skeptical analyst and a reviewer, then reports."""
+    """The lead asks the moderator for a review; the moderator asks a skeptical analyst and a reviewer, then reports. Under
+    page_agents lead the lead runs the round itself."""
     if turn.role == "skeptical_domain_analyst":
         modes = {"failure_modes": [
             {"mechanism": "The lane quantum_annealer", "why_it_could_fail": "It is not installed: the installed methods do not list it",
@@ -149,7 +161,9 @@ def review_round(turn):
                 f"({', '.join(sorted(installed))}) and the mechanism contradicts the continuous representation.",
                 "mechanism_checks": ["The algorithm against the installed methods", "The mechanism against the task's representation"],
                 "suggested_tests": ["Restate the strategy with an installed continuous method"]}
-    if turn.role == "discussion_moderator":
+    if turn.role == "discussion_moderator" or turn.role == "lead" and folded(turn, "discussion_moderator"):
+        if turn.role == "lead" and turn.notice and not turn.memory.get("asked"):
+            return unrelated_notice(turn)
         if not turn.memory.get("asked"):
             turn.memory["asked"] = True
             proposal = turn.call("campaign_inspect")["hypotheses"][0]["id"]
