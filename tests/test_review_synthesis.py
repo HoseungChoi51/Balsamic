@@ -96,8 +96,9 @@ def test_a_status_against_the_tally_is_flagged_not_refused(tmp_path, monkeypatch
     passed = review(w, moderator, run, h1, 'test', 'r1')
     objection = review(w, moderator, run, h2, 'revise', 'r2')
     def status(identity, value, key):
-        # An agent's stop names a typed outcome and the records it rests on (V1).
-        stop = {'stop_reason': 'Not worth it', 'outcome': 'adequately_assessed_deprioritized', 'evidence_ids': [passed]} if value == 'archived' else {}
+        # An agent's stop names a typed outcome and the records it rests on (V1); a proposal that never ran cannot be stopped
+        # as inferior (V2), so the stop concludes its assumptions do not hold.
+        stop = {'stop_reason': 'Not worth it', 'outcome': 'assumptions_incompatible', 'evidence_ids': [passed]} if value == 'archived' else {}
         return call(w, moderator, run, 'campaign_command', {'operation': 'hypothesis.status', 'request_key': key, 'guidance_revision': guidance(w, c),
             'payload': {'hypothesis_id': identity, 'status': value, 'expected_status_revision': 0, **stop}}, key)
     archived = status('h1', 'archived', 'archive')

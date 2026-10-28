@@ -64,8 +64,13 @@ def _declare(method, properties, completion_units):
     return method
 
 
+# Methods whose runs do not depend on the seed (decision 14): they draw nothing from it. Every other bundled method does.
+SEED_FREE = {"replay", "evaluate_asset"}
+
+
 for method in BUILTINS:
     name = method["id"]
+    method["stochastic"] = name not in SEED_FREE
     properties = dict(TypeAdapter(TrainConfig).json_schema()["properties"]) if name == "dqn" else dict(PROPERTIES[name])
     if name not in {"coordinate", "frozen_policy", "evaluate_asset", "artifact_inference", "replay", "swap_search", "enumerate"}:
         properties["initial_design"] = {"type": "array", "description": "A candidate in this instance's declared schema"}
@@ -93,6 +98,16 @@ def _describe(name, optimizer_plugins=None):
         return None, next(item for item in BUILTINS if item["id"] == name)
     found = (optimizer_plugins or plugins.installed).get(name)
     return (found[0], _plugin_method(found[1])) if found else (None, None)
+
+
+def stochastic(name, optimizer_plugins=None):
+    """Whether another seed may give another run of a method: its declaration, true when undeclared or unknown (decision 14).
+    conformance.check() and check_function() confirm a false declaration, so a library that declares it falsely is refused."""
+    try:
+        _, method = _describe(name, optimizer_plugins)
+    except Exception:   # a plug-in that cannot load here says nothing about its seeds
+        return True
+    return method is None or method.get("stochastic", True) is not False
 
 
 def methods(optimizer_plugins=None):

@@ -9,6 +9,7 @@ a reference result (N13), is fully assessed there: it reads as extended, and mor
 import math
 
 from optimization_framework.analysis.optimality import by_task
+from optimization_framework.campaigns.assessment import adequacy
 from optimization_framework.campaigns.experiment_rules import check_trial_ids, classify, current as experiment_rules
 from optimization_framework.campaigns.hypotheses import stop_of
 from optimization_framework.campaigns.proposals import readiness
@@ -129,7 +130,8 @@ def rows(workspace, campaign_id, *, with_curves=False):
     tasks = {task["id"]: task for task in store.list("task", campaign_id)}
     aliases = {row["record_id"]: row["label"] for row in store.list("agent_alias", campaign_id)}
     rules = experiment_rules(store, campaign_id)
-    kinds = classify(trials, rules.get("short_run_seconds") or rules.get("long_run_threshold_seconds") or 600, check_trial_ids(store, campaign_id)) if trials else {}
+    probes = check_trial_ids(store, campaign_id)
+    kinds = classify(trials, rules.get("short_run_seconds") or rules.get("long_run_threshold_seconds") or 600, probes) if trials else {}
     races = [race for race in store.list("adaptive_race", campaign_id)]
     race_views = {}
     for race in races:
@@ -192,6 +194,10 @@ def rows(workspace, campaign_id, *, with_curves=False):
                "trial_ids": [t["id"] for t in own], "live_trials": sum(1 for t in own if t.get("status") in {"queued", "running", "pausing", "stopping"}),
                "finalist": finalist or hypothesis.get("status") == "finalist", "confirmation": confirmation,
                "stop_reason": hypothesis.get("stop_reason"), "stopped_at": hypothesis.get("stopped_at"), "stop": stop_of(hypothesis),
+               # How it was tried against the assessment minimums (V2): "2 of 3 configurations, 2 seeds each".
+               "assessment": {key: value for key, value in adequacy(workspace, hypothesis, trials=trials, rules=rules, tasks=tasks, probes=probes).items()
+                              if key in {"adequate", "configurations", "required_configurations", "seeds_per_configuration", "required_seeds",
+                                         "stochastic", "missing", "words"}},
                # Its method finished on its own: "Extend" runs it on the next size, not longer (N14).
                "next_size": next_size(own, tasks),
                "created_at": hypothesis.get("created_at"), "proof": proof_of(hypothesis["id"], optimality, tasks)}

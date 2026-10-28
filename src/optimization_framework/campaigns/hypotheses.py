@@ -87,6 +87,12 @@ def set_status(workspace, hypothesis, status, expected_revision, *, stop_reason=
     if expected_revision is not None and revision != expected_revision:
         raise ValueError("Idea status changed; refresh before changing it again")
     stop = stop_record(workspace, hypothesis, outcome=outcome, evidence_ids=evidence_ids, reason=stop_reason, actor=actor or "researcher") if status == "archived" else None
+    if stop is not None:
+        # A performance stop rests on an adequate assessment, or the researcher's waiver (V2).
+        from .assessment import gate
+        assessed = gate(workspace, hypothesis, stop["outcome"], actor or "researcher")
+        if assessed is not None:
+            stop["assessment"] = assessed
     changed = nominate(workspace, hypothesis, actor=actor) if status == "finalist" else {**hypothesis, "status": status}
     if status == "archived":
         changed["stop_reason"] = stop_reason or hypothesis.get("stop_reason") or "stopped without a stated reason"
