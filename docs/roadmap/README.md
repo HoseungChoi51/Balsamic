@@ -6,7 +6,7 @@
 | Date | 2026-10-27 |
 | Sources | `docs/charter-to-results-plan.md` (`cc0e693`), which Phase 1 replaces; the design-drift review of 2026-10-27, every suggestion and every lost idea it lists (§4 maps each one to its parts); and the algorithm-family review of 2026-10-27 (§4.1) |
 | Checked against | The code at `cc0e693`. Each part's "Today" says what the code does now |
-| Status | Phases 1–7 are released. Track L (code libraries) was added and completed on 2026-10-28 (`docs/releases/track-l.md`). Track P (the quick charter) was added on 2026-10-28 and is in progress. Decisions 1–32 are settled (§2): 1–3 before this roadmap, 4–21 in Hoseung's review on 2026-10-27 (8 and 14 with changes), 22–24 after the algorithm-family review the same day (22 with a change), 25–27 with track L and 28–32 with track P on 2026-10-28 |
+| Status | Phases 1–7 are released. Track L (code libraries) was added and completed on 2026-10-28 (`docs/releases/track-l.md`). Track P (the quick charter) was added and completed on 2026-10-28 (`docs/releases/track-p.md`). Decisions 1–32 are settled (§2): 1–3 before this roadmap, 4–21 in Hoseung's review on 2026-10-27 (8 and 14 with changes), 22–24 after the algorithm-family review the same day (22 with a change), 25–27 with track L and 28–32 with track P on 2026-10-28 |
 | How to work | One part = one branch = one PR into `workspace-rebuild`. Each phase file lists its parts, what each depends on and which can run in parallel |
 
 The diagnosis behind Phases 2 to 7, in one paragraph: Balsamic enforces in code what agents may *do* (commands, compute,
