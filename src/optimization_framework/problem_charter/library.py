@@ -71,7 +71,7 @@ class CharterProblem:
 
     def evaluator(self, instance):
         instance = instance if isinstance(instance, ProblemInstance) else ProblemInstance.model_validate(instance)
-        if self.resolve(instance.configuration, instance.fidelity) != instance:
+        if not self.resolve(instance.configuration, instance.fidelity).same_evaluation(instance):
             raise ValueError("The library does not resolve this instance as it was frozen")
         return CharterEvaluator(instance, self.problem(instance), self.code()[1].objective)
 

@@ -4,7 +4,8 @@ Stages: proposed → reviewed → screening (short runs) → extended (long runs
 Stopped is a decision with a reason, never a failure. Unknown values stay None.
 A strategy whose run proved its value optimal on a task with a deterministic evaluator, the proof checked by enumeration or
 a reference result (N13), is fully assessed there: it reads as extended, and more time is refused (hypothesis.allocate).
-"Best" follows the objective's direction: the lowest score when minimizing.
+"Best" follows the objective's direction: the lowest score when minimizing. It is the best feasible score: a result that broke
+a constraint on the outcome (N10) is counted in ``infeasible_observations`` and never ranks.
 Each row carries its gates (V5): the assessment before an agent's stop as inferior and the fidelity check before a finalist
 or a library entry, with what would open a closed one.
 """
@@ -193,6 +194,8 @@ def rows(workspace, campaign_id, *, with_curves=False):
                "family": hypothesis.get("family"), "algorithm": hypothesis.get("algorithm"), "worker_seconds": sum(float(t.get("execution_seconds") or 0) for t in own),
                "allotted_seconds": sum(float(t.get("wall_seconds") or 0) for t in own),
                "evaluations": sum(int(((t.get("result") or t.get("progress") or {}).get("evaluations") or 0)) for t in own) or None,
+               # Measured results that broke a constraint on the outcome (N10): never its best.
+               "infeasible_observations": sum(int(((t.get("result") or t.get("progress") or {}).get("infeasible_observations") or 0)) for t in own),
                "best": {"score": best, "basis": "measured" if best is not None else None, "source": basis, "trial_id": best_trial["id"] if best_trial else None, "interval": None,
                         "direction": direction},
                "highest_rung_seconds": (race or {}).get("highest_rung_seconds") or (max((t.get("wall_seconds") or 0) for t in own) if own else None),

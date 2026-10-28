@@ -5,7 +5,7 @@ from typing import Any, Literal
 from pydantic import AliasChoices, BaseModel, ConfigDict, Field, field_validator, model_serializer, model_validator
 
 from optimization_framework.evaluation.registry import problems
-from .problems import Access, CostAxis, ProblemInstance, ProblemSize, without_unset
+from .problems import Access, CostAxis, OutcomeConstraint, ProblemInstance, ProblemSize, without_unset
 from .evaluators import EvaluatorManifest
 from .diagnostics import DiagnosticSchedule
 from .experiments import RecoveryPolicy
@@ -32,10 +32,16 @@ class TaskInput(Model):
     cost_axis: CostAxis | None = None
     # Where the task sits on its problem's size ladder (N14); left out of the record when unset.
     size: ProblemSize | None = None
+    # An installed problem's conditions on its measured objectives, as the charter states them (N10); the task's problem
+    # carries them. A declared problem carries them in its manifest. Left out of the record while empty.
+    outcomes: list[OutcomeConstraint] = Field(default_factory=list, max_length=100)
 
     @model_serializer(mode="wrap")
     def compatible_serialization(self, handler):
-        return without_unset(handler(self), "size")
+        result = without_unset(handler(self), "size")
+        if not self.outcomes:
+            result.pop("outcomes", None)
+        return result
 
     @model_validator(mode="after")
     def resolve_problem(self):
@@ -58,6 +64,9 @@ class TaskInput(Model):
             if self.problem_id in problems.ids():
                 raise ValueError("A generated evaluator cannot replace an installed problem adapter")
             resolved = self.evaluator_manifest.resolve("unresolved", self.configuration, self.fidelity)
+            if self.outcomes and self.outcomes != resolved.outcomes:
+                raise ValueError("A declared problem's outcome constraints are its manifest's")
+            self.outcomes = list(resolved.outcomes)
             if self.problem is not None and self.problem != resolved:
                 raise ValueError("An unresolved evaluator requirement cannot supply a runnable problem")
             self.problem, self.configuration, self.fidelity = resolved, resolved.configuration, resolved.fidelity
@@ -68,6 +77,10 @@ class TaskInput(Model):
             if legacy != explicit:
                 raise ValueError("Specify problem configuration once")
         resolved = problems.resolve(self.problem_id, self.configuration or self.physics, self.fidelity)
+        self.outcomes = list(self.outcomes or (self.problem.outcomes if self.problem is not None else []))
+        if self.outcomes:
+            resolved = ProblemInstance.model_validate({**resolved.model_dump(mode="json"),
+                                                       "outcomes": [c.model_dump(mode="json") for c in self.outcomes]})
         if self.problem is not None and self.problem != resolved:
             raise ValueError("Supplied resolved problem does not match the registered adapter")
         self.problem = resolved

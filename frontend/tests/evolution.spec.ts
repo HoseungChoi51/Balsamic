@@ -171,3 +171,12 @@ test('the researcher stops with an outcome; a stop as inferior on too few runs s
   await expect.poll(() => (recorded.commands[0] as any)?.payload.items[0].payload)
     .toMatchObject({ hypothesis_id: 'hypothesis_a', status: 'archived', stop_reason: 'lost to H02', outcome: 'configuration_unpromising' });
 });
+
+test('the frontier says how many of a strategy\'s results broke a rule on the outcome (N10)', async ({ page }) => {
+  const counted = { ...evolution, nodes: evolution.nodes.map(n => n.id === 'hypothesis_a' ? { ...n, infeasible_observations: 3 } : n) };
+  await mockWorkspace(page, { [`/api/v1/campaigns/${CAMPAIGN_ID}/evolution`]: counted });
+  await page.goto(`/#t/${THREAD_ID}/evolution/frontier`);
+  const table = page.getByTestId('frontier');
+  await expect(table.locator('tr[data-record-id="hypothesis_a"]').getByTestId('infeasible')).toHaveText('3 infeasible');
+  await expect(table.locator('tr[data-record-id="hypothesis_b"]').getByTestId('infeasible')).toHaveCount(0);
+});

@@ -58,7 +58,7 @@ def execute(operation, payload, *, directory=None):
         problem = ProblemInstance.model_validate(payload["problem"])
         registry = problem_registry(directory, payload["problem"])
         adapter = registry.get(problem.definition_id)
-        if adapter.resolve(problem.configuration, problem.fidelity) != problem:
+        if not adapter.resolve(problem.configuration, problem.fidelity).same_evaluation(problem):
             raise ValueError("The captured adapter does not resolve this problem version")
         return adapter.describe().model_dump(mode="json")
     if operation == "recipe.compile":
