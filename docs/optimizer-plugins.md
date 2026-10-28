@@ -146,8 +146,12 @@ campaigns use (roadmap L1, decision 25): a method or problem the installed versi
 kept method that fails validation outside the box, refuses the install when any campaign of the lab ran the method, has a
 proposal bound to it or a task on the problem. A method whose behaviour changes gets a new name (`foo_v2`); a changed scoring
 function is a new problem id. Unused methods and problems may go (`methods_removed`, `problems_removed`; `methods_kept`,
-`problems_kept`). Every installed version is archived on the host, `<data>/library_archive/<name>/<version>/` (its files and
-`version.json`), and the version an install replaces is archived first. The running lab lists its methods for the
+`problems_kept`). Each library has its own Git repository on the host, `<data>/library_repositories/<name>.git` (roadmap L2): an
+install commits the version's files onto its `main` as Balsamic's own commit (the source commit, workspace and campaign in the
+message), writes the lab's copy from that commit, and once it is in tags it `v<version>` and records a `library_version` (its
+parent, source, methods and problems, what it added and removed). A version, once tagged, never changes: the same version with
+other code is refused. What the lab had before (L1's archive in `<data>/library_archive/`, a library committed with the lab) is
+imported as the first versions. `GET /api/libraries` and `GET /api/libraries/<name>` list them; the Packages page shows them. The running lab lists its methods for the
 problems they name at the next listing, without a restart (see "Installed while the lab runs" below). A proposal runs a method once it is bound to it (`implementation.bind_builtin`). After an install Balsamic binds each proposal the delivery serves by itself, when exactly one of the methods
 the delivery reports for it is installed and runs on a current task: through the command bus as its system actor `balsamic`, citing the install, which lists
 its `bindings` and the proposals it `skipped` with why (a proposal someone bound, one using another method, one with several candidates). A binding keeps the
