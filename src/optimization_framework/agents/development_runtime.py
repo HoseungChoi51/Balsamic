@@ -170,6 +170,25 @@ def write_ticket(repo, files):
             target.write_bytes(content)
 
 
+def copy_reference(source, references, name):
+    """Copy one pack reference into the workspace's read-only `/references/<name>` once: a Git checkout's committed tree with
+    its commit beside it, else the folder as it is (links are kept as links, so none reaches outside it)."""
+    target = references / name
+    if target.exists():
+        return
+    if (source / ".git").exists():
+        target.mkdir()
+        archive = references / (name + ".tar")
+        run(["git", "-C", str(source), "archive", "--output", str(archive), "HEAD"])
+        import tarfile
+        with tarfile.open(archive) as tar:
+            tar.extractall(target, filter="data")
+        archive.unlink()
+        (references / (name + ".commit")).write_text(run(["git", "-C", str(source), "rev-parse", "HEAD"]))
+    else:
+        shutil.copytree(source, target, symlinks=True, ignore=shutil.ignore_patterns("__pycache__"))
+
+
 def references_note(directory):
     """The brief's line on the references this workspace holds; nothing when it holds none."""
     found = sorted(path.name for path in Path(directory).iterdir() if not path.name.endswith(".commit")) if Path(directory).is_dir() else []
@@ -238,10 +257,11 @@ class DockerWorkspace:
                 target.write_text(json.dumps({provider: auth[provider]}))
                 target.chmod(0o600)
 
-    def prepare(self, record, brief, evidence, library=None, ticket=None):
+    def prepare(self, record, brief, evidence, library=None, ticket=None, references=()):
         """The workspace's directories, worktree, references and `.campaign/` brief; with ``library`` ({name, files}), the
         library generated from the campaign's charter under `libraries/<name>/` (write_library); with ``ticket``, the work
-        ticket's files beside it (write_ticket). Returns the library's hashes."""
+        ticket's files beside it (write_ticket); with ``references`` ([{name, source}], CampaignPacks.references()), the
+        campaign's pack references (roadmap N6). Returns the library's hashes."""
         root = self.root(record)
         for name in ("work", "home", "incoming/commands", "incoming/results", "outgoing/events", "references"):
             (root / name).mkdir(parents=True, exist_ok=True, mode=0o700)
@@ -260,7 +280,7 @@ class DockerWorkspace:
                  "--git-dir=/work/git", "worktree", "add",
                  *(["/work/repo", branch] if exists else ["-b", branch, "/work/repo", "HEAD"])], timeout=60)
         repo = work / "repo"
-        self.references(root)
+        self.references(root, references)
         context = repo / ".campaign"
         context.mkdir(exist_ok=True)
         # Do not replace developer-edited context when recovering an existing workspace.
@@ -284,19 +304,11 @@ class DockerWorkspace:
         write_ticket(repo, ticket)
         return hashes
 
-    def references(self, root):
-        """Reference code only: no host working files, credentials, or campaign databases."""
-        flrl = Path(os.environ.get("GRATING_FLRL_REFERENCE", str(ROOT.parent / "flrl")))
-        if (flrl / ".git").exists() and not (root / "references/flrl").exists():
-            target = root / "references/flrl"
-            target.mkdir()
-            archive = root / "references/flrl.tar"
-            run(["git", "-C", str(flrl), "archive", "--output", str(archive), "HEAD"])
-            import tarfile
-            with tarfile.open(archive) as tar:
-                tar.extractall(target, filter="data")
-            archive.unlink()
-            (root / "references/flrl.commit").write_text(run(["git", "-C", str(flrl), "rev-parse", "HEAD"]))
+    def references(self, root, references=()):
+        """The campaign's pack references and the researcher's paper only: no host working files, credentials, or campaign
+        databases."""
+        for reference in references:
+            copy_reference(Path(reference["source"]), root / "references", reference["name"])
         # Optional paper PDF; set GRATING_PAPER_REFERENCE or the launcher's `paper_reference`.
         paper = Path(os.environ.get("GRATING_PAPER_REFERENCE", "")).expanduser()
         if paper.name and paper.is_file() and paper.stat().st_size < 50 * 1024 * 1024:

@@ -112,10 +112,12 @@ class PackPresentation(Contract):
 
 class PackReference(Contract):
     """Material mounted read-only into the coding workspaces of the pack's campaigns: a folder inside the pack's package,
-    or the folder an environment variable names when it is set (material kept outside the package, possibly absent)."""
+    or the folder an environment variable names when it is set, else ``default`` (material kept outside the package,
+    possibly absent)."""
     name: str = Field(pattern=r"^[a-z0-9][a-z0-9_-]*$")
     folder: str | None = None
     environment: str | None = Field(default=None, pattern=r"^[A-Z_][A-Z0-9_]*$")
+    default: str | None = None
 
     @field_validator("folder")
     @classmethod
@@ -126,6 +128,8 @@ class PackReference(Contract):
     def located(self):
         if self.folder is None and self.environment is None:
             raise ValueError(f"Reference {self.name!r} needs a folder or an environment variable")
+        if self.default is not None and (self.environment is None or not PurePosixPath(self.default).is_absolute()):
+            raise ValueError(f"Reference {self.name!r}: a default is an absolute path used when its environment variable is unset")
         return self
 
 
