@@ -215,7 +215,8 @@ objective (TE and TM separately), selectivity beside yield, or mass beside peak 
 
 An instance is one condition to optimize. It gives the charter's input values, or the inputs that
 differ from them (`values`). Use `split: "development"` unless the sources define held-out
-conditions, which are `selection` or `test`.
+conditions, which are `selection` or `test`. When instances differ in scale (8, 12 and 20 jobs),
+name that quantity as each instance's `size`, the same in all.
 
 ### Reference results
 

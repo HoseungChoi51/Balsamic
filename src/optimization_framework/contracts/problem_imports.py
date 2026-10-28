@@ -7,7 +7,7 @@ from pydantic import Field, model_serializer, model_validator
 
 from .base import Contract
 from .evaluators import EvaluatorManifest
-from .problems import Access, CostAxis, without_unset
+from .problems import Access, CostAxis, ProblemSize, without_unset
 
 
 class ProblemSetup(Contract):
@@ -23,10 +23,12 @@ class ProblemSetup(Contract):
     # problem carries them in its manifest.
     access: Access | None = None
     cost_axis: CostAxis | None = None
+    # Where the instance sits on the charter's size ladder (N14); unset for a problem compared per task.
+    size: ProblemSize | None = None
 
     @model_serializer(mode="wrap")
     def compatible_serialization(self, handler):
-        return without_unset(handler(self), "access", "cost_axis")
+        return without_unset(handler(self), "access", "cost_axis", "size")
 
     @model_validator(mode="after")
     def one_problem(self):
@@ -40,7 +42,7 @@ class ProblemSetup(Contract):
         manifest = self.evaluator_manifest
         return TaskInput(name=self.name, split=self.split, problem_id=manifest.id if manifest else self.problem_id,
             configuration=self.configuration, fidelity=self.fidelity, evaluator_manifest=manifest,
-            access=None if manifest else self.access, cost_axis=None if manifest else self.cost_axis)
+            access=None if manifest else self.access, cost_axis=None if manifest else self.cost_axis, size=self.size)
 
 
 class CampaignDefaults(Contract):

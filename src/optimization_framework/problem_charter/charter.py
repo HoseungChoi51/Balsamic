@@ -486,6 +486,15 @@ def findings(charter, registry=None) -> list[dict]:
             for name, message in other["errors"].items():
                 if name not in errors:
                     out.append(finding("instance.relation", "blocking", f"{instance.name}:{name}", f"In instance {instance.name}: {message}", [name]))
+    named = {instance.size for instance in charter.instances} - {None}
+    if named:
+        quantity = charter.quantities.get(next(iter(named)))
+        if len(named) > 1 or any(instance.size is None for instance in charter.instances):
+            out.append(finding("instance.size_mixed", "blocking", "instances", "Instances name different sizes, or only some "
+                "name one: name the same quantity in every instance, or in none.", sorted(named)))
+        elif quantity is None or quantity.kind not in {"number", "integer"}:
+            out.append(finding("instance.size_unknown", "blocking", "instances", f"The instances' size {next(iter(named))} is "
+                "not a number or integer quantity of the charter.", sorted(named)))
     # Questions
     for question in charter.questions:
         if question.answer is None:
@@ -1158,13 +1167,14 @@ def compile_setups(charter, registry=None) -> list[dict]:
         values = resolve(charter, instance.values)["values"]
         configuration = {field: values[name] for field, name in binding.configuration.items()}
         fidelity = {field: values[name] for field, name in binding.fidelity.items()}
+        size = {"name": instance.size, "value": values[instance.size]} if instance.size else None
         if binding.kind == "installed" or provided:
             setup = ProblemSetup(name=instance.name, split=instance.split, problem_id=binding.problem_id,
                                  configuration=configuration, fidelity=fidelity, rationale=instance.note,
-                                 access=binding.access, cost_axis=binding.cost_axis)
+                                 access=binding.access, cost_axis=binding.cost_axis, size=size)
         else:
             setup = ProblemSetup(name=instance.name, split=instance.split, configuration=configuration, fidelity=fidelity,
-                                 evaluator_manifest=manifest(charter, values), rationale=instance.note)
+                                 evaluator_manifest=manifest(charter, values), rationale=instance.note, size=size)
         setup.task_input()
         setups.append(setup.model_dump(mode="json"))
     return setups

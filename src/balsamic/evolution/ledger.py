@@ -14,6 +14,7 @@ from optimization_framework.campaigns.experiment_rules import check_trial_ids, c
 from optimization_framework.campaigns.hypotheses import stop_of
 from optimization_framework.campaigns.proposals import readiness
 from optimization_framework.contracts.problems import Objective
+from optimization_framework.evaluation.sizes import next_size
 
 RACE_ACTIVE = {"preflight", "running", "paused"}
 CURVE_POINTS = 200
@@ -197,6 +198,8 @@ def rows(workspace, campaign_id, *, with_curves=False):
                "assessment": {key: value for key, value in adequacy(workspace, hypothesis, trials=trials, rules=rules, tasks=tasks, probes=probes).items()
                               if key in {"adequate", "configurations", "required_configurations", "seeds_per_configuration", "required_seeds",
                                          "stochastic", "missing", "words"}},
+               # Its method finished on its own: "Extend" runs it on the next size, not longer (N14).
+               "next_size": next_size(own, tasks),
                "created_at": hypothesis.get("created_at"), "proof": proof_of(hypothesis["id"], optimality, tasks)}
         row["stage"] = stage_of(hypothesis, own, kinds, race, finalist, confirmation, review, row["proof"])
         if with_curves and best_trial:
