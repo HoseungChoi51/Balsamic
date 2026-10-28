@@ -125,6 +125,7 @@ class Turn:
         self._tools, self.store = tools, store
         self.notice = "[Platform notice." in self.text
         self.continuation = bool(run.get("continuation"))   # the Balsamic extension's one continuation of a turn without yield_work
+        self.one_shot = False   # a session's turn; a one-shot role's call is a Call
 
     def call(self, name, **arguments):
         return self._tools(name, arguments)
@@ -139,6 +140,26 @@ class Turn:
     def finish(self, report, summary="replied", disposition="complete"):
         """yield_work, then the reply; a refused yield_work leaves the turn without a checkpoint, as a model's would."""
         self.call("yield_work", disposition=disposition, summary=summary, report=report, evidence_ids=[])
+        return report
+
+
+class Call:
+    """A one-shot role call in --fake mode (agents/calls.py): no tools, one reply. A script answers it by returning a dict (the
+    role's result, sent as JSON) or text; .input is the context the backend assembled."""
+    notice, continuation = False, False
+
+    def __init__(self, body):
+        self.role, self.text = body.get("label"), body.get("prompt") or ""
+        self.one_shot, self.memory = True, {}
+        try:
+            self.input = json.loads(self.text)
+        except ValueError:
+            self.input = {}
+
+    def call(self, name, **arguments):
+        raise RuntimeError(f"A one-shot {self.role} has no tools ({name})")
+
+    def finish(self, report, summary="replied", disposition="complete"):
         return report
 
 
@@ -202,6 +223,14 @@ class Stack:
             script = self.fake_play or default_fake
             return script(Turn(agent, run, tools, self.workspace.store))
         harness = FakeHarness(gateway, script=play)
+
+        def answer(call_id, body):
+            from optimization_framework.agents.calls import ONE_SHOT_ROLES
+            if body.get("label") not in ONE_SHOT_ROLES:
+                return None
+            reply = (self.fake_play or default_fake)(Call(body))
+            return reply if isinstance(reply, str) else json.dumps(reply)
+        harness.answer = answer
 
         def notify(ids):
             self.http.post("/api/internal/pi/notify", json={"agent_ids": ids}, headers={"Authorization": "Bearer " + self.token})

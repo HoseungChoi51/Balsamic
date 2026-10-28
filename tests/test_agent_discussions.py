@@ -29,7 +29,7 @@ def test_rounds_replies_verdicts_and_the_leads_response_are_read_from_saved_reco
 
     # Round 1: two assistants asked in the researcher's turn.
     specialist = invoke(prepared, 'delegate', {'role': 'methodology_specialist', 'objective': 'Propose strategies for the deflector.', 'request_key': 'ideas'}, 'd1')
-    reviewer = invoke(prepared, 'delegate', {'role': 'proposal_reviewer', 'objective': 'Review H6 for a short run.', 'request_key': 'review'}, 'd2')
+    reviewer = invoke(prepared, 'delegate', {'role': 'proposal_reviewer', 'objective': 'Review H6 for a short run.', 'request_key': 'review', 'hypothesis_id': 'h6'}, 'd2')
     saved = invoke(prepared, 'artifact_save', {'title': 'Consolidated picks', 'kind': 'analysis', 'content': 'Lead picks H6.'}, 'd3')
     review_run = w.store.get(reviewer['run_id'], 'agent_run'); w.store.put('agent_run', {**review_run, 'status': 'submitted'})
     verdict = tools.call(reviewer['agent_id'], reviewer['run_id'], 'v1', 'proposal_review', {'hypothesis_id': 'h6', 'hypothesis_hash': hypothesis_revision(original),
@@ -43,7 +43,7 @@ def test_rounds_replies_verdicts_and_the_leads_response_are_read_from_saved_reco
     w.store.put('agent_run', {**w.store.get(woken, 'agent_run'), 'status': 'submitted', 'disposition': {'disposition': 'waiting', 'summary': 'Revised H6; re-review asked.'}})
     revision = {**original, 'id': 'h6b', 'title': 'H6 — Autograd Adam, schedule pinned', 'parent_ids': ['h6'], 'reviews': [], 'created_at': '2026-10-13T16:00:00+00:00', 'status': 'finalist'}
     w.store.put('hypothesis', revision)
-    second = tools.call(lead['id'], woken, 'd4', 'delegate', {'role': 'proposal_reviewer', 'objective': 'Re-review the revised H6.', 'request_key': 'again'})
+    second = tools.call(lead['id'], woken, 'd4', 'delegate', {'role': 'proposal_reviewer', 'objective': 'Re-review the revised H6.', 'request_key': 'again', 'hypothesis_id': 'h6b'})
     w.pi._receive(lead['id'], {'runs': {woken: {'status': 'completed', 'result': {'text': 'I pinned the schedule and asked for a second review.'}}}, 'events': [], 'cursor': 0})
     again = w.store.get(second['run_id'], 'agent_run'); w.store.put('agent_run', {**again, 'status': 'submitted'})
     tools.call(second['agent_id'], second['run_id'], 'v3', 'proposal_review', {'hypothesis_id': 'h6b', 'hypothesis_hash': hypothesis_revision(w.store.get('h6b', 'hypothesis')),
@@ -77,10 +77,14 @@ def test_rounds_replies_verdicts_and_the_leads_response_are_read_from_saved_reco
     # Put in by hand here, as the researcher would: no agent's turn created them.
     assert {(revision['created_in_round'], revision['created_by']) for proposal in result['proposals'] for revision in proposal['revisions']} == {(None, None)}
 
+    # A reviewer answers once (roadmap T1): a message to it is refused.
+    refused = tools.call(lead['id'], first['id'], 'm0', 'agent_message', {'agent_id': second['agent_id'], 'message': 'Also check the seeds.'})
+    assert 'answers once; delegate again' in refused['error']
     # A message the lead sends an assistant while it works is shown as added to its assignment.
-    extra = tools.call(lead['id'], first['id'], 'm1', 'agent_message', {'agent_id': second['agent_id'], 'message': 'Also check the seeds.'})
-    w.pi._receive(second['agent_id'], {'runs': {extra['id']: {'status': 'completed', 'result': {'delivery': 'steering_queued'}}}, 'events': [], 'cursor': 0})
-    follow = view(w, c['id'])['rounds'][0]['assistants'][0]['turns']
+    checker = tools.call(lead['id'], first['id'], 'd5', 'delegate', {'role': 'methodology_specialist', 'objective': 'Check the seeds of H6.', 'request_key': 'seeds'})
+    extra = tools.call(lead['id'], first['id'], 'm1', 'agent_message', {'agent_id': checker['agent_id'], 'message': 'Also check the seeds.'})
+    w.pi._receive(checker['agent_id'], {'runs': {extra['id']: {'status': 'completed', 'result': {'delivery': 'steering_queued'}}}, 'events': [], 'cursor': 0})
+    follow = view(w, c['id'])['rounds'][1]['assistants'][2]['turns']
     assert [(turn['kind'], turn['asked'], turn['delivered_while_working'], turn['response']) for turn in follow] == [
         ('assignment', None, False, None), ('follow_up', 'Also check the seeds.', True, None)]
 
