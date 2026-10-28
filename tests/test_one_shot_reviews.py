@@ -176,6 +176,6 @@ def test_a_reviewer_is_delegated_exactly_one_proposal(prepared):
     assert not [a for a in w.store.list("agent_session", c["id"]) if a["role"] == "proposal_reviewer"]
     cited = invoke(prepared, "delegate", {"role": "proposal_reviewer", "objective": "Review this one.", "request_key": "c", "evidence_ids": ["h2"]}, "c")
     assert w.store.get(cited["agent_id"], "agent_session")["hypothesis_id"] == "h2"
-    # Other assistants keep their sessions.
-    analyst = invoke(prepared, "delegate", {"role": "skeptical_domain_analyst", "objective": "How could H1 fail?", "request_key": "d"}, "d")
-    assert not w.store.get(analyst["agent_id"], "agent_session").get("one_shot")
+    # Assistants that search or run analyses keep their sessions (decision 19).
+    searcher = invoke(prepared, "delegate", {"role": "literature_specialist", "objective": "What is known about H1?", "request_key": "d"}, "d")
+    assert not w.store.get(searcher["agent_id"], "agent_session").get("one_shot")

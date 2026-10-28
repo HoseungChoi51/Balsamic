@@ -365,6 +365,12 @@ brief as the body, at most 200 words), and a `<role>.schema.json` (`agents/roles
   charter's summary, and the asker's objective with the records it cited, read under V4's rule), never another review of the
   revision. The call is saved as an `agent_call` with its instructions, input, output and usage; its verdict is recorded as
   `proposal_review` records one; a refused or failed call is not repeated, and a message to the reviewer is refused.
+- The methodology specialist and the skeptical domain analyst answer in one call too (roadmap T3): the same input plus the
+  resources (`resource_inspect`'s), a cited trial read as its status, result and metrics, and no reviewer's verdict on any
+  proposal; `hypothesis_id` is optional for them. Their result is validated against their schema and saved as
+  `submit_output` saves it. `GRATING_ONE_SHOT_ROLES` (comma-separated, empty for none; default: these two and the reviewer)
+  returns a role to its session; `analyst` in it makes one merged call answer for either specialist
+  ([ADR 0009](adr/0009-one-shot-review-specialists.md)).
 - The asking agent's notice says where the result is (`/output` on the run); the Review rounds view shows it.
 - Specialists saved before the schemas keep working without one.
 
