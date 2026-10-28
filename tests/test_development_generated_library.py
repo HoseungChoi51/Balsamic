@@ -27,7 +27,7 @@ class LibraryDriver(Driver):
         super().__init__(root)
         self.libraries = []
 
-    def prepare(self, record, brief, evidence, library=None, ticket=None):
+    def prepare(self, record, brief, evidence, library=None, ticket=None, references=()):
         super().prepare(record, brief, evidence)
         self.libraries.append(library)
         hashes = write_library(self.repo(record), library) if library else None

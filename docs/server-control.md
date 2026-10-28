@@ -81,8 +81,11 @@ failed tasks require an explicit retry rather than an invisible repeat call.
 Set `paper_reference` to a PDF path (`~` and repository-relative paths are
 accepted) to copy that paper into each development workspace as
 `/references/paper.pdf` and `paper.txt`. It is omitted by default; outside the
-launcher, set `GRATING_PAPER_REFERENCE` instead. Reference code is copied from
-`../flrl` when that checkout exists, or from `GRATING_FLRL_REFERENCE`.
+launcher, set `GRATING_PAPER_REFERENCE` instead. A workspace also gets the
+reference material of its campaign's problem packs, and only that: a MEENT
+campaign's workspace gets the FLRL code as `/references/flrl`, copied from
+`GRATING_FLRL_REFERENCE` or else from `../flrl` when that checkout exists; a
+campaign whose problems declare no pack gets none.
 
 ## GPU solver and concurrent trials
 
