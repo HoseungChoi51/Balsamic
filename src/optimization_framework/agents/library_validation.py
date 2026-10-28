@@ -111,9 +111,19 @@ def command(library, protected, out, request, earlier=None, dependencies=None):
     for path in roots():
         args += ["--ro-bind", str(path), str(path)]
     # A link of the interpreter's chain outside what is bound (a Debian /etc/alternatives entry) is bound as itself: its target.
+    # A directory on that path can be a link itself (uv's cpython-3.13-... -> cpython-3.13.13-...): binding the one file at that
+    # path leaves Python without its standard library, so the link is recreated and its target bound.
     for hop in links():
-        if not any(Path(hop).is_relative_to(root) for root in bound):
+        if any(Path(hop).is_relative_to(root) for root in bound):
+            continue
+        linked = next((ancestor for ancestor in reversed(Path(hop).parents) if ancestor.is_symlink()), None)
+        if linked is None:
             args += ["--ro-bind", hop, hop]
+            continue
+        args += ["--symlink", os.readlink(linked), str(linked)]
+        target = linked.resolve()
+        if not any(target.is_relative_to(root) for root in bound):
+            args += ["--ro-bind", str(target), str(target)]
     args += ["--ro-bind", str(library), LIBRARY, "--ro-bind", str(protected), TESTS, "--bind", str(out), OUT, "--chdir", LIBRARY]
     if earlier is not None:
         args[-2:-2] = ["--ro-bind", str(earlier), EARLIER]
