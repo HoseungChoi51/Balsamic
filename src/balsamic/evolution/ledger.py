@@ -10,6 +10,7 @@ from optimization_framework.campaigns.experiment_rules import check_trial_ids, c
 from optimization_framework.campaigns.hypotheses import stop_of
 from optimization_framework.campaigns.proposals import readiness
 from optimization_framework.contracts.problems import Objective
+from optimization_framework.evaluation.sizes import next_size
 
 RACE_ACTIVE = {"preflight", "running", "paused"}
 CURVE_POINTS = 200
@@ -161,6 +162,8 @@ def rows(workspace, campaign_id, *, with_curves=False):
                "trial_ids": [t["id"] for t in own], "live_trials": sum(1 for t in own if t.get("status") in {"queued", "running", "pausing", "stopping"}),
                "finalist": finalist or hypothesis.get("status") == "finalist", "confirmation": confirmation,
                "stop_reason": hypothesis.get("stop_reason"), "stopped_at": hypothesis.get("stopped_at"), "stop": stop_of(hypothesis),
+               # Its method finished on its own: "Extend" runs it on the next size, not longer (N14).
+               "next_size": next_size(own, tasks),
                "created_at": hypothesis.get("created_at")}
         row["stage"] = stage_of(hypothesis, own, kinds, race, finalist, confirmation, review)
         if with_curves and best_trial:

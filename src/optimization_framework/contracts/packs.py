@@ -65,13 +65,17 @@ class PackRacing(Contract):
 
     ``cost_model`` names ``growth(target, reference) -> float``: how much a worker's peak memory grows from the
     ``reference`` fidelity to the ``target``; it also orders fidelities. Every fidelity here names the same keys, and the
-    section applies only to tasks whose fidelity names exactly those (a pack may serve problems of several fidelities)."""
+    section applies only to tasks whose fidelity names exactly those (a pack may serve problems of several fidelities).
+
+    ``sizes`` is a size ladder (N14), instead of or beside the fidelity ladder: values of one configuration key that grows
+    across instances (such as the number of jobs), smallest first. A task whose configuration has that key sits on it."""
     ladder: list[Fidelity] = Field(default_factory=list)
     limit: Fidelity = Field(default_factory=dict)
     step: Fidelity = Field(default_factory=dict)
     memory_checks: list[Fidelity] = Field(default_factory=list)
     cost_model: str | None = None
     preferred_methods: list[str] = Field(default_factory=list)
+    sizes: list[Fidelity] = Field(default_factory=list)
 
     @field_validator("cost_model")
     @classmethod
@@ -85,7 +89,15 @@ class PackRacing(Contract):
             raise ValueError("The racing section's fidelities must all name the same keys")
         if (self.ladder or self.limit) and not self.cost_model:
             raise ValueError("A fidelity ladder needs a cost model to order and scale its fidelities")
+        if any(len(item) != 1 for item in self.sizes) or len({frozenset(item) for item in self.sizes}) > 1:
+            raise ValueError("A size ladder names one configuration key, the same at every step")
+        values = [next(iter(item.values())) for item in self.sizes]
+        if any(b <= a for a, b in zip(values, values[1:])):
+            raise ValueError("A size ladder grows: smallest first, each step larger than the one before")
         return self
+
+    def size_key(self) -> str | None:
+        return next(iter(self.sizes[0])) if self.sizes else None
 
     def keys(self) -> frozenset[str]:
         return next((frozenset(item) for item in [*self.ladder, self.limit, self.step, *self.memory_checks] if item), frozenset())
