@@ -151,6 +151,8 @@ def build(tools, agent, run):
     if agent["role"] == LEAD:
         extra = getattr(tools.workspace, "lead_state", None)
         lines += list(extra(agent, run)) if callable(extra) else []
+        if "experiment_operator" in getattr(tools, "folded", lambda _: ())(agent):
+            lines += experiment_rules(tools, agent)   # the operator's state, the lead's when it runs the experiments (T4)
     else:
         lines += page_agent(tools, agent)
     text = cap(lines)

@@ -18,7 +18,7 @@ from .client import PiClient
 from .families import family_of, check_same_family
 from . import tiers
 from .models import (Activate, Configure, Message, Control, QuestionDismiss, UiRespond, ROLES, LEAD, STANDING_OBJECTIVE, FORMER_OBJECTIVE, NOTICE,
-    PAGE_AGENTS, PAGE_OBJECTIVES, STANDING, DISCUSSION_ROLES)
+    PAGE_AGENTS, PAGE_OBJECTIVES, STANDING, DISCUSSION_ROLES, FOLDABLE, folded, page_agents_mode)
 from .tools import step_label
 from .discussions import synthesis_notice
 
@@ -70,6 +70,13 @@ def profile_defaults():
         return None
     return {"provider": settings["defaultProvider"], "model": settings["defaultModel"],
             "effort": settings.get("defaultThinkingLevel")}
+
+
+def desk_of(origin):
+    """The page a lead turn answers on (T4): the folded page agent whose desk its request was made on, else None."""
+    thread_id = (origin or {}).get("thread_id") or ""
+    role = thread_id.removeprefix("desk_")
+    return role if thread_id.startswith("desk_") and role in FOLDABLE else None
 
 
 class PiController:
@@ -142,6 +149,10 @@ class PiController:
         except KeyError:
             return None
 
+    def folded(self, campaign_id):
+        """The page agents whose work the lead does in this campaign (T4's page_agents: lead); empty under standing."""
+        return folded(self.configuration(campaign_id))
+
     def owns(self, campaign_id):
         return bool((self.configuration(campaign_id) or {}).get("enabled"))
 
@@ -158,6 +169,8 @@ class PiController:
             "objective": values.objective, "activation_command_id": command_id, "created_at": now(), "event_cursor": event_cursor,
             # No request is open until the researcher writes; until then nothing wakes the lead.
             "request_open": False,
+            # T4's experiment: whether the moderator and the operator keep their sessions (standing) or the lead does their work.
+            "page_agents": page_agents_mode(values.page_agents),
             "provider": {"configured": False, "reason": "Checking Pi connection"}}
         default = values.model.model_dump() if values.model else profile_defaults() if dev_profile() else None
         if default:
@@ -228,6 +241,8 @@ class PiController:
         config = self.configuration(campaign_id)
         if not config or not config["enabled"]:
             raise ValueError("Start the agent team first")
+        if role in folded(config):
+            raise ValueError(f"In this campaign the lead agent does the {role.replace('_', ' ')}'s work (page_agents: lead): ask the lead")
         agent = self.create_agent(campaign_id, role, PAGE_OBJECTIVES[role], "agent_" + role + "_" + content_hash([campaign_id, role])[:16],
                                   parent_id=config["lead_id"])
         if agent["status"] == "queued" and not self.store.list_agent_runs(agent["id"]):
@@ -343,6 +358,8 @@ class PiController:
         config = self.configuration(campaign_id)
         if not config or not config["enabled"]:
             raise ValueError("Activate the agent team for this campaign first")
+        if values.page_agents is not None:
+            return self.set_page_agents(campaign_id, config, values.page_agents, command_id)
         if values.follow_tier:
             if values.agent_id is None:
                 raise ValueError("Choose the agent that should follow its role's tier")
@@ -362,6 +379,21 @@ class PiController:
         agent = self._own_agent(campaign_id, values.agent_id)
         # A model chosen for one agent pins it; tier changes no longer move it.
         self._switch(agent, choice, command_id, tier=None, source="agent")
+        return self.view(campaign_id)
+
+    def set_page_agents(self, campaign_id, config, mode, command_id):
+        """Fold the moderator and the operator into the lead, or give them back their sessions (T4). Not while one of them, or
+        the lead, is at work on a request: the work in hand would lose whoever answers for it."""
+        if (config.get("page_agents") or "standing") == mode:
+            return self.view(campaign_id)
+        busy = [agent["role"].replace("_", " ") for agent in self.store.list("agent_session", campaign_id)
+                if agent["role"] in FOLDABLE and agent.get("request_open")]
+        if config.get("request_open"):
+            busy.append("lead agent")
+        if busy:
+            raise ValueError("Change page_agents when no request is open; open now: " + ", ".join(busy))
+        config.update(page_agents=mode, page_agents_changed_at=now(), page_agents_command_id=command_id)
+        self.store.put("agent_campaign", config, "agent.page_agents_changed")
         return self.view(campaign_id)
 
     def _own_agent(self, campaign_id, agent_id):
@@ -469,7 +501,14 @@ class PiController:
             raise ValueError("Activate Pi for this campaign first")
         if values.question_id and self.store.get(values.question_id, "agent_question").get("kind") == "extension_dialog":
             raise ValueError("An extension's dialog is answered with agent.ui_respond, not with a message")
-        agent = self.page_agent(campaign_id, values.page_agent) if values.page_agent else self.store.get(values.agent_id or config["lead_id"], "agent_session")
+        # A message on a page whose agent is folded into the lead (T4) goes to the lead, which answers on that page (desk).
+        # Asked from a chat thread (/plan), the lead answers in that thread, as for any message of the thread.
+        to_lead = values.page_agent in folded(config)
+        desk = values.page_agent if to_lead and not values.thread_id else None
+        agent = self.page_agent(campaign_id, values.page_agent) if values.page_agent and not to_lead else \
+            self.store.get(values.agent_id or config["lead_id"], "agent_session")
+        if values.agent_id and agent["role"] in folded(config):
+            raise ValueError(f"In this campaign the lead agent does the {agent['role'].replace('_', ' ')}'s work (page_agents: lead): ask the lead")
         if agent["campaign_id"] != campaign_id:
             raise ValueError("Agent belongs to another campaign")
         if config["status"] == "completed":   # saved by earlier versions, which closed the team when the lead called its work complete
@@ -504,20 +543,24 @@ class PiController:
             **({"thread_id": values.thread_id} if values.thread_id else {}),
             **({"parent_message_id": values.parent_message_id} if values.parent_message_id else {}),
             **({"edited_from_message_id": values.edit_of_message_id} if values.edit_of_message_id else {}),
-            **({"desk": agent["role"]} if agent["role"] in PAGE_AGENTS else {})}, "message.created")
+            **({"desk": agent["role"]} if agent["role"] in PAGE_AGENTS else {"desk": desk} if desk else {})}, "message.created")
         if values.mandate is not None:
             # The researcher grants the request's mandate with the message (R7): rooted at the request it opens, as request_root()
             # gives it for the lead's run, or as the page agent's desk_root for its own request (decision 12).
             from optimization_framework.campaigns.mandates import with_message
             if agent["role"] != LEAD and agent["role"] not in PAGE_AGENTS:
                 raise ValueError("A mandate is granted with a message to the lead or to a page's agent, whose request it opens")
-            thread_id = values.thread_id or ("desk_" + agent["role"] if agent["role"] in PAGE_AGENTS else None)
+            thread_id = values.thread_id or ("desk_" + agent["role"] if agent["role"] in PAGE_AGENTS else "desk_" + desk if desk else None)
             with_message(self.workspace, campaign_id, values.mandate, {"thread_id": thread_id, "message_id": "message_" + command_id,
                          "run_id": "pi_run_" + command_id}, plan=values.message, message_id="message_" + command_id)
         if agent["role"] in PAGE_AGENTS:
             # Asked from a chat thread (/plan), it answers in that thread; asked on its page, on the page.
             origin = {"thread_id": values.thread_id, "message_id": "message_" + command_id, "actor": "researcher"} if values.thread_id else None
             return self.ask_page_agent(agent, values.message, "pi_run_" + command_id, "researcher", origin=origin)
+        if desk:
+            # The page's request is the lead's; its root is the page's desk, as a page agent's own request is (decision 12).
+            return self.enqueue(agent, "pi_run_" + command_id, values.message, mode=values.mode,
+                                origin={"thread_id": "desk_" + desk, "message_id": "message_" + command_id, "actor": "researcher", "desk": desk})
         placement = {}
         if thread is not None:
             # The turn continues the thread's branch of the session tree; the first turn after a fork starts the branch.
@@ -926,12 +969,16 @@ class PiController:
                     if text:
                         # The service may route an agent's message to a thread of its own (agents' side conversations).
                         thread_id = self.message_thread(agent, run) if self.message_thread else origin.get("thread_id")
+                        # The lead's reply to a request made on a folded page agent's page goes on that page (T4).
+                        desk = agent["role"] if agent["role"] in PAGE_AGENTS else desk_of(origin) if agent["role"] == LEAD and not run.get("asked_by") else None
+                        if desk and thread_id == "desk_" + desk:
+                            thread_id = None
                         self.store.put("message", {"id": "message_" + rid, "campaign_id": agent["campaign_id"],
                             "role": "assistant", "origin": "autopilot" if run.get("autopilot") else "lead" if agent["role"] == LEAD else "page_agent",
                             "agent_id": agent_id, "agent_role": agent["role"], "content": text, "created_at": now(), "run_id": rid,
                             **({"thread_id": thread_id} if thread_id else {}),
                             **({"entry_id": entry_ids["last"]} if entry_ids.get("last") else {}),
-                            **({"desk": agent["role"]} if agent["role"] in PAGE_AGENTS else {}),
+                            **({"desk": desk} if desk else {}),
                             **({"parts": parts} if len(parts) > 1 else {}), **({"to_agent_id": run["asked_by"]} if run.get("asked_by") else {}),
                             # The reply's numbers that nothing its request read holds (K2): a badge on the message.
                             **({"unverified_numbers": run["disposition"]["unverified_numbers"]}
