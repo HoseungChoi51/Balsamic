@@ -14,6 +14,8 @@ BUILTINS = [
     {"id": "swap_search", "name": "Swap search", "description": "Swap and insertion moves on an order, first improvement, random restarts after a plateau.",
      "representations": ["permutation"], "constraints": False, "parameters": {}},
     {"id": "coordinate", "name": "Coordinate search", "description": "Bounded coordinate improvement with global restarts.", "representations": ["continuous"], "constraints": True, "parameters": {"radius": .2}},
+    {"id": "enumerate", "name": "Enumerate every candidate", "description": "Every candidate in a fixed order, up to max_candidates; finishes with the optimum proved. "
+     "On a white-box problem one evaluation, of the optimum.", "representations": ["binary", "discrete", "permutation"], "constraints": True, "parameters": {}},
     {"id": "evaluate_asset", "name": "Evaluate a reference solution", "description": "One evaluation of an explicitly declared solution asset; no search move.",
      "representations": ["binary", "discrete", "continuous", "permutation"], "constraints": True, "parameters": {}, "purpose": "reference_evaluation"},
     {"id": "replay", "name": "Evaluate listed candidates", "description": "One evaluation of each listed candidate, in order; no search move.",
@@ -37,6 +39,7 @@ POSITIVE = {"type": "number", "exclusiveMinimum": 0}
 PROPERTIES = {
     "artifact_inference": {"adapter_id": {"type": "string"}, "parameters": {"type": "object"}},
     "random": {}, "evaluate_asset": {}, "replay": {"candidates": {"type": "array", "description": "Candidates in this instance's declared schema"}},
+    "enumerate": {"max_candidates": {**INTEGER, "default": 10**6, "description": "Refuse a problem with more candidates than this"}},
     "swap_search": {"restarts_after": {**INTEGER, "description": "Evaluations without improving the current order before a random restart; default a whole neighbourhood"}},
     "coordinate": {"radius": {**POSITIVE, "maximum": 1, "default": .2}},
     "hillclimb": {"restart_patience": INTEGER, "neighborhood": {"type": "string", "enum": ["permuted", "random"]},
@@ -64,7 +67,7 @@ def _declare(method, properties, completion_units):
 for method in BUILTINS:
     name = method["id"]
     properties = dict(TypeAdapter(TrainConfig).json_schema()["properties"]) if name == "dqn" else dict(PROPERTIES[name])
-    if name not in {"coordinate", "frozen_policy", "evaluate_asset", "artifact_inference", "replay", "swap_search"}:
+    if name not in {"coordinate", "frozen_policy", "evaluate_asset", "artifact_inference", "replay", "swap_search", "enumerate"}:
         properties["initial_design"] = {"type": "array", "description": "A candidate in this instance's declared schema"}
     _declare(method, properties, ["evaluation_requests", "optimizer_decisions"]
         if name in {"dqn", "frozen_policy", "coordinate"} else ["evaluation_requests"])
@@ -137,6 +140,10 @@ def validate_parameters(name, instance, parameters, training=None, inference_reg
     if name == "artifact_inference":
         from optimization_framework.evaluation.inference import prepare
         prepare(parameters.get("adapter_id"), instance, parameters.get("parameters", {}), registry=inference_registry)
+    if name == "enumerate":
+        from .enumerate import refusal
+        if (reason := refusal(instance.candidate_schema, parameters)) is not None:
+            raise ValueError(reason)
     if name == "annealing" and parameters.get("min_temperature", .0001) > parameters.get("temperature", .05):
         raise ValueError("min_temperature must not exceed temperature")
     if name == "dqn" and parameters.get("device", (training or {}).get("device", "cpu")) != "cpu":
@@ -222,6 +229,9 @@ def create(name, instance, parameters, seed, schedule_steps, training=None, asse
             config = bind_inputs(name, instance, config, declared_assets)
             policy = next(item for item in declared_assets if item["kind"] == "policy")
             return FrozenPolicy(instance, config, seed, policy, artifact_store)
+        if name == "enumerate":
+            from .enumerate import Enumeration
+            return Enumeration(schema, instance.primary_objective, config)
         if name == "swap_search":
             from .swap_search import SwapSearch
             return SwapSearch(schema.dimensions, seed, config)

@@ -860,6 +860,8 @@ class PiTools:
                          "using this record_id and the pointers listed in outcome_index."}
         if operation == "comparison.report":
             brief["comparison"] = comparison_brief(record["outcome"])
+            if record["outcome"].get("size_ladders"):
+                brief["size_ladders"] = record["outcome"]["size_ladders"]
         allowance = max(4096, COMMAND_RESULT_BYTES - serialized_bytes(brief))
         brief["outcome_index"] = view_record(record, record_id=record["id"], pointer="/outcome", limit=40,
                                             max_bytes=min(12000, allowance), tool="evidence_read")

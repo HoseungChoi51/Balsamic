@@ -4,7 +4,9 @@ A few lines of search should not need the optimizer_v1 contract's six calls. A f
 ``evaluate(candidate)``, which records the candidate and returns its primary objective in the charter's own units and
 direction; ``evaluate`` raises ``ValueError`` for an invalid candidate (the method may catch it and try another) and
 ``StopSearch`` once the run is over (its evaluation or wall cap, a pause, a stop). Returning ends the method: the run
-completes as ``method_finished`` (``optimizers/finish.py``), and a returned string is its reason.
+completes as ``method_finished`` (``optimizers/finish.py``), and a returned string is its reason. An exact method may
+return ``{"reason": ..., "bound": x, "proved_optimal": True}`` instead: its claim of optimality (N13), shown as claimed
+until enumeration or a reference result checks it.
 
 ``FunctionMethod`` runs the function in a daemon thread and turns each ``evaluate`` into one proposal and its
 observation, so the worker drives it like any optimizer. Its checkpoint is the journal of what ``evaluate`` answered;
@@ -103,6 +105,7 @@ class FunctionMethod:
         self.pending = None
         self.closed = False
         self.thread = None
+        self.claim = {}                  # {"bound", "proved_optimal"} from a returned mapping (N13)
         self.calls = queue.Queue()       # from the method: ("candidate", c), ("returned", reason), ("raised", exc)
         self.answers = queue.Queue()     # to the method: ("score", x), ("invalid", message), ("stop", None)
 
@@ -121,7 +124,7 @@ class FunctionMethod:
             except BaseException as exc:
                 self.calls.put(("raised", exc))
                 return
-            self.calls.put(("returned", result if isinstance(result, str) else None))
+            self.calls.put(("returned", result if isinstance(result, (str, dict)) else None))
         self.thread = threading.Thread(target=body, name=f"function-method-{getattr(self.fn, '__name__', 'fn')}", daemon=True)
         self.thread.start()
 
@@ -176,6 +179,9 @@ class FunctionMethod:
             self._start()
         kind, value = self.calls.get()
         if kind == "returned":
+            if isinstance(value, dict):
+                self.claim = {key: value[key] for key in ("bound", "proved_optimal") if key in value}
+                value = value.get("reason") if isinstance(value.get("reason"), str) else None
             raise MethodFinished(value)
         if kind == "raised":
             raise value
@@ -211,7 +217,7 @@ class FunctionMethod:
         self.log, self.replay = [], [list(entry) for entry in checkpoint["log"]]
 
     def inspect(self):
-        return {"evaluations": len(self.log), "replaying": bool(self.replay)}
+        return {"evaluations": len(self.log), "replaying": bool(self.replay), **self.claim}
 
     def export_artifacts(self):
         return []

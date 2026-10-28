@@ -5,6 +5,7 @@ import statistics
 
 from optimization_framework.contracts.base import content_hash
 from optimization_framework.contracts.problems import ProblemInstance
+from optimization_framework.evaluation import sizes
 
 
 AXES = {"worker_seconds": "elapsed_seconds", "core_seconds": "elapsed_seconds", "evaluation_requests": "evaluations",
@@ -76,6 +77,105 @@ def rank(summaries, objective):
     return summaries
 
 
+def ladder_method(trial):
+    """A method on a size ladder: its identity without its schedule, since the budget may grow with the size."""
+    return content_hash({key: value for key, value in trial["method"].items() if key != "schedule"})
+
+
+def size_ladders(groups):
+    """How methods scale with instance size (N14), from the observed runs only.
+
+    Groups that differ only in their instance and share a size name form a ladder. A method that finished on its own at
+    some size is one that finishes (an exact method): at a size it finished when every run of it there did. A method
+    that never did is anytime: it finished when its runs reached their budget, uncensored. At each size the leader is
+    the method whose mean at the group's matched cost is better (a method with no value there does not lead; groups at
+    the same size that disagree name no leader). A crossover is a size whose leader differs from the last one before it.
+    """
+    ladders = defaultdict(list)
+    for group in groups:
+        if group.get("size") is not None:
+            condition = {key: value for key, value in group["condition"].items() if key != "evaluation_identity"}
+            ladders[content_hash([condition, group["size"]["name"]])].append(group)
+    out = []
+    for members in ladders.values():
+        values = sorted({group["size"]["value"] for group in members})
+        if len(values) < 2:
+            continue
+        objective = ProblemInstance(**members[0]["problem"]).primary_objective
+        methods = {}   # ladder method -> {size: [runs]}
+        names = {}
+        for group in members:
+            for trial in group["trials"]:
+                key = ladder_method(trial)
+                names.setdefault(key, trial["algorithm"])
+                methods.setdefault(key, defaultdict(list))[group["size"]["value"]].append(trial)
+        finishing = {key for key, by_size in methods.items() if any(t["method_finished"] for runs in by_size.values() for t in runs)}
+
+        def finished(key, value):
+            runs = methods[key].get(value) or []
+            return bool(runs) and all(t["method_finished"] if key in finishing else t["scientific_complete"] for t in runs)
+
+        means = {}   # (ladder method, group id) -> mean at the group's matched cost
+        for group in members:
+            ids = {trial["method_id"]: ladder_method(trial) for trial in group["trials"]}
+            for summary in group.get("method_summaries", []):
+                means[(ids[summary["method_id"]], group["id"])] = summary["mean"]
+
+        def leader(a, b, value):
+            leaders = set()
+            for group in (group for group in members if group["size"]["value"] == value):
+                left, right = means.get((a, group["id"])), means.get((b, group["id"]))
+                if left is None and right is None or left is not None and right is not None and left == right:
+                    leaders.add(None)
+                elif right is None or left is not None and objective.better(left, right):
+                    leaders.add(a)
+                else:
+                    leaders.add(b)
+            return leaders.pop() if len(leaders) == 1 else None
+
+        rows = [{"method": key, "algorithm": names[key], "kind": "finishes" if key in finishing else "anytime",
+                 "sizes": [{"size": value, "runs": len(methods[key].get(value) or []), "finished": finished(key, value)}
+                           for value in values if methods[key].get(value)],
+                 "largest_finished_size": max((value for value in values if finished(key, value)), default=None)}
+                for key in methods]
+        largest = {row["method"]: row["largest_finished_size"] for row in rows}
+        pairs = []
+        keys = sorted(methods, key=lambda key: (names[key], key))
+        for index, a in enumerate(keys):
+            for b in keys[index + 1:]:
+                shared = [value for value in values if methods[a].get(value) and methods[b].get(value)]
+                if len(shared) < 2:
+                    continue
+                leaders = [{"size": value, "leader": leader(a, b, value)} for value in shared]
+                crossovers, last = [], None
+                for row in leaders:
+                    if row["leader"] is None:
+                        continue
+                    if last is not None and row["leader"] != last:
+                        crossovers.append({"size": row["size"], "from": last, "to": row["leader"]})
+                    last = row["leader"]
+                pairs.append({"methods": [a, b], "algorithms": [names[a], names[b]], "leaders": leaders,
+                              "largest_finished_size": {a: largest[a], b: largest[b]},
+                              "crossover": crossovers[0] if crossovers else None, "crossovers": crossovers})
+        out.append({"size": members[0]["size"]["name"], "sizes": values, "direction": objective.direction,
+                    "group_ids": [group["id"] for group in sorted(members, key=lambda group: group["size"]["value"])],
+                    "methods": rows, "pairs": pairs})
+    return out
+
+
+def rank_by_optimum(summaries, objective):
+    """With a checked optimum (N13): the methods whose every run reached it first, by their mean cost to reach it, then
+    the others by mean as ``rank`` numbers them. Ties share a rank."""
+    reached = sorted((s for s in summaries if s.get("cost_to_optimum") is not None), key=lambda s: s["cost_to_optimum"])
+    for index, summary in enumerate(reached):
+        tied = index and summary["cost_to_optimum"] == reached[index - 1]["cost_to_optimum"]
+        summary["rank"] = reached[index - 1]["rank"] if tied else index + 1
+    rest = rank([dict(s, rank=None) for s in summaries if s.get("cost_to_optimum") is None], objective)
+    for summary, ranked in zip((s for s in summaries if s.get("cost_to_optimum") is None), rest):
+        summary["rank"] = None if ranked["rank"] is None else ranked["rank"] + len(reached)
+    return summaries
+
+
 def report(workspace, campaign_id, *, study_id=None, cost_axis=None, cost_view="full_attributed_cost", trial_ids=None, withheld=frozenset()):
     """Compare a study's experiments, or only those named in trial_ids, at the costs they were observed.
 
@@ -85,6 +185,9 @@ def report(workspace, campaign_id, *, study_id=None, cost_axis=None, cost_view="
     would otherwise set that cost. A run whose method finished on its own does not set that cost: it holds
     its final value after its last point (held_after_finish), unless every compared run finished.
     Each group names its objective's direction, and each method summary its rank by mean under it.
+    Each group also has its ``optimality`` (N13): the best value, the tightest bound no run beats, the gap, and each run's
+    claim of optimality as checked, claimed or contradicted. With a checked optimum the methods that reached it rank
+    first, by their mean cost to reach it (``cost_to_optimum``).
     withheld: a locked confirmation's trials, left out (and only counted) when an agent asks; naming one is refused.
     """
     if cost_view not in {"full_attributed_cost", "actual_expenditure"}:
@@ -166,7 +269,9 @@ def report(workspace, campaign_id, *, study_id=None, cost_axis=None, cost_view="
             # A worker-second on several threads buys more than one on a single thread; core-seconds puts them together.
             condition["worker_threads"] = threads(trial)
         group_id = content_hash(condition)
-        group = groups.setdefault(group_id, {"id": group_id, "condition": condition, "problem": problem.model_dump(mode="json"), "trials": []})
+        size = sizes.of_task(tasks.get(trial.get("task_id")))
+        group = groups.setdefault(group_id, {"id": group_id, "condition": condition, "problem": problem.model_dump(mode="json"),
+                                             **({"size": size} if size else {}), "trials": []})
         latest = trial.get("result") or trial.get("progress") or {}
         # The run's method is the one it began as: a later part differs only in the source it was carried on under.
         identity, definition = method_identity(root)
@@ -225,16 +330,20 @@ def report(workspace, campaign_id, *, study_id=None, cost_axis=None, cost_view="
         method_finished = bool(latest.get("method_finished"))
         from .finalists import prototype_details
         details = prototype_details(trial, study, tasks.get(trial.get("task_id")), hypotheses.get(trial.get("hypothesis_id")))
-        group["trials"].append({"id": trial["id"], "seed": trial["seed"], "method_id": identity, "method": definition,
+        group["trials"].append({"id": trial["id"], "task_id": trial.get("task_id"), "seed": trial["seed"], "method_id": identity, "method": definition,
             **details,
             **({"chain_trial_ids": [member["id"] for member in chain]} if len(chain) > 1 else {}),
             "algorithm": trial["algorithm"], "status": trial["status"], "best_objective": best,
             "scientific_complete": scientific_complete, "process_exit": latest.get("process_exit"),
             "allocation_stop": latest.get("allocation_stop"), "censored": not scientific_complete,
             "method_finished": method_finished, "held_after_finish": method_finished,
+            "best_bound": number(latest.get("best_bound")), "proved_optimal": latest.get("proved_optimal") is True,
             "adaptive_extension": any(member["id"] in amendments for member in chain),
             "unknown_cost": unknown or upstream_cost is None, "upstream": upstream, "full_cost": full,
             "curve": thin([points[key] for key in sorted(points)])})
+    from .optimality import charter_references, same, summarize
+    proved = any(trial["proved_optimal"] for group in groups.values() for trial in group["trials"])
+    references = charter_references(workspace, campaign_id, tasks) if proved else {}
     for group in groups.values():
         usable = [trial for trial in group["trials"] if trial["curve"]]
         # A finished method has no more points to give; the runs still going set the matched cost.
@@ -257,11 +366,30 @@ def report(workspace, campaign_id, *, study_id=None, cost_axis=None, cost_view="
                 "independent_seed_ids": len(set(seeds)) == len(seeds), "uncertainty": "Not estimated by this descriptive report"})
         objective = ProblemInstance(**group["problem"]).primary_objective
         group["direction"] = objective.direction
-        rank(summaries, objective)
+        runs = [{"trial_id": trial["id"], "algorithm": trial["algorithm"], "hypothesis_id": trial.get("hypothesis_id"),
+                 "best": trial["best_objective"], "proved_optimal": trial["proved_optimal"] and trial["best_objective"] is not None,
+                 "bound": trial["best_bound"] if trial["best_bound"] is not None or not trial["proved_optimal"] else trial["best_objective"],
+                 "method_finished": trial["method_finished"]} for trial in group["trials"]]
+        group["optimality"] = summarize(runs, objective, [value for task_id in {trial["task_id"] for trial in group["trials"]}
+                                                          for value in references.get(task_id, ())])
+        optimum = group["optimality"]["optimum"]
+        if optimum and optimum["status"] == "checked":
+            for trial in group["trials"]:
+                trial["optimum_reached_at"] = next((point["cost"] for point in trial["curve"] if same(point["objective"], optimum["value"])
+                                                    or objective.better(point["objective"], optimum["value"])), None)
+            for summary in summaries:
+                reach = [trial["optimum_reached_at"] for trial, _ in methods[summary["method_id"]]]
+                summary["optimum_reached"] = sum(cost is not None for cost in reach)
+                summary["cost_to_optimum"] = statistics.mean(reach) if reach and None not in reach else None
+            rank_by_optimum(summaries, objective)
+        else:
+            rank(summaries, objective)
         group["method_summaries"] = summaries
         group["common_observed_cost"] = horizon
+    ladders = size_ladders(list(groups.values()))
     return {"schema_version": 1, "campaign_id": campaign_id, "study_id": study_id, "cost_view": cost_view,
             "cost_axis": cost_axis, "groups": list(groups.values()), "excluded": excluded,
+            **({"size_ladders": ladders} if ladders else {}),
             **({"withheld_runs": sum(trial["id"] in withheld for trial in trials if not study_id or trial.get("study_id") == study_id)} if withheld else {}),
             "actual_campaign_costs": costs.actual_costs(campaign_id,
                 axes=("worker_seconds", "core_seconds", "evaluation_requests", "solver_executions", "implementation_seconds", "model_seconds", "model_calls", "model_input_tokens", "model_output_tokens", "api_usd")),

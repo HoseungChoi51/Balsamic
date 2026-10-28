@@ -2,10 +2,10 @@
 from dataclasses import asdict
 from typing import Any, Literal
 
-from pydantic import AliasChoices, BaseModel, ConfigDict, Field, field_validator, model_validator
+from pydantic import AliasChoices, BaseModel, ConfigDict, Field, field_validator, model_serializer, model_validator
 
 from optimization_framework.evaluation.registry import problems
-from .problems import Access, CostAxis, ProblemInstance
+from .problems import Access, CostAxis, ProblemInstance, ProblemSize, without_unset
 from .evaluators import EvaluatorManifest
 from .diagnostics import DiagnosticSchedule
 from .experiments import RecoveryPolicy
@@ -30,6 +30,12 @@ class TaskInput(Model):
     # task records the result, so a later change to the problem does not change what a task's runs were.
     access: Access | None = None
     cost_axis: CostAxis | None = None
+    # Where the task sits on its problem's size ladder (N14); left out of the record when unset.
+    size: ProblemSize | None = None
+
+    @model_serializer(mode="wrap")
+    def compatible_serialization(self, handler):
+        return without_unset(handler(self), "size")
 
     @model_validator(mode="after")
     def resolve_problem(self):
