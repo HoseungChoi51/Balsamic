@@ -6,6 +6,9 @@ At start-up the service layer scans this folder and registers `workspace.procedu
 description, sorted) goes into its static instructions, `procedure_read` serves a body, and `procedure_hint` names the
 matching procedure in the result of a tool that starts a workflow when this run has not read it.
 
+A procedure with `metadata.folds` is a page agent's instructions for the lead, served only in a campaign whose page_agents
+is lead (roadmap T4): it is in the lead's catalog, and readable, only when that page agent is folded into it.
+
 A problem's own procedures live in its pack (roadmap N3), not here: the static catalogs stay generic, since they are cached
 per role, and the state block lists the procedures of the campaign's packs, which `procedure_read` serves to that campaign
 only."""
@@ -51,7 +54,8 @@ def load(root):
             raise ValueError(f"{path}: the name must match its folder and a description is required")
         roles = {role.strip() for role in (meta.get("metadata") or {}).get("roles", "").split(",") if role.strip()}
         files = sorted(str(file.relative_to(path.parent)) for file in path.parent.glob("references/*.md"))
-        items[name] = {"name": name, "description": meta["description"], "roles": roles, "body": body, "files": files, "folder": path.parent}
+        items[name] = {"name": name, "description": meta["description"], "roles": roles, "body": body, "files": files, "folder": path.parent,
+                       "folds": (meta.get("metadata") or {}).get("folds") or None}
     return items
 
 
@@ -82,20 +86,23 @@ class Procedures:
     def roles(self):
         return set().union(*(item["roles"] for item in self.items.values())) if self.items else set()
 
-    def catalog(self, role):
-        return [(item["name"], item["description"]) for name, item in sorted(self.items.items()) if role in item["roles"]]
+    def catalog(self, role, folded=frozenset()):
+        """folded: the page agents folded into the reader (T4); a procedure that folds another is left out."""
+        return [(item["name"], item["description"]) for name, item in sorted(self.items.items())
+                if role in item["roles"] and (not item["folds"] or item["folds"] in folded)]
 
-    def catalog_text(self, role):
-        entries = self.catalog(role)
+    def catalog_text(self, role, folded=frozenset()):
+        entries = self.catalog(role, folded)
         if not entries:
             return ""
         return "\nProcedures: before you start one of these workflows, read its procedure with procedure_read.\n" + "\n".join(
             f"- {name}: {description}" for name, description in entries)
 
-    def read(self, role, name, file=None, campaign=None):
-        """campaign: the procedures of the reader's campaign's packs (``campaign()``); without it only generic ones are served."""
+    def read(self, role, name, file=None, campaign=None, folded=frozenset()):
+        """campaign: the procedures of the reader's campaign's packs (``campaign()``); without it only generic ones are served.
+        folded: the page agents folded into the reader (T4)."""
         item = self.items.get(name) or (campaign or {}).get(name)
-        if item is None or role not in item["roles"]:
+        if item is None or role not in item["roles"] or item.get("folds") and item["folds"] not in folded:
             raise ValueError(f"No procedure {name} for this role and campaign; the catalog in your instructions and the state block list yours")
         # Models name the body as well: an empty file, "none" or SKILL.md itself.
         if file is None or file.strip().lower() in {"", "none", "skill.md"}:
@@ -130,6 +137,7 @@ def register(workspace):
     if "procedure_read" not in EXTRA_TOOLS:   # process-wide; the handler reads the catalog of the workspace that calls it
         def procedure_read(tools, agent, run, args, identity):
             procedures = tools.workspace.procedures
-            return procedures.read(agent["role"], args["name"], args.get("file"), procedures.campaign(tools.workspace, agent["campaign_id"]))
+            return procedures.read(agent["role"], args["name"], args.get("file"), procedures.campaign(tools.workspace, agent["campaign_id"]),
+                                   tools.folded(agent))
         register_tool("procedure_read", "Read a procedure from the catalog in your instructions: the steps and rules of one workflow, to read before "
                       "starting it. file: omit it for the procedure itself, or name one of its bundled files.", obj({"name": S, "file": S}, ["name"]), procedure_read, roles=sorted(procedures.roles()))

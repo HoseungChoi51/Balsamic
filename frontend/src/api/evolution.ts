@@ -1,3 +1,11 @@
+/** A proposal's tries against the assessment minimums (V2): "2 of 3 configurations, 2 seeds each". */
+export interface Assessment { adequate: boolean; configurations: number; required_configurations: number; seeds_per_configuration: number; required_seeds: number; stochastic: boolean; missing: string[]; words: string }
+/** Whether its best score passed the problem's promotion checks (V3). */
+export interface Fidelity { state: 'passed' | 'waived' | 'failed' | 'not_checked' | 'not_required'; trial_id: string | null; score: number | null; words: string;
+  checks: { recipe_id: string; parameters?: Record<string, unknown>; state: string; requirement_id: string | null; validation_result_id: string | null; waiver_id: string | null }[] }
+/** A gate on a transition (V5): open, waived by the researcher, or closed with why and what would open it. */
+export interface Gate { gate: 'assessment' | 'fidelity'; transition: string; state: 'open' | 'waived' | 'closed'; words: string; evidence_ids: string[]; waiver_id?: string; why?: string;
+  unlock?: { runs: string | null; check: { trial_id: string; recipe_id: string; parameters: Record<string, unknown> } | null; waive: boolean } }
 export interface StopRecord { outcome: string; words: string; label: string; evidence_ids: string[]; reason: string | null; by: string | null; at: string | null }
 /** A proposal's algorithm family (hypothesis.create's family), as the cards and the lineage graph name it. */
 export const FAMILY: Record<string, string> = { exact: 'exact', solver: 'solver', constructive: 'constructive', local_search: 'local search', learning: 'learning', hybrid: 'hybrid' };
@@ -14,6 +22,7 @@ export interface LedgerRow { id: string; label: string | null; title: string; sh
   highest_rung_seconds: number | null; race: { race_id: string; configuration_id: string; status: string; race_status: string; highest_rung_seconds?: number | null; mean_score?: number | null; seeds?: number; latest_decision: { action: string; rationale: string; at: string } | null } | null;
   review: { verdict: string | null; count: number; readiness: { state: string; eligible: boolean; reason?: string } }; implementation_readiness: { state?: string; runnable: boolean; reason?: string };
   trial_ids: string[]; live_trials: number; finalist: boolean; confirmation: { protocol_id: string; status: string; promising: boolean | null; seeds_won?: number } | null; stop_reason: string | null; stopped_at?: string | null; stop?: StopRecord | null;
+  assessment?: Assessment; fidelity?: Fidelity | null; gates?: Gate[];
   next_size?: { task_id: string; task_name: string | null; name: string; value: number; after: number } | null;
   created_at?: string; proof?: Proof | null; stage: 'proposed' | 'reviewed' | 'screening' | 'extended' | 'finalist' | 'confirmed' | 'stopped'; curve?: { x: number; y: number; t?: number }[] }
 export interface LayoutNode { id: string; round: number; lane: number; stage: LedgerRow['stage']; label: string | null; title: string; short_title?: string | null; family?: string | null; autonomous: boolean; stop_reason: string | null; stop_label?: string | null }

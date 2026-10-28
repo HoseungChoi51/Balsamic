@@ -1,23 +1,29 @@
 /** The strategy evolution graph: the frontier table with interventions, the lineage forest, curves at matched cost, the races. */
-import { useState } from 'react';
+import { Fragment, useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import type { PageProps } from '../shell/StagePanel';
 import { useMessages, useSummary } from '../api/queries';
 import { send } from '../commands/bus';
 import { useQuery } from '@tanstack/react-query';
 import { scoped } from '../api/client';
-import type { Evolution, LedgerRow, Proof, TaskOptimality } from '../api/evolution';
+import type { Evolution, Gate, LedgerRow, Proof, TaskOptimality } from '../api/evolution';
 import { Empty, Failed, Kv, Loading, Pill, Section, duration, num, when } from '../primitives/ui';
 import { Curve } from '../primitives/charts';
 import { formatHash, navigate } from '../router/routes';
 import { useSelection } from '../stores/selection';
 import { intervene } from './Interventions';
+import { GateCell, GateDetails } from './Gates';
 import { LineageTree } from './LineageTree';
 import { TraceOrigin } from './TraceOrigin';
 import { track } from '../telemetry/events';
 
 export const STAGE_TONE: Record<string, string> = { proposed: '', reviewed: '', screening: 'agent', extended: 'agent', finalist: 'clear', confirmed: 'clear', stopped: 'attention' };
 export const STAGE_WORD: Record<string, string> = { stopped: 'stopped (a decision, not a failure)' };
+// The researcher's stop outcomes (V1); a stop without one records the researcher's decision.
+export const STOP_CHOICES: [string, string][] = [['', "my decision (no outcome)"], ['under_evaluated', 'under-evaluated'], ['configuration_unpromising', 'configuration unpromising'],
+  ['adequately_assessed_deprioritized', 'adequately assessed, deprioritized'], ['assumptions_incompatible', 'assumptions incompatible'], ['implementation_invalid', 'implementation invalid'],
+  ['unaffordable_within_allocation', 'unaffordable within the allocation']];
+const PERFORMANCE = new Set(['configuration_unpromising', 'adequately_assessed_deprioritized']);
 
 export function useEvolution(campaignId: string | null, curves = false) {
   return useQuery<Evolution>({ queryKey: ['evolution', campaignId, curves], enabled: !!campaignId, staleTime: 5000, refetchOnWindowFocus: false,
@@ -57,9 +63,13 @@ export default function EvolutionPage({ campaignId, route }: PageProps) {
       <nav className="tabs">{tabs.map(([key, label]) => <a key={key} href={formatHash({ page: 'evolution', sub: key }, route.thread)} className={sub === key ? 'active' : ''}>{label}</a>)}</nav>
       {error ? <div className="pill bad">{error}</div> : null}
       {sub === 'frontier' && data.optimality?.some(task => task.best_bound != null || task.optimum) ? <Optimality tasks={data.optimality} /> : null}
-      {sub === 'frontier' ? <FrontierTable rows={rows} picked={picked} setPicked={setPicked} selectedId={selection.id} thread={route.thread} onTrace={setTrace}
-        onOpen={id => { selection.select(id); navigate(formatHash({ page: 'hypotheses', id, sel: id }, route.thread)); }} /> : null}
-      {sub === 'frontier' && chosen.length ? <InterventionBar rows={chosen} pending={pending} onStop={reason => act('stop', () => intervene(chosen, { kind: 'stop', reason }, campaignId, version!, route.thread))}
+      {sub === 'frontier' ? <FrontierTable rows={rows} picked={picked} setPicked={setPicked} selectedId={selection.id} thread={route.thread} onTrace={setTrace} pending={pending}
+        onOpen={id => { selection.select(id); navigate(formatHash({ page: 'hypotheses', id, sel: id }, route.thread)); }}
+        // A gate's waiver is the researcher's own validation.waive of it (V5, decision 16); the check is validation.run on the best run.
+        onWaive={(row, gate, rationale) => act('waive', () => send({ operation: 'validation.waive', campaignId, expectedRevision: version!, origin: { thread_id: route.thread },
+          payload: { [gate.gate === 'assessment' ? 'tuning_hypothesis_id' : 'fidelity_hypothesis_id']: row.id, rationale, evidence_ids: gate.evidence_ids } }))}
+        onCheck={check => act('check', () => send({ operation: 'validation.run', campaignId, expectedRevision: version!, origin: { thread_id: route.thread }, payload: check }))} /> : null}
+      {sub === 'frontier' && chosen.length ? <InterventionBar rows={chosen} pending={pending} onStop={(reason, outcome) => act('stop', () => intervene(chosen, { kind: 'stop', reason, outcome }, campaignId, version!, route.thread))}
         onPromote={() => act('promote', () => intervene(chosen, { kind: 'promote' }, campaignId, version!, route.thread))}
         onAllocate={(seconds, rationale, nextSize) => act('allocate', () => intervene(chosen, { kind: 'allocate', seconds, rationale, nextSize }, campaignId, version!, route.thread))}
         onGenerate={(operation, count, note) => act('generate', () => intervene(chosen, { kind: 'generate', operation, count, note }, campaignId, version!, route.thread))}
@@ -79,8 +89,11 @@ export default function EvolutionPage({ campaignId, route }: PageProps) {
   );
 }
 
-function FrontierTable({ rows, picked, setPicked, selectedId, onOpen, onTrace }: { rows: LedgerRow[]; picked: string[]; setPicked: (ids: string[]) => void; selectedId: string | null; thread: string | null; onOpen: (id: string) => void; onTrace: (id: string) => void }) {
+function FrontierTable({ rows, picked, setPicked, selectedId, thread, pending, onOpen, onTrace, onWaive, onCheck }: { rows: LedgerRow[]; picked: string[]; setPicked: (ids: string[]) => void; selectedId: string | null; thread: string | null; pending: string | null;
+  onOpen: (id: string) => void; onTrace: (id: string) => void; onWaive: (row: LedgerRow, gate: Gate, rationale: string) => void; onCheck: (check: NonNullable<NonNullable<Gate['unlock']>['check']>) => void }) {
   const toggle = (id: string) => setPicked(picked.includes(id) ? picked.filter(p => p !== id) : [...picked, id]);
+  const [opened, setOpened] = useState<string[]>([]);
+  const expand = (id: string) => setOpened(opened.includes(id) ? opened.filter(o => o !== id) : [...opened, id]);
   // Best first under the objective's direction. Strategies that disagree on direction are not ranked against each other.
   const directions = new Set(rows.filter(r => r.best.score != null).map(r => r.best.direction ?? 'maximize'));
   const direction = directions.size === 1 ? [...directions][0] : null;
@@ -90,11 +103,12 @@ function FrontierTable({ rows, picked, setPicked, selectedId, onOpen, onTrace }:
   return (
     <table data-testid="frontier">
       <thead><tr><th><input type="checkbox" aria-label="select all" checked={picked.length === rows.length} onChange={e => setPicked(e.target.checked ? rows.map(r => r.id) : [])} /></th><th>Strategy</th><th>Stage</th><th>Round</th><th>Best (measured){direction === 'minimize' ? <span className="faint small" data-testid="lower-is-better"> lower is better</span> : null}</th><th>Worker time</th><th>Rung</th><th>Review</th><th>Who</th><th></th></tr></thead>
-      <tbody>{sorted.map(row => (
-        <tr key={row.id} data-record-id={row.id} data-stage={row.stage} className={selectedId === row.id ? 'selected' : ''}>
+      <tbody>{sorted.map(row => (<Fragment key={row.id}>
+        <tr data-record-id={row.id} data-stage={row.stage} className={selectedId === row.id ? 'selected' : ''}>
           <td><input type="checkbox" aria-label={`select ${row.title}`} checked={picked.includes(row.id)} onChange={() => toggle(row.id)} /></td>
           <td><a href="#" onClick={e => { e.preventDefault(); onOpen(row.id); }}>{row.label ? <Pill>{row.label}</Pill> : null} {row.title}</a>{row.live_trials ? <Pill tone="agent"> {row.live_trials} live</Pill> : null}</td>
-          <td><Pill tone={STAGE_TONE[row.stage]} title={row.stage === 'stopped' ? `${row.stop?.label || 'stopped'}: ${row.stop_reason || 'no reason recorded'}` : STAGE_WORD[row.stage] || row.stage}>{row.stage}</Pill>{row.stop ? <div className="small faint" data-testid="stop-outcome">{row.stop.words}</div> : null}</td>
+          <td><Pill tone={STAGE_TONE[row.stage]} title={row.stage === 'stopped' ? `${row.stop?.label || 'stopped'}: ${row.stop_reason || 'no reason recorded'}` : STAGE_WORD[row.stage] || row.stage}>{row.stage}</Pill>{row.stop ? <div className="small faint" data-testid="stop-outcome">{row.stop.words}</div> : null}
+            <GateCell row={row} open={opened.includes(row.id)} onToggle={() => expand(row.id)} /></td>
           <td>{row.round ?? <span className="faint">–</span>}</td>
           <td>{num(row.best.score, 4)}{row.best.score != null ? <span className="faint small"> {row.best.source}</span> : null}{row.proof ? <ProofPill proof={row.proof} /> : null}</td>
           <td>{duration(row.worker_seconds)}<span className="faint small"> of {duration(row.allotted_seconds)}</span></td>
@@ -102,7 +116,9 @@ function FrontierTable({ rows, picked, setPicked, selectedId, onOpen, onTrace }:
           <td>{row.review.verdict ? <Pill tone={row.review.verdict === 'test' ? 'clear' : 'attention'}>{row.review.verdict}</Pill> : <span className="faint small">{row.review.count ? `${row.review.count} notes` : 'none'}</span>}{!row.implementation_readiness.runnable ? <span className="why"> not runnable</span> : null}</td>
           <td>{row.autonomous ? <Pill tone="agent" title="Run by autopilot">autopilot</Pill> : row.actor === 'researcher' ? <Pill tone="you">You</Pill> : row.actor ? <Pill tone="agent">{row.actor}</Pill> : null}</td>
           <td><button className="btn quiet small" onClick={() => onTrace(row.id)} title="Trace origin">origin</button></td>
-        </tr>))}</tbody>
+        </tr>
+        {opened.includes(row.id) ? <tr className="gate-row" data-gates-for={row.id}><td></td><td colSpan={9}><GateDetails row={row} thread={thread} pending={pending} onTrace={onTrace} onWaive={(gate, rationale) => onWaive(row, gate, rationale)} onCheck={onCheck} /></td></tr> : null}
+      </Fragment>))}</tbody>
     </table>
   );
 }
@@ -133,12 +149,17 @@ function Optimality({ tasks }: { tasks: TaskOptimality[] }) {
   </Section>;
 }
 
-function InterventionBar({ rows, pending, onStop, onPromote, onAllocate, onGenerate, onDiscuss }: { rows: LedgerRow[]; pending: string | null; onStop: (reason: string) => void; onPromote: () => void; onAllocate: (seconds: number, rationale: string, nextSize: boolean) => void; onGenerate: (operation: 'hybrid' | 'revise' | 'diversify', count: number, note: string) => void; onDiscuss: () => void }) {
+function InterventionBar({ rows, pending, onStop, onPromote, onAllocate, onGenerate, onDiscuss }: { rows: LedgerRow[]; pending: string | null; onStop: (reason: string, outcome: string | null) => void; onPromote: () => void; onAllocate: (seconds: number, rationale: string, nextSize: boolean) => void; onGenerate: (operation: 'hybrid' | 'revise' | 'diversify', count: number, note: string) => void; onDiscuss: () => void }) {
   const [mode, setMode] = useState<'stop' | 'allocate' | 'generate' | null>(null);
   const [text, setText] = useState('');
   const [seconds, setSeconds] = useState(600);
   const [count, setCount] = useState(2);
+  const [outcome, setOutcome] = useState('');
   const busy = !!pending;
+  // A stop as inferior on fewer runs than the rules ask: the researcher's own goes through, recorded with how it was tried (V2).
+  // Promoting past a closed fidelity gate (V3): the researcher's own promotion is recorded with the warning.
+  const unchecked = rows.filter(r => r.fidelity && !['passed', 'waived', 'not_required'].includes(r.fidelity.state) && r.stage !== 'finalist');
+  const thin = PERFORMANCE.has(outcome) ? rows.filter(r => r.assessment && !r.assessment.adequate) : [];
   // Every selected strategy finished on its own: more time changes nothing, the next size might (N14).
   const nextSize = rows.every(r => r.next_size);
   const sizes = nextSize ? rows.map(r => `${r.next_size!.name} = ${r.next_size!.value}${r.next_size!.task_name ? ` (${r.next_size!.task_name})` : ''}`) : [];
@@ -151,7 +172,10 @@ function InterventionBar({ rows, pending, onStop, onPromote, onAllocate, onGener
         <button className="btn small" disabled={busy} onClick={() => setMode('generate')}>{rows.length > 1 ? 'Hybrid of these…' : 'Revise…'}</button>
         <button className="btn quiet small" onClick={onDiscuss} title="Opens the conversation with these selected">Discuss</button>
         {pending ? <Pill tone="agent">{pending}…</Pill> : null}</div>
-      {mode === 'stop' ? <div className="row" style={{ marginTop: 6 }}><input className="grow" placeholder="Why stop them (recorded on the graph)" value={text} onChange={e => setText(e.target.value)} data-testid="stop-reason" /><button className="btn primary small" disabled={!text.trim()} onClick={() => { onStop(text.trim()); setMode(null); setText(''); }}>Stop</button><button className="btn quiet small" onClick={() => setMode(null)}>cancel</button></div> : null}
+      {mode === 'stop' ? <div className="row" style={{ marginTop: 6 }}><select value={outcome} onChange={e => setOutcome(e.target.value)} aria-label="stop outcome" data-testid="stop-outcome-choice">{STOP_CHOICES.map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select>
+        <input className="grow" placeholder="Why stop them (recorded on the graph)" value={text} onChange={e => setText(e.target.value)} data-testid="stop-reason" /><button className="btn primary small" disabled={!text.trim()} onClick={() => { onStop(text.trim(), outcome || null); setMode(null); setText(''); setOutcome(''); }}>Stop</button><button className="btn quiet small" onClick={() => setMode(null)}>cancel</button></div> : null}
+      {mode === 'stop' && thin.length ? <p className="why" data-testid="stop-thin">{thin.map(r => `${r.label || r.title}: ${r.assessment!.words}`).join('; ')}. Fewer runs than the experiment rules ask: an agent could not stop {thin.length > 1 ? 'these' : 'it'} as inferior; your stop goes through and records it.</p> : null}
+      {unchecked.length ? <p className="why" data-testid="promote-unchecked">Fidelity {unchecked.map(r => `${r.label || r.title}: ${r.fidelity!.words}`).join('; ')}. Your own promotion goes through with this warning recorded; a library entry needs the check or your waiver.</p> : null}
       {mode === 'allocate' && nextSize ? <p className="why" data-testid="next-size">Finished on its own, so more time would change nothing. Next size: {sizes.join('; ')}.</p> : null}
       {mode === 'allocate' ? <div className="row" style={{ marginTop: 6 }}><input type="number" min={1} value={seconds} onChange={e => setSeconds(Number(e.target.value))} aria-label="seconds" style={{ width: 100 }} /><span className="small">s each</span><input className="grow" placeholder="Why (one line)" value={text} onChange={e => setText(e.target.value)} /><button className="btn primary small" disabled={!text.trim()} onClick={() => { onAllocate(seconds, text.trim(), nextSize); setMode(null); setText(''); }}>{nextSize ? 'Run on the next size' : 'Allocate'}</button><button className="btn quiet small" onClick={() => setMode(null)}>cancel</button></div> : null}
       {mode === 'generate' ? <div className="row" style={{ marginTop: 6 }}><input type="number" min={1} max={8} value={count} onChange={e => setCount(Number(e.target.value))} aria-label="count" style={{ width: 70 }} /><input className="grow" placeholder="A note for the lead (optional)" value={text} onChange={e => setText(e.target.value)} /><button className="btn primary small" onClick={() => { onGenerate(rows.length > 1 ? 'hybrid' : 'revise', count, text.trim()); setMode(null); setText(''); }}>{rows.length > 1 ? 'Generate hybrids' : 'Generate revisions'}</button><button className="btn quiet small" onClick={() => setMode(null)}>cancel</button></div> : null}

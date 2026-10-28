@@ -358,6 +358,43 @@ class CommandService:
             raise ValueError(f"The {kind} belongs to another campaign")
         return record
 
+    def _waiver(self, command, requirement, values, actor, suffix=""):
+        waiver = Waiver(id="waiver_" + command.id + suffix, campaign_id=command.campaign_id, study_id=requirement["study_id"],
+            requirement_id=requirement["id"], subject_digest=requirement["subject_digest"], recipe_id=requirement["recipe_id"],
+            rationale=values.rationale, evidence_ids=values.evidence_ids, authority=actor, authority_kind=actor, created_at=now())
+        return self.workspace.validations.waive(waiver)
+
+    def _waive_gate(self, command, values, actor):
+        """The researcher's one-click waiver of a proposal's gate (roadmap V5, decision 16): the assessment minimums before a
+        stop as inferior, or each promotion check its best score has not passed. The waivers are the usual records."""
+        if actor != "researcher":
+            raise ValueError("Only the researcher waives a proposal's gate (decision 16); ask with approval.request kind waiver")
+        if values.tuning_hypothesis_id is not None:
+            from .assessment import adequacy, require
+            hypothesis = self._target(command, "tuning_hypothesis_id", "hypothesis")
+            state = adequacy(self.workspace, hypothesis)
+            if state["adequate"]:
+                raise ValueError(f"{hypothesis['title']} already meets the assessment minimums ({state['words']}); no waiver is needed")
+            waiver = self._waiver(command, require(self.workspace, hypothesis), values, actor)
+            return {"waiver_id": waiver["id"], "waiver_ids": [waiver["id"]], "requirement_ids": [waiver["requirement_id"]]}
+        from .promotion import OPEN, fidelity_state
+        from optimization_framework.contracts.requests import RecipeInput
+        hypothesis = self._target(command, "fidelity_hypothesis_id", "hypothesis")
+        state = fidelity_state(self.workspace, hypothesis)
+        if state["state"] in OPEN:
+            raise ValueError(f"{hypothesis['title']}'s fidelity is {state['state'].replace('_', ' ')}; no waiver is needed")
+        if state["trial_id"] is None:
+            raise ValueError(f"{hypothesis['title']} has no measured run whose score a waiver could accept; run it first")
+        waivers = []
+        for index, check in enumerate(row for row in state["checks"] if row["state"] not in OPEN):
+            identity = check["requirement_id"]
+            if identity is None:
+                # The requirement on the best run's best design, as validation.require would create it.
+                identity = self.workspace.run_recipe(state["trial_id"], RecipeInput(recipe_id=check["recipe_id"], parameters=check["parameters"]),
+                                                     authority=actor, require_only=True)["requirement_ids"][0]
+            waivers.append(self._waiver(command, self.store.get(identity, "validation_requirement"), values, actor, f"_{index}" if index else ""))
+        return {"waiver_id": waivers[0]["id"], "waiver_ids": [w["id"] for w in waivers], "requirement_ids": [w["requirement_id"] for w in waivers]}
+
     def _trial_outcome(self, trial, *, snapshot=True):
         # Compatibility responses retain the state accepted by this command,
         # even if execution or another control has advanced by the next retry.
@@ -896,6 +933,8 @@ class CommandService:
             return {"runtime_profile_id": profile["id"], "levels": [level["workers"] for level in profile["levels"]]}
         if command.operation == "validation.waive":
             values = WaiverInput(**payload)
+            if values.requirement_id is None:
+                return self._waive_gate(command, values, actor)
             requirement = self._target(command, "requirement_id", "validation_requirement")
             if actor != "researcher":
                 from .promotion import promotion_recipe
@@ -905,10 +944,7 @@ class CommandService:
                 if promotion_recipe(self.workspace, requirement):
                     raise ValueError("Only the researcher waives a fidelity check that guards promotion (decision 16); "
                                      "ask with approval.request kind waiver and this requirement_id")
-            waiver = Waiver(id="waiver_" + command.id, campaign_id=command.campaign_id, study_id=requirement["study_id"],
-                requirement_id=requirement["id"], subject_digest=requirement["subject_digest"], recipe_id=requirement["recipe_id"],
-                rationale=values.rationale, evidence_ids=values.evidence_ids, authority=actor, authority_kind=actor, created_at=now())
-            return {"waiver_id": self.workspace.validations.waive(waiver)["id"]}
+            return {"waiver_id": self._waiver(command, requirement, values, actor)["id"]}
         if command.operation == "validation.revoke_waiver":
             values = WaiverRevocationInput(**payload)
             waiver = self._target(command, "waiver_id", "waiver")

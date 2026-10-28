@@ -5,6 +5,8 @@ Stopped is a decision with a reason, never a failure. Unknown values stay None.
 A strategy whose run proved its value optimal on a task with a deterministic evaluator, the proof checked by enumeration or
 a reference result (N13), is fully assessed there: it reads as extended, and more time is refused (hypothesis.allocate).
 "Best" follows the objective's direction: the lowest score when minimizing.
+Each row carries its gates (V5): the assessment before an agent's stop as inferior and the fidelity check before a finalist
+or a library entry, with what would open a closed one.
 """
 import math
 
@@ -15,6 +17,8 @@ from optimization_framework.campaigns.hypotheses import stop_of
 from optimization_framework.campaigns.proposals import readiness
 from optimization_framework.contracts.problems import Objective
 from optimization_framework.evaluation.sizes import next_size
+
+from .gates import fidelity_of, gates
 
 RACE_ACTIVE = {"preflight", "running", "paused"}
 CURVE_POINTS = 200
@@ -181,6 +185,8 @@ def rows(workspace, campaign_id, *, with_curves=False):
         verdicts = [r.get("verdict") for r in reviews if r.get("verdict")]
         review = {"verdict": verdicts[-1] if verdicts else None, "count": len(reviews), "readiness": readiness(store, hypothesis)}
         origin = created_by.get(hypothesis["id"], {})
+        assessed = adequacy(workspace, hypothesis, trials=trials, rules=rules, tasks=tasks, probes=probes)
+        fidelity = fidelity_of(workspace, hypothesis)
         row = {"id": hypothesis["id"], "label": aliases.get(hypothesis["id"]), "title": hypothesis["title"], "short_title": hypothesis.get("short_title"), "status": hypothesis.get("status", "proposed"),
                "origin": hypothesis.get("origin"), "actor": origin.get("actor"), "autonomous": origin.get("actor") == "autopilot", "round": hypothesis.get("round"),
                "parent_links": hypothesis.get("parent_links") or [{"id": p, "kind": "revision"} for p in hypothesis.get("parent_ids") or []],
@@ -195,9 +201,11 @@ def rows(workspace, campaign_id, *, with_curves=False):
                "finalist": finalist or hypothesis.get("status") == "finalist", "confirmation": confirmation,
                "stop_reason": hypothesis.get("stop_reason"), "stopped_at": hypothesis.get("stopped_at"), "stop": stop_of(hypothesis),
                # How it was tried against the assessment minimums (V2): "2 of 3 configurations, 2 seeds each".
-               "assessment": {key: value for key, value in adequacy(workspace, hypothesis, trials=trials, rules=rules, tasks=tasks, probes=probes).items()
+               "assessment": {key: value for key, value in assessed.items()
                               if key in {"adequate", "configurations", "required_configurations", "seeds_per_configuration", "required_seeds",
                                          "stochastic", "missing", "words"}},
+               # Whether its best score passed the problem's promotion checks (V3), and the gates on the page (V5).
+               "fidelity": fidelity, "gates": gates(workspace, hypothesis, assessed, fidelity, [t["id"] for t in own]),
                # Its method finished on its own: "Extend" runs it on the next size, not longer (N14).
                "next_size": next_size(own, tasks),
                "created_at": hypothesis.get("created_at"), "proof": proof_of(hypothesis["id"], optimality, tasks)}

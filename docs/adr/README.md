@@ -18,3 +18,4 @@ From 2026-10-27 each roadmap decision (`docs/roadmap/README.md` §2) becomes a r
 | [0007](0007-compute-is-the-researchers.md) | Compute is the researcher's: two thresholds | 2026-10-26 and 27 |
 | [0008](0008-charter-to-results.md) | Charter to results: the evaluator from the library, no review gate on asked-for proposals, one go-ahead | 2026-10-27 |
 | [0009](0009-one-shot-review-specialists.md) | Review specialists as one-shot calls; the specialists' merge (D2) left to the comparison | 2026-10-28 |
+| [0010](0010-page-agents-folded-into-the-lead.md) | The moderator's and the operator's sessions: kept or folded into the lead, by a comparison | 2026-10-28 |
