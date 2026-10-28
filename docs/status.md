@@ -1,6 +1,6 @@
 # Status
 
-The one current status page, on 2026-10-27. What works, each phase of the [roadmap](roadmap/README.md), and the known
+The one current status page, on 2026-10-28. What works, each phase of the [roadmap](roadmap/README.md), and the known
 gaps. The logs behind it are [lead-agent-readiness.md](lead-agent-readiness.md) (Parts A–S, before the roadmap) and
 [readiness/](readiness/README.md) (one file per roadmap part, each with its State line).
 
@@ -22,22 +22,22 @@ chat ([ui-workspace.md](ui-workspace.md), [problem-setup.md](problem-setup.md)).
 | The campaign's state in every turn, the guidance revision pinned on the server, Pi extensions curated per role, the pages' operations routed in code, procedures read on demand, specialists with briefs and output schemas | Tested, checked live by the evals | Parts M–R |
 | Lead-agent evals that can be run again: 36 of 36 runs pass at `f851e9c` | Live evals | Parts L, S |
 | The coding box: a coding agent works in a workspace from a written ticket, behind an egress allowlist, limits and a deadline; what it delivers is validated outside the box before it installs; commissions run as headless boxes, the one route that builds code; the researcher can deliver from their own coding agent | Tested; on with `development_enabled` | [H1–H8](releases/phase-4.md) |
-| Scores re-checked at higher RCWA orders as a step of every campaign | Not in place | Part F; roadmap V3 |
+| Evidence gates: every stop names a typed outcome and its evidence; an agent's stop as inferior needs an adequate assessment, and a finalist or library entry a score that holds at higher fidelity (where the problem declares a check), or the researcher's waiver; locked confirmation results stay unreadable to the agents until release; the gates and waivers on the Evolution page | Tested | [V1–V5](releases/phase-5.md) |
 
 "Live" means the running services use the code; "tested" means the automated tests pass. Parts from the roadmap on say
 their own state in [readiness/](readiness/README.md).
 
 ## Phases of the roadmap
 
-| Phase | Goal | State on 2026-10-27, at `phase-4` | Release |
+| Phase | Goal | State on 2026-10-28, at `phase-5` | Release |
 |---|---|---|---|
 | 1 | Charter to results | Complete | [`phase-1`](releases/phase-1.md) |
 | 2 | Measure first | Complete; the eval baseline is the `baseline` tag (`61538de`) | [`phase-2`](releases/phase-2.md) |
 | 3 | A mandate for every request | Complete | [`phase-3`](releases/phase-3.md) |
 | 4 | The coding box | Complete | [`phase-4`](releases/phase-4.md) |
-| 5 | Evidence gates | V3 merged; V1 and V4 open; V2 and V5 not started | — |
-| 6 | Problem packs | N1, N2, N4, N8 and N15 merged; N3, N5, N6, N7 and N11 open; N9, N10 and N12 wait for decision 20 | — |
-| 7 | Fewer standing agents, claims that resolve | K1 and K3 merged; T2 and K2 open | — |
+| 5 | Evidence gates | Complete | [`phase-5`](releases/phase-5.md) |
+| 6 | Problem packs | N1–N8, N11 and N13–N15 merged; N9 in progress (decision 20 confirmed on 2026-10-28); N10 and N12 after N9 | — |
+| 7 | Fewer standing agents, claims that resolve | T1–T3 and K1–K4 merged; T4 in progress | — |
 
 This table changes when a phase completes: the part that completes it marks it done with its release tag
 ([releases](releases/README.md)). Between, a phase's parts say how far they got in their own files in
@@ -50,12 +50,8 @@ the roadmap part that closes each:
 
 | Row | Guarantee | State | Closed by |
 |---|---|---|---|
-| INV-12 | A reviewer does not read the other reviewers' verdicts before giving its own | none | T1 |
-| INV-13 | The moderator's synthesis agrees with the reviewers' verdicts | none | T2 |
-| INV-14 | A stop carries a typed stop outcome and its evidence | none | V1 |
-| INV-15 | A stop for performance follows an adequate assessment or the researcher's waiver | none | V2 |
-| INV-18 | Locked confirmation results stay unreadable to the agents until release | none | V4 |
-| INV-19 | Numbers in findings and reports appear in the evidence they cite | none | K2 |
+| INV-13 | The moderator's synthesis agrees with the reviewers' verdicts | prompt; code badges a disagreement (T2), nothing refuses it | no part planned |
+| INV-19 | Numbers in findings and reports appear in the evidence they cite | prompt; code badges unsourced numbers (K2) and the evals measure them | no part planned |
 
 The register is the source: when a part closes a row there, this list is out of date until the phase completes, and the
 register wins.
