@@ -236,6 +236,9 @@ class KnapsackConfig(Contract):
     items: int = Field(default=200, ge=2, le=2000)
     capacity: int = Field(default=1000, ge=1)
     seed: int = Field(default=0, ge=0)
+    # A resolved instance's configuration names its items; resolving it again must give the same ones.
+    weights: list[int] | None = None
+    values: list[int] | None = None
 
 
 def knapsack_items(items, seed):
@@ -259,6 +262,8 @@ class KnapsackProblem:
             raise ValueError("The knapsack has no fidelity settings")
         config = KnapsackConfig(**configuration)
         weights, values = knapsack_items(config.items, config.seed)
+        if config.weights not in (None, weights) or config.values not in (None, values):
+            raise ValueError("The knapsack's items follow from items and seed; leave weights and values out")
         resolved = {"items": config.items, "capacity": config.capacity, "seed": config.seed, "weights": weights, "values": values}
         definition = self.describe()
         objective = Objective(name="value", direction="maximize")

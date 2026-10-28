@@ -10,6 +10,7 @@
     {"outputs_at_least": {"role": "skeptical_domain_analyst", "count": 1}},
     {"structured_outputs_valid": true},
     {"verdicts_in": {"hypothesis": "{hypothesis_id}", "verdicts": ["revise", "reject"]}},
+    {"records_at_least": {"kind": "agent_call", "count": 1}},
     {"synthesis_matches_tally": true},
     {"no_commands": ["trial.create", "draft.launch"]},
     {"request_closed": true}

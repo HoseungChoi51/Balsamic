@@ -113,6 +113,7 @@ class FakeHarness:
     def __init__(self, gateway, *, script=None):
         self.gateway = gateway          # gateway(operation, body) -> dict, like the real harness's callbacks
         self.script = script or self.default_script
+        self.answer = None              # answer(call_id, body) -> text, or None for the default single-call answer
         self.agents = {}
         self.lock = threading.Lock()
         self.live = {}
@@ -240,6 +241,12 @@ class FakeHarness:
         return {"previous_leaf_id": previous, "leaf_id": entry_id, "summary_entry_id": None}
 
     def complete(self, call_id, body):
+        if self.answer is not None:
+            # A scripted one-shot call (agents/calls.py): the script answers from the call's label (the role) and prompt.
+            text = self.answer(call_id, body)
+            if text is not None:
+                return {"text": text, "usage": {"input": 5, "output": 5, "cost_usd": 0}, "stop_reason": "stop", "provider": "openai-codex",
+                        "model": body.get("model"), "billing": "subscription", "thinking_level": body.get("effort")}
         return {"text": "Fake answer: " + str(body.get("prompt", ""))[:80], "usage": {"input": 5, "output": 5, "cost_usd": 0}, "stop_reason": "stop",
                 "provider": "openai-codex", "model": body.get("model"), "billing": "subscription", "thinking_level": body.get("effort")}
 

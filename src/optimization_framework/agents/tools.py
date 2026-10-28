@@ -13,6 +13,7 @@ from optimization_framework.campaigns.record_view import view_record
 from optimization_framework.campaigns.proposals import STANDINGS
 from .models import ROLES, LEAD, PAGE_AGENTS, RETIRED_ROLES, STANDING, DISCUSSION_ROLES
 from .capabilities import implementation_execution
+from . import calls
 from .roles import ROLE_BRIEFS, ROLE_OUTPUT_SCHEMAS, SPECIALIST_CONTRACT, SPECIALIST_TOOL_CALLS
 
 READ_KINDS = {"campaign", "task", "hypothesis", "source", "source_capture", "source_passage", "source_retrieval", "runtime_profile", "evaluator_equivalence",
@@ -253,7 +254,11 @@ TOOLS = {
             "review_ids": {"type": "array", "items": S, "maxItems": 40}, "reason": S}, ["hypothesis_id", "standing", "reason"])}, "summary": S},
             ["proposals", "summary"])),
     "delegate": ("Create a persistent specialist child with a focused objective and exact evidence IDs. You receive its result automatically. "
-        "The objective: " + READABLE, obj({"role": {"enum": [r for r in ROLES if r not in STANDING]}, "objective": S, "evidence_ids": {"type": "array", "items": S, "maxItems": 100}, "request_key": S}, ["role", "objective", "request_key"])),
+        "A proposal_reviewer reviews one proposal (hypothesis_id; one delegate per proposal) and answers once, from what Balsamic gives it: "
+        "the exact revision, its parents' required changes, the tasks, the installed methods, your objective and the evidence you cite, never "
+        "another review of that revision. The objective: " + READABLE,
+        obj({"role": {"enum": [r for r in ROLES if r not in STANDING]}, "objective": S, "evidence_ids": {"type": "array", "items": S, "maxItems": 100}, "request_key": S,
+             "hypothesis_id": S}, ["role", "objective", "request_key"])),
     "agent_message": ("Send a follow-up or steering message to one of your own assistants. " + READABLE, obj({"agent_id": S, "message": S}, ["agent_id", "message"])),
     "agent_cancel": ("Cancel a child assignment while retaining its artifacts and costs.", obj({"agent_id": S}, ["agent_id"])),
     "command_schema": ("Read the exact schema of an execution command before preparing it.", obj({"operation": {"enum": sorted(OPERATIONS)}}, ["operation"])),
@@ -1082,18 +1087,11 @@ class PiTools:
             from optimization_framework.research.literature import LiteratureReader
             return LiteratureReader(self.workspace).read(cid, **args)
         if name == "proposal_review":
-            from optimization_framework.campaigns.proposals import hypothesis_revision
+            from optimization_framework.campaigns.proposals import hypothesis_revision, record_review
             hypothesis = self.record(agent, args["hypothesis_id"])
             if self.store.get_entry(hypothesis["id"])["kind"] != "hypothesis" or hypothesis_revision(hypothesis) != args["hypothesis_hash"]:
                 raise ValueError("Review must pin the exact current hypothesis revision from campaign_inspect")
-            if args["verdict"] == "test" and args.get("required_changes"):
-                raise ValueError("Required mechanism changes must be resolved before a test verdict")
-            artifact = self.store.put_immutable("agent_artifact", {"id": "artifact_" + identity, "campaign_id": cid,
-                "agent_id": agent["id"], "run_id": run["id"], "kind": "proposal_review", "content": args,
-                "created_at": now()}, "hypothesis.concept_reviewed")
-            hypothesis.setdefault("reviews", []).append({"id": artifact["id"], "author": agent["role"], "kind": "conceptual",
-                "verdict": args["verdict"], "text": args["rationale"], "created_at": now()})
-            self.store.put("hypothesis", hypothesis)
+            artifact = record_review(self.store, hypothesis, args, artifact_id="artifact_" + identity, agent_id=agent["id"], run_id=run["id"])
             return {"review_id": artifact["id"], "verdict": args["verdict"]}
         if name == "review_synthesis":
             return self.synthesis(agent, run, args, identity)
@@ -1112,6 +1110,8 @@ class PiTools:
         if name == "delegate":
             for ref in args.get("evidence_ids", []):
                 self.record(agent, ref)
+            # A role that answers in one call (roadmap T1) is told what it reviews; the backend assembles the rest.
+            reviewed = calls.subject(self, agent, args) if args["role"] in calls.ONE_SHOT_ROLES else None
             aid = "agent_" + content_hash([agent["id"], args["request_key"]])[:30]
             # The role's output schema (agents/roles/<role>.schema.json) is the result it submits.
             child = self.controller.create_agent(cid, args["role"], args["objective"], aid,
@@ -1119,6 +1119,9 @@ class PiTools:
             root = self.assignment_origin(agent, run)
             if root:
                 child["assignment_origin"] = root
+            if reviewed:
+                child.update(one_shot=True, hypothesis_id=reviewed)
+            if root or reviewed:
                 self.store.put("agent_session", child)
             task = self.controller.enqueue(child, "assignment_" + aid, args["objective"])
             return {"agent_id": aid, "run_id": task["id"], "status": task["status"]}
@@ -1126,6 +1129,8 @@ class PiTools:
             child = self.store.get(args["agent_id"], "agent_session")
             if child["parent_agent_id"] != agent["id"]:
                 raise ValueError("Only your own assistants can be written to or stopped")
+            if name == "agent_message" and child.get("one_shot"):
+                raise ValueError(f"The {child['role'].replace('_', ' ')} answers once; delegate again for another answer.")
             if name == "agent_message" and child["role"] in PAGE_AGENTS:
                 return self.ask_page_agent(agent, child, args["message"], [], identity, run=run)
             if name == "agent_message":

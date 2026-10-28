@@ -61,6 +61,15 @@ def register(workspace):
                                               configuration_ids=[configuration_id], rationale=values.rationale), authority=actor)
             return {"hypothesis_id": values.hypothesis_id, "how": "race." + ("replicate" if values.replicate else "extend"), "race_id": decided["id"], "configuration_id": configuration_id}
         trials = [t for t in workspace.store.list("trial", command.campaign_id) if t.get("hypothesis_id") == values.hypothesis_id]
+        if not values.replicate:
+            from balsamic.evolution.ledger import optimality, proof_of
+            tasks = {task["id"]: task for task in workspace.store.list("task", command.campaign_id)}
+            proof = proof_of(values.hypothesis_id, optimality(workspace, command.campaign_id), tasks)
+            if proof and proof["fully_assessed"] and values.task_id in {None, proof["task_id"]}:
+                # A checked proof of optimality on a deterministic evaluator: more time cannot change the result (N13).
+                raise ValueError(f"This strategy proved {proof['value']:g} optimal on {proof.get('task_name') or proof['task_id']}, checked by "
+                                 f"{'enumeration' if proof.get('checked_by') == 'enumerate' else 'a reference result of the charter'}; "
+                                 "more time cannot improve it. Run it on another task, or replicate it to compare its cost")
         finished = [t for t in trials if t.get("status") in {"completed", "stopped", "budget_exhausted"} and not t.get("recipe")]
         if finished and not values.replicate and not values.task_id:
             from optimization_framework.contracts.commands import TrialContinueInput

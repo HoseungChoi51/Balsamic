@@ -27,6 +27,7 @@ from optimization_framework.contracts.base import content_hash, canonical_json
 from optimization_framework.contracts.experiments import RecoveryPolicy, ExperimentSpec
 from optimization_framework.contracts.problems import Observation, ProblemInstance
 from optimization_framework.evaluation.registry import problems
+from optimization_framework.analysis.optimality import claim_of
 from optimization_framework.execution.metrics import bounded_diagnostics, pack_candidate, unpacked
 from optimization_framework.optimizers.registry import create
 from optimization_framework.optimizers.finish import MethodFinished
@@ -208,6 +209,8 @@ class ExperimentWorker:
         self.recovered_suffix = 0
         # A method that ended on its own (MethodFinished); a resumed or continued run of it finishes at once.
         self.method_finished, self.finish_reason = False, None
+        # The latest bound and proof of optimality the method reported in inspect() (N13), kept across checkpoints.
+        self.claim = {}
         self._restore()
         measured_history = sum(item["quantities"].get("worker_seconds") or 0 for item in iter_journal(self.directory / "costs.jsonl"))
         prior_attempts = {}
@@ -317,6 +320,7 @@ class ExperimentWorker:
         self.max_steps, self.wall_seconds = state["max_steps"], state["wall_seconds"]
         self.observation_cursor = manifest["metadata"]["observation_cursor"]
         self.method_finished, self.finish_reason = state.get("method_finished", False), state.get("finish_reason")
+        self.claim = state.get("claim", {})
         self.checkpoint_id = checkpoint_id
         self.last_checkpoint_step = self.step
 
@@ -334,13 +338,15 @@ class ExperimentWorker:
             self.evaluator.restore(state["evaluator"])   # a changed evaluator starts with its own state
         self.archive, self.last_value = state["archive"], state["last_value"]
         self.method_finished, self.finish_reason = state.get("method_finished", False), state.get("finish_reason")
+        self.claim = state.get("claim", {})
 
     def save_checkpoint(self):
         state = {"optimizer": self.optimizer.checkpoint(), "evaluator": self.evaluator.checkpoint(),
                  "step": self.step, "archive": self.archive, "last_value": self.last_value,
                  "elapsed_seconds": self.elapsed(), "control_revision": self.control_revision, "last_command": self.last_command,
                  "max_steps": self.max_steps, "wall_seconds": self.wall_seconds,
-                 "method_finished": self.method_finished, "finish_reason": self.finish_reason}
+                 "method_finished": self.method_finished, "finish_reason": self.finish_reason,
+                 **({"claim": self.claim} if self.claim else {})}
         with tempfile.SpooledTemporaryFile(max_size=self.policy.chunk_bytes) as stream:
             pickle.dump(state, stream, protocol=pickle.HIGHEST_PROTOCOL)
             stream.seek(0)
@@ -460,6 +466,7 @@ class ExperimentWorker:
         best = self.archive[0] if self.archive else None
         completion = self.spec.get("completion", {"unit": "evaluation_requests", "count": self.spec["max_steps"]})
         diagnostics = self.optimizer.inspect()
+        self.claim = claim_of(diagnostics) or self.claim
         primary_count = diagnostics.get("decisions", 0) if completion["unit"] == "optimizer_decisions" else self.step
         result = {"schema_version": 1, "id": self.spec["id"], "attempt_id": self.attempt_id,
                 "status": status, "reason": reason, "step": self.step, "objective": self.last_value,
@@ -478,6 +485,8 @@ class ExperimentWorker:
                 **({"finish_reason": self.finish_reason} if self.finish_reason else {}),
                 # What the method said of itself when it ended, e.g. {"bound": x, "proved_optimal": true} (an exact method's proof).
                 **({"final_inspection": bounded_diagnostics(diagnostics)} if self.method_finished else {}),
+                # The latest bound and proof the method reported (N13): a claim, checked by enumeration or a reference result.
+                **self.claim,
                 "allocation_stop": reason if reason in {"step_budget_exhausted", "wall_budget_exhausted", "study_deadline_reached"} else None,
                 **({"absolute_deadline": self.deadline, "deadline_overshoot_seconds": max(0, time.time() - self.deadline)} if self.deadline else {}),
                 "process_exit": None if status == "running" else int(status == "failed"),

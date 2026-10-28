@@ -2,10 +2,13 @@
 
 Stages: proposed → reviewed → screening (short runs) → extended (long runs or race rungs) → finalist → confirmed → stopped.
 Stopped is a decision with a reason, never a failure. Unknown values stay None.
+A strategy whose run proved its value optimal on a task with a deterministic evaluator, the proof checked by enumeration or
+a reference result (N13), is fully assessed there: it reads as extended, and more time is refused (hypothesis.allocate).
 "Best" follows the objective's direction: the lowest score when minimizing.
 """
 import math
 
+from optimization_framework.analysis.optimality import by_task
 from optimization_framework.campaigns.experiment_rules import check_trial_ids, classify, current as experiment_rules
 from optimization_framework.campaigns.hypotheses import stop_of
 from optimization_framework.campaigns.proposals import readiness
@@ -54,6 +57,13 @@ def best_of(entries):
     return best, objective.direction
 
 
+def optimality(workspace, campaign_id):
+    """Per task: the best value, the best bound over all runs, the gap and the claims of optimality (N13); cached with the rows."""
+    rows(workspace, campaign_id)
+    cached = _cache.get((id(workspace.store), campaign_id, False))
+    return cached[2] if cached else by_task(workspace, campaign_id)
+
+
 def curve(workspace, trial_id):
     try:
         rows = workspace.metrics(trial_id, fields=["evaluations", "best_objective", "best_efficiency", "elapsed_seconds", "step"])
@@ -70,13 +80,32 @@ def curve(workspace, trial_id):
     return points
 
 
-def stage_of(hypothesis, trials, kinds, race, finalist, confirmation, review):
+PROOF_ORDER = ("checked", "claimed", "contradicted")
+
+
+def proof_of(hypothesis_id, optimality, tasks):
+    """The strongest claim of optimality a strategy's runs make on any task: checked, then claimed, then contradicted."""
+    found = []
+    for summary in optimality:
+        deterministic = ((tasks.get(summary["task_id"]) or {}).get("evaluator_manifest") or {}).get("deterministic", True) is not False
+        for claim in summary["claims"]:
+            if claim.get("hypothesis_id") == hypothesis_id:
+                found.append({**{key: claim[key] for key in ("status", "value", "algorithm", "trial_id") if key in claim},
+                              **({"checked_by": claim["checked_by"]} if claim.get("checked_by") else {}),
+                              "task_id": summary["task_id"], "task_name": summary.get("task_name"),
+                              "fully_assessed": claim["status"] == "checked" and deterministic})
+    return min(found, key=lambda claim: PROOF_ORDER.index(claim["status"]), default=None)
+
+
+def stage_of(hypothesis, trials, kinds, race, finalist, confirmation, review, proof=None):
     if hypothesis.get("status") == "archived":
         return "stopped"
     if confirmation and confirmation.get("promising") is not None:
         return "confirmed"
     if hypothesis.get("status") == "finalist" or finalist:
         return "finalist"
+    if proof and proof.get("fully_assessed"):
+        return "extended"
     if race and race.get("highest_rung_seconds") and race["highest_rung_seconds"] >= 1800 or any(kinds.get(t["id"]) == "long" for t in trials):
         return "extended"
     if trials:
@@ -115,6 +144,7 @@ def rows(workspace, campaign_id, *, with_curves=False):
     for row in commands.values():
         if row["request"]["operation"] == "hypothesis.create":
             created_by[(row.get("outcome") or {}).get("hypothesis_id")] = row.get("origin") or {}
+    optimality = by_task(workspace, campaign_id)
     out = []
     for hypothesis in hypotheses:
         own = [t for t in trials if t.get("hypothesis_id") == hypothesis["id"]]
@@ -164,12 +194,12 @@ def rows(workspace, campaign_id, *, with_curves=False):
                "stop_reason": hypothesis.get("stop_reason"), "stopped_at": hypothesis.get("stopped_at"), "stop": stop_of(hypothesis),
                # Its method finished on its own: "Extend" runs it on the next size, not longer (N14).
                "next_size": next_size(own, tasks),
-               "created_at": hypothesis.get("created_at")}
-        row["stage"] = stage_of(hypothesis, own, kinds, race, finalist, confirmation, review)
+               "created_at": hypothesis.get("created_at"), "proof": proof_of(hypothesis["id"], optimality, tasks)}
+        row["stage"] = stage_of(hypothesis, own, kinds, race, finalist, confirmation, review, row["proof"])
         if with_curves and best_trial:
             row["curve"] = curve(workspace, best_trial["id"])
         out.append(row)
-    _cache[key] = (cursor, out)
+    _cache[key] = (cursor, out, optimality)
     if len(_cache) > 32:
         _cache.pop(next(iter(_cache)))
     return out, cursor

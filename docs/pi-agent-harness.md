@@ -359,6 +359,12 @@ brief as the body, at most 200 words), and a `<role>.schema.json` (`agents/roles
 - Its tools are those its file names; `delegate` gives it its role's schema, `submit_output` validates against it, and
   `yield_work(complete)` is refused until it has submitted. The proposal reviewer's structured output stays its
   `proposal_review`.
+- The proposal reviewer is not a session (roadmap T1, `agents/calls.py`): `delegate` names the one proposal it reviews
+  (`hypothesis_id`), and the controller makes one tool-less call through the agent service on the role's tier model, with an
+  input the backend assembles (the exact revision, its parents' required changes, the tasks, the installed methods, the
+  charter's summary, and the asker's objective with the records it cited, read under V4's rule), never another review of the
+  revision. The call is saved as an `agent_call` with its instructions, input, output and usage; its verdict is recorded as
+  `proposal_review` records one; a refused or failed call is not repeated, and a message to the reviewer is refused.
 - The asking agent's notice says where the result is (`/output` on the run); the Review rounds view shows it.
 - Specialists saved before the schemas keep working without one.
 

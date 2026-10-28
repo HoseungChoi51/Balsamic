@@ -6,7 +6,7 @@ import { useMessages, useSummary } from '../api/queries';
 import { send } from '../commands/bus';
 import { useQuery } from '@tanstack/react-query';
 import { scoped } from '../api/client';
-import type { Evolution, LedgerRow } from '../api/evolution';
+import type { Evolution, LedgerRow, Proof, TaskOptimality } from '../api/evolution';
 import { Empty, Failed, Kv, Loading, Pill, Section, duration, num, when } from '../primitives/ui';
 import { Curve } from '../primitives/charts';
 import { formatHash, navigate } from '../router/routes';
@@ -56,6 +56,7 @@ export default function EvolutionPage({ campaignId, route }: PageProps) {
         <a className="btn quiet small" href={`/api/v1/campaigns/${campaignId}/evolution/export`} download data-testid="export-graph">Export</a></div>
       <nav className="tabs">{tabs.map(([key, label]) => <a key={key} href={formatHash({ page: 'evolution', sub: key }, route.thread)} className={sub === key ? 'active' : ''}>{label}</a>)}</nav>
       {error ? <div className="pill bad">{error}</div> : null}
+      {sub === 'frontier' && data.optimality?.some(task => task.best_bound != null || task.optimum) ? <Optimality tasks={data.optimality} /> : null}
       {sub === 'frontier' ? <FrontierTable rows={rows} picked={picked} setPicked={setPicked} selectedId={selection.id} thread={route.thread} onTrace={setTrace}
         onOpen={id => { selection.select(id); navigate(formatHash({ page: 'hypotheses', id, sel: id }, route.thread)); }} /> : null}
       {sub === 'frontier' && chosen.length ? <InterventionBar rows={chosen} pending={pending} onStop={reason => act('stop', () => intervene(chosen, { kind: 'stop', reason }, campaignId, version!, route.thread))}
@@ -95,7 +96,7 @@ function FrontierTable({ rows, picked, setPicked, selectedId, onOpen, onTrace }:
           <td><a href="#" onClick={e => { e.preventDefault(); onOpen(row.id); }}>{row.label ? <Pill>{row.label}</Pill> : null} {row.title}</a>{row.live_trials ? <Pill tone="agent"> {row.live_trials} live</Pill> : null}</td>
           <td><Pill tone={STAGE_TONE[row.stage]} title={row.stage === 'stopped' ? `${row.stop?.label || 'stopped'}: ${row.stop_reason || 'no reason recorded'}` : STAGE_WORD[row.stage] || row.stage}>{row.stage}</Pill>{row.stop ? <div className="small faint" data-testid="stop-outcome">{row.stop.words}</div> : null}</td>
           <td>{row.round ?? <span className="faint">–</span>}</td>
-          <td>{num(row.best.score, 4)}{row.best.score != null ? <span className="faint small"> {row.best.source}</span> : null}</td>
+          <td>{num(row.best.score, 4)}{row.best.score != null ? <span className="faint small"> {row.best.source}</span> : null}{row.proof ? <ProofPill proof={row.proof} /> : null}</td>
           <td>{duration(row.worker_seconds)}<span className="faint small"> of {duration(row.allotted_seconds)}</span></td>
           <td>{row.highest_rung_seconds ? duration(row.highest_rung_seconds) : <span className="faint">–</span>}{row.race ? <span className="small faint"> · race {row.race.status}</span> : null}</td>
           <td>{row.review.verdict ? <Pill tone={row.review.verdict === 'test' ? 'clear' : 'attention'}>{row.review.verdict}</Pill> : <span className="faint small">{row.review.count ? `${row.review.count} notes` : 'none'}</span>}{!row.implementation_readiness.runnable ? <span className="why"> not runnable</span> : null}</td>
@@ -104,6 +105,32 @@ function FrontierTable({ rows, picked, setPicked, selectedId, onOpen, onTrace }:
         </tr>))}</tbody>
     </table>
   );
+}
+
+const CHECKER: Record<string, string> = { enumerate: 'enumeration', reference: "the charter's reference result" };
+
+/** A strategy's claim of optimality: proved only when something checks it; a claim nothing checks says whose it is. */
+function ProofPill({ proof }: { proof: Proof }) {
+  if (proof.status === 'checked') return <> <Pill tone="clear" title={`Checked by ${CHECKER[proof.checked_by || ''] || proof.checked_by} on ${proof.task_name || proof.task_id}${proof.fully_assessed ? '; fully assessed, no more time needed' : ''}`}>proved optimal</Pill></>;
+  if (proof.status === 'claimed') return <> <Pill tone="attention" title="No enumeration or reference result checks this yet">optimal: claimed by {proof.algorithm}</Pill></>;
+  return <> <Pill tone="bad" title="Another run found a better value">optimality claim contradicted</Pill></>;
+}
+
+/** Per task: best value, best bound over all runs and the gap; the optimum, as checked or as a claim (N13). */
+function Optimality({ tasks }: { tasks: TaskOptimality[] }) {
+  return <Section title="Bounds and optimality">
+    <table data-testid="optimality"><thead><tr><th>Task</th><th>Best value</th><th>Best bound</th><th>Gap</th><th>Optimum</th></tr></thead>
+      <tbody>{tasks.map(task => <tr key={task.task_id} data-task-id={task.task_id}>
+        <td>{task.task_name || task.task_id}</td>
+        <td>{num(task.best_value, 4)}</td>
+        <td>{task.best_bound != null ? <>{num(task.best_bound, 4)}{task.bound_algorithm ? <span className="faint small"> from {task.bound_algorithm}</span> : null}</> : <span className="faint">none reported</span>}</td>
+        <td>{task.gap != null ? <>{num(task.gap, 4)}{task.relative_gap != null ? <span className="faint small"> ({(100 * task.relative_gap).toFixed(2)}%)</span> : null}</> : <span className="faint">–</span>}</td>
+        <td>{task.optimum ? (task.optimum.status === 'checked'
+          ? <Pill tone="clear">{num(task.optimum.value, 4)} proved, checked by {CHECKER[task.optimum.checked_by || ''] || task.optimum.checked_by}</Pill>
+          : <Pill tone="attention">{num(task.optimum.value, 4)} claimed by {task.optimum.claimed_by.join(', ')}</Pill>) : <span className="faint">not known</span>}</td>
+      </tr>)}</tbody></table>
+    <p className="why">A bound is a value no candidate can beat. A claim of optimality counts as proved only when enumeration or a reference result of the charter gives the same optimum.</p>
+  </Section>;
 }
 
 function InterventionBar({ rows, pending, onStop, onPromote, onAllocate, onGenerate, onDiscuss }: { rows: LedgerRow[]; pending: string | null; onStop: (reason: string) => void; onPromote: () => void; onAllocate: (seconds: number, rationale: string, nextSize: boolean) => void; onGenerate: (operation: 'hybrid' | 'revise' | 'diversify', count: number, note: string) => void; onDiscuss: () => void }) {
