@@ -161,7 +161,8 @@ class ImplementationBridge:
             raise ValueError("This implementation was validated for a different problem adapter; request compatible correctness evidence")
         if task and spec.get("evaluator_version_id") and spec["evaluator_version_id"] != task.get("problem", {}).get("evaluator_version"):
             raise ValueError("The optimizer's correctness evidence requires the exact commissioned evaluator version")
-        if task and task.get("problem", {}).get("candidate_schema", {}).get("constraints") and not spec.get("supports_constraints"):
+        schema = (task or {}).get("problem", {}).get("candidate_schema", {})
+        if (schema.get("constraints") or schema.get("design")) and not spec.get("supports_constraints"):
             raise ValueError("This implementation does not support the problem's explicit feasibility constraints")
         from optimization_framework.evaluation.registry import problems
         capabilities = (set(task["problem"]["capabilities"]) if task and task.get("problem") else

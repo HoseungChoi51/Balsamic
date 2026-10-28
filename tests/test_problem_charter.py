@@ -465,29 +465,6 @@ def test_questions_come_in_at_most_two_rounds_and_the_view_says_which(workspace)
         charters.ask(record["id"], [{"id": "more", "question": "One more?", "options": ["A", "B"]}])
 
 
-def test_mixed_discrete_values_read_as_a_limit_of_the_lab_and_one_click_writes_them_as_ranges():
-    """The researcher is told in plain words which variables take which values and that the lab, not the problem, is the
-    limit; the suggested edit turns each discrete variable into a range, keeps its grid in words for the evaluator, and clears
-    the finding without the formulator."""
-    draft = reactor()
-    draft["variables"] = [
-        {"name": "pacing", "description": "Daily release multiplier", "representation": "discrete", "values": [0.5, 1.0, 1.5]},
-        {"name": "weights", "description": "Relative weights", "representation": "discrete", "shape": [3], "values": [1, 2, 3, 4, 5, 6, 7]}]
-    draft["constraints"] = [c for c in draft["constraints"] if c["form"] != "linear"]
-    rows = C.findings(draft)
-    row = next(r for r in rows if r["code"] == "evaluator.mixed_values")
-    assert "pacing takes 0.5, 1, 1.5" in row["message"] and "weights takes 1 to 7 in 7 steps" in row["message"]
-    assert "limit of the lab" in row["message"] and row["about"] == ["pacing", "weights"]
-    assert "evaluator binding" not in " ".join(s["label"] for s in row["suggestions"])
-    fix = next(s for s in row["suggestions"] if s["action"] == "edit")
-    updated = C.apply_changes(draft, fix["changes"], origin="researcher")
-    assert [v["representation"] for v in updated["variables"]] == ["continuous", "continuous"]
-    assert (updated["variables"][0]["lower"], updated["variables"][0]["upper"]) == (0.5, 1.5)
-    assert "Permitted values: 0.5, 1, 1.5" in updated["variables"][0]["description"]
-    assert "pacing: 0.5, 1, 1.5" in updated["evaluator"]["notes"] and "weights: 1 to 7 in 7 steps" in updated["evaluator"]["notes"]
-    assert not any(r["code"].startswith("evaluator.mixed") or r["code"].startswith("variable.") for r in C.findings(updated) if r["severity"] == "blocking")
-
-
 def test_a_data_quantity_fed_to_a_declared_evaluator_compiles_and_never_breaks_the_view():
     """A charter may feed the evaluator a table or a structure (kind "data"). The manifest types it by what it holds, and
     whatever else fails while assembling the manifest becomes a finding, never a dead page."""

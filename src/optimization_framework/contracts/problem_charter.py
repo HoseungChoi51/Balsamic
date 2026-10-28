@@ -101,8 +101,14 @@ class Constraint(Part):
     id: str = Field(pattern=NAME)
     statement: str = Field(min_length=1, max_length=1000)
     kind: Literal["hard", "soft"] = "hard"
-    form: Literal["quantities", "linear", "evaluator", "qualitative"]
-    test: str | None = Field(default=None, max_length=1000, description="form 'quantities': a true/false expression")
+    form: Literal["quantities", "linear", "design", "evaluator", "qualitative"] = Field(description=(
+        "quantities: a true/false test on the charter's values; linear: a weighted sum of decision variables against a "
+        "bound; design: a true/false expression over the decision variables by name (non-linear, a ratio, a minimum "
+        "width), checked on every candidate; evaluator: the evaluator accounts for it; qualitative: words only"))
+    test: str | None = Field(default=None, max_length=1000, description=(
+        "form 'quantities' or 'design': a true/false expression. A design expression reads decision variables by name (a "
+        "variable of several entries is a vector) and number quantities, with sum, min, max, count, len, at(v, i), diff, "
+        "all and any; e.g. all(diff(edges) >= min_gap) or max(widths) <= 3 * min(widths)"))
     terms: list[LinearTerm] = Field(default_factory=list, max_length=20, description="form 'linear'")
     relation: Literal["le", "ge", "eq"] | None = None
     bound: float | str | None = None
@@ -112,6 +118,8 @@ class Constraint(Part):
     def form_fields(self):
         if self.form == "quantities" and not self.test:
             raise ValueError(f"Constraint {self.id}: a test on quantities needs an expression")
+        if self.form == "design" and not self.test:
+            raise ValueError(f"Constraint {self.id}: a design constraint needs an expression over the decision variables")
         if self.form == "linear" and (not self.terms or self.relation is None or self.bound is None):
             raise ValueError(f"Constraint {self.id}: a linear constraint needs terms, a relation and a bound")
         return self

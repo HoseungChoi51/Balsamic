@@ -12,6 +12,8 @@ import { Empty, Failed, Loading, Pill, Section } from '../primitives/ui';
 
 interface Quantity { description?: string; kind?: string; role: 'input' | 'derived' | string; value: number | null; expression: string | null; units?: string; range?: [number | null, number | null] | null; origin?: string; accepted?: boolean; note?: string }
 interface Variable { name: string; description?: string; representation: string; lower: number | null; upper: number | null; values: unknown[]; units?: string; shape?: unknown[] }
+interface Term { variable: string; weight?: number | string; weights?: number[] | null }
+interface Rule { id: string; statement: string; kind?: string; form: string; test?: string | null; terms?: Term[]; relation?: string | null; bound?: number | string | null }
 interface Suggestion { label: string; action: 'waive' | 'request' | 'edit' | string; reason?: string; text?: string; changes?: Record<string, unknown>[]; rationale?: string }
 interface Finding { key: string; code: string; severity: 'blocking' | 'warning' | string; message: string; about: string[]; waivable: boolean; suggestions?: Suggestion[]; detail?: string }
 interface Question { id: string; question: string; options?: string[]; unrunnable_options?: number[]; about?: string[]; answer: string | null; sent?: boolean }
@@ -19,7 +21,7 @@ interface Change { part: string; name: string; change: string; before?: unknown;
 interface ProposalOption { label?: string; summary?: string; reason?: string; changes?: unknown[]; blocking_reason?: string | null; diff?: Change[]; findings?: { message: string }[] }
 interface Proposal { id: string; status: string; request?: string; asked?: string | null; created_at?: string; accepted_option?: number | null; options?: ProposalOption[] }
 interface CharterView { id: string; title?: string; status: string; revision: number; blocking: number; formulator?: { status: string | null; listening: boolean }; question_rounds?: number; question_rounds_max?: number; findings: Finding[]; values: Record<string, number | null>; errors?: Record<string, string>;
-  rendered?: Record<string, string>; access?: Access | null; units_elsewhere?: { about: string[]; message: string }[]; proposals: Proposal[]; charter: { title?: string; text?: string; summary?: string; quantities: Record<string, Quantity>; variables: Variable[]; questions: Question[]; assumptions: { statement: string; accepted?: boolean }[]; waivers: { key: string; reason: string }[] } }
+  rendered?: Record<string, string>; access?: Access | null; units_elsewhere?: { about: string[]; message: string }[]; proposals: Proposal[]; charter: { title?: string; text?: string; summary?: string; quantities: Record<string, Quantity>; variables: Variable[]; constraints?: Rule[]; questions: Question[]; assumptions: { statement: string; accepted?: boolean }[]; waivers: { key: string; reason: string }[] } }
 
 /** How methods reach the objective and what they are compared on (N11): the charter's choice, else the problem's own. */
 interface Access { access: string; cost_axis: string | null; problem: { access: string; cost_axis: string | null }; charter: { access: string | null; cost_axis: string | null } }
@@ -44,6 +46,12 @@ const CHECKS: Record<string, string> = { 'assumption.unaccepted': 'assumption to
   'constraint.qualitative': 'rule in words only', 'constraint.violated': 'rule broken', 'constraint.infeasible': 'rules conflict',
   'objective.missing': 'no objective', 'text.reference': 'text', 'text.literal_mismatch': 'number in the text',
   'evaluator.provided': 'provided by a library', 'evaluator.provided_mismatch': 'library computes another problem' };
+/** How each constraint form is checked (N9 adds design: a condition on the design the lab checks on every candidate). */
+const FORM_WORDS: Record<string, string> = { quantities: 'a test on the values, checked here', linear: 'linear in the design, checked on every candidate',
+  design: 'a condition on the design, checked on every candidate', evaluator: 'enforced by the evaluator', qualitative: 'words only, not checked' };
+const RELATION: Record<string, string> = { le: '≤', ge: '≥', eq: '=' };
+const condition = (k: Rule) => k.form === 'linear' ? `${(k.terms || []).map(t => t.weights ? `weighted ${t.variable}` : t.weight === 'mean' ? `mean(${t.variable})` : t.weight === 'sum' || t.weight == null ? `sum(${t.variable})` : `${t.weight} × sum(${t.variable})`).join(' + ')} ${RELATION[k.relation || ''] || k.relation} ${k.bound}`
+  : k.test || '';
 const checkLabel = (code: string) => CHECKS[code] || (code.startsWith('evaluator.') ? 'evaluator' : code.startsWith('instance.') ? 'instance' : code);
 const inUnits = (units?: string) => units && units.trim() && units.trim() !== '1' ? `, in ${units.trim()}` : '';
 
@@ -182,6 +190,16 @@ export function CharterPanel({ charterId, campaignId, version, onChanged, formul
       {doc.variables.length ? <Section title="Decision variables" right={<span className="small faint">what the optimizer changes; bounds are typed as numbers</span>}>
         <table data-testid="variables"><thead><tr><th>Name</th><th>Representation</th><th>Lower</th><th>Upper</th><th>Unit</th></tr></thead><tbody>
           {doc.variables.map((v, i) => <VariableRow key={v.name} index={i} variable={v} busy={locked} edit={edit} />)}
+        </tbody></table>
+      </Section> : null}
+
+      {doc.constraints?.length ? <Section title="Constraints" right={<span className="small faint">what a design or the setup must meet, and how each is checked</span>}>
+        <table data-testid="constraints"><thead><tr><th>Rule</th><th>Form</th><th>Condition</th></tr></thead><tbody>
+          {doc.constraints.map(k => <tr key={k.id} data-testid="constraint" data-id={k.id} data-form={k.form}>
+            <td><strong>{k.id}</strong>{k.kind === 'soft' ? <span className="faint small"> · soft</span> : null}<div className="small faint">{c.rendered?.[`constraint ${k.id}`] || k.statement}</div></td>
+            <td className="small" data-testid="constraint-form">{k.form}<div className="faint">{FORM_WORDS[k.form] || ''}</div></td>
+            <td>{condition(k) ? <code className="small" data-testid="constraint-condition">{condition(k)}</code> : <span className="faint small">none</span>}</td>
+          </tr>)}
         </tbody></table>
       </Section> : null}
 

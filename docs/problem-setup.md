@@ -356,18 +356,14 @@ with their formulators, folders and sessions; nothing was kept.
   will fail until they use the new page.
 - **Relations run one way, and units are labels.** Units are not converted or checked
   dimensionally beyond the degree check.
-- **A declared problem takes one kind of variable, and one list of values for all its discrete
-  variables** (`CandidateSchema.values` is one list; `optimizers/lifecycle.py` samples from it). The
-  `evaluator.mixed_values` finding says so in plain words, names each variable's values, and offers a
-  one-click edit that writes each as a range with its grid kept in its description and in the
-  evaluator's notes, so the evaluator rounds to it. Per-variable value lists belong to the M5
-  problem-agnostic work. Its candidate has one representation, so the
-  heat sink's whole-number fin count had to be written as a continuous variable that the evaluator
-  rounds or rejects. This is a limit of the framework's candidate schema, not of the charter.
+- **A declared problem took one kind of variable, and one list of values for all its discrete
+  variables**, so the heat sink's whole-number fin count had to be written as a continuous variable
+  that the evaluator rounds. Roadmap N9 lifted this (see "Next step" below): each variable now keeps
+  its own values.
 - **One browser test is flaky.** `study-progress` "manual refresh…" expects exactly two reads, and
   under the full parallel run an automatic refresh sometimes makes three. It passes alone. That
   page was not changed by this work.
-### Next step: problem-agnostic constraints (planned, not started)
+### Next step: problem-agnostic constraints (in progress: design constraints done, outcome constraints next)
 
 Decided on 21 October 2026. The checks in `charter.py` are generic in vocabulary (nothing names a domain) but narrow in
 what they can judge: the framework itself checks or enforces only two constraint forms, a true/false test on quantities
@@ -391,3 +387,18 @@ Charter page.
 Sequencing: the researcher works on this only after the present, narrower framework is confirmed to work correctly end
 to end, so that there is a reference point to compare against. Until then the suggestions on a qualitative finding
 (keep as a recorded criterion, or ask the formulator for a checkable form) are the whole answer.
+
+**Progress (28 October 2026).** Hoseung confirmed the narrower framework end to end on 28 October (decision 20), and
+roadmap part N9 ([readiness](readiness/N9.md)) added the first half:
+
+- a **design constraint** (`form: "design"`): a true/false `test` over the decision variables by name and number
+  quantities, with vector functions (`sum`, `min`, `max`, `count`, `len`, `at`, `diff`, `all`, `any`). The checks say
+  when it reads a name that is neither, reads no variable, gives no single true or false, or fails on every one of 64
+  random designs; a warning says when none of them meets it. It reaches a declared problem's candidate schema with its
+  thresholds at each instance, and a candidate that breaks it is refused before the evaluator runs. The Charter page
+  lists every constraint with its form and condition;
+- **per-variable values**: binary, discrete and continuous variables share one candidate, each discrete variable with its
+  own values. The `evaluator.mixed_values` finding and its "write them as ranges" edit are retired. An order of items
+  still takes the candidate alone.
+
+The outcome constraint (a condition on the metrics an evaluator reports) is roadmap part N10.

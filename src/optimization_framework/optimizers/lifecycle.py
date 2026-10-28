@@ -84,14 +84,17 @@ class BoundedSearch:
         self.best = None
         self.best_score = None
         self.count = 0
+        self.grids = [values if values else None for values in schema.element_values()] if schema.variables else None
         self.radius = float(parameters.get("radius", .2))
         if not 0 < self.radius <= 1:
             raise ValueError("radius must be in (0, 1]")
 
     def ask(self):
         for _ in range(10000):
-            if self.schema.representation == "discrete":
+            if self.schema.representation == "discrete" and self.grids is None:
                 candidate = self.rng.choice(self.schema.values, size=self.schema.dimensions)
+            elif self.schema.representation == "discrete":   # each variable from its own values (N9)
+                candidate = np.asarray([self.rng.choice(values) for values in self.grids], dtype=float)
             elif self.schema.representation == "binary":
                 candidate = self.rng.integers(0, 2, size=self.schema.dimensions, dtype=np.uint8)
             elif self.schema.representation == "permutation":
@@ -99,6 +102,10 @@ class BoundedSearch:
             else:
                 bounds = np.asarray(self.schema.bounds)
                 candidate = self.rng.uniform(bounds[:, 0], bounds[:, 1])
+                if self.grids is not None:   # a variable with a grid (a whole number of fins) samples its values
+                    for index, values in enumerate(self.grids):
+                        if values is not None:
+                            candidate[index] = self.rng.choice(values)
                 if self.coordinate and self.best is not None and self.count % (2 * self.schema.dimensions + 1):
                     candidate = self.best.copy()
                     index = int(self.rng.integers(self.schema.dimensions))

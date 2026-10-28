@@ -58,7 +58,7 @@ def resolve(rollout):
 def prepare(identity, problem, parameters, *, asset=None, registry=None):
     problem = problem if isinstance(problem, ProblemInstance) else ProblemInstance(**problem)
     adapter, descriptor = (registry or adapters).get(identity)
-    if problem.candidate_schema.representation not in descriptor.representations or (problem.candidate_schema.constraints and not descriptor.constraints):
+    if problem.candidate_schema.representation not in descriptor.representations or (problem.candidate_schema.restricted and not descriptor.constraints):
         raise ValueError(f"{descriptor.title} does not support this problem's representation or constraints")
     if asset is not None and not descriptor.artifact.matches(asset):
         raise ValueError(f"The declared asset is incompatible with {descriptor.title}")

@@ -3,6 +3,12 @@
 Expressions are parsed with ``ast`` and walked node by node; nothing is passed to ``eval``. Only
 arithmetic, comparisons, boolean logic, conditional expressions, named quantities and the functions
 below are allowed. Numbers are computed as floats, so no expression can build a huge integer.
+
+A name can hold a vector (a list), such as a decision variable with several entries in a design constraint (N9).
+Arithmetic and comparisons act entry by entry (a number pairs with every entry), the one-argument functions map over
+the entries, and the vector functions reduce one: ``sum``, ``min``, ``max``, ``count`` (the entries that are not 0 or
+false), ``len``, ``all``, ``any``, ``at(v, i)`` (entry i, from 0) and ``diff`` (each entry minus the one before). A
+comparison of vectors gives one true/false per entry; ``all`` or ``any`` makes it one.
 """
 from __future__ import annotations
 
@@ -32,6 +38,7 @@ FUNCTIONS = {
     "abs": abs, "min": min, "max": max, "floor": math.floor, "ceil": math.ceil, "round": round,
     "rad": math.radians, "deg": math.degrees,
 }
+VECTOR = {"sum", "count", "len", "all", "any", "at", "diff"}
 CONSTANTS = {"pi": math.pi, "e": math.e}
 TRIGONOMETRIC = {"sin", "cos", "tan"}
 BINARY = {ast.Add: operator.add, ast.Sub: operator.sub, ast.Mult: operator.mul, ast.Div: operator.truediv,
@@ -58,7 +65,8 @@ def parse(expression: str) -> ast.Expression:
         if not isinstance(node, ALLOWED):
             raise ExpressionError(f"'{type(node).__name__}' is not allowed in an expression")
         if isinstance(node, ast.Call):
-            if not isinstance(node.func, ast.Name) or (node.func.id not in FUNCTIONS and node.func.id != "table"):
+            if not isinstance(node.func, ast.Name) or (node.func.id not in FUNCTIONS and node.func.id not in VECTOR
+                                                     and node.func.id != "table"):
                 name = node.func.id if isinstance(node.func, ast.Name) else "this call"
                 raise ExpressionError(f"unknown function {name}")
             if node.keywords:
@@ -108,8 +116,63 @@ def interpolate(points, x: float, name: str = "table") -> float:
     return float((y1 - y0) / (x1 - x0) * (x - x0) + y0)
 
 
+def _number(value):
+    return float(value) if isinstance(value, int) and not isinstance(value, bool) else value
+
+
+def _vector(value) -> bool:
+    return isinstance(value, list)
+
+
+def _entries(value, what: str) -> list:
+    if not _vector(value):
+        raise ExpressionError(f"{what} takes a vector")
+    return value
+
+
+def _pairwise(function, left, right):
+    """A binary operation, entry by entry when either side is a vector; a number pairs with every entry."""
+    if not _vector(left) and not _vector(right):
+        return function(left, right)
+    if _vector(left) and _vector(right) and len(left) != len(right):
+        raise ExpressionError(f"the vectors have {len(left)} and {len(right)} entries")
+    size = len(left) if _vector(left) else len(right)
+    pick = lambda side, index: side[index] if _vector(side) else side
+    return [function(pick(left, index), pick(right, index)) for index in range(size)]
+
+
+def _flat(arguments) -> list:
+    return [entry for argument in arguments for entry in (argument if _vector(argument) else [argument])]
+
+
+def _vector_call(name, arguments):
+    if name in {"sum", "count", "len", "all", "any", "diff"}:
+        if len(arguments) != 1:
+            raise ExpressionError(f"{name}() takes one vector")
+        entries = _entries(arguments[0], f"{name}()")
+        if name == "sum":
+            return float(sum(float(entry) for entry in entries))
+        if name == "count":
+            return float(sum(1 for entry in entries if entry))
+        if name == "len":
+            return float(len(entries))
+        if name == "diff":
+            return [b - a for a, b in zip(entries, entries[1:])]
+        return all(bool(entry) for entry in entries) if name == "all" else any(bool(entry) for entry in entries)
+    if len(arguments) != 2:
+        raise ExpressionError("at() takes a vector and an index")
+    entries, index = _entries(arguments[0], "at()"), arguments[1]
+    if _vector(index) or isinstance(index, bool) or not isinstance(index, (int, float)) or index != int(index):
+        raise ExpressionError("at() takes a whole-number index")
+    if not 0 <= int(index) < len(entries):
+        raise ExpressionError(f"index {int(index)} is outside a vector of {len(entries)} entries")
+    return entries[int(index)]
+
+
 def evaluate(expression: str, values: dict, tables: dict | None = None):
-    """The value of an expression, given computed values by name and tables by name (lists of points)."""
+    """The value of an expression, given computed values by name and tables by name (lists of points).
+
+    A value that is a list is a vector (see the module's note); the result can be one too."""
     tables = tables or {}
     tree = parse(expression)
 
@@ -117,34 +180,46 @@ def evaluate(expression: str, values: dict, tables: dict | None = None):
         if isinstance(node, ast.Expression):
             return run(node.body)
         if isinstance(node, ast.Constant):
-            return float(node.value) if isinstance(node.value, int) and not isinstance(node.value, bool) else node.value
+            return _number(node.value)
         if isinstance(node, ast.Name):
             if node.id in values:
                 value = values[node.id]
                 if value is None:
                     raise ExpressionError(f"{node.id} has no value")
-                return float(value) if isinstance(value, int) and not isinstance(value, bool) else value
+                if isinstance(value, (list, tuple)):
+                    return [_number(entry) for entry in value]
+                return _number(value)
             if node.id in CONSTANTS:
                 return CONSTANTS[node.id]
             raise ExpressionError(f"unknown name {node.id}")
         if isinstance(node, ast.BinOp):
-            return _real(BINARY[type(node.op)](run(node.left), run(node.right)))
+            function = BINARY[type(node.op)]
+            return _pairwise(lambda a, b: _real(function(a, b)), run(node.left), run(node.right))
         if isinstance(node, ast.UnaryOp):
             operand = run(node.operand)
+            if _vector(operand):
+                if isinstance(node.op, ast.Not):
+                    raise ExpressionError("'not' takes one true/false; use all() or any() on a vector")
+                return [-entry if isinstance(node.op, ast.USub) else +entry for entry in operand]
             return not operand if isinstance(node.op, ast.Not) else (-operand if isinstance(node.op, ast.USub) else +operand)
         if isinstance(node, ast.BoolOp):
             results = [run(value) for value in node.values]
+            if any(_vector(result) for result in results):
+                raise ExpressionError("'and' and 'or' take one true/false each; use all() or any() on a vector")
             return all(results) if isinstance(node.op, ast.And) else any(results)
         if isinstance(node, ast.Compare):
-            left = run(node.left)
+            left, result = run(node.left), True
             for op, comparator in zip(node.ops, node.comparators):
                 right = run(comparator)
-                if not COMPARE[type(op)](left, right):
-                    return False
+                step = _pairwise(COMPARE[type(op)], left, right)
+                result = _pairwise(lambda a, b: bool(a and b), result, step) if _vector(step) or _vector(result) else result and step
                 left = right
-            return True
+            return result
         if isinstance(node, ast.IfExp):
-            return run(node.body) if run(node.test) else run(node.orelse)
+            test = run(node.test)
+            if _vector(test):
+                raise ExpressionError("a condition takes one true/false; use all() or any() on a vector")
+            return run(node.body) if test else run(node.orelse)
         if isinstance(node, ast.Call):
             if node.func.id == "table":
                 if len(node.args) != 2:
@@ -153,7 +228,20 @@ def evaluate(expression: str, values: dict, tables: dict | None = None):
                 if name not in tables:
                     raise ExpressionError(f"unknown table {name}")
                 return interpolate(tables[name], run(node.args[1]), name)
-            return _real(FUNCTIONS[node.func.id](*[run(argument) for argument in node.args]))
+            arguments = [run(argument) for argument in node.args]
+            if node.func.id in VECTOR:
+                return _vector_call(node.func.id, arguments)
+            function = FUNCTIONS[node.func.id]
+            if node.func.id in {"min", "max"} and any(_vector(argument) for argument in arguments):
+                entries = _flat(arguments)
+                if not entries:
+                    raise ExpressionError(f"{node.func.id}() of an empty vector")
+                return function(entries)
+            if len(arguments) == 1 and _vector(arguments[0]):
+                return [_real(function(entry)) for entry in arguments[0]]
+            if any(_vector(argument) for argument in arguments):
+                raise ExpressionError(f"{node.func.id}() takes numbers, not a vector")
+            return _real(function(*arguments))
         raise ExpressionError(f"'{type(node).__name__}' is not allowed in an expression")
 
     try:
@@ -162,6 +250,7 @@ def evaluate(expression: str, values: dict, tables: dict | None = None):
         raise
     except (TypeError, ValueError, ZeroDivisionError, OverflowError) as exc:
         raise ExpressionError(str(exc) or type(exc).__name__) from None
-    if isinstance(result, float) and not math.isfinite(result):
-        raise ExpressionError("the result is not finite")
+    for entry in result if _vector(result) else [result]:
+        if isinstance(entry, float) and not math.isfinite(entry):
+            raise ExpressionError("the result is not finite")
     return result

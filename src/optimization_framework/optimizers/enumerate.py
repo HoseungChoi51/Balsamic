@@ -16,8 +16,8 @@ MAX_CANDIDATES = 10**6
 def count(schema):
     if schema.representation == "binary":
         return 2 ** schema.dimensions
-    if schema.representation == "discrete":
-        return len(schema.values) ** schema.dimensions
+    if schema.representation == "discrete":   # each entry its own variable's values (N9), else the shared list
+        return math.prod(len(values) for values in schema.element_values())
     if schema.representation == "permutation":
         return math.factorial(schema.dimensions)
     return None
@@ -53,7 +53,7 @@ class Enumeration:
         if self._order is None:
             n = self.schema.dimensions
             order = (permutations(range(n)) if self.schema.representation == "permutation"
-                     else product((0, 1) if self.schema.representation == "binary" else self.schema.values, repeat=n))
+                     else product(*self.schema.element_values()))
             self._order = islice(order, self.index, None)
         return self._order
 

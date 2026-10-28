@@ -143,7 +143,7 @@ def validate_parameters(name, instance, parameters, training=None, inference_reg
     if set(parameters) - set(method["parameter_schema"]["properties"]):
         raise ValueError("Unsupported optimizer parameters: " + ", ".join(sorted(set(parameters) - set(method["parameter_schema"]["properties"]))))
     if "initial_design" in parameters:
-        if instance.candidate_schema.representation != "binary" or instance.candidate_schema.constraints:
+        if instance.candidate_schema.representation != "binary" or instance.candidate_schema.restricted:
             raise ValueError("This bundled implementation does not accept inline initial candidates for this domain; declare a supported input asset")
         instance.candidate_schema.canonicalize(parameters["initial_design"])
     if name == "dqn":
@@ -180,7 +180,7 @@ def capability_reason(name, instance, optimizer_plugins=None):
             return (f"{method['name']} requires binary candidates: the library declares no representations, so it is treated as "
                     "binary; declare REPRESENTATIONS")
         return f"{method['name']} requires {' or '.join(method['representations'])} candidates"
-    if instance.candidate_schema.constraints and not method["constraints"]:
+    if instance.candidate_schema.restricted and not method["constraints"]:
         return f"{method['name']} does not implement this problem's explicit feasibility constraints"
     return None
 
@@ -250,7 +250,7 @@ def create(name, instance, parameters, seed, schedule_steps, training=None, asse
         if name == "swap_search":
             from .swap_search import SwapSearch
             return SwapSearch(schema.dimensions, seed, config)
-        if name == "coordinate" or schema.representation != "binary" or schema.constraints:
+        if name == "coordinate" or schema.representation != "binary" or schema.restricted:
             return BoundedSearch(schema, config, seed, coordinate=name == "coordinate")
         from .binary import make_optimizer
         optimizer = make_optimizer(name, schema.dimensions, seed, schedule_steps, config, training)

@@ -414,6 +414,31 @@ ones, up to `max_candidates` (default 10⁶; a larger problem is refused with it
 candidate is one evaluation; on a white-box problem it enumerates through `problem.objective` and records only the
 optimum, with one evaluation. It finishes with the optimum as its bound and `proved_optimal`.
 
+### Design constraints and per-variable values
+
+A candidate schema may name its parts (roadmap N9): `variables` lists each variable's `name` and `size`, in order, and
+may give it its own permitted `values`. In a discrete schema those replace the shared `values` list, so a pacing factor
+of 0.5, 1 or 1.5 sits beside weights of 1 to 7. In a continuous schema they are a grid within the variable's bounds (a
+whole number of fins beside continuous widths), and `canonicalize` takes the nearest grid value, the rounding a declared
+evaluator used to do itself. `element_values()` gives each entry's list.
+
+`design` holds conditions on the variables by name, each an expression in the charter's expression language
+(`problem_charter/expressions.py`) with its vector functions (`sum`, `min`, `max`, `count`, `len`, `at`, `diff`, `all`,
+`any`) and the charter quantities it reads as `constants`. A candidate that breaks one is not feasible: `canonicalize`
+refuses it, so the worker records it as `invalid_candidate` without running the evaluator, as for a linear constraint.
+A method meets them in one of three ways:
+
+- the built-ins `random`, `coordinate` and `enumerate` resample or skip an infeasible candidate, and sample each variable
+  from its own values;
+- a function method's `problem` has `feasible(candidate)`, the framework's own check;
+- an `optimizer_v1` method rebuilds the check from its descriptor:
+  `CandidateSchema(**problem_descriptor["candidate_schema"]).feasible(candidate)`.
+
+A method that does not declare constraint support (`"constraints": true` in its `METHODS` entry or descriptor; false is
+the default for a library's methods) is refused
+on a problem with linear or design constraints (`CandidateSchema.restricted`). Both fields are left out of a schema's dump
+while empty, so a schema made before them keeps its digest.
+
 ### Failure policy
 
 | Situation | Behavior | Why |
