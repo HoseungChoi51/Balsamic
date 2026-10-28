@@ -50,6 +50,8 @@ def test_every_scenario_runs_and_is_graded_on_the_scripted_harness(tmp_path):
     assert s21["defined"] and s21["actions"] == {"message": 1, "adopt": 1, "answer_charter": 1, "confirm": 1}
     assert (s21["lead_turns"], s21["formulator_turns"], s21["formulator_model_calls"]) == (1, 2, 2)
     assert s20["formulator_model_calls"] == 0 and s20["words_to_charter_s"] is not None
+    # P4: the lead's charter is read against the researcher's words once (no difference); the reactor's draft never is: it fell back.
+    assert (s20["reading_calls"], s21["reading_calls"]) == (1, 0)
     assert "| S20-baking-order-in-words | 1/1 | 2 (message 1, confirm 1) | 2 | 1 | 0 |" in (tmp_path / "summary.md").read_text()
 
 
@@ -174,6 +176,33 @@ def test_the_define_step_stops_on_what_the_page_cannot_settle_and_says_what_it_w
                                          scale=evals.FAKE_TIME_SCALE, fakes={})
         assert result["timed_out"] and ctx.timeline[-1] == {"define": "timed out", "waiting_for": "the first idle moment", "actions": []}
         assert result["metrics"]["setup"]["defined"] is False and result["metrics"]["setup"]["words_to_charter_s"] is None
+
+
+def test_the_second_reading_catches_a_lead_that_changes_a_due_time_and_the_lead_fixes_it(tmp_path):
+    """P4 on the scripted harness: S20's words, and a lead whose first charter changes the fourth due time. The scripted second
+    reading finds it, the researcher sends it back to the lead, and the lead's next write is read again and confirmed."""
+    evals = runner()
+    fakes = evals.load_module(REPO / "evals" / "lead" / "fakes.py", "lead_eval_fakes")
+    scenarios = {s["id"]: s for s in evals.load_scenarios(REPO / "evals" / "lead" / "scenarios")}
+    late = fakes.charter_from("baking-order.json", source=fakes.SAID, due=[210, 130, 200, 150, 190, 100, 40, 120])
+    first, fixed = fakes.quick_charter(late), fakes.quick_charter(fakes.charter_from("baking-order.json", source=fakes.SAID))
+
+    def play(turn):   # the lead fixes its charter once the researcher sends the difference back
+        return fixed(turn) if "differs from their words" in turn.text else first(turn)
+    scenario = {**scenarios["S20-baking-order-in-words"], "id": "S94-late-due-time"}
+    with evals.Stack(tmp_path / "stack", fake=True, source=REPO, profile=None, secrets_file=None, log=print) as stack:
+        result, ctx = evals.run_scenario(stack, scenario, 1, model=None, scale=evals.FAKE_TIME_SCALE, fakes={"S94-late-due-time": play})
+        readings = sorted(ctx.store.list("charter_reading", ctx.campaign_id), key=lambda row: row["revision"])
+        caught = readings[0]["mismatches"]
+        assert [(row["id"], row["quote"], row["path"], row["kind"], row["verbatim"]) for row in caught] == [
+            ("m1", "210, 130, 200, 110, 190, 100, 40, 120", "quantities.due.value", "different", True)]
+        assert caught[0]["explanation"] == "The researcher gave 210, 130, 200, 110, 190, 100, 40, 120; the charter's due is 210, 130, 200, 150, 190, 100, 40, 120."
+        assert len(readings) == 2 and readings[1]["mismatches"] == []
+        assert [action["kind"] for action in ctx.actions] == ["message", "settle", "confirm"]
+        checks = {check["name"]: check["passed"] for check in result["checks"]}
+        # The confirmed charter holds the researcher's due times; it took one action more than S20's two.
+        assert checks["definition_ready"] and checks["charter_matches"] and checks["quick_path"] and not checks["setup_actions_at_most"]
+        assert (result["metrics"]["setup"]["reading_calls"], result["metrics"]["setup"]["lead_turns"]) == (2, 2)
 
 
 def test_the_set_up_checks_read_the_confirmed_charter(tmp_path):

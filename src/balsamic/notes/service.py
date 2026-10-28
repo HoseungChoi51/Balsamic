@@ -11,7 +11,9 @@ problem itself (charter_write); the note is then read from the charter, with the
 adopted; the researcher confirms the charter in one command (problem_note.confirm), which accepts its assumptions and installs
 its tasks. A note's path is None until the lead or the researcher writes it, then quick or full. Code criteria decide whether
 the quick path holds (decision 31, roadmap P3); when one fails, or the researcher asks for the full path, the note goes to the
-full path written from the lead's charter, and at Adopt the formulator takes that charter as its own.
+full path written from the lead's charter, and at Adopt the formulator takes that charter as its own. Each revision the lead writes
+without a blocking finding of its own is read against the researcher's own words by one call (decision 30, roadmap P4,
+balsamic.notes.reading); the researcher settles each difference it finds before confirming.
 """
 import os
 from typing import Literal
@@ -21,6 +23,7 @@ from pydantic import Field
 from optimization_framework.contracts.base import Contract, content_hash
 from optimization_framework.storage.sqlite import now
 
+from balsamic.notes import reading as readings
 from balsamic.notes.router import classify
 
 SECTIONS = ("objective", "knobs", "observables", "noise", "constraints", "confounders", "open_questions")
@@ -507,6 +510,7 @@ def criteria(workspace, campaign_id, record, *, asked=0, rounds=0):
         f"it asks {asked} questions (the quick path asks at most {QUICK_QUESTIONS}, in one round)" if asked > QUICK_QUESTIONS else
         "it asks a second round of questions (the quick path asks one)" if rounds > QUICK_ROUNDS else
         f"{rounds} round{'s' if rounds != 1 else ''} of questions")
+    rows.append(readings.row(None))   # the second reading (P4) runs after the write, outside the lock; write_charter() replaces this row
     return rows
 
 
@@ -515,9 +519,11 @@ def write_charter(workspace, campaign_id, charter, *, confounders=None, question
     path, a later one revises it. Values the researcher set, answers and waivers are kept. A question is asked with the
     write; a question the researcher has not answered stays when a later write leaves it out. Each write is assessed against
     the criteria of the quick path (criteria()); when one fails, the write is kept and the quick path ends (hand_over()):
-    more than QUICK_QUESTIONS questions or a second round are kept in the charter for the full path to ask. Refused once the
-    note is adopted (the formulator writes its charter), once the quick path ended, and once the charter has been confirmed
-    (a change is then the researcher's, on the Charter tab). All or nothing: a refusal saves nothing."""
+    more than QUICK_QUESTIONS questions or a second round are kept in the charter for the full path to ask. A revision with no
+    blocking finding of the lead's is then read against the researcher's words (balsamic.notes.reading, P4), after the lock is
+    released; a reading that cannot run ends the quick path too. Refused once the note is adopted (the formulator writes its
+    charter), once the quick path ended, and once the charter has been confirmed (a change is then the researcher's, on the
+    Charter tab). All or nothing: a refusal saves nothing."""
     from optimization_framework.contracts.problem_charter import ProblemCharter
     from optimization_framework.problem_charter import charter as mechanics
     from optimization_framework.problem_charter.service import QUICK_QUESTIONS, QUICK_ROUNDS, question_rounds
@@ -564,7 +570,9 @@ def write_charter(workspace, campaign_id, charter, *, confounders=None, question
         rows = criteria(workspace, campaign_id, record, asked=len(asked), rounds=rounds)
         failed = [row for row in rows if row["holds"] is False]
         note = workspace.store.get(note["id"], "problem_note")
-        note.update(path="quick", charter_id=record["id"], updated_at=now(), quick={"holds": not failed, "criteria": rows, "revision": record["revision"]})
+        settled = (note.get("quick") or {}).get("settled")   # the researcher's word that the charter is right, carried to later readings
+        note.update(path="quick", charter_id=record["id"], updated_at=now(), quick={"holds": not failed, "criteria": rows, "revision": record["revision"],
+                                                                                    **({"settled": settled} if settled else {})})
         if isinstance(confounders, dict):
             note["confounders"] = _section(confounders.get("text") or "", confounders.get("items") or [])
         workspace.store.put("problem_note", note, "problem_note.quick")
@@ -572,11 +580,27 @@ def write_charter(workspace, campaign_id, charter, *, confounders=None, question
         if failed:
             note = hand_over(workspace, note, record, ended, by="lead", failed=[row["id"] for row in failed])
     described = mechanics.describe(record["charter"], charters.registry)
+    read = None
+    if not failed and not [row for row in mechanics.blocking(described["findings"]) if row["code"] not in THEIRS]:
+        # The second reading (P4): this revision against the researcher's words, one call made outside the lock.
+        read = readings.read(workspace, campaign_id, record, run_id=run_id)
+        rows = [readings.row(read) if row["id"] == "reading" else row for row in rows]
+        if read["status"] == "completed":
+            note = readings.attach(workspace, note["id"], record, read, rows) or note
+        else:   # no quick charter is confirmed without its second reading: the quick path ends
+            failed = [row for row in rows if row["holds"] is False]
+            ended = "; ".join(row["detail"] for row in failed)
+            with workspace.lock, workspace.store.transaction():
+                current = workspace.store.get(note["id"], "problem_note")
+                if current.get("path") == "quick" and current.get("charter_id") == record["id"] and (current.get("quick") or {}).get("revision") == record["revision"]:
+                    current["quick"] = {**current["quick"], "criteria": rows, "reading": readings.summary(read)}
+                    workspace.store.put("problem_note", current)
+                    note = hand_over(workspace, current, record, ended, by="lead", failed=[row["id"] for row in failed])
     return {"charter_id": record["id"], "revision": record["revision"], "note_id": note["id"], "blocking": described["blocking"],
             "values": described["values"], "errors": described["errors"], "rendered": described["rendered"],
             "findings": [row for row in described["findings"] if not row.get("waived")], "questions_asked": 0 if over else len(asked),
             "saves": lead_saves(record), "quick_path": {"holds": not failed, "criteria": rows, **({"ended": ended} if failed else {})},
-            "link": "#note" if failed else "#note/charter"}
+            "reading": readings.summary(read) if read else None, "link": "#note" if failed else "#note/charter"}
 
 
 def hand_over(workspace, note, record, reason, *, by, failed=()):
@@ -608,10 +632,12 @@ def full_path(workspace, note):
     return {"note_id": note["id"], "path": "full", "revision": note["current_revision"], "charter_id": record["id"], "link": "#note"}
 
 
-def confirm(workspace, note, charter_id, revision, *, campaign_id):
+def confirm(workspace, note, charter_id, revision, *, campaign_id, right=()):
     """The researcher's one action on the quick path (decision 32): it accepts the assumptions of the revision they read,
-    confirms that revision and installs its tasks. Refused on a stale revision, on a blocking question still open and on any
-    other blocking finding: those are settled on the Charter tab first."""
+    confirms that revision and installs its tasks. Refused on a stale revision, on a blocking question still open, on any
+    other blocking finding (those are settled on the Charter tab first), and until the second reading of the lead's last write
+    has run and each difference it found is settled (P4). right: differences the researcher settles as the charter being right
+    in this same action."""
     from optimization_framework.contracts.requests import CampaignUpdate, CharterReference
     from optimization_framework.problem_charter import charter as mechanics
     charters = workspace.charters
@@ -635,6 +661,7 @@ def confirm(workspace, note, charter_id, revision, *, campaign_id):
         settled = [row for row in rows if row["code"] != "assumption.unaccepted"]
         if settled:
             raise ValueError("Settle these on the Charter tab (#note/charter) before confirming: " + "; ".join(row["message"] for row in settled)[:1500])
+        note = readings.check(workspace, note, right=right)
         if rows:
             accepted = [row["key"].split(":", 1)[1] for row in rows]
             record = charters.accept_assumptions(charter_id, expected_revision=revision)
@@ -693,6 +720,16 @@ class ConfirmInput(Contract):
     note_id: str
     charter_id: str = Field(min_length=1, max_length=200)
     revision: int = Field(ge=1, description="The charter revision the researcher read")
+    right: list[str] = Field(default_factory=list, max_length=readings.MISMATCHES,
+                             description="Differences the second reading found (m1, ...) that you settle, in confirming, as the charter being right")
+
+
+class SettleInput(Contract):
+    note_id: str
+    revision: int = Field(ge=1, description="The charter revision the second reading read")
+    mismatches: dict[str, Literal["right", "ask_lead"]] = Field(
+        description="Each difference you settle (m1, ...): right, the charter is right; ask_lead, the lead fixes the charter")
+    text: str = Field(default="", max_length=2000, description="Your words to the lead with what to fix (ask_lead)")
 
 
 class FullPathInput(Contract):
@@ -729,7 +766,18 @@ def register(workspace):
             raise ValueError("Only the researcher confirms the charter")
         values = ConfirmInput(**command.payload)
         note = _own(command, values.note_id)
-        return confirm(workspace, note, values.charter_id, values.revision, campaign_id=command.campaign_id)
+        return confirm(workspace, note, values.charter_id, values.revision, campaign_id=command.campaign_id, right=values.right)
+
+    def settle_command(command, actor):
+        if actor != "researcher":
+            raise ValueError("Only the researcher settles what the second reading found")
+        values = SettleInput(**command.payload)
+        if not values.mismatches:
+            raise ValueError("Name each difference you settle, and how")
+        note, run = readings.settle(workspace, _own(command, values.note_id), values.revision, values.mismatches, text=values.text)
+        return {"note_id": note["id"], "revision": values.revision, "settled": values.mismatches,
+                "left": [row["id"] for row in note["quick"]["reading"]["mismatches"] if not row.get("settled")],
+                "run_id": run["id"] if run else None, "link": "#note/charter"}
 
     def full_path_command(command, actor):
         if actor != "researcher":
@@ -794,6 +842,7 @@ def register(workspace):
     commands.register("problem_note.adopt", adopt_command, model=AdoptInput)
     commands.register("problem_note.confirm", confirm_command, model=ConfirmInput)
     commands.register("problem_note.full_path", full_path_command, model=FullPathInput)
+    commands.register("problem_note.settle", settle_command, model=SettleInput)
     # The quick path's charter is the lead's: the researcher's answers and requests on it start a turn of the lead.
     workspace.charter_lead = lambda record, text: tell_lead(workspace, record, text)
     commands.register("note.ask", ask_command, model=AskInput)

@@ -237,7 +237,8 @@ class Stack:
 
         def answer(call_id, body):
             from optimization_framework.agents.calls import ONE_SHOT_ROLES
-            if body.get("label") not in ONE_SHOT_ROLES:
+            from balsamic.notes.reading import ROLE as READER
+            if body.get("label") not in ONE_SHOT_ROLES | {READER}:
                 return None
             reply = (self.fake_play or default_fake)(Call(body))
             return reply if isinstance(reply, str) else json.dumps(reply)
@@ -508,8 +509,10 @@ def setup_busy(ctx):
 def setup_charter_step(ctx, note, reply):
     """On the charter, what "Confirm and set the tasks" needs first, as the page asks it: the open questions answered (with
     their recommended option), the assumptions accepted; then the confirmation, which installs the tasks. On the quick path
-    (P2) the confirmation accepts the assumptions itself: one command, problem_note.confirm. A blocking finding the page does
-    not settle stops the step."""
+    (P2) the confirmation accepts the assumptions itself: one command, problem_note.confirm; a difference the second reading
+    found (P4) is first sent back to the lead to fix, once (problem_note.settle, ask_lead), since only the researcher can say
+    the charter is right. A blocking finding the page does not settle stops the step, as does a difference left after the lead
+    was asked."""
     from balsamic.evolution.stages import _charter_of
     record = _charter_of(ctx.store, note)
     if record is None:
@@ -532,6 +535,16 @@ def setup_charter_step(ctx, note, reply):
         unsettled = [row for row in blocking if row["code"] != "assumption.unaccepted"] + left
         if unsettled:
             raise RuntimeError("Blocking findings the page does not settle: " + "; ".join(row["message"] for row in unsettled)[:1500])
+        reading = (note.get("quick") or {}).get("reading") or {}
+        found = [row for row in reading.get("mismatches") or [] if not row.get("settled")]
+        if found:
+            if any(action["kind"] == "settle" for action in ctx.actions):
+                raise RuntimeError("Differences the second reading found that the lead did not fix: " + "; ".join(
+                    f"{row['path']}: {row['explanation']}" for row in found)[:1500])
+            ctx.stack.command(ctx.campaign_id, "problem_note.settle", {"note_id": note["id"], "revision": reading["revision"],
+                              "mismatches": {row["id"]: "ask_lead" for row in found}}, origin={"thread_id": ctx.thread_id})
+            ctx.act("settle")
+            return ["settle"]
         ctx.stack.command(ctx.campaign_id, "problem_note.confirm", {"note_id": note["id"], "charter_id": record["id"], "revision": view["revision"]})
         ctx.act("confirm")
         return ["confirm"]
@@ -1096,7 +1109,8 @@ def page_agents(ctx):
 def setup_metrics(ctx):
     """Track P's measure of the set-up, for a scenario with a define step: the researcher's actions by kind and their rounds
     (returns to the campaign), from their first message until the gate opened; lead turns; the formulators' turns, model calls
-    and cost, from their imports (not in llm_usage); and the seconds from the first message to the gate opening."""
+    and cost, from their imports (not in llm_usage); the second readings' calls on the quick path (P4; in llm_usage, so among
+    the agents' model calls too); and the seconds from the first message to the gate opening."""
     if ctx.setup is None:
         return None
     end = ctx.setup["defined_s"]
@@ -1111,6 +1125,7 @@ def setup_metrics(ctx):
             "lead_turns": len(ctx.lead_runs()), "formulator_turns": sum(len(row.get("runs") or []) for row in imports),
             "formulator_model_calls": sum(item.get("calls", 0) for item in usage),
             "formulator_cost_usd": round(sum(item.get("cost_usd", 0.0) for item in usage), 6),
+            "reading_calls": sum((row.get("usage") or {}).get("calls", 0) for row in ctx.store.list("charter_reading", ctx.campaign_id)),
             "words_to_charter_s": round(end - first, 1) if end is not None and first is not None else None}
 
 
@@ -1268,7 +1283,8 @@ def summarize(scenario, repeats):
     if setups:   # track P's measure of the set-up, the mean over repeats; words_to_charter_s over the runs that got there
         mean["setup"] = {"defined": f"{sum(row['defined'] for row in setups)}/{len(setups)}",
                          **{key: round(statistics.fmean(row[key] for row in setups), 4) for key in
-                            ("researcher_actions", "rounds", "lead_turns", "formulator_turns", "formulator_model_calls", "formulator_cost_usd")},
+                            ("researcher_actions", "rounds", "lead_turns", "formulator_turns", "formulator_model_calls", "formulator_cost_usd",
+                             "reading_calls")},
                          "actions": {kind: round(statistics.fmean((row["actions"] or {}).get(kind, 0) for row in setups), 2)
                                      for kind in dict.fromkeys(kind for row in setups for kind in row["actions"] or {})}}
         timed_setup = [row["words_to_charter_s"] for row in setups if row["words_to_charter_s"] is not None]

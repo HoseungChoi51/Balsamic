@@ -8,7 +8,8 @@ revision it read in an earlier turn), so the fake run shows whether the platform
 it did: S4 failed there; the revision is pinned on the server since).
 
 The set-up scenarios (track P) also play the formulator, a role of its own (turn.role "formulator"): its tools are the
-formulator's (file_read, charter_submit, question_ask), it has no yield_work, and its turn's reply is the script's return."""
+formulator's (file_read, charter_submit, question_ask), it has no yield_work, and its turn's reply is the script's return. On the
+quick path they answer the second reading too (P4), a one-shot call (turn.role "charter_reader", turn.input its words and charter)."""
 import json
 from pathlib import Path
 import re
@@ -353,10 +354,36 @@ def set_up_from_words(note, charter, *, ask=None):
     return play
 
 
+READER = "charter_reader"   # the second reading's one-shot call (balsamic.notes.reading.ROLE)
+NUMBERS = re.compile(r"-?\d+(?:\.\d+)?(?:\s*,\s*-?\d+(?:\.\d+)?){2,}")
+
+
+def reads_numbers(call):
+    """The second reading on the scripted harness (P4): each list of three or more numbers in the researcher's words against the
+    charter's lists of the same length; a list the charter holds otherwise is a difference, at the quantity closest to it. A model
+    reads the whole problem; this catches a changed number."""
+    words = (call.input.get("words") or {}).get("conversation") or ""
+    lists = {name: quantity["value"] for name, quantity in ((call.input.get("charter") or {}).get("quantities") or {}).items()
+             if isinstance(quantity.get("value"), list) and all(isinstance(item, (int, float)) for item in quantity["value"])}
+    found = []
+    for match in NUMBERS.finditer(words):
+        said = [float(number) for number in re.split(r"\s*,\s*", match.group(0))]
+        same = {name: [float(item) for item in value] for name, value in lists.items() if len(value) == len(said)}
+        if not same or said in same.values():
+            continue
+        name = max(same, key=lambda key: sum(a == b for a, b in zip(same[key], said)))
+        found.append({"quote": match.group(0), "path": f"quantities.{name}.value", "kind": "different",
+                      "explanation": f"The researcher gave {match.group(0)}; the charter's {name} is {', '.join(f'{item:g}' for item in same[name])}."})
+    return {"mismatches": found}
+
+
 def quick_charter(charter, *, confounders="None: the objective is computed exactly from the given data."):
     """The quick path (P2): the lead writes the charter itself from the researcher's message, in one turn, and replies with what
-    it states, its assumptions and the link to confirm it; the note is read from the charter."""
+    it states, its assumptions and the link to confirm it; the note is read from the charter. The second reading (P4) reads the
+    numbers back (reads_numbers)."""
     def play(turn):
+        if turn.one_shot and turn.role == READER:
+            return reads_numbers(turn)
         if turn.role != "lead" or turn.notice:
             return unrelated_notice(turn)
         written = turn.call("charter_write", charter=charter, confounders={"text": confounders}, reason="From the researcher's message")
@@ -377,6 +404,8 @@ def falls_back(draft, charter, *, ask=None):
     formulator = set_up_from_words(None, charter, ask=ask)
 
     def play(turn):
+        if turn.one_shot and turn.role == READER:
+            return reads_numbers(turn)
         if turn.role == "formulator":
             return formulator(turn)
         if turn.role != "lead" or turn.notice:

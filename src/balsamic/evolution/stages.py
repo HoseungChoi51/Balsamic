@@ -59,7 +59,9 @@ def definition(workspace, campaign):
     a confirmed charter, no note) is defined by its charter. Returns {ready, step, missing} where step is the next_step
     dict (None when ready) and missing lists the titles of the unwritten sections. A step names the note's path once one is
     taken (quick or full), and says when the quick path is still open (quick_open: no tasks, nothing adopted, no path taken) or why
-    it ended (quick_ended: a criterion failed, or the researcher chose the full path; roadmap P3)."""
+    it ended (quick_ended: a criterion failed, or the researcher chose the full path; roadmap P3). The quick path's confirm step
+    names the charter paths of the second reading's differences still to settle (differences) and those the lead was asked to fix
+    (asked; roadmap P4)."""
     from balsamic.notes.service import SECTIONS, TITLES, revision_of
     from balsamic.notes import skips
     store = workspace.store
@@ -78,9 +80,17 @@ def definition(workspace, campaign):
     if note.get("path") == "quick":
         charter = store.get(note["charter_id"]) if _exists(store, note.get("charter_id")) else None
         if charter is None or charter.get("status") != "confirmed":
+            # What the second reading of the researcher's words found (P4): differences to settle, and those the lead was asked to fix.
+            found = ((note.get("quick") or {}).get("reading") or {}).get("mismatches") or []
+            left = [row["path"] for row in found if not row.get("settled")]
+            asked = [row["path"] for row in found if (row.get("settled") or {}).get("how") == "ask_lead"]
             return {"ready": False, "missing": [], "step": {**base, "kind": "confirm", "title": "Confirm the charter", "page": "#note/charter",
+                    **({"differences": left} if left else {}), **({"asked": asked} if asked else {}),
                     "text": "The lead wrote the charter from your words (the quick path), and the note is read from it. Review it on the Charter "
-                            "page and confirm it: confirming accepts the assumptions it lists and installs its tasks."}}
+                            "page and confirm it: confirming accepts the assumptions it lists and installs its tasks."
+                            + (f" A second reading found {len(left)} difference{'s' if len(left) != 1 else ''} between your words and the charter: "
+                               "settle each first (the charter is right, or the lead fixes it)." if left else "")
+                            + (" The lead is fixing what you asked; confirm the revision it writes next." if asked else "")}}
         if not tasks:
             return {"ready": False, "missing": [], "step": {**base, "kind": "tasks", "title": "Finish the charter hand-over", "page": "#note/charter",
                     "text": "The charter is confirmed but its tasks are not installed yet; open the Charter page to finish."}}
