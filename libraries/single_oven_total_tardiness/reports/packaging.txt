@@ -1,0 +1,12 @@
+Processing ./libraries/single_oven_total_tardiness
+  Preparing metadata (pyproject.toml): started
+  Preparing metadata (pyproject.toml): finished with status 'done'
+Building wheels for collected packages: single-oven-total-tardiness
+  Building wheel for single-oven-total-tardiness (pyproject.toml): started
+  Building wheel for single-oven-total-tardiness (pyproject.toml): finished with status 'done'
+  Created wheel for single-oven-total-tardiness: filename=single_oven_total_tardiness-0.2.1-py3-none-any.whl size=17019 sha256=83016e21813a72b901dc409de768c6275f4f78ef3c28d942dfafa5b06af69b34
+  Stored in directory: /tmp/pip-ephem-wheel-cache-d7ppimap/wheels/8a/64/fd/e84e64b933a52cfcf5225c5e73ec1153e097e70b153d5ed05d
+Successfully built single-oven-total-tardiness
+
+[notice] A new release of pip is available: 25.0.1 -> 26.2.2
+[notice] To update, run: pip install --upgrade pip

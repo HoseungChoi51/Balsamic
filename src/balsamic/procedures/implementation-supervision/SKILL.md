@@ -17,6 +17,13 @@ Asked to implement methods and compare them, propose one Screen mandate (`mandat
 task_id, hypothesis_id, seeds, wall_seconds, max_evaluations, device). That one go-ahead covers all of it: building,
 installing, binding and running. Do not ask again at each step, and never ask the researcher to run commands.
 
+0. First read `lab_packages`: the lab's code from every campaign, each package with the campaigns it came from and why it
+   concerns this one. A package that does is reused, not rebuilt, and needs no id from the researcher: bind a method that runs
+   on a task (`implementation.bind_builtin`), adopt a problem it provides (`campaign.adopt_problem` with its
+   `library_version_id`), or let the workspace build on it (a workspace on a problem whose library is installed starts from
+   its latest version). The shared library repository's building blocks (functions with their signatures) are what a new
+   library is written around: name the ones the method needs in the ticket. Every coding box has them installed (TASK.md lists
+   them); the library imports them and names them in its dependencies, never copies them.
 1. Open a coding workspace with `implementation_workspace_create` on its work ticket: the objective, the hypothesis and the
    evidence ids. Proposals built together share one library: name the others in `hypothesis_ids`. Balsamic writes the
    ticket into the workspace (`TASK.md`, and the house rules in `AGENTS.md`): the proposals with their METHODS keys, the
@@ -24,7 +31,8 @@ installing, binding and running. Do not ask again at each step, and never ask th
    tests the work must pass beyond the generated ones (`acceptance_tests`: a pytest file's path, with its content when it is
    new; a campaign without a charter needs at least one, such as the library's `tests/test_contract.py`), and
    `protected_tests` that run outside the box and that the coding agent never sees. State in them what the specification
-   requires; a ticket that names records the coding agent cannot read is refused (give them as evidence instead).
+   requires, as behaviour (an optimum, an objective value) rather than this campaign's variable names: every later version of
+   the library runs them, for every campaign that builds on it; a ticket that names records the coding agent cannot read is refused (give them as evidence instead).
 2. The coding agent's questions come to you as notices: answer with `implementation_workspace_message` and the question_id.
    Settle what the specification means from the hypothesis or with the researcher; do not turn open points into acceptance
    gates. Its progress shows on the Implementations page: do not relay it.

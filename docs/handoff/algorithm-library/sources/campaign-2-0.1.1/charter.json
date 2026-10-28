@@ -1,0 +1,770 @@
+{
+  "charter_id": "problem_charter_70bb0abe06ee4b63",
+  "revision": 1,
+  "content_hash": "165b78b312fb6adc215fc22d40f1ecfdc7104a7350fc3d540611b7779c3d7aa6",
+  "charter": {
+    "schema_version": 1,
+    "title": "단일 오븐 주문 순서의 총 고객 대기 시간 최소화",
+    "summary": "오전 {start_hour}시 {start_minute}분부터 단일 오븐에서 주문 {n_orders}개를 연속으로 굽는 순서를 선택한다. 주문별 양의 지연시간을 동일 가중치로 합산한 총 고객 대기 시간을 최소화한다.",
+    "text": "결정변수는 주문 {n_orders}개를 누락·중복 없이 포함하는 굽기 순열이다. 각 주문의 굽는 시간과 픽업 시각은 고정되어 있으며, 첫 주문은 같은 날 오전 {start_hour}시 {start_minute}분에 시작한다. 한 주문의 굽기를 중단하거나 나누지 않고, 완료 즉시 다음 주문을 시작한다.\n\n계산에는 시작 시각으로부터 경과한 분을 사용한다. 각 주문의 완료 시각은 순열에서 그 주문까지의 굽는 시간을 누적한 값이다. 고객 대기 시간은 완료 시각에서 픽업 시각을 뺀 값의 양의 부분이며, 일찍 완료된 주문으로 늦은 주문의 지연을 상쇄하지 않는다. 총 고객 대기 시간을 최소화하며 동점인 순서는 모두 허용한다.\n\n픽업 시각은 강제 마감이 아니다. 예열·교체·냉각·포장 시간과 추가 작업자 제약은 모델에 포함하지 않으며, 굽기 완료를 픽업 준비 완료로 취급한다. 입력은 결정론적이다. 결과에는 주문별 시작·완료·픽업 시각과 대기 시간, 지연 주문 수와 최대 대기 시간을 기록한다. 기준 순서와의 비교도 같은 계산식으로 수행하되, 이 문제 정식화 단계에서는 기준값이나 최적값을 계산하지 않는다.",
+    "quantities": {
+      "n_orders": {
+        "description": "주문 수",
+        "kind": "integer",
+        "role": "input",
+        "value": 8,
+        "expression": null,
+        "units": "1",
+        "range": [
+          1.0,
+          null
+        ],
+        "origin": "source",
+        "citation": 1,
+        "accepted": false,
+        "note": ""
+      },
+      "start_hour": {
+        "description": "같은 날 굽기 시작 시각의 시",
+        "kind": "integer",
+        "role": "input",
+        "value": 6,
+        "expression": null,
+        "units": "h",
+        "range": [
+          0.0,
+          23.0
+        ],
+        "origin": "source",
+        "citation": 1,
+        "accepted": false,
+        "note": ""
+      },
+      "start_minute": {
+        "description": "굽기 시작 시각의 분 부분",
+        "kind": "integer",
+        "role": "input",
+        "value": 0,
+        "expression": null,
+        "units": "min",
+        "range": [
+          0.0,
+          59.0
+        ],
+        "origin": "source",
+        "citation": 1,
+        "accepted": false,
+        "note": ""
+      },
+      "start_clock_min": {
+        "description": "자정부터 굽기 시작까지 경과한 분",
+        "kind": "number",
+        "role": "derived",
+        "value": null,
+        "expression": "start_hour * 60 + start_minute",
+        "units": "min",
+        "range": null,
+        "origin": "computed",
+        "citation": 4,
+        "accepted": false,
+        "note": "시계 시각을 분으로 변환한다."
+      },
+      "bread_duration": {
+        "description": "식빵 굽는 시간",
+        "kind": "number",
+        "role": "input",
+        "value": 40,
+        "expression": null,
+        "units": "min",
+        "range": [
+          0.0,
+          null
+        ],
+        "origin": "source",
+        "citation": 2,
+        "accepted": false,
+        "note": ""
+      },
+      "bread_pickup_hour": {
+        "description": "식빵 픽업 시각의 시",
+        "kind": "integer",
+        "role": "input",
+        "value": 9,
+        "expression": null,
+        "units": "h",
+        "range": [
+          0.0,
+          23.0
+        ],
+        "origin": "source",
+        "citation": 2,
+        "accepted": false,
+        "note": ""
+      },
+      "bread_pickup_minute": {
+        "description": "식빵 픽업 시각의 분 부분",
+        "kind": "integer",
+        "role": "input",
+        "value": 5,
+        "expression": null,
+        "units": "min",
+        "range": [
+          0.0,
+          59.0
+        ],
+        "origin": "source",
+        "citation": 2,
+        "accepted": false,
+        "note": ""
+      },
+      "bread_due": {
+        "description": "시작 기준 식빵 픽업 시각",
+        "kind": "number",
+        "role": "derived",
+        "value": null,
+        "expression": "bread_pickup_hour * 60 + bread_pickup_minute - start_clock_min",
+        "units": "min",
+        "range": null,
+        "origin": "computed",
+        "citation": 4,
+        "accepted": false,
+        "note": ""
+      },
+      "baguette_duration": {
+        "description": "바게트 굽는 시간",
+        "kind": "number",
+        "role": "input",
+        "value": 30,
+        "expression": null,
+        "units": "min",
+        "range": [
+          0.0,
+          null
+        ],
+        "origin": "source",
+        "citation": 2,
+        "accepted": false,
+        "note": ""
+      },
+      "baguette_pickup_hour": {
+        "description": "바게트 픽업 시각의 시",
+        "kind": "integer",
+        "role": "input",
+        "value": 9,
+        "expression": null,
+        "units": "h",
+        "range": [
+          0.0,
+          23.0
+        ],
+        "origin": "source",
+        "citation": 2,
+        "accepted": false,
+        "note": ""
+      },
+      "baguette_pickup_minute": {
+        "description": "바게트 픽업 시각의 분 부분",
+        "kind": "integer",
+        "role": "input",
+        "value": 50,
+        "expression": null,
+        "units": "min",
+        "range": [
+          0.0,
+          59.0
+        ],
+        "origin": "source",
+        "citation": 2,
+        "accepted": false,
+        "note": ""
+      },
+      "baguette_due": {
+        "description": "시작 기준 바게트 픽업 시각",
+        "kind": "number",
+        "role": "derived",
+        "value": null,
+        "expression": "baguette_pickup_hour * 60 + baguette_pickup_minute - start_clock_min",
+        "units": "min",
+        "range": null,
+        "origin": "computed",
+        "citation": 4,
+        "accepted": false,
+        "note": ""
+      },
+      "croissant_duration": {
+        "description": "크루아상 굽는 시간",
+        "kind": "number",
+        "role": "input",
+        "value": 25,
+        "expression": null,
+        "units": "min",
+        "range": [
+          0.0,
+          null
+        ],
+        "origin": "source",
+        "citation": 2,
+        "accepted": false,
+        "note": ""
+      },
+      "croissant_pickup_hour": {
+        "description": "크루아상 픽업 시각의 시",
+        "kind": "integer",
+        "role": "input",
+        "value": 8,
+        "expression": null,
+        "units": "h",
+        "range": [
+          0.0,
+          23.0
+        ],
+        "origin": "source",
+        "citation": 2,
+        "accepted": false,
+        "note": ""
+      },
+      "croissant_pickup_minute": {
+        "description": "크루아상 픽업 시각의 분 부분",
+        "kind": "integer",
+        "role": "input",
+        "value": 30,
+        "expression": null,
+        "units": "min",
+        "range": [
+          0.0,
+          59.0
+        ],
+        "origin": "source",
+        "citation": 2,
+        "accepted": false,
+        "note": ""
+      },
+      "croissant_due": {
+        "description": "시작 기준 크루아상 픽업 시각",
+        "kind": "number",
+        "role": "derived",
+        "value": null,
+        "expression": "croissant_pickup_hour * 60 + croissant_pickup_minute - start_clock_min",
+        "units": "min",
+        "range": null,
+        "origin": "computed",
+        "citation": 4,
+        "accepted": false,
+        "note": ""
+      },
+      "cake_duration": {
+        "description": "케이크 굽는 시간",
+        "kind": "number",
+        "role": "input",
+        "value": 60,
+        "expression": null,
+        "units": "min",
+        "range": [
+          0.0,
+          null
+        ],
+        "origin": "source",
+        "citation": 2,
+        "accepted": false,
+        "note": ""
+      },
+      "cake_pickup_hour": {
+        "description": "케이크 픽업 시각의 시",
+        "kind": "integer",
+        "role": "input",
+        "value": 8,
+        "expression": null,
+        "units": "h",
+        "range": [
+          0.0,
+          23.0
+        ],
+        "origin": "source",
+        "citation": 2,
+        "accepted": false,
+        "note": ""
+      },
+      "cake_pickup_minute": {
+        "description": "케이크 픽업 시각의 분 부분",
+        "kind": "integer",
+        "role": "input",
+        "value": 55,
+        "expression": null,
+        "units": "min",
+        "range": [
+          0.0,
+          59.0
+        ],
+        "origin": "source",
+        "citation": 2,
+        "accepted": false,
+        "note": ""
+      },
+      "cake_due": {
+        "description": "시작 기준 케이크 픽업 시각",
+        "kind": "number",
+        "role": "derived",
+        "value": null,
+        "expression": "cake_pickup_hour * 60 + cake_pickup_minute - start_clock_min",
+        "units": "min",
+        "range": null,
+        "origin": "computed",
+        "citation": 4,
+        "accepted": false,
+        "note": ""
+      },
+      "muffin_duration": {
+        "description": "머핀 굽는 시간",
+        "kind": "number",
+        "role": "input",
+        "value": 20,
+        "expression": null,
+        "units": "min",
+        "range": [
+          0.0,
+          null
+        ],
+        "origin": "source",
+        "citation": 2,
+        "accepted": false,
+        "note": ""
+      },
+      "muffin_pickup_hour": {
+        "description": "머핀 픽업 시각의 시",
+        "kind": "integer",
+        "role": "input",
+        "value": 10,
+        "expression": null,
+        "units": "h",
+        "range": [
+          0.0,
+          23.0
+        ],
+        "origin": "source",
+        "citation": 2,
+        "accepted": false,
+        "note": ""
+      },
+      "muffin_pickup_minute": {
+        "description": "머핀 픽업 시각의 분 부분",
+        "kind": "integer",
+        "role": "input",
+        "value": 0,
+        "expression": null,
+        "units": "min",
+        "range": [
+          0.0,
+          59.0
+        ],
+        "origin": "source",
+        "citation": 2,
+        "accepted": false,
+        "note": ""
+      },
+      "muffin_due": {
+        "description": "시작 기준 머핀 픽업 시각",
+        "kind": "number",
+        "role": "derived",
+        "value": null,
+        "expression": "muffin_pickup_hour * 60 + muffin_pickup_minute - start_clock_min",
+        "units": "min",
+        "range": null,
+        "origin": "computed",
+        "citation": 4,
+        "accepted": false,
+        "note": ""
+      },
+      "cookie_duration": {
+        "description": "쿠키 굽는 시간",
+        "kind": "number",
+        "role": "input",
+        "value": 15,
+        "expression": null,
+        "units": "min",
+        "range": [
+          0.0,
+          null
+        ],
+        "origin": "source",
+        "citation": 2,
+        "accepted": false,
+        "note": ""
+      },
+      "cookie_pickup_hour": {
+        "description": "쿠키 픽업 시각의 시",
+        "kind": "integer",
+        "role": "input",
+        "value": 8,
+        "expression": null,
+        "units": "h",
+        "range": [
+          0.0,
+          23.0
+        ],
+        "origin": "source",
+        "citation": 2,
+        "accepted": false,
+        "note": ""
+      },
+      "cookie_pickup_minute": {
+        "description": "쿠키 픽업 시각의 분 부분",
+        "kind": "integer",
+        "role": "input",
+        "value": 20,
+        "expression": null,
+        "units": "min",
+        "range": [
+          0.0,
+          59.0
+        ],
+        "origin": "source",
+        "citation": 2,
+        "accepted": false,
+        "note": ""
+      },
+      "cookie_due": {
+        "description": "시작 기준 쿠키 픽업 시각",
+        "kind": "number",
+        "role": "derived",
+        "value": null,
+        "expression": "cookie_pickup_hour * 60 + cookie_pickup_minute - start_clock_min",
+        "units": "min",
+        "range": null,
+        "origin": "computed",
+        "citation": 4,
+        "accepted": false,
+        "note": ""
+      },
+      "tart_duration": {
+        "description": "타르트 굽는 시간",
+        "kind": "number",
+        "role": "input",
+        "value": 35,
+        "expression": null,
+        "units": "min",
+        "range": [
+          0.0,
+          null
+        ],
+        "origin": "source",
+        "citation": 2,
+        "accepted": false,
+        "note": ""
+      },
+      "tart_pickup_hour": {
+        "description": "타르트 픽업 시각의 시",
+        "kind": "integer",
+        "role": "input",
+        "value": 6,
+        "expression": null,
+        "units": "h",
+        "range": [
+          0.0,
+          23.0
+        ],
+        "origin": "source",
+        "citation": 2,
+        "accepted": false,
+        "note": ""
+      },
+      "tart_pickup_minute": {
+        "description": "타르트 픽업 시각의 분 부분",
+        "kind": "integer",
+        "role": "input",
+        "value": 45,
+        "expression": null,
+        "units": "min",
+        "range": [
+          0.0,
+          59.0
+        ],
+        "origin": "source",
+        "citation": 2,
+        "accepted": false,
+        "note": ""
+      },
+      "tart_due": {
+        "description": "시작 기준 타르트 픽업 시각",
+        "kind": "number",
+        "role": "derived",
+        "value": null,
+        "expression": "tart_pickup_hour * 60 + tart_pickup_minute - start_clock_min",
+        "units": "min",
+        "range": null,
+        "origin": "computed",
+        "citation": 4,
+        "accepted": false,
+        "note": ""
+      },
+      "bagel_duration": {
+        "description": "베이글 굽는 시간",
+        "kind": "number",
+        "role": "input",
+        "value": 20,
+        "expression": null,
+        "units": "min",
+        "range": [
+          0.0,
+          null
+        ],
+        "origin": "source",
+        "citation": 2,
+        "accepted": false,
+        "note": ""
+      },
+      "bagel_pickup_hour": {
+        "description": "베이글 픽업 시각의 시",
+        "kind": "integer",
+        "role": "input",
+        "value": 8,
+        "expression": null,
+        "units": "h",
+        "range": [
+          0.0,
+          23.0
+        ],
+        "origin": "source",
+        "citation": 2,
+        "accepted": false,
+        "note": ""
+      },
+      "bagel_pickup_minute": {
+        "description": "베이글 픽업 시각의 분 부분",
+        "kind": "integer",
+        "role": "input",
+        "value": 15,
+        "expression": null,
+        "units": "min",
+        "range": [
+          0.0,
+          59.0
+        ],
+        "origin": "source",
+        "citation": 2,
+        "accepted": false,
+        "note": ""
+      },
+      "bagel_due": {
+        "description": "시작 기준 베이글 픽업 시각",
+        "kind": "number",
+        "role": "derived",
+        "value": null,
+        "expression": "bagel_pickup_hour * 60 + bagel_pickup_minute - start_clock_min",
+        "units": "min",
+        "range": null,
+        "origin": "computed",
+        "citation": 4,
+        "accepted": false,
+        "note": ""
+      },
+      "baseline_order": {
+        "description": "입력 표 순서로 굽는 현재 기준 순열; 변수와 같은 주문 인덱스",
+        "kind": "data",
+        "role": "input",
+        "value": [
+          0,
+          1,
+          2,
+          3,
+          4,
+          5,
+          6,
+          7
+        ],
+        "expression": null,
+        "units": "",
+        "range": null,
+        "origin": "source",
+        "citation": 5,
+        "accepted": false,
+        "note": ""
+      }
+    },
+    "tables": {},
+    "variables": [
+      {
+        "name": "baking_order",
+        "description": "오븐에 넣는 주문의 순서",
+        "representation": "permutation",
+        "shape": [
+          "n_orders"
+        ],
+        "lower": null,
+        "upper": null,
+        "values": [],
+        "units": "1",
+        "meaning": "주문 인덱스를 각각 한 번 포함한다. 인덱스는 식빵, 바게트, 크루아상, 케이크, 머핀, 쿠키, 타르트, 베이글 순의 고정 입력 표를 가리킨다.",
+        "layout": "앞에서부터 굽는 순서; 주문 인덱스는 0부터 시작한다."
+      }
+    ],
+    "constraints": [
+      {
+        "id": "serial_nonpreemptive_no_idle",
+        "statement": "단일 오븐에서 첫 주문을 지정된 시작 시각에 시작하고, 한 주문을 중단 없이 끝낸 즉시 다음 주문을 시작한다. 평가기는 누적 굽기 시간으로 일정을 구성하여 동시 처리·분할·유휴 시간을 허용하지 않는다.",
+        "kind": "hard",
+        "form": "evaluator",
+        "test": null,
+        "terms": [],
+        "relation": null,
+        "bound": null,
+        "citation": 3
+      }
+    ],
+    "objective": {
+      "name": "total_customer_wait",
+      "direction": "minimize",
+      "units": "min",
+      "definition": "순열 π에 대해 시작 기준 완료 시각 C_{π(k)} = Σ_{l≤k} p_{π(l)}, 주문별 대기 시간 T_j = max(0, C_j - d_j)로 계산한다. 여기서 d_j는 시작 기준 픽업 시각이다. total_customer_wait = Σ_j T_j이며 모든 주문의 가중치는 같고, 평균화나 다른 정규화는 하지 않는다. 입력은 고정이며 반복 평가의 집계는 없다. 동점 순서는 모두 허용하며 별도 동점 기준을 쓰지 않는다.",
+      "citation": 1
+    },
+    "metrics": [
+      {
+        "name": "late_order_count",
+        "units": "1",
+        "direction": "minimize",
+        "definition": "T_j가 양수인 주문 수. 설명용으로만 기록하며 최적화 목적이나 동점 기준이 아니다."
+      },
+      {
+        "name": "max_customer_wait",
+        "units": "min",
+        "direction": "minimize",
+        "definition": "주문별 T_j 중 최댓값. 설명용으로만 기록하며 최적화 목적이나 동점 기준이 아니다."
+      },
+      {
+        "name": "bread_wait",
+        "units": "min",
+        "direction": null,
+        "definition": "식빵의 T_j"
+      },
+      {
+        "name": "baguette_wait",
+        "units": "min",
+        "direction": null,
+        "definition": "바게트의 T_j"
+      },
+      {
+        "name": "croissant_wait",
+        "units": "min",
+        "direction": null,
+        "definition": "크루아상의 T_j"
+      },
+      {
+        "name": "cake_wait",
+        "units": "min",
+        "direction": null,
+        "definition": "케이크의 T_j"
+      },
+      {
+        "name": "muffin_wait",
+        "units": "min",
+        "direction": null,
+        "definition": "머핀의 T_j"
+      },
+      {
+        "name": "cookie_wait",
+        "units": "min",
+        "direction": null,
+        "definition": "쿠키의 T_j"
+      },
+      {
+        "name": "tart_wait",
+        "units": "min",
+        "direction": null,
+        "definition": "타르트의 T_j"
+      },
+      {
+        "name": "bagel_wait",
+        "units": "min",
+        "direction": null,
+        "definition": "베이글의 T_j"
+      }
+    ],
+    "evaluator": {
+      "kind": "declared",
+      "problem_id": "single_oven_total_tardiness",
+      "configuration": {
+        "n_orders": "n_orders",
+        "start_clock_min": "start_clock_min",
+        "bread_duration": "bread_duration",
+        "bread_due": "bread_due",
+        "baguette_duration": "baguette_duration",
+        "baguette_due": "baguette_due",
+        "croissant_duration": "croissant_duration",
+        "croissant_due": "croissant_due",
+        "cake_duration": "cake_duration",
+        "cake_due": "cake_due",
+        "muffin_duration": "muffin_duration",
+        "muffin_due": "muffin_due",
+        "cookie_duration": "cookie_duration",
+        "cookie_due": "cookie_due",
+        "tart_duration": "tart_duration",
+        "tart_due": "tart_due",
+        "bagel_duration": "bagel_duration",
+        "bagel_due": "bagel_due",
+        "baseline_order": "baseline_order"
+      },
+      "fidelity": {},
+      "deterministic": true,
+      "notes": "No installed evaluator matches this problem, and no code was supplied. Implement the exact deterministic arithmetic specified in documents/statement.md.txt lines 5–8, 25–29, 38–44 and 50–54; original operating assumptions are in documents/researcher.md.txt lines 25–38. Configuration duration and due fields are ordered by bread, baguette, croissant, cake, muffin, cookie, tart, bagel, with zero-based candidate indices into this fixed table. Require n_orders to equal the number of configured orders and validate the candidate as an exact permutation before scoring. Initialize elapsed time to zero. In candidate order set each start to elapsed, add its duration, store its completion as elapsed, and compute its wait as max(0, elapsed - due). Return the sum as total_customer_wait, the count of positive waits as late_order_count, the largest wait as max_customer_wait, and each named wait metric. Also retain a result table containing order identity, position, start, completion, due and wait for every order; starts, completions and dues use minutes relative to start, with optional same-day clock display by adding start_clock_min. Compute the baseline with the identical procedure when results are requested, retaining its total wait and the baseline total minus the candidate total as explanatory comparison, never as a separate objective or tie-breaker. Do not compute baseline or optimum values during charter formulation. Check implementation outputs by reconstructing prefix sums from each returned order, checking starts equal previous completions, and recomputing positive lateness and its sum. There are no numerical approximation or repeat settings. The configured model has no changeover, loading, cooling, packaging, preemption, uncertainty or extra worker times. Constraints are enforced by schedule construction rather than an optimization penalty. The input clock components reach evaluation through the derived start and due fields."
+    },
+    "instances": [
+      {
+        "name": "고정 주문표의 단일 오븐 일정",
+        "split": "development",
+        "values": {},
+        "note": "동일한 날의 고정 주문·픽업 시각을 사용하는 유일한 조건이다."
+      }
+    ],
+    "references": [
+      {
+        "statement": "현재 기준 순서는 입력 표의 순서이며 baseline_order로 보존한다. 자료에는 기준 순서의 총 대기 시간이나 최적 순서의 목적값이 보고되지 않았다. 이 정식화 단계에서는 이를 계산하지 않는다.",
+        "value": null,
+        "units": "",
+        "holds_at": {},
+        "citation": 5
+      }
+    ],
+    "citations": [
+      {
+        "id": 1,
+        "source": "documents/statement.md.txt",
+        "location": "lines 5–12, 27–29, 54, 59",
+        "quote": "모든 주문의 대기 시간은 동일한 가중치로 합산한다. ... T_j=\\max(0,C_j-d_j) ... 동점 해는 모두 허용하며 별도 우선순위는 부여하지 않는다."
+      },
+      {
+        "id": 2,
+        "source": "documents/statement.md.txt",
+        "location": "lines 14–21",
+        "quote": "식빵: 굽는 시간 40분, 픽업 09:05. ... 베이글: 굽는 시간 20분, 픽업 08:15."
+      },
+      {
+        "id": 3,
+        "source": "documents/researcher.md.txt",
+        "location": "lines 25–38; corroborated by statement.md.txt lines 38–44",
+        "quote": "오븐은 한 번에 주문 하나만 굽고 ... 한 주문이 끝나면 바로 다음 주문을 넣습니다(중간에 쉬는 시간 없음, 넣고 빼는 시간은 0으로 봅니다)."
+      },
+      {
+        "id": 4,
+        "source": "documents/statement.md.txt",
+        "location": "lines 50–53",
+        "quote": "모든 시각은 같은 날로 해석하고, 계산 시에는 06:00을 공통 기준으로 하는 분 단위를 사용한다."
+      },
+      {
+        "id": 5,
+        "source": "documents/researcher.md.txt",
+        "location": "lines 29–38; statement.md.txt lines 25–29",
+        "quote": "지금은 주문이 들어온 순서(표의 위에서 아래로)대로 굽고 있습니다."
+      },
+      {
+        "id": 6,
+        "source": "documents/statement.md.txt",
+        "location": "lines 31–33, 57–59",
+        "quote": "주어진 굽는 시간과 픽업 시각을 고정값으로 사용하는 결정론적 문제로 정의한다. ... 제시된 수학적 일정 문제를 정의하는 데 남은 질문은 없다."
+      }
+    ],
+    "assumptions": [],
+    "questions": [],
+    "waivers": [],
+    "forked_from": null
+  }
+}

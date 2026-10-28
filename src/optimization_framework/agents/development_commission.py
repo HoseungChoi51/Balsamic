@@ -38,8 +38,9 @@ PACKAGE = ("A commission builds its method in a coding box and imports no packag
            "as a library from your own coding agent (Deliver from your own coding agent, on the workspace's card), or record it as "
            "reference code (implementation.reference) and open a coding workspace with it among its evidence_ids.")
 UNDECLARED = ("This task's evaluator cannot be commissioned: only a problem the campaign's charter declares is built as a library and "
-              "adopted by its tasks once installed, and this campaign's charter does not declare this task's. Attach a validated "
-              "evaluator version (evaluator.attach), or make the campaign from a charter that declares the problem.")
+              "adopted by its tasks once installed, and this campaign's charter does not declare this task's. Reuse an installed "
+              "problem (lab_packages lists the lab's, with campaign.adopt_problem {library_version_id}), or make the campaign "
+              "from a charter that declares the problem.")
 
 
 def refusal(workspace, operation, payload):

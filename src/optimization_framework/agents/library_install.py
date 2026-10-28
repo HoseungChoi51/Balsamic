@@ -295,6 +295,9 @@ class Installer:
         moved, extra = set(), {}
         if plan.get("split"):   # the method library first; the problem library imports it (roadmap L6)
             moved, extra = self._validate_split(identity, plan, old_methods)
+        blocks = self._blocks(record)   # what the box imported, as the box had it (issue #101)
+        if blocks:
+            extra["dependencies"] = {**blocks, **extra.get("dependencies", {})}
         earlier = validation.earlier_tests(self.store, self.workspace.directory, plan["name"], plan["files"])
         protected = {**validation.earlier_protected(self.store, record, plan["name"]), **validation.protected_tests(self.store, record)}
         replays = validation.recorded_runs(self.workspace, old_methods - moved, old_problems & set(plan["problem_entry_points"]))
@@ -319,6 +322,24 @@ class Installer:
         if listed and not plan["problem_entry_points"] and len(judged["refused_methods"]) == len(listed):
             raise ValueError("Validation outside the box failed for every method: " + refused_text(judged["refused_methods"]))
         return judged
+
+    def _blocks(self, record):
+        """The shared library repository's building blocks the workspace's box imported (issue #101): {libraries/<name>/<path>:
+        bytes}, read from the copy the box had (development_runtime.write_blocks); {} for a box that had none."""
+        try:
+            folder = Path(self.development.driver.root(record)) / "blocks"
+        except (AttributeError, KeyError, TypeError):
+            return {}
+        if not folder.is_dir():
+            return {}
+        return {f"libraries/{path.relative_to(folder).as_posix()}": path.read_bytes() for path in sorted(folder.rglob("*")) if path.is_file()}
+
+    def _ticket_blocks(self, record):
+        """The building blocks the workspace's ticket names, with the versions its box had."""
+        try:
+            return list(self.development.ticket_of(record).get("building_blocks") or [])
+        except (AttributeError, KeyError, TypeError, ValueError):
+            return []
 
     def _validate_split(self, identity, plan, old_methods):
         """A split's method library, validated outside the box before the problem library: it provides the methods the split moves
@@ -434,7 +455,7 @@ class Installer:
                         place["target"].rename(place["backup"])
                     place["staging"].rename(place["target"])
                     place["created"] = True
-                    self._pin(place["plan"]["package"], place["plan"]["version"], place["plan"]["name"])
+                    self._pin(place["plan"]["package"], place["plan"]["version"], place["plan"]["name"], self._ticket_blocks(place["plan"]["record"]))
                 for args in ([self.uv, "lock"], [self.uv, "sync", "--dry-run", "--inexact", "--extra", "libraries"]):
                     code, output = self.runner(args, cwd=root)
                     log.append(f"$ {' '.join(args[1:])}\n{output}")
@@ -473,7 +494,8 @@ class Installer:
                     versions.append(repositories.record(self.store, item["name"], item["package"], item["version"], tagged, source=source,
                                     methods=methods, problems=sorted(item["problem_entry_points"]), depends_on=depends, moved=moved))
                 version = versions[-1]
-                record = self._update(identity, "library.installed", status="installed", finished_at=now(), changes=changes,
+                shared = self._share(places, versions, plan, identity)
+                record = self._update(identity, "library.installed", status="installed", finished_at=now(), changes=changes, **shared,
                                       library_version_id=version["id"], tag=version["tag"], library_commit=version["commit"],
                                       methods_added=sorted(after - before - refused), missing_methods=sorted(set(reported) - after - refused),
                                       problems_added=sorted(problems_after - problems_before),
@@ -508,8 +530,38 @@ class Installer:
             + (f" Not installed, failed outside the box: {refused_text(record['refused_methods'])}." if record.get("refused_methods") else "")
             + (f" Generated files it changed: {', '.join(plan['changed_generated_files'])}." if plan["changed_generated_files"] else "")
             + (" " + adoption if adoption else "")
-            + (" " + bound_text(record) + " Tell the researcher which proposals can run now." if plan["entry_points"] else ""), "installs")
+            + (" " + bound_text(record) + " Tell the researcher which proposals can run now." if plan["entry_points"] else "")
+            + (f" {shared_text(record)}" if shared_text(record) else ""), "installs")
         return record
+
+    def _share(self, places, versions, plan, identity):
+        """Publish each version just tagged to the shared library repository (issue #101), so that another checkout, data folder or
+        machine has it: {published} for the install's own library, or {publish_skipped} with why; never raises."""
+        from . import shared_libraries
+        repository = shared_libraries.location(self.root)
+        if repository is None:
+            return {}
+        source = plan["record"]
+        try:
+            campaign = self.store.get(source["campaign_id"], "campaign").get("name") or source["campaign_id"]
+        except KeyError:
+            campaign = source["campaign_id"]
+        found = {}
+        for place, version in zip(places, versions):
+            item = place["plan"]
+            message = (f"{item['package']} {item['version']}\n\nInstalled by Balsamic from campaign {campaign} ({source['campaign_id']}): "
+                       f"workspace {source['id']}, submission {plan['submission']['id']}, source commit {plan['submission']['commit']}, "
+                       f"install {identity}, lab version {version['id']}.")
+            try:
+                made = shared_libraries.publish(repository, item["name"], item["files"], item["version"], message)
+                published = {key: made[key] for key in ("repository", "branch", "commit", "tag")}
+                self.store.put(repositories.KIND, {**self.store.get(version["id"], repositories.KIND), "published": published}, "library.version_published")
+            except Exception as exc:   # publishing never undoes an install that went in
+                found = {"publish_skipped": f"{item['package']} {item['version']} is not in the shared library repository {repository}: {exc}"[:600]}
+                continue
+            if item is plan:
+                found = {"published": published}
+        return found
 
     def provided(self, package):
         """(methods, problems) the installed package provides now; both empty when it is not installed."""
@@ -573,26 +625,206 @@ class Installer:
         if backup.exists():
             backup.rename(target)
 
-    def _pin(self, package, version, name):
-        """The libraries extra pins package==version, and [tool.uv.sources] names its editable path."""
-        path = self.root / "pyproject.toml"
-        text = path.read_text()
-        extras = (tomllib.loads(text).get("project") or {}).get("optional-dependencies") or {}
-        normal = lambda value: re.sub(r"[-_.]+", "-", value).lower()
-        pins = [pin for pin in extras.get("libraries", []) if normal(re.split(r"[=<>!~ ;\[]", pin, maxsplit=1)[0]) != normal(package)]
-        line = "libraries = [" + ", ".join(f'"{pin}"' for pin in [*pins, f"{package}=={version}"]) + "]"
-        text, count = re.subn(r"(?m)^libraries = \[.*\]$", line, text)
-        if count != 1:
-            raise ValueError("pyproject.toml has no one-line `libraries = [...]` extra to pin the library in")
-        source = f'{package} = {{ path = "libraries/{name}", editable = true }}'
-        text, count = re.subn(rf"(?m)^{re.escape(package)} = \{{.*\}}$", source, text)
-        if not count:
-            match = re.search(r"(?m)^\[tool\.uv\.sources\]\n((?:(?!\[).*\n?)*)", text)
-            if not match:
-                raise ValueError("pyproject.toml has no [tool.uv.sources] table to name the library's path in")
-            end = match.start(1) + len(match.group(1).rstrip("\n"))   # after the table's last line
-            text = text[:end] + "\n" + source + text[end:]
-        path.write_text(text)
+    def _pin(self, package, version, name, blocks=()):
+        """The libraries extra pins package==version, [tool.uv.sources] names its editable path, and each dependency it has on a
+        package of the shared library repository is pinned (pin_dependencies): to the version its box had (``blocks``), else the
+        latest."""
+        pin(self.root, package, version, f'{{ path = "libraries/{name}", editable = true }}')
+        pin_dependencies(self.root, self.root / "libraries" / name, blocks)
+
+
+def pin(root, package, version, source):
+    """The root pyproject.toml's libraries extra pins package==version, and its [tool.uv.sources] gives the package ``source``
+    (an inline table: an editable path, or a tag of the shared library repository)."""
+    path = Path(root) / "pyproject.toml"
+    text = path.read_text()
+    extras = (tomllib.loads(text).get("project") or {}).get("optional-dependencies") or {}
+    pins = [line for line in extras.get("libraries", []) if normal(re.split(r"[=<>!~ ;\[]", line, maxsplit=1)[0]) != normal(package)]
+    line = "libraries = [" + ", ".join(f'"{item}"' for item in [*pins, f"{package}=={version}"]) + "]"
+    text, count = re.subn(r"(?m)^libraries = \[.*\]$", line, text)
+    if count != 1:
+        raise ValueError("pyproject.toml has no one-line `libraries = [...]` extra to pin the library in")
+    entry = f"{package} = {source}"
+    text, count = re.subn(rf"(?m)^{re.escape(package)} = \{{.*\}}$", lambda match: entry, text)
+    if not count:
+        match = re.search(r"(?m)^\[tool\.uv\.sources\]\n((?:(?!\[).*\n?)*)", text)
+        if not match:
+            raise ValueError("pyproject.toml has no [tool.uv.sources] table to name the library's source in")
+        end = match.start(1) + len(match.group(1).rstrip("\n"))   # after the table's last line
+        text = text[:end] + "\n" + entry + text[end:]
+    path.write_text(text)
+
+
+def shared_source(repository, row):
+    """The [tool.uv.sources] table of a shared repository's package at its latest tag."""
+    return f'{{ git = "{Path(repository).resolve().as_uri()}", subdirectory = "{row["name"]}", tag = "{row["tag"]}" }}'
+
+
+def pin_dependencies(root, folder, blocks=()):
+    """Pin each dependency of the library in ``folder`` that is a package of the shared library repository, and not yet one of
+    the root's sources, to the tag its box had (``blocks``, the ticket's building_blocks) or else that package's latest: a
+    library written around building blocks installs with them. The packages pinned."""
+    from . import shared_libraries
+    repository = shared_libraries.location(root)
+    pyproject = Path(folder) / "pyproject.toml"
+    if repository is None or not pyproject.exists():
+        return []
+    wanted = {shared_libraries.requirement_name(item) for item in (tomllib.loads(pyproject.read_text()).get("project") or {}).get("dependencies") or []}
+    if not wanted:
+        return []
+    sources = ((tomllib.loads((Path(root) / "pyproject.toml").read_text()).get("tool") or {}).get("uv") or {}).get("sources") or {}
+    have = {normal(name) for name in sources}
+    try:
+        rows = shared_libraries.packages(repository)
+    except ValueError as exc:   # uv lock then says what it cannot resolve
+        logging.getLogger(__name__).warning("Reading the shared library repository failed: %s", exc)
+        return []
+    given = {normal(block["package"]): block for block in blocks}
+    done = []
+    for row in rows:
+        if row["package"] and normal(row["package"]) in wanted and normal(row["package"]) not in have:
+            block = given.get(normal(row["package"]))
+            chosen = {"name": row["name"], "tag": block["tag"], "latest": block["version"]} if block and block["version"] in row["versions"] else row
+            pin(root, row["package"], chosen["latest"], shared_source(repository, chosen))
+            done.append(row["package"])
+    return done
+
+
+def shared_text(install):
+    """The install notice's line on the shared library repository."""
+    if install.get("published"):
+        return f"Published to the shared library repository as {install['published']['tag']} ({install['published']['repository']})."
+    return f"Not published: {install['publish_skipped']}" if install.get("publish_skipped") else ""
+
+
+def distribution_installed(package):
+    from importlib import metadata
+    try:
+        metadata.distribution(package)
+        return True
+    except metadata.PackageNotFoundError:
+        return False
+
+
+def at_start(workspace, root):
+    """What the lab does with its libraries as it starts, in the background (issue #101): restore() what this checkout lacks,
+    then import_lab() the lab's copies that have no version yet, so that a coding workspace builds on them (roadmap L3) without
+    the Packages page being opened first. Off with Balsamic's own installs (GRATING_AUTO_INSTALL=false); never raises."""
+    if os.environ.get("GRATING_AUTO_INSTALL", "true").lower() == "false":
+        return None
+    try:
+        result = restore(workspace, root)
+        import_lab(workspace, root)
+        return result
+    except Exception as exc:
+        logging.getLogger(__name__).warning("Restoring the lab's libraries failed: %s", exc)
+        return None
+
+
+def restore(workspace, root, *, runner=run, uv=None, installed=distribution_installed, provided_by=providers):
+    """Give a checkout the libraries the lab has (issue #101), as Balsamic's own step at the lab's start: a new checkout of the
+    lab, a rebuilt environment or a new data folder no longer starts without them.
+
+    Each library whose latest version the lab recorded (library_version) and whose `libraries/<name>/` this checkout lacks is
+    written from its tag in the lab's repository (or, when that is gone, the shared library repository) and pinned as an
+    editable path, as an install pins it. Each package of the shared repository the lab has no version of is pinned to its
+    latest tag: one with methods or problems also gets its lab copy and is recorded as a version (import_lab), and one with
+    neither (building blocks) is a dependency only. A package whose method or problem another installed package provides is
+    left out. One uv lock and uv sync then install them, and a library pinned but not installed (a rebuilt environment) too.
+    A dry run first: when it would change a package the lab already has, nothing is restored and ``error`` says why; every
+    file is put back. {restored, pinned, skipped, synced, error}."""
+    from . import shared_libraries
+    root, store = Path(root), workspace.store
+    uv = uv or shutil.which("uv")
+    result = {"restored": [], "pinned": [], "skipped": [], "synced": False, "error": None}
+    repository = shared_libraries.location(root)
+    try:
+        shared = {row["name"]: row for row in shared_libraries.packages(repository)}
+    except ValueError as exc:
+        shared, result["error"] = {}, f"Reading the shared library repository failed: {exc}"[:500]
+    recorded = {row["library"] for row in repositories.versions(store)}
+    writes, pins = {}, []
+    for name in sorted(recorded):
+        latest = repositories.latest(store, name)
+        if (root / "libraries" / name / "pyproject.toml").exists():
+            continue
+        files, origin = {}, None
+        try:
+            files, origin = repositories.files_at(repositories.path(workspace.directory, name), latest["tag"], name), "the lab's repository"
+        except ValueError:
+            row = shared.get(name)
+            if row and latest["version"] in row["versions"]:
+                files = shared_libraries.files_at(repository, shared_libraries.tag_of(name, latest["version"]), name)
+                origin = "the shared library repository"
+        if not files:
+            result["skipped"].append({"library": name, "reason": f"version {latest['version']} is in neither the lab's nor the shared repository"})
+            continue
+        writes[name] = (latest["package"], latest["version"], files, origin)
+    sources = ((tomllib.loads((root / "pyproject.toml").read_text()).get("tool") or {}).get("uv") or {}).get("sources") or {}
+    taken = {group: provided_by(group) for group in (GROUP, PROBLEMS)}
+    for name, row in sorted(shared.items()):
+        if name in recorded or name in writes or not row["package"] or normal(row["package"]) in {normal(key) for key in sources}:
+            continue
+        clash = [f"{kind} {identity} is provided by {taken[group][identity]}" for kind, group, ids in (("method plug-in", GROUP, row["plugins"]),
+                 ("problem", PROBLEMS, row["problems"])) for identity in ids if identity in taken[group] and normal(taken[group][identity] or "the lab") != normal(row["package"])]
+        if clash:
+            result["skipped"].append({"library": name, "reason": "; ".join(clash)})
+        elif row["plugins"] or row["problems"]:
+            if not (root / "libraries" / name / "pyproject.toml").exists():
+                writes[name] = (row["package"], row["latest"], shared_libraries.files_at(repository, row["tag"], name), "the shared library repository")
+        else:
+            pins.append(row)
+    pinned = [line for line in ((tomllib.loads((root / "pyproject.toml").read_text()).get("project") or {}).get("optional-dependencies") or {}).get("libraries", [])]
+    unsynced = [item for item in pinned if not installed(re.split(r"[=<>!~ ;\[]", item, maxsplit=1)[0])]
+    if not writes and not pins and not unsynced:
+        return result
+    saved = {file: (root / file).read_bytes() for file in ("pyproject.toml", "uv.lock") if (root / file).exists()}
+    created = []
+    log = []
+    with _lock:
+        try:
+            for name, (package, version, files, origin) in writes.items():
+                target = root / "libraries" / name
+                for path, content in files.items():
+                    destination = target / Path(path).relative_to(f"libraries/{name}")
+                    destination.parent.mkdir(parents=True, exist_ok=True)
+                    destination.write_bytes(content)
+                created.append(target)
+                pin(root, package, version, f'{{ path = "libraries/{name}", editable = true }}')
+                pin_dependencies(root, target)
+                result["restored"].append({"library": name, "package": package, "version": version, "from": origin})
+            for row in pins:
+                pin(root, row["package"], row["latest"], shared_source(repository, row))
+                result["pinned"].append({"package": row["package"], "version": row["latest"], "tag": row["tag"]})
+            for args in ([uv, "lock"], [uv, "sync", "--dry-run", "--inexact", "--extra", "libraries"]):
+                code, output = runner(args, cwd=root)
+                log.append(f"$ {' '.join(args[1:])}\n{output}")
+                if code:
+                    raise ValueError(f"uv {args[1]} failed: " + output.strip()[-800:])
+            restored = {normal(item["package"]) for item in result["restored"]} | {normal(item["package"]) for item in result["pinned"]}
+            changes = [change for change in changed_packages(output, "", lab_projects(root)) if normal(change["name"]) not in restored]
+            if changes:
+                raise ValueError("Restoring them would change packages the lab already has: "
+                                 + ", ".join(f"{change['name']} {change['from']} → {change.get('to') or 'removed'}" for change in changes))
+            code, output = runner([uv, "sync", "--inexact", "--extra", "libraries"], cwd=root)
+            log.append(f"$ sync --inexact --extra libraries\n{output}")
+            if code:
+                raise ValueError("uv sync failed: " + output.strip()[-800:])
+            result["synced"] = True
+        except Exception as exc:   # the checkout is put back as it was
+            for file, content in saved.items():
+                (root / file).write_bytes(content)
+            for target in created:
+                shutil.rmtree(target, ignore_errors=True)
+            result.update(restored=[], pinned=[], error=str(exc)[:1000])
+    if result["synced"]:
+        try:
+            import_lab(workspace, root, provided_by=provided_by)
+        except Exception as exc:
+            logging.getLogger(__name__).warning("Importing the restored libraries failed: %s", exc)
+    store.event(None, "library.restored", {key: result[key] for key in ("restored", "pinned", "skipped", "synced", "error")}
+                | {"log_tail": "\n".join(log)[-2000:]})
+    return result
 
 
 def lab_files(target, root):

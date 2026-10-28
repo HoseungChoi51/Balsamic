@@ -151,8 +151,9 @@ def catalog(workspace, campaign_id, *, other_limit=40):
         task_rows.append({"id": task["id"], "name": task.get("name") or task["id"], "problem_id": task.get("problem_id"), "blocker": blocker,
                           # The one route that builds code (roadmap H8): a coding workspace's library, commissioned or not.
                           "next_action": None if blocker is None or not task.get("evaluator_requirement_id") or evaluator.get("state") == "building" else
-                          {"owner": "lead", "text": "Build its evaluator in a coding workspace's library (evaluator.commission opens one "
-                                                    "for a problem the charter declares), or attach a validated evaluator version"}})
+                          {"owner": "lead", "text": "Reuse a problem the lab has (lab_packages; campaign.adopt_problem {library_version_id}), "
+                                                    "or build its evaluator in a coding workspace's library (evaluator.commission opens "
+                                                    "one for a problem the charter declares)"}})
     hypotheses = [row for row in store.list("hypothesis", campaign_id) if row.get("status") != "archived"]
     installs = {row.get("submission_id"): row for row in store.list("library_install", campaign_id) if row.get("status") == "installed"}
     submissions = latest_submissions(store, campaign_id)

@@ -580,7 +580,8 @@ class CommandService:
             return {"draft_id": launched["draft_id"], "trial_id": launched["trial_id"]}
         if command.operation == "campaign.adopt_problem":
             values = ProblemAdoptionInput(**payload)
-            return self.workspace.adopt_library_problem(command.campaign_id, values.install_id, authority=actor)
+            install_id = values.install_id or self.workspace.install_of_version(values.library_version_id)
+            return self.workspace.adopt_library_problem(command.campaign_id, install_id, authority=actor)
         if command.operation == "implementation.bind_builtin":
             from optimization_framework.implementations.builtin import bind
             return bind(self.workspace, command.campaign_id, payload, command.id, actor=actor)
@@ -629,6 +630,9 @@ class CommandService:
             target, kind = ("task_id", "task") if command.operation == "evaluator.attach" else ("grant_id", "implementation_grant")
             self._target(command, target, kind)
             values = model(**payload).model_dump(exclude={"schema_version"})
+            if command.operation == "evaluator.attach":
+                from .lab_packages import not_a_service_version
+                not_a_service_version(command.operation, values["version_id"])
             effect = {"id": "effect_" + command.id, "campaign_id": command.campaign_id,
                 "kind": command.operation.replace(".", "_"), **values, "authority": actor,
                 "expected_context": [command.expected_revision, self.workspace.memory.state(command.campaign_id)["guidance_revision"]],
@@ -652,6 +656,8 @@ class CommandService:
         if command.operation == "implementation.attach":
             self._target(command, "hypothesis_id", "hypothesis")
             values = AttachInput(**payload).model_dump(exclude={"schema_version"})
+            from .lab_packages import not_a_service_version
+            not_a_service_version(command.operation, values["version_id"])
             effect = {"id": "attach_" + command.id, "campaign_id": command.campaign_id, "kind": "implementation_attach",
                 **values, "authority": actor, "expected_context": [command.expected_revision, self.workspace.memory.state(command.campaign_id)["guidance_revision"]],
                 "status": "pending", "created_at": now()}

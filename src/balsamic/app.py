@@ -6,6 +6,7 @@ and deploy/*.json use). Reads are scoped per page with an ``after`` event cursor
 from __future__ import annotations
 
 import argparse
+import threading
 from contextlib import asynccontextmanager
 import os
 from urllib.parse import urlparse
@@ -17,7 +18,8 @@ from starlette.middleware.gzip import GZipMiddleware
 from balsamic.workspace import build_workspace
 
 
-def create_app(directory=None, max_workers=2, start_workers=True, implementation_client=None, frontend_directory=None, gpu_workers=0):
+def create_app(directory=None, max_workers=2, start_workers=True, implementation_client=None, frontend_directory=None, gpu_workers=0,
+               restore_libraries=False):
     workspace = build_workspace(directory or os.environ.get("GRATING_WORKSPACE", "runs/workspace"), max_workers=max_workers,
                                 implementation_client=implementation_client, gpu_workers=gpu_workers)
     from optimization_framework.analysis.tensorboard_view import ScalarExporter, tensorboard_app
@@ -30,6 +32,10 @@ def create_app(directory=None, max_workers=2, start_workers=True, implementation
             workspace.start()
             scalar_exporter.start()
             app.state.report_writer.recover()
+        if restore_libraries:   # the lab's libraries this checkout lacks (issue #101), in the background: uv may take a while
+            from optimization_framework.agents.development_runtime import ROOT
+            from optimization_framework.agents.library_install import at_start
+            threading.Thread(target=at_start, args=(workspace, ROOT), name="library-restore", daemon=True).start()
         yield
         if start_workers:
             scalar_exporter.stop()
@@ -102,7 +108,8 @@ def main(argv=None):
     parser.add_argument("--frontend-directory", default=None, help="A built frontend (frontend/dist by default)")
     args = parser.parse_args(argv)
     import uvicorn
-    uvicorn.run(create_app(args.directory, max_workers=args.workers, frontend_directory=args.frontend_directory, gpu_workers=args.gpu_workers),
+    uvicorn.run(create_app(args.directory, max_workers=args.workers, frontend_directory=args.frontend_directory, gpu_workers=args.gpu_workers,
+                           restore_libraries=True),
                 host=args.host, port=args.port, timeout_graceful_shutdown=3)
 
 

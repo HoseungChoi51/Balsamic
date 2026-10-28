@@ -92,7 +92,7 @@ def test_the_house_rules_say_what_the_instructions_no_longer_do_and_the_instruct
     workspace, cid, development, driver, _ = charter_lab
     record = opened(development, cid)
     rules = workspace.store.get(record["ticket_id"], "development_ticket")["house_rules"]
-    for step in ("## What to build", "oven_trays/objective.py", "oven_trays/methods.py", "## How to run the tests", "uv run pytest libraries/oven_trays",
+    for step in ("## What to build", "oven_trays/objective.py", "oven_trays/methods.py", "## How to run the tests", "python -m pytest libraries/oven_trays",
                  "balsamic-workspace check", "## How to submit", "implementation-manifest.json", "Raise the version", "campaign_submit",
                  "balsamic-workspace submit", "The delivery report", "## What not to touch", "`charter.json` and `oven_trays/data.py`",
                  "docs/optimizer-plugins.md", "optimizer_v1"):
@@ -128,7 +128,7 @@ def test_a_ticket_without_acceptance_tests_is_refused_by_check_self_contained(se
     record = development.create(cid, {**cited, "evidence_ids": [artifact]}, actor="lead")
     ticket = workspace.store.get(record["ticket_id"], "development_ticket")
     assert ticket["acceptance_tests"] == [{"path": "libraries/test-method/tests/test_contract.py", "source": "implementation lead"}]
-    assert ticket["test_command"] == "uv run pytest libraries/test-method/tests/test_contract.py"
+    assert ticket["test_command"] == "python -m pytest libraries/test-method/tests/test_contract.py"
 
 
 def test_the_researchers_own_workspace_and_a_charter_campaigns_need_no_tests_from_the_lead(charter_lab):

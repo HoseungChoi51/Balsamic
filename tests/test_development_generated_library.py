@@ -92,7 +92,7 @@ def test_the_brief_lists_every_served_proposal_with_its_methods_key_and_the_char
            "A test implementation" in task
     assert '### Greedy trays (`hypothesis_greedy`)\n\nIts METHODS key: `greedy_trays` with `"hypothesis_id": "hypothesis_greedy"`.\n\n' \
            "Each tray takes the setting nearest the target" in task
-    assert "uv run pytest libraries/oven_trays" in task + rules and "libraries/<name>" not in task + rules
+    assert "python -m pytest libraries/oven_trays" in task + rules and "libraries/<name>" not in task + rules
     # The generic brief names no grating library, reference repository or paper.
     brief = task + rules + (driver.root(record) / "brief.md").read_text()
     assert not {"grating", "flrl", "paper"} & set(brief.lower().replace("`", " ").replace("/", " ").split())

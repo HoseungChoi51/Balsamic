@@ -202,3 +202,18 @@ def test_validation_is_charged_to_the_go_ahead_the_workspace_opened_under(delive
     install = real(installer, workspace, record).request(cid, record["id"], submission["id"], request_key="one", background=False)
     used = workspace.store.get(consent["id"], "compute_consent")["used_seconds"]
     assert install["status"] == "installed" and 0 < used == pytest.approx(install["host_validation"]["seconds"])
+
+
+def test_an_interpreter_reached_through_a_linked_directory_starts_in_the_sandbox(tmp_path, monkeypatch):
+    """uv's python lives in cpython-3.13-... -> cpython-3.13.13-...: binding the one file at the link's path left Python
+    without its standard library ("No module named 'encodings'"), so the link itself is recreated."""
+    real = tmp_path / "cpython-3.13.13" / "bin"
+    real.mkdir(parents=True)
+    (real / "python3.13").write_text("")
+    link = tmp_path / "cpython-3.13"
+    link.symlink_to("cpython-3.13.13")
+    monkeypatch.setattr(validation, "links", lambda executable=None: [str(link / "bin" / "python3.13")])
+    monkeypatch.setattr(validation, "roots", lambda: [])
+    args = validation.command(tmp_path, tmp_path, tmp_path, {})
+    assert args[args.index("--symlink") + 1:args.index("--symlink") + 3] == ["cpython-3.13.13", str(link)]
+    assert str(real.parent) in args and str(link / "bin" / "python3.13") not in args

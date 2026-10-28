@@ -1,4 +1,5 @@
 """Tools the service layer gives the lead: thread pins, lab events, the problem note, visuals."""
+from optimization_framework.agents.models import LEAD
 from optimization_framework.agents.tools import obj, register_tool, S
 from optimization_framework.contracts.base import content_hash
 from optimization_framework.storage.sqlite import now
@@ -136,6 +137,20 @@ def register(workspace=None):
     register_tool("library_search", "Strategies from earlier campaigns of this problem (the library): ones that won, and ones assessed and stopped (kind negative, with the stop outcome), "
                   "ranked by how well their problem signature matches this campaign's.",
                   obj({"query": S, "limit": {"type": "integer", "minimum": 1, "maximum": 50}}), library_search)
+    def lab_packages(tools, agent, run, args, identity):
+        from optimization_framework.campaigns.lab_packages import listing
+        view = listing(tools.workspace, agent["campaign_id"])
+        wanted = (args.get("package") or "").replace("_", "-").lower()
+        if wanted:
+            view["packages"] = [row for row in view["packages"] if wanted in (row["package"] or "").replace("_", "-").lower() or wanted in row["library"].replace("_", "-").lower()]
+            view["building_blocks"] = [row for row in view["building_blocks"] if wanted in (row["package"] or "").lower()]
+        return view
+
+    register_tool("lab_packages", "The lab's code packages, from every campaign (issue #101): each installed package with its versions, methods and "
+                  "problems, the campaigns its versions came from and its library_version_id, where its methods run on this campaign's tasks "
+                  "and why it concerns this campaign; and the building blocks of the shared library repository (each function's signature and "
+                  "one-line purpose). Read it before building anything; reuse needs no id from the researcher.",
+                  obj({"package": S}), lab_packages, roles=(LEAD, "implementation_lead"))
     register_tool("merge_note_draft", "Write the merge note the researcher asked for: what this branch concluded, as the request the target conversation reads. The researcher edits it and merges.",
                   obj({"text": S}, ["text"]), merge_note_draft)
     register_tool("thread_pin", "Keep a record in this thread's context (pinned) or keep it out (exclude). The researcher sees pins in the context drawer.",

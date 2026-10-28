@@ -111,9 +111,19 @@ def command(library, protected, out, request, earlier=None, dependencies=None):
     for path in roots():
         args += ["--ro-bind", str(path), str(path)]
     # A link of the interpreter's chain outside what is bound (a Debian /etc/alternatives entry) is bound as itself: its target.
+    # A directory on that path can be a link itself (uv's cpython-3.13-... -> cpython-3.13.13-...): binding the one file at that
+    # path leaves Python without its standard library, so the link is recreated and its target bound.
     for hop in links():
-        if not any(Path(hop).is_relative_to(root) for root in bound):
+        if any(Path(hop).is_relative_to(root) for root in bound):
+            continue
+        linked = next((ancestor for ancestor in reversed(Path(hop).parents) if ancestor.is_symlink()), None)
+        if linked is None:
             args += ["--ro-bind", hop, hop]
+            continue
+        args += ["--symlink", os.readlink(linked), str(linked)]
+        target = linked.resolve()
+        if not any(target.is_relative_to(root) for root in bound):
+            args += ["--ro-bind", str(target), str(target)]
     args += ["--ro-bind", str(library), LIBRARY, "--ro-bind", str(protected), TESTS, "--bind", str(out), OUT, "--chdir", LIBRARY]
     if earlier is not None:
         args[-2:-2] = ["--ro-bind", str(earlier), EARLIER]
@@ -130,7 +140,8 @@ def command(library, protected, out, request, earlier=None, dependencies=None):
 def run(files, name, *, instances=(), protected=None, earlier=None, replays=(), dependencies=None, timeout=TIMEOUT_SECONDS):
     """Validate libraries/<name>/ as {path: bytes} (the exact commit's): the result, with `seconds` it took. ValidationUnavailable
     when the sandbox cannot run, ValueError when it ran and gave no result. ``dependencies``: {libraries/<other>/...: bytes} of
-    libraries it imports that are not installed yet (a split's method library, roadmap L6), importable beside it."""
+    libraries it imports that are not installed yet (a split's method library, roadmap L6) or that its box had (the shared
+    library repository's building blocks, issue #101), importable beside it."""
     from .library_install import GROUP, PROBLEMS
     import tomllib
     prefix = f"libraries/{name}/"
@@ -525,8 +536,9 @@ def main(argv):
     resource.setrlimit(resource.RLIMIT_AS, (request["memory_bytes"], request["memory_bytes"]))
     resource.setrlimit(resource.RLIMIT_CORE, (0, 0))
     sys.path.insert(0, LIBRARY)
-    for name in request.get("dependencies") or []:
-        sys.path.insert(1, f"{DEPENDENCIES}/{name}")
+    for name in request.get("dependencies") or []:   # a package laid out under src/ (a building block, issue #101) imports from there
+        folder = Path(DEPENDENCIES) / name
+        sys.path.insert(1, str(folder / "src" if (folder / "src").is_dir() else folder))
     result = {"tests": _pytest(LIBRARY), "protected": _pytest(TESTS) if request["protected"] else None,
               "earlier": _pytest(EARLIER) if request.get("earlier") else None}
     try:

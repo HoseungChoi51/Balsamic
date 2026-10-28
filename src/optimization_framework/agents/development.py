@@ -726,6 +726,9 @@ class DevelopmentWorkspaces:
         except Exception as exc:   # nor does closing the mandates whose stop condition holds
             import logging
             logging.getLogger(__name__).warning("Settling the mandates failed: %s", exc)
+        # The lab's packages that concern this campaign, told to the researcher and the lead once per version (issue #101).
+        from optimization_framework.campaigns.lab_packages import tell
+        tell(self.workspace, campaign_id)
         for saved in self.store.list("development_workspace", campaign_id):
             try:
                 self._sync_one(saved)
@@ -754,15 +757,18 @@ class DevelopmentWorkspaces:
                 library, charter, why = generated = self.generated_library(record)
                 # The ticket's four files (H4) go in beside the library; nothing protected is among them.
                 from .development_ticket import files
-                ticket = files(self.ticket_of(record, generated))
+                written = self.ticket_of(record, generated)
+                ticket = files(written)
                 references = self.workspace.packs.references(cid)   # the campaign's packs' material only (N6)
+                # The building blocks the ticket names, exported from their tags for the box to import (issue #101).
+                blocks = {"blocks": written["building_blocks"]} if written.get("building_blocks") else {}
                 if library:
-                    hashes = self.driver.prepare(record, self.brief(record), evidence, library=library, ticket=ticket, references=references)
+                    hashes = self.driver.prepare(record, self.brief(record), evidence, library=library, ticket=ticket, references=references, **blocks)
                     library = {key: value for key, value in library.items() if key != "files"} | {"files": hashes}
                     with self.workspace.lock:
                         self.store.put("development_workspace", {**self.get(cid, identity), "library": library})
                 else:
-                    self.driver.prepare(record, self.brief(record), evidence, ticket=ticket, references=references)
+                    self.driver.prepare(record, self.brief(record), evidence, ticket=ticket, references=references, **blocks)
                 atomic_json(root / "prepared.json", {"workspace_id": identity, **({"library": library} if library else {})})
             runtime = self.driver.start(record)
             with self.workspace.lock:
@@ -954,8 +960,13 @@ class DevelopmentWorkspaces:
                 continue
         library, charter, why = generated or self.generated_library(record)
         reference = self.store.get(record["campaign_id"], "campaign").get("charter")
+        # The shared library repository's building blocks at their latest tags (issue #101); a library of the workspace's own name is
+        # what it builds, not a block.
+        from .development_runtime import ROOT
+        from .shared_libraries import building_blocks
+        blocks = building_blocks(ROOT, exclude={name for name in ((library or {}).get("name"), ((library or {}).get("split") or {}).get("method_library")) if name})
         return build(record, served, method_keys(served), library=library, problem=problem_of(charter, reference) if charter else None,
-                     why=why, given=given, consent=consent, mandate=mandate)
+                     why=why, given=given, consent=consent, mandate=mandate, blocks=blocks)
 
     def ticket_of(self, record, generated=None):
         """The ticket the workspace opened with; one built from its record for a workspace opened before tickets."""

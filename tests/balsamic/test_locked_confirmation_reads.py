@@ -37,6 +37,7 @@ NO_RECORDS = {
     "workspace_list": "the agent's own files", "workspace_read": "the agent's own files", "workspace_write": "the agent's own files",
     "workspace_run": "the agent's own script", "submit_output": "the agent's result",
     "library_search": "published strategies of earlier campaigns", "merge_note_draft": "a note the agent writes",
+    "lab_packages": "the lab's code packages: versions, methods, problems and campaign names; no result, score or measurement",
     "thread_pin": "ids the agent names; the context shows only their kind and status", "panel_render": "a panel the researcher's page resolves",
     "render_visual": "a visual the agent writes", "problem_note_draft": "the problem note", "problem_note_skip": "the problem note",
     "problem_note_propose": "the problem note", "procedure_read": "the procedure catalog",
