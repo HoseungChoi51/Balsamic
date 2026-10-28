@@ -44,6 +44,7 @@ def test_a_specialist_is_told_its_contract_and_brief_and_given_its_tools_and_sch
     names = {tool["name"] for tool in manifest["tools"]}
     assert names <= set(ROLE_BRIEFS["skeptical_domain_analyst"]["tools"]) | {"procedure_read"} and {"submit_output", "yield_work", "evidence_read"} <= names
     assert not {"source_search", "analysis_run", "workspace_write", "campaign_command"} & names
+    w.store.put("hypothesis", {"id": "h1", "candidate_id": "H1", "campaign_id": prepared[1]["id"], "title": "H1", "mechanism": "Coordinate search."})
     reviewer, review_run = specialist(prepared, "proposal_reviewer", "review")
     reviewer_tools = {tool["name"] for tool in PiTools(w.pi).manifest(reviewer["id"], review_run["id"])["tools"]}
     assert "proposal_review" in reviewer_tools and "submit_output" not in reviewer_tools and reviewer["output_schema"] is None
