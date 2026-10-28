@@ -6,7 +6,7 @@ from typing import Annotated, Any
 from pydantic import Field, StrictBool, model_serializer, model_validator
 
 from .base import Contract, content_hash
-from .problems import Access, CandidateSchema, CostAxis, Objective, ProblemDefinition, ProblemInstance, without_unset
+from .problems import Access, CandidateSchema, CostAxis, Objective, OutcomeConstraint, ProblemDefinition, ProblemInstance, without_unset
 
 
 def object_schema():
@@ -30,6 +30,8 @@ class EvaluatorManifest(Contract):
     # was built under; the dump leaves them out, so its version and digest stay what they were.
     access: Access | None = None
     cost_axis: CostAxis | None = None
+    # Conditions on the reported objectives (N10), carried to every instance; left out of the dump while empty.
+    outcomes: list[OutcomeConstraint] = Field(default_factory=list, max_length=100)
 
     @model_validator(mode="after")
     def declared_domain(self):
@@ -45,6 +47,17 @@ class EvaluatorManifest(Contract):
             raise ValueError("Public configuration keys must be declared in the schema")
         if len({value.name for value in self.candidate_schema.constraints}) != len(self.candidate_schema.constraints):
             raise ValueError("Constraint names must be distinct")
+        reported = {value.name for value in objectives}
+        for constraint in self.outcomes:
+            unknown = sorted(constraint.names() - reported - set(constraint.constants))
+            if unknown:
+                raise ValueError(f"Outcome constraint {constraint.name} reads {', '.join(unknown)}, which are not objectives or "
+                                 "metrics the evaluator reports")
+            if not constraint.names() & reported:
+                raise ValueError(f"Outcome constraint {constraint.name} reads no objective or metric")
+        names = [c.name for c in self.candidate_schema.constraints] + [c.name for c in self.candidate_schema.design]
+        if set(names) & {c.name for c in self.outcomes} or len({c.name for c in self.outcomes}) != len(self.outcomes):
+            raise ValueError("Constraint names must be distinct")
         if len(set(self.recipe_ids)) != len(self.recipe_ids):
             raise ValueError("Recipe declarations must be distinct registered versions")
         return self
@@ -52,8 +65,9 @@ class EvaluatorManifest(Contract):
     @model_serializer(mode="wrap")
     def compatible_serialization(self, handler):
         result = handler(self)
-        if not self.recipe_ids:
-            result.pop("recipe_ids", None)
+        for name in ("recipe_ids", "outcomes"):
+            if not getattr(self, name):
+                result.pop(name, None)
         return without_unset(result, "access", "cost_axis")
 
     @property
@@ -89,6 +103,7 @@ class EvaluatorManifest(Contract):
             primary_objective=self.primary_objective, extra_metrics=self.extra_metrics,
             capabilities=self.capabilities, fidelity=fidelity,
             public_descriptor={key: configuration[key] for key in self.public_configuration_keys if key in configuration},
+            outcomes=self.outcomes,
             scientific_identity=content_hash({"definition": [self.id, self.version], "configuration": configuration}))
 
 

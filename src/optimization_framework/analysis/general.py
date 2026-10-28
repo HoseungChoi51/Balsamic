@@ -185,6 +185,8 @@ def report(workspace, campaign_id, *, study_id=None, cost_axis=None, cost_view="
     would otherwise set that cost. A run whose method finished on its own does not set that cost: it holds
     its final value after its last point (held_after_finish), unless every compared run finished.
     Each group names its objective's direction, and each method summary its rank by mean under it.
+    Only feasible results count (N10): a run's best is its best observation that meets the problem's outcome constraints,
+    and each run, method summary and group counts the infeasible observations it left out.
     Each group also has its ``optimality`` (N13): the best value, the tightest bound no run beats, the gap, and each run's
     claim of optimality as checked, claimed or contradicted. With a checked optimum the methods that reached it rank
     first, by their mean cost to reach it (``cost_to_optimum``).
@@ -262,6 +264,9 @@ def report(workspace, campaign_id, *, study_id=None, cost_axis=None, cost_view="
         condition = {"study_id": trial.get("study_id"), "evaluation_identity": problem.evaluation_identity,
             "primary_objective": problem.primary_objective.model_dump(mode="json"),
             "confirmation_protocol_id": trial.get("confirmation_protocol_id")}
+        if problem.outcomes:
+            # Runs held to other conditions on their outcome count other results as their best (N10).
+            condition["outcomes"] = [constraint.model_dump(mode="json") for constraint in problem.outcomes]
         if cost_axis in TIME and trial.get("device"):
             # A worker-second on the GPU buys other evaluations than one on CPU: on time, each device is its own comparison.
             condition["device"] = trial["device"]
@@ -334,6 +339,9 @@ def report(workspace, campaign_id, *, study_id=None, cost_axis=None, cost_view="
             **details,
             **({"chain_trial_ids": [member["id"] for member in chain]} if len(chain) > 1 else {}),
             "algorithm": trial["algorithm"], "status": trial["status"], "best_objective": best,
+            # Its best is its best feasible result; these were measured but broke a constraint on the outcome (N10).
+            "infeasible_observations": sum(int((member.get("result") or member.get("progress") or {}).get("infeasible_observations") or 0)
+                                           for member in chain),
             "scientific_complete": scientific_complete, "process_exit": latest.get("process_exit"),
             "allocation_stop": latest.get("allocation_stop"), "censored": not scientific_complete,
             "method_finished": method_finished, "held_after_finish": method_finished,
@@ -362,6 +370,7 @@ def report(workspace, campaign_id, *, study_id=None, cost_axis=None, cost_view="
             seeds = [trial["seed"] for trial, value in rows if value is not None]
             summaries.append({"method_id": method_id, "algorithm": rows[0][0]["algorithm"], "trial_count": len(rows),
                 "observed_count": len(values), "mean": statistics.mean(values) if values else None,
+                "infeasible_observations": sum(trial["infeasible_observations"] for trial, _ in rows),
                 "median": statistics.median(values) if values else None, "matched_cost": horizon,
                 "independent_seed_ids": len(set(seeds)) == len(seeds), "uncertainty": "Not estimated by this descriptive report"})
         objective = ProblemInstance(**group["problem"]).primary_objective
@@ -386,6 +395,7 @@ def report(workspace, campaign_id, *, study_id=None, cost_axis=None, cost_view="
             rank(summaries, objective)
         group["method_summaries"] = summaries
         group["common_observed_cost"] = horizon
+        group["infeasible_observations"] = sum(trial["infeasible_observations"] for trial in group["trials"])
     ladders = size_ladders(list(groups.values()))
     return {"schema_version": 1, "campaign_id": campaign_id, "study_id": study_id, "cost_view": cost_view,
             "cost_axis": cost_axis, "groups": list(groups.values()), "excluded": excluded,

@@ -18,7 +18,9 @@ export interface TaskOptimality { task_id: string; task_name?: string | null; di
   optimum: { value: number; status: 'checked' | 'claimed'; claimed_by: string[]; checked_by?: 'enumerate' | 'reference' } | null }
 export interface ParentLink { id: string; kind: 'revision' | 'variant' | 'hybrid' | 'inspired_by' }
 export interface LedgerRow { id: string; label: string | null; title: string; short_title?: string | null; status: string; origin?: string; actor?: string | null; autonomous: boolean; round: number | null; parent_links: ParentLink[];
-  family?: string | null; algorithm?: string; worker_seconds: number; allotted_seconds: number; evaluations: number | null; best: { score: number | null; basis: string | null; source: string | null; trial_id: string | null; interval: unknown; direction?: Direction | null };
+  family?: string | null; algorithm?: string; worker_seconds: number; allotted_seconds: number; evaluations: number | null;
+  /** Results measured but breaking a rule on the outcome (N10): never its best. Absent from servers before N10. */
+  infeasible_observations?: number; best: { score: number | null; basis: string | null; source: string | null; trial_id: string | null; interval: unknown; direction?: Direction | null };
   highest_rung_seconds: number | null; race: { race_id: string; configuration_id: string; status: string; race_status: string; highest_rung_seconds?: number | null; mean_score?: number | null; seeds?: number; latest_decision: { action: string; rationale: string; at: string } | null } | null;
   review: { verdict: string | null; count: number; readiness: { state: string; eligible: boolean; reason?: string } }; implementation_readiness: { state?: string; runnable: boolean; reason?: string };
   trial_ids: string[]; live_trials: number; finalist: boolean; confirmation: { protocol_id: string; status: string; promising: boolean | null; seeds_won?: number } | null; stop_reason: string | null; stopped_at?: string | null; stop?: StopRecord | null;

@@ -22,6 +22,12 @@ function score(trial: Trial) {
   return result.best_objective ?? result.best_efficiency ?? result.best_score ?? null;
 }
 
+/** Results measured but breaking a rule on the outcome (N10): kept, never the run's best. */
+function infeasible(trial: Trial) {
+  const result = (trial.result || trial.progress || {}) as Record<string, unknown>;
+  return Number(result.infeasible_observations) || 0;
+}
+
 export default function ExperimentsPage({ campaignId, route }: PageProps) {
   const experiments = useExperiments(campaignId);
   const selection = useSelection();
@@ -39,7 +45,8 @@ export default function ExperimentsPage({ campaignId, route }: PageProps) {
         {rows.map(t => (
           <tr key={t.id} className={selection.id === t.id ? 'selected' : ''} data-record-id={t.id} style={{ cursor: 'pointer' }} onClick={() => { selection.select(t.id); navigate(formatHash({ page: 'experiments', id: t.id, sel: t.id }, route.thread)); }}>
             <td className="mono small">{t.id}</td><td>{t.algorithm}</td><td><Pill tone={statusTone(t.status)} title={STATUS_WORDS[t.status] || t.status}>{t.status}</Pill></td>
-            <td>{num(score(t), 4)}</td><td>{num((t.result as Record<string, unknown> | undefined)?.evaluations ?? (t.progress as Record<string, unknown> | undefined)?.evaluations, 0)}</td><td>{duration(t.wall_seconds)}</td><td className="small faint">{when(t.created_at)}</td>
+            <td>{num(score(t), 4)}</td><td>{num((t.result as Record<string, unknown> | undefined)?.evaluations ?? (t.progress as Record<string, unknown> | undefined)?.evaluations, 0)}
+              {infeasible(t) ? <div className="small faint" data-testid="infeasible" title="Results that broke a rule on the outcome; the best is the best of the others">{infeasible(t)} infeasible</div> : null}</td><td>{duration(t.wall_seconds)}</td><td className="small faint">{when(t.created_at)}</td>
           </tr>))}
       </tbody></table> : <Empty>{hidden ? 'All hidden.' : 'None yet.'}</Empty>}
     </Section>

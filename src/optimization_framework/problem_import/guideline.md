@@ -168,11 +168,22 @@ flagged). `form` is one of:
   - edges in order, at least a gap apart: `all(diff(edges) >= min_gap)`.
   Prefer it to `evaluator` whenever the condition follows from the variables and the charter's
   values alone.
-- **`evaluator`:** enforced inside the evaluator, such as a minimum feature size measured on a
-  simulated field, or a stress limit from a simulation: anything that needs the evaluator's own
-  computation. Say whether the evaluator really enforces it.
-- **`qualitative`:** words only. Use this only when the sources give no test, and then ask the
-  researcher for one, with candidates (for example, "a minimum feature of 2 cells, about 8 nm").
+- **`outcome`:** a true/false `test` over what the evaluator reports: the objective and the
+  recorded metrics by name, and number quantities (thresholds). Use it for a condition on a
+  result rather than on the design: a floor on a second metric, a cap on a measured cost, a stress
+  limit the simulation computes. Record the measured number as a metric, then limit it here. The
+  lab checks it on every result: one that breaks it is kept and shown, but it never counts as a
+  run's best, and comparisons rank feasible results only. Examples:
+  - the fan's pressure limit: `pressure_drop <= max_pressure_drop` (with a metric `pressure_drop`);
+  - a selectivity floor beside the yield objective: `selectivity >= min_selectivity`.
+  It reads single numbers, not tables. Prefer it to `evaluator` whenever the evaluator reports the
+  number the condition is on.
+- **`evaluator`:** enforced inside the evaluator: anything that needs the evaluator's own
+  computation and is not one of the numbers it reports. Say whether the evaluator really enforces it.
+- **`qualitative`:** words only, for a policy rule no code can judge ("no toxic solvents", "a
+  design a technician can assemble"). Use it only when no test on the values, the design or the
+  results expresses the rule, and then ask the researcher for one, with candidates (for example,
+  "a minimum feature of 2 cells, about 8 nm").
 
 A variable's bounds belong on the variable, not in constraints. Look for constraints that exclude
 each other; the checks test linear ones for feasibility.

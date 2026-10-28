@@ -46,9 +46,12 @@ const CHECKS: Record<string, string> = { 'assumption.unaccepted': 'assumption to
   'constraint.qualitative': 'rule in words only', 'constraint.violated': 'rule broken', 'constraint.infeasible': 'rules conflict',
   'objective.missing': 'no objective', 'text.reference': 'text', 'text.literal_mismatch': 'number in the text',
   'evaluator.provided': 'provided by a library', 'evaluator.provided_mismatch': 'library computes another problem' };
-/** How each constraint form is checked (N9 adds design: a condition on the design the lab checks on every candidate). */
+/** How each constraint form is checked (N9 adds design: a condition on the design the lab checks on every candidate; N10
+ * adds outcome: a condition on what the evaluator reports, checked on every result). */
 const FORM_WORDS: Record<string, string> = { quantities: 'a test on the values, checked here', linear: 'linear in the design, checked on every candidate',
-  design: 'a condition on the design, checked on every candidate', evaluator: 'enforced by the evaluator', qualitative: 'words only, not checked' };
+  design: 'a condition on the design, checked on every candidate',
+  outcome: 'a condition on the measured result, checked on every result; one that breaks it never counts as the best',
+  evaluator: 'enforced by the evaluator', qualitative: 'words only, not checked' };
 const RELATION: Record<string, string> = { le: '≤', ge: '≥', eq: '=' };
 const condition = (k: Rule) => k.form === 'linear' ? `${(k.terms || []).map(t => t.weights ? `weighted ${t.variable}` : t.weight === 'mean' ? `mean(${t.variable})` : t.weight === 'sum' || t.weight == null ? `sum(${t.variable})` : `${t.weight} × sum(${t.variable})`).join(' + ')} ${RELATION[k.relation || ''] || k.relation} ${k.bound}`
   : k.test || '';

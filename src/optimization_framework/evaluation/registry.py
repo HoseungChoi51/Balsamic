@@ -204,7 +204,7 @@ class ProblemRegistry:
     def evaluator(self, instance: ProblemInstance):
         adapter = self.get(instance.definition_id)
         resolved = adapter.resolve(instance.configuration, instance.fidelity)
-        if resolved != instance:
+        if not resolved.same_evaluation(instance):
             raise ValueError("Pinned problem/evaluator version is no longer available with the same identity")
         return adapter.evaluator(instance)
 
