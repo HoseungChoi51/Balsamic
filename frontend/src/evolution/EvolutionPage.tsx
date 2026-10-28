@@ -110,7 +110,8 @@ function FrontierTable({ rows, picked, setPicked, selectedId, thread, pending, o
           <td><Pill tone={STAGE_TONE[row.stage]} title={row.stage === 'stopped' ? `${row.stop?.label || 'stopped'}: ${row.stop_reason || 'no reason recorded'}` : STAGE_WORD[row.stage] || row.stage}>{row.stage}</Pill>{row.stop ? <div className="small faint" data-testid="stop-outcome">{row.stop.words}</div> : null}
             <GateCell row={row} open={opened.includes(row.id)} onToggle={() => expand(row.id)} /></td>
           <td>{row.round ?? <span className="faint">–</span>}</td>
-          <td>{num(row.best.score, 4)}{row.best.score != null ? <span className="faint small"> {row.best.source}</span> : null}{row.proof ? <ProofPill proof={row.proof} /> : null}</td>
+          <td>{num(row.best.score, 4)}{row.best.score != null ? <span className="faint small"> {row.best.source}</span> : null}{row.proof ? <ProofPill proof={row.proof} /> : null}
+            {row.infeasible_observations ? <div className="small faint" data-testid="infeasible" title="Results that broke a rule on the outcome; the best is the best of the others">{row.infeasible_observations} infeasible</div> : null}</td>
           <td>{duration(row.worker_seconds)}<span className="faint small"> of {duration(row.allotted_seconds)}</span></td>
           <td>{row.highest_rung_seconds ? duration(row.highest_rung_seconds) : <span className="faint">–</span>}{row.race ? <span className="small faint"> · race {row.race.status}</span> : null}</td>
           <td>{row.review.verdict ? <Pill tone={row.review.verdict === 'test' ? 'clear' : 'attention'}>{row.review.verdict}</Pill> : <span className="faint small">{row.review.count ? `${row.review.count} notes` : 'none'}</span>}{!row.implementation_readiness.runnable ? <span className="why"> not runnable</span> : null}</td>

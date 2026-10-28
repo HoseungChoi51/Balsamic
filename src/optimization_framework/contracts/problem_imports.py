@@ -7,7 +7,7 @@ from pydantic import Field, model_serializer, model_validator
 
 from .base import Contract
 from .evaluators import EvaluatorManifest
-from .problems import Access, CostAxis, ProblemSize, without_unset
+from .problems import Access, CostAxis, OutcomeConstraint, ProblemSize, without_unset
 
 
 class ProblemSetup(Contract):
@@ -25,10 +25,15 @@ class ProblemSetup(Contract):
     cost_axis: CostAxis | None = None
     # Where the instance sits on the charter's size ladder (N14); unset for a problem compared per task.
     size: ProblemSize | None = None
+    # An installed problem's conditions on its measured objectives (N10); a declared problem carries them in its manifest.
+    outcomes: list[OutcomeConstraint] = Field(default_factory=list, max_length=100)
 
     @model_serializer(mode="wrap")
     def compatible_serialization(self, handler):
-        return without_unset(handler(self), "access", "cost_axis", "size")
+        result = without_unset(handler(self), "access", "cost_axis", "size")
+        if not self.outcomes:
+            result.pop("outcomes", None)
+        return result
 
     @model_validator(mode="after")
     def one_problem(self):
@@ -42,7 +47,8 @@ class ProblemSetup(Contract):
         manifest = self.evaluator_manifest
         return TaskInput(name=self.name, split=self.split, problem_id=manifest.id if manifest else self.problem_id,
             configuration=self.configuration, fidelity=self.fidelity, evaluator_manifest=manifest,
-            access=None if manifest else self.access, cost_axis=None if manifest else self.cost_axis, size=self.size)
+            access=None if manifest else self.access, cost_axis=None if manifest else self.cost_axis, size=self.size,
+            outcomes=[] if manifest else self.outcomes)
 
 
 class CampaignDefaults(Contract):

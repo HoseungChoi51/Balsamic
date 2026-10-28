@@ -619,6 +619,8 @@ def constraint_findings(charter, values, tables, sizes):
                     f"{render(constraint.statement, values, charter)}", sorted(names(constraint.test))))
         elif constraint.form == "design":
             out.extend(design_findings(constraint, charter, values, tables, sizes))
+        elif constraint.form == "outcome":
+            out.extend(outcome_findings(constraint, charter, values))
         elif constraint.form == "linear":
             missing = [term.variable for term in constraint.terms if term.variable not in variables]
             if missing:
@@ -700,6 +702,57 @@ def design_findings(constraint, charter, values, tables, sizes):
     if charter.evaluator is not None and charter.evaluator.kind == "installed":
         out.append(finding("constraint.design_installed", "warning", constraint.id, f"Constraint {constraint.id} is checked here, but "
             f"the installed problem {charter.evaluator.problem_id} takes its own candidate schema and does not enforce it.", used))
+    return out
+
+
+def measured(charter) -> set[str]:
+    """The names of what the evaluator reports: the objective and the metrics."""
+    return {metric.name for metric in charter.metrics} | ({charter.objective.name} if charter.objective else set())
+
+
+def outcome_findings(constraint, charter, values):
+    """An outcome constraint names the objective or metrics (and number quantities), and gives true or false on a result."""
+    reported = measured(charter)
+    try:
+        read = names(constraint.test)
+    except ExpressionError as exc:
+        return [finding("constraint.test", "blocking", constraint.id, f"Constraint {constraint.id}: {exc}.", [])]
+    unknown = sorted(name for name in read if name not in reported and name not in charter.quantities)
+    if unknown:
+        return [finding("constraint.outcome_name", "blocking", constraint.id, f"Constraint {constraint.id} reads {', '.join(unknown)}, "
+            "which are neither the objective, metrics the evaluator reports, nor quantities. Add a metric for what it limits.", unknown)]
+    wrong = sorted(name for name in read if name not in reported and charter.quantities[name].kind not in {"number", "integer", "boolean"})
+    if wrong:
+        return [finding("constraint.outcome_name", "blocking", constraint.id, f"Constraint {constraint.id} reads {', '.join(wrong)}, which "
+            "are not numbers; an outcome constraint reads the objective, metrics and number quantities.", wrong)]
+    used = sorted(read & reported)
+    if not used:
+        return [finding("constraint.outcome_name", "blocking", constraint.id, f"Constraint {constraint.id} reads no objective or metric; "
+            "a condition on quantities alone is a test on quantities.", [])]
+    constants = {name: values.get(name) for name in read - reported}
+    if any(value is None or (isinstance(value, float) and not math.isfinite(value)) for value in constants.values()):
+        return []   # a missing value has its own finding
+    try:   # without the tables: the check on each result has the metrics and constants only
+        result = evaluate(constraint.test, {**constants, **{name: 1.0 for name in used}})
+    except ExpressionError as exc:
+        return [finding("constraint.test", "blocking", constraint.id, f"Constraint {constraint.id} does not compute on a result: {exc}.", used)]
+    if not isinstance(result, bool):
+        return [finding("constraint.test", "blocking", constraint.id, f"Constraint {constraint.id} does not give one true or false "
+            "on a result.", used)]
+    return []
+
+
+def outcome_constraints(charter, values) -> list:
+    """The charter's outcome constraints at an instance's values, as the task's problem carries them (N10). One that does
+    not read right is left out here: its blocking finding (``outcome_findings``) keeps the charter from compiling."""
+    from optimization_framework.contracts.problems import OutcomeConstraint
+    reported, out = measured(charter), []
+    for constraint in charter.constraints:
+        if constraint.form != "outcome" or outcome_findings(constraint, charter, values):
+            continue
+        read = names(constraint.test)
+        out.append(OutcomeConstraint(name=constraint.id, expression=constraint.test,
+                                     constants={name: values[name] for name in read - reported}))
     return out
 
 
@@ -859,6 +912,15 @@ def evaluator_findings(charter, values, errors, sizes, registry, settled=True):
     for metric in charter.metrics:
         if metric.name not in reported:
             out.append(finding("evaluator.metric", "warning", metric.name, f"{binding.problem_id} does not report {metric.name}.", []))
+    for constraint in charter.constraints:
+        if constraint.form == "outcome" and constraint.test:
+            try:
+                missing = sorted((names(constraint.test) & measured(charter)) - reported)
+            except ExpressionError:
+                continue   # its own finding says why
+            if missing:
+                out.append(finding("constraint.outcome_unreported", "blocking", constraint.id, f"Constraint {constraint.id} reads "
+                    f"{', '.join(missing)}, which {binding.problem_id} does not report: every result would break it.", missing))
     if sizes and len(sizes) == len(charter.variables):
         total = sum(sizes.values())
         kinds = {variable.representation for variable in charter.variables}
@@ -1247,7 +1309,8 @@ def compile_setups(charter, registry=None) -> list[dict]:
         if binding.kind == "installed" or provided:
             setup = ProblemSetup(name=instance.name, split=instance.split, problem_id=binding.problem_id,
                                  configuration=configuration, fidelity=fidelity, rationale=instance.note,
-                                 access=binding.access, cost_axis=binding.cost_axis, size=size)
+                                 access=binding.access, cost_axis=binding.cost_axis, size=size,
+                                 outcomes=outcome_constraints(charter, values))
         else:
             setup = ProblemSetup(name=instance.name, split=instance.split, configuration=configuration, fidelity=fidelity,
                                  evaluator_manifest=manifest(charter, values), rationale=instance.note, size=size)
@@ -1333,7 +1396,8 @@ def manifest(charter, values):
         configuration_schema=schema(binding.configuration), configuration={f: values[n] for f, n in binding.configuration.items()},
         fidelity_schema=schema(binding.fidelity), fidelity={f: values[n] for f, n in binding.fidelity.items()},
         public_configuration_keys=sorted(binding.configuration),   # the instance's data is the method's input; fidelity stays private
-        deterministic=binding.deterministic, access=binding.access or "white_box", cost_axis=binding.cost_axis)
+        deterministic=binding.deterministic, access=binding.access or "white_box", cost_axis=binding.cost_axis,
+        outcomes=outcome_constraints(charter, values))
 
 
 # Conversion --------------------------------------------------------------------------------------------

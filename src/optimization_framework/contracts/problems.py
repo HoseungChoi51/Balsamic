@@ -120,6 +120,18 @@ class DesignConstraint(BaseModel):
         return None if result else self.name
 
 
+class OutcomeConstraint(DesignConstraint):
+    """A condition on what the evaluator measured (N10): a true/false expression over the objective and the metrics it
+    reports, by name, and number quantities (``constants``). A floor on a second metric, a cap on a measured cost. An
+    observation that breaks it is infeasible: it is kept, but it never counts as a run's best."""
+
+    def failure(self, named: dict) -> str | None:
+        missing = sorted(self.names() - set(self.constants) - set(named))
+        if missing:
+            return f"{self.name} (the evaluator did not report {', '.join(missing)})"
+        return super().failure(named)
+
+
 class CandidateSchema(Contract):
     """A permutation candidate is an order of the items 0 … dimensions−1 (indices into the instance's data), each exactly once.
 
@@ -334,6 +346,36 @@ class ProblemInstance(Contract):
     capabilities: list[str] = Field(default_factory=list)
     fidelity: dict[str, Any] = Field(default_factory=dict)
     scientific_identity: str
+    # Conditions on the measured objectives (N10); left out of the dump while empty, so older instances keep their digests.
+    # They decide which observations count, not what an evaluation computes: the evaluation identity leaves them out.
+    outcomes: list[OutcomeConstraint] = Field(default_factory=list, max_length=100)
+
+    @model_validator(mode="after")
+    def distinct_outcomes(self):
+        names = [c.name for c in self.outcomes]
+        if len(set(names)) != len(names):
+            raise ValueError("Outcome constraint names must be distinct")
+        return self
+
+    @model_serializer(mode="wrap")
+    def compatible_serialization(self, handler):
+        result = handler(self)
+        if not self.outcomes:
+            result.pop("outcomes", None)
+        return result
+
+    def same_evaluation(self, other: "ProblemInstance") -> bool:
+        """Whether an adapter resolves the same problem: equal but for the outcome constraints, which a charter adds to an
+        installed problem's instance and which decide only which observations count (N10)."""
+        return self.model_copy(update={"outcomes": []}) == other.model_copy(update={"outcomes": []})
+
+    def outcome_checks(self, objectives: dict[str, float]) -> dict[str, str | None]:
+        """Each outcome constraint on a measured observation: None when it holds, else why not."""
+        return {constraint.name: constraint.failure(dict(objectives)) for constraint in self.outcomes}
+
+    def outcome_failures(self, objectives: dict[str, float]) -> list[str]:
+        """The outcome constraints a measured observation breaks, each with why; empty when it is feasible."""
+        return [failure for failure in self.outcome_checks(objectives).values() if failure is not None]
 
     @property
     def evaluation_identity(self) -> str:

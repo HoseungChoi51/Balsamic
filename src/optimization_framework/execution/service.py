@@ -1082,7 +1082,7 @@ class Workspace:
         registry = self.evaluators.registry_for(task)
         problem = ProblemInstance.model_validate(trial["problem"])
         adapter = registry.get(problem.definition_id)
-        if adapter.resolve(problem.configuration, problem.fidelity) != problem:
+        if not adapter.resolve(problem.configuration, problem.fidelity).same_evaluation(problem):
             raise ValueError("The historical problem version has no compatible catalog; inspect its captured evidence")
         definition = adapter.describe().model_dump(mode="json")
         if trial.get("evaluator_version_id") and "recipe_entry_points" not in manifest:

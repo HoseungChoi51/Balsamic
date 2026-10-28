@@ -456,3 +456,18 @@ test('the constraints show their form: a design condition on the variables is ch
   await expect(table.locator('[data-id="tidy"]')).toContainText('words only, not checked');
   await expect(table.locator('[data-id="tidy"]')).toContainText('soft');
 });
+
+test('an outcome constraint reads as a condition on the measured result, checked on every result (N10)', async ({ page }) => {
+  await mockWorkspace(page, { [`/api/v1/campaigns/${CAMPAIGN_ID}/problem-note`]: f.adoptedNoteView });
+  const view = JSON.parse(JSON.stringify(f.charterView));
+  view.charter.constraints = [
+    { id: 'fan', kind: 'hard', form: 'outcome', statement: 'The pressure drop stays within {max_pressure_drop}.', test: 'pressure_drop <= max_pressure_drop' }];
+  view.rendered = { ...view.rendered, 'constraint fan': 'The pressure drop stays within 40 Pa.' };
+  await page.route('**/api/v1/problem-charters/charter_1**', route => route.fulfill({ json: view }));
+  await page.goto(`/#t/${THREAD_ID}/note/charter`);
+  const fan = page.getByTestId('charter-panel').getByTestId('constraints').locator('[data-testid="constraint"][data-id="fan"]');
+  await expect(fan).toHaveAttribute('data-form', 'outcome');
+  await expect(fan).toContainText('The pressure drop stays within 40 Pa.');
+  await expect(fan.getByTestId('constraint-form')).toContainText('checked on every result');
+  await expect(fan.getByTestId('constraint-condition')).toHaveText('pressure_drop <= max_pressure_drop');
+});

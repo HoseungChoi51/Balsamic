@@ -35,6 +35,11 @@ from optimization_framework.storage.artifacts import LocalArtifactStore, atomic_
 from optimization_framework.storage.sqlite import now, read_json
 
 
+def feasible(constraints):
+    """Whether an observation counts (N10): every constraint it records, the evaluator's and the outcome's, holds."""
+    return all(constraints.values())
+
+
 def append_json(path, record):
     path = Path(path)
     # A forced exit can leave an unfinished last write. Preserve those bytes as
@@ -220,7 +225,7 @@ class ExperimentWorker:
         self.unknown_worker_cost = any(not item.get("finished_at") for key, item in prior_attempts.items() if key != self.attempt_id)
         self.elapsed_before = max(self.elapsed_before, measured_history)
         self.cost_cursor_seconds = self.elapsed_before
-        self.request_count = self.observation_count = self.successful_observations = 0
+        self.request_count = self.observation_count = self.successful_observations = self.infeasible_observations = 0
         self.solver_calls = self.cache_hits = self.interrupted_requests = 0
         self.unknown_solver_cost = False
         last_request = last_observation = None
@@ -380,6 +385,7 @@ class ExperimentWorker:
     def _account_observation(self, value):
         self.observation_count += 1
         self.successful_observations += int(value["status"] == "ok")
+        self.infeasible_observations += int(value["status"] == "ok" and not feasible(value.get("constraints") or {}))
         self.interrupted_requests += int(value["status"] == "uncertain")
         self.solver_calls += int(value["costs"].get("solver_executions") or 0)
         self.cache_hits += int(value["costs"].get("cache_hits") or 0)
@@ -431,15 +437,24 @@ class ExperimentWorker:
         metadata = dict(evaluation.metadata) if evaluation else {}
         if status == "ok" and hasattr(self.evaluator, "drain_artifacts"):
             metadata["artifacts"] = [self.publish_payload(item, authority="evaluator") for item in self.evaluator.drain_artifacts()]
+        constraints = {}
+        if evaluation and status == "ok":
+            # The problem's outcome constraints are checked on what was measured (N10); a broken one makes the observation
+            # infeasible, as a constraint the evaluator reports broken does.
+            checks = self.problem.outcome_checks(evaluation.objectives)
+            constraints = {**evaluation.constraints, **{name: why is None for name, why in checks.items()}}
+            if failures := [why for why in checks.values() if why is not None]:
+                metadata["infeasible"] = failures
         observation = Observation(id="observation_" + uuid.uuid4().hex, experiment_id=self.spec["id"], attempt_id=self.attempt_id,
             request_id=request["id"], proposal_id=proposal.id, candidate=candidate, status=status,
             objectives=evaluation.objectives if evaluation and status == "ok" else {},
-            constraints=evaluation.constraints if evaluation and status == "ok" else {}, metadata=metadata,
+            constraints=constraints, metadata=metadata,
             fidelity=instance.fidelity, evaluator_identity=instance.evaluation_identity, costs=costs, error=error)
         self._record_observation(observation)
         if status == "ok":
             self.step += 1
             self.last_value = observation.objectives[self.problem.primary_objective.name]
+        if status == "ok" and feasible(observation.constraints):
             entry = {"candidate": candidate, "objective": self.last_value, "objectives": dict(observation.objectives),
                      "observation_id": observation.id,
                      "fidelity": instance.fidelity, "scientific_identity": instance.scientific_identity,
@@ -476,6 +491,8 @@ class ExperimentWorker:
                 "best_candidate": best["candidate"] if best else None, "archive": self.archive,
                 "evaluations": self.request_count, "budget_requests": self.request_count, "solver_calls": self.solver_calls,
                 "cache_hits": self.cache_hits, "confirmed_observations": self.successful_observations,
+                # Measured but breaking a constraint on the outcome (N10): kept in the journal, never the run's best.
+                "infeasible_observations": self.infeasible_observations,
                 "interrupted_requests": self.interrupted_requests, "unknown_solver_cost": self.unknown_solver_cost,
                 "unknown_worker_cost": self.unknown_worker_cost,
                 "recovered_suffix_observations": self.recovered_suffix, "elapsed_seconds": self.elapsed(),

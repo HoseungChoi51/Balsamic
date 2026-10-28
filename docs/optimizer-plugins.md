@@ -439,6 +439,16 @@ the default for a library's methods) is refused
 on a problem with linear or design constraints (`CandidateSchema.restricted`). Both fields are left out of a schema's dump
 while empty, so a schema made before them keeps its digest.
 
+### Outcome constraints
+
+A problem instance may carry `outcomes` (roadmap N10): conditions on what the evaluator reports, each an expression over
+the objective and metrics by name with the charter quantities it reads as `constants`. They do not restrict the
+candidates; the worker checks them on each result. The observation a method receives records each one in
+`constraints` (`{"fan": false}`) beside any the evaluator reports, and `metadata["infeasible"]` says why. An observation
+with a false constraint is infeasible: the method still sees its objectives, but it never becomes the run's best, and the
+comparison and the ledger count it apart. A method that wants feasible results should read `observation.constraints`. A
+function method sees only the score (`evaluate()` returns it, feasible or not); the run's best is still the feasible one.
+
 ### Failure policy
 
 | Situation | Behavior | Why |

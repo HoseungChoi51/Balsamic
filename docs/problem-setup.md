@@ -363,7 +363,7 @@ with their formulators, folders and sessions; nothing was kept.
 - **One browser test is flaky.** `study-progress` "manual refresh…" expects exactly two reads, and
   under the full parallel run an automatic refresh sometimes makes three. It passes alone. That
   page was not changed by this work.
-### Next step: problem-agnostic constraints (in progress: design constraints done, outcome constraints next)
+### Next step: problem-agnostic constraints (done: design constraints in N9, outcome constraints in N10)
 
 Decided on 21 October 2026. The checks in `charter.py` are generic in vocabulary (nothing names a domain) but narrow in
 what they can judge: the framework itself checks or enforces only two constraint forms, a true/false test on quantities
@@ -401,4 +401,15 @@ roadmap part N9 ([readiness](readiness/N9.md)) added the first half:
   own values. The `evaluator.mixed_values` finding and its "write them as ranges" edit are retired. An order of items
   still takes the candidate alone.
 
-The outcome constraint (a condition on the metrics an evaluator reports) is roadmap part N10.
+Roadmap part N10 ([readiness](readiness/N10.md)) added the second half, and M5 is done:
+
+- an **outcome constraint** (`form: "outcome"`): a true/false `test` over the objective and the metrics the evaluator
+  reports, by name, and number quantities (a floor on a second metric, a cap on a measured cost). The checks say when it
+  reads a name that is none of these, reads no objective or metric, gives no single true or false, or (on an installed
+  problem) reads a metric the problem does not report. Every task's problem carries it with its thresholds at the
+  instance, for a declared and an installed problem alike, and the worker checks it on each result;
+- a result that breaks it is **infeasible**: it stays in the journal, marked so, but it never counts as a run's best.
+  The comparison and the strategy ledger rank feasible results only and say how many were infeasible, and the
+  Experiments page and the Evolution frontier show the count;
+- the **qualitative** form is left to policy rules no code can judge ("no toxic solvents"); the formulator's guideline
+  says so.

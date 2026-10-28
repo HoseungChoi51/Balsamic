@@ -230,6 +230,7 @@ def _objective(charter: ProblemCharter, values: dict) -> str:
         lines += ["", "Constraints:"]
         where = {"linear": "checked by Problem.is_valid", "quantities": "a condition on the charter's values, checked by the charter",
                  "design": "a condition on the design, checked by the framework before each evaluation",
+                 "outcome": "a condition on what the evaluator reports, checked by the framework on each result",
                  "evaluator": "the objective must account for it", "qualitative": "recorded, not checked"}
         for constraint in charter.constraints:
             lines.append(f"- {constraint.id} ({constraint.kind}; {where[constraint.form]}): "

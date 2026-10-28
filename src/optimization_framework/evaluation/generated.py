@@ -28,7 +28,7 @@ class DeclaredEvaluator:
     def recipe_parameters(self, problem, identity, parameters):
         if identity not in self.manifest.recipe_ids:
             raise ValueError("The evaluator manifest does not declare this recipe version")
-        if self.resolve(problem.configuration, problem.fidelity) != problem:
+        if not self.resolve(problem.configuration, problem.fidelity).same_evaluation(problem):
             raise ValueError("Recipe source differs from the captured evaluator instance")
         recipe, _ = self.recipes.get(identity)
         return recipe.parameters(self, problem, parameters)
@@ -52,7 +52,7 @@ def declared_registry(problem, manifest, *, registry=None):
     from optimization_framework.evaluation.registry import problems
     problem = ProblemInstance.model_validate(problem)
     adapter = DeclaredEvaluator(manifest, problem.evaluator_version)
-    if adapter.resolve(problem.configuration, problem.fidelity) != problem:
+    if not adapter.resolve(problem.configuration, problem.fidelity).same_evaluation(problem):
         raise ValueError("Evaluator declaration differs from the frozen problem")
     return (registry or problems).extended(adapter)
 
@@ -80,7 +80,7 @@ class PublishedEvaluator(DeclaredEvaluator):
         from optimization_framework.implementations.evaluator_runtime import PackageEvaluator
         from optimization_framework.implementations.runtime import bundle_runtime_root
         instance = instance if isinstance(instance, ProblemInstance) else ProblemInstance.model_validate(instance)
-        if self.resolve(instance.configuration, instance.fidelity) != instance:
+        if not self.resolve(instance.configuration, instance.fidelity).same_evaluation(instance):
             raise ValueError("Evaluator does not match the frozen instance")
         artifact = self.bundle["artifact"]
         timeout = self.spec.operation_timeout_seconds
@@ -106,7 +106,7 @@ def pinned_evaluator(directory, specification, *, recipe_registry=None):
         raise ValueError("Pinned evaluator changed after this experiment was queued")
     adapter = PublishedEvaluator(bundle, directory / "evaluator" / "package", recipe_registry=recipe_registry,
         timeout_limit=max(.05, specification["wall_seconds"] - specification.get("execution_seconds", 0)))
-    if adapter.resolve(frozen.problem.configuration, frozen.problem.fidelity) != frozen.problem:
+    if not adapter.resolve(frozen.problem.configuration, frozen.problem.fidelity).same_evaluation(frozen.problem):
         raise ValueError("The pinned evaluator does not resolve the frozen problem")
     if adapter.spec.validation_mode == "contract_only":
         eligibility = specification.get("evaluator_eligibility", {})
