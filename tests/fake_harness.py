@@ -29,7 +29,9 @@ from urllib.request import Request, urlopen
 
 STATUS = {"configured": True, "mode": "dev", "provider": "openai-codex", "providers": {"openai-codex": {"auth": "oauth", "billing": "subscription"}},
           "defaults": {"provider": "openai-codex", "model": "gpt-6-astra", "effort": "medium"}, "login": None,
-          "models": [{"provider": "openai-codex", "id": "gpt-6-astra", "name": "fake", "reasoning": True, "thinking_levels": ["off", "low", "medium", "high"], "context_window": 200000, "max_tokens": 32000, "cost": None}]}
+          # gpt-6-sol is the legacy default the specialists run on; a one-shot specialist (roadmap T3) is called on it.
+          "models": [{"provider": "openai-codex", "id": model, "name": "fake", "reasoning": True, "thinking_levels": ["off", "low", "medium", "high"],
+                      "context_window": 200000, "max_tokens": 32000, "cost": None} for model in ("gpt-6-astra", "gpt-6-sol")]}
 
 
 class SessionTree:

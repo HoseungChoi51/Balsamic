@@ -256,7 +256,8 @@ TOOLS = {
     "delegate": ("Create a persistent specialist child with a focused objective and exact evidence IDs. You receive its result automatically. "
         "A proposal_reviewer reviews one proposal (hypothesis_id; one delegate per proposal) and answers once, from what Balsamic gives it: "
         "the exact revision, its parents' required changes, the tasks, the installed methods, your objective and the evidence you cite, never "
-        "another review of that revision. The objective: " + READABLE,
+        "another review of that revision. A methodology_specialist or skeptical_domain_analyst also answers once, from the same plus the "
+        "resources, with hypothesis_id naming its proposal if it has one. The objective: " + READABLE,
         obj({"role": {"enum": [r for r in ROLES if r not in STANDING]}, "objective": S, "evidence_ids": {"type": "array", "items": S, "maxItems": 100}, "request_key": S,
              "hypothesis_id": S}, ["role", "objective", "request_key"])),
     "agent_message": ("Send a follow-up or steering message to one of your own assistants. " + READABLE, obj({"agent_id": S, "message": S}, ["agent_id", "message"])),
@@ -920,6 +921,39 @@ class PiTools:
                              for child_run in self.store.list_agent_runs(child["id"]) if (child_run.get("finished_at") or "") >= since]
         return unverified(args["report"], Evidence(evidence))
 
+    def resources(self, campaign_id):
+        """What resource_inspect returns: the observer's snapshot of this campaign, bounded, and the admission view."""
+        from optimization_framework.execution.observability import get_observer
+        snapshot = deepcopy(get_observer(self.workspace).snapshot(campaign_id))
+        # Numerical archives and long allocation histories have separate
+        # evidence reads. Keep a telemetry inspection bounded for the lead agent.
+        snapshot["workers"]["jobs"] = snapshot["workers"].get("jobs", [])[:16]
+        plans = snapshot.get("plans", [])
+        snapshot["plan_count"] = len(plans)
+        snapshot["plans"] = plans[-4:]
+        for plan in snapshot["plans"]:
+            plan["upcoming_jobs"] = plan.get("upcoming_jobs", [])[:12]
+            plan["decisions"] = [{**row, "rationale": (row.get("rationale") or "")[:1000]}
+                                 for row in plan.get("decisions", [])[-5:]]
+            memory_fields = ("fidelity", "harmonic_count", "predicted_bytes", "headroom_bytes",
+                             "measured_peak_bytes", "single_matrix_bytes", "expanded_grid_shape",
+                             "expanded_complex_grid_bytes", "analytical_lower_bound_bytes", "fits_now", "basis")
+            plan["memory_checks"] = [{key: row.get(key) for key in memory_fields}
+                                     for row in plan.get("memory_checks", [])[:8]]
+        budget = snapshot.get("budget")
+        if budget:
+            budget["grant_count"] = len(budget.get("grants", []))
+            budget["grants"] = budget.get("grants", [])[-20:]
+        snapshot["warnings"] = [str(value)[:1000] for value in snapshot.get("warnings", [])[:16]]
+        admission = getattr(self.workspace, "admission", None)
+        if admission is not None:
+            # What the resource planner works from: each running run's own memory, and the GPU's processes.
+            detail = admission.view(campaign_id, detail=True)
+            detail["kinds"] = detail["kinds"][:40]
+            detail["waiting"] = detail["waiting"][:40]
+            snapshot["admission"] = detail
+        return snapshot
+
     def methods(self, tasks):
         """Installed optimizers that can run on these tasks, with the parameters algorithm_config accepts."""
         from optimization_framework.optimizers.registry import capability_reason, methods
@@ -1020,36 +1054,7 @@ class PiTools:
         if name == "campaign_inspect":
             return self.inspect(agent)
         if name == "resource_inspect":
-            from optimization_framework.execution.observability import get_observer
-            snapshot = deepcopy(get_observer(self.workspace).snapshot(cid))
-            # Numerical archives and long allocation histories have separate
-            # evidence reads. Keep a telemetry inspection bounded for the lead agent.
-            snapshot["workers"]["jobs"] = snapshot["workers"].get("jobs", [])[:16]
-            plans = snapshot.get("plans", [])
-            snapshot["plan_count"] = len(plans)
-            snapshot["plans"] = plans[-4:]
-            for plan in snapshot["plans"]:
-                plan["upcoming_jobs"] = plan.get("upcoming_jobs", [])[:12]
-                plan["decisions"] = [{**row, "rationale": (row.get("rationale") or "")[:1000]}
-                                     for row in plan.get("decisions", [])[-5:]]
-                memory_fields = ("fidelity", "harmonic_count", "predicted_bytes", "headroom_bytes",
-                                 "measured_peak_bytes", "single_matrix_bytes", "expanded_grid_shape",
-                                 "expanded_complex_grid_bytes", "analytical_lower_bound_bytes", "fits_now", "basis")
-                plan["memory_checks"] = [{key: row.get(key) for key in memory_fields}
-                                         for row in plan.get("memory_checks", [])[:8]]
-            budget = snapshot.get("budget")
-            if budget:
-                budget["grant_count"] = len(budget.get("grants", []))
-                budget["grants"] = budget.get("grants", [])[-20:]
-            snapshot["warnings"] = [str(value)[:1000] for value in snapshot.get("warnings", [])[:16]]
-            admission = getattr(self.workspace, "admission", None)
-            if admission is not None:
-                # What the resource planner works from: each running run's own memory, and the GPU's processes.
-                detail = admission.view(cid, detail=True)
-                detail["kinds"] = detail["kinds"][:40]
-                detail["waiting"] = detail["waiting"][:40]
-                snapshot["admission"] = detail
-            return snapshot
+            return self.resources(cid)
         if name == "implementation_workspace_create":
             from optimization_framework.campaigns.compute_consent import request_root
             return self.controller.development.create(cid, args, actor=LEAD, opener={"agent_id": agent["id"], "role": agent["role"]},
@@ -1109,17 +1114,19 @@ class PiTools:
             for ref in args.get("evidence_ids", []):
                 self.record(agent, ref)
             # A role that answers in one call (roadmap T1) is told what it reviews; the backend assembles the rest.
-            reviewed = calls.subject(self, agent, args) if args["role"] in calls.ONE_SHOT_ROLES else None
+            # T3: the read-only review specialists too, unless GRATING_ONE_SHOT_ROLES returns them to sessions.
+            brief = calls.answers_as(args["role"])
+            reviewed = calls.subject(self, agent, args, required=args["role"] == calls.REVIEWER) if brief else None
             aid = "agent_" + content_hash([agent["id"], args["request_key"]])[:30]
             # The role's output schema (agents/roles/<role>.schema.json) is the result it submits.
-            child = self.controller.create_agent(cid, args["role"], args["objective"], aid,
-                parent_id=agent["id"], evidence_ids=args.get("evidence_ids"), output_schema=ROLE_OUTPUT_SCHEMAS.get(args["role"]))
+            child = self.controller.create_agent(cid, args["role"], args["objective"], aid, parent_id=agent["id"], evidence_ids=args.get("evidence_ids"),
+                output_schema=calls.output_schema(args["role"], brief) if brief else ROLE_OUTPUT_SCHEMAS.get(args["role"]))
             root = self.assignment_origin(agent, run)
             if root:
                 child["assignment_origin"] = root
-            if reviewed:
-                child.update(one_shot=True, hypothesis_id=reviewed)
-            if root or reviewed:
+            if brief:
+                child.update(one_shot=True, **({"hypothesis_id": reviewed} if reviewed else {}), **({"answers_as": brief} if brief != args["role"] else {}))
+            if root or brief:
                 self.store.put("agent_session", child)
             task = self.controller.enqueue(child, "assignment_" + aid, args["objective"])
             return {"agent_id": aid, "run_id": task["id"], "status": task["status"]}

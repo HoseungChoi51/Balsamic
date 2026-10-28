@@ -781,6 +781,37 @@ def go_ahead_to_results(ctx):
     return round((_time(reply) - _time(go["created_at"])).total_seconds(), 1) if reply else None
 
 
+def review_roles(ctx):
+    """T3's comparison, per review role delegated: one call or a session, how many answered with a valid result, their cost,
+    the seconds from delegation to the end of their run, and the size of what they read (tokens; and bytes for a call)."""
+    from optimization_framework.agents.calls import ONE_SHOT_ROLES
+    calls = {row["agent_id"]: row for row in ctx.store.list("agent_call", ctx.campaign_id)}
+    runs = {}
+    for run in ctx.runs():
+        runs.setdefault(run["agent_id"], []).append(run)
+    roles = {}
+    for agent in ctx.agents().values():
+        if agent["role"] not in ONE_SHOT_ROLES:
+            continue
+        row = roles.setdefault(agent["role"], {"modes": [], "agents": 0, "valid": 0, "cost_usd": 0.0, "seconds": 0.0, "input_tokens": 0, "prompt_bytes": 0})
+        mode = agent.get("answers_as", "one_shot") if agent.get("one_shot") else "session"
+        row["modes"] = sorted({*row["modes"], mode})
+        row["agents"] += 1
+        own = [run for run in runs.get(agent["id"], []) if not run["id"].startswith("pi_child_result_")]
+        done = [run for run in own if run["status"] == "completed"]
+        row["valid"] += bool(done) and (agent["role"] == "proposal_reviewer" or agent.get("output") is not None)
+        usage = agent.get("usage") or {}
+        row["cost_usd"] = round(row["cost_usd"] + (usage.get("cost_usd") or 0.0), 6)
+        row["input_tokens"] += usage.get("input") or 0
+        finished = max((run.get("finished_at") or "" for run in own), default="")
+        if finished and agent.get("created_at"):
+            row["seconds"] = round(row["seconds"] + (_time(finished) - _time(agent["created_at"])).total_seconds(), 1)
+        call = calls.get(agent["id"])
+        if call and call.get("input") is not None:
+            row["prompt_bytes"] += len(((call.get("instructions") or "") + json.dumps(call["input"], ensure_ascii=False)).encode())
+    return roles
+
+
 def metrics(ctx):
     agents = ctx.agents()
     runs = ctx.runs()
@@ -797,7 +828,8 @@ def metrics(ctx):
             "other_turns": page_turns, "failed_runs": sum(r["status"] == "failed" for r in runs), "agent_commands": operations,
             "unverified_numbers": len(ctx.unverified_numbers()),
             "refusals": len(_refusals(ctx)), "max_tool_result_bytes": max([serialized_bytes(r.get("result")) for r in ctx.receipts()] or [0]),
-            **ctx.usage(), "seconds": round(time.monotonic() - ctx.started, 1), "go_ahead_to_results_s": go_ahead_to_results(ctx)}
+            **ctx.usage(), "seconds": round(time.monotonic() - ctx.started, 1), "go_ahead_to_results_s": go_ahead_to_results(ctx),
+            "review_roles": review_roles(ctx)}
 
 
 def transcript(ctx, result):
@@ -915,6 +947,16 @@ def summarize(scenario, repeats):
     timed = [r["metrics"]["go_ahead_to_results_s"] for r in repeats if r["metrics"].get("go_ahead_to_results_s") is not None]
     if timed:
         mean["go_ahead_to_results_s"] = round(statistics.fmean(timed), 1)
+    roles = {}
+    for r in repeats:   # T3's comparison: the review roles' totals over the repeats
+        for role, row in (r["metrics"].get("review_roles") or {}).items():
+            total = roles.setdefault(role, {"modes": []})
+            total["modes"] = sorted({*total["modes"], *row["modes"]})
+            for key, value in row.items():
+                if key != "modes":
+                    total[key] = round(total.get(key, 0) + value, 6)
+    if roles:
+        mean["review_roles"] = roles
     status = "pass" if passed else "xfail" if scenario.get("known_failure") else "fail"
     return {"id": scenario["id"], "source": scenario.get("source"), "scoring": scoring, "known_failure": scenario.get("known_failure"),
             "passes": passes, "repeats": len(repeats), "passed": passed, "status": status, "metrics_mean": mean, "runs": repeats}
@@ -955,6 +997,13 @@ def summary_markdown(results, baselines=None):
         lines += ["", "## Go-ahead to ranked results", ""] + [
             f"- {row['id']}: {row['metrics_mean']['go_ahead_to_results_s'] / 60:.1f} min ({row['metrics_mean']['go_ahead_to_results_s']:g} s, "
             f"mean of {sum(run['metrics'].get('go_ahead_to_results_s') is not None for run in row['runs'])} runs)" for row in timed]
+    reviewed = [row for row in results["scenarios"] if row["metrics_mean"].get("review_roles")]
+    if reviewed:
+        lines += ["", f"## Review roles (one-shot roles: {results.get('one_shot_roles') or 'the default'})", "",
+                  "| Scenario | Role | Mode | Valid results | Cost | Seconds | Input tokens | Call prompt bytes |", "|---|---|---|---|---|---|---|---|"]
+        lines += [f"| {row['id']} | {role} | {', '.join(item['modes'])} | {item['valid']:g}/{item['agents']:g} | ${item['cost_usd']:.4f} | "
+                  f"{item['seconds']:g} | {item['input_tokens']:g} | {item['prompt_bytes']:g} |"
+                  for row in reviewed for role, item in sorted(row["metrics_mean"]["review_roles"].items())]
     unsupported = results.get("unsupported") or []
     if unsupported:
         lines += ["", f"## Not run on {results['preset']}", ""] + [f"- {row['id']}: {row['reason']}" for row in unsupported]
@@ -1013,6 +1062,8 @@ def main(argv=None):
     parser.add_argument("--preset", choices=sorted(PRESETS), help="run every selected scenario on this preset; scenarios that do not list it are not run")
     parser.add_argument("--record-baseline", nargs="?", const="",
                         help="also write the summary to evals/lead/baselines/<commit>-<provider>-<model>[-<preset>].json (or the path given)")
+    parser.add_argument("--one-shot-roles", help="GRATING_ONE_SHOT_ROLES for this run: the roles that answer in one call (T3's arms: "
+                        "'proposal_reviewer' for sessions, the default for one-shot specialists, 'proposal_reviewer,analyst' for one merged analyst)")
     parser.add_argument("--compare", type=Path, nargs="+", help="baseline files to compare with in summary.md, a column each")
     args = parser.parse_args(argv)
     scenarios = load_scenarios(EVALS / "scenarios", args.scenarios)
@@ -1022,12 +1073,15 @@ def main(argv=None):
     out = args.out or REPO / "runs" / "evals" / (stamp + ("-fake" if args.fake else ""))
     (out / "transcripts").mkdir(parents=True, exist_ok=True)
     model = parse_model(args.model)
+    if args.one_shot_roles is not None:
+        os.environ["GRATING_ONE_SHOT_ROLES"] = args.one_shot_roles
     scale = args.time_scale if args.time_scale is not None else FAKE_TIME_SCALE if args.fake else 1.0
     fakes = load_module(EVALS / "fakes.py", "lead_eval_fakes").FAKES if args.fake else None
     source = args.source.resolve()
     profile = args.profile or source / "agent-harness" / "profiles" / "dev"
     results = {"mode": "fake" if args.fake else "real", "commit": git_commit(source), "source": str(source), "model": args.model,
                "model_id": None if args.fake else args.model or profile_model(profile), "preset": args.preset,
+               "one_shot_roles": os.environ.get("GRATING_ONE_SHOT_ROLES"),
                "started_at": time.strftime("%Y-%m-%dT%H:%M:%S%z"), "suite_cap": args.suite_cap, "scenarios": [], "skipped": [], "unsupported": []}
     if args.preset:
         for scenario in [s for s in scenarios if args.preset not in supported_presets(s)]:
