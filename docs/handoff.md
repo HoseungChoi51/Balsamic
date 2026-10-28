@@ -1,7 +1,8 @@
 # Handoff: the state of the roadmap work on this fork
 
-Written on 27 October 2026 (22:30 UTC), when Phase 4 completed, for an agent taking over `HoseungChoi51/Balsamic`
-with none of the earlier context. Everything below was checked against GitHub and `main` at `a0085b3`. PR states move:
+Written on 27 October 2026 when Phase 4 completed, and updated on 28 October 2026 (about 02:30 UTC) when Phases 5, 6
+and 7 were released, for an agent taking over `HoseungChoi51/Balsamic` with none of the earlier context. Everything below
+was checked against GitHub and `main` at `77b6e9f`. PR states move:
 check them again before acting (`git fetch` and the PR list), and trust GitHub over this page.
 
 ## 1. What this is
@@ -31,16 +32,17 @@ function name.
 | 2 | Measure first: invariant register, trap evals, the eval baseline | Complete | `phase-2` (`975e935`); `baseline` (`61538de`) | `phase-2-measure-first.md` |
 | 3 | A mandate for every request | Complete | `phase-3` on `077473f`, tag to create (Hoseung) | `phase-3-mandates.md` |
 | 4 | The coding box | Complete | `phase-4` on `a0085b3`, tag to create (Hoseung) | `phase-4-coding-box.md` |
-| 5 | Evidence gates | V3 merged; V1, V4 open; V2, V5 not started | — | `phase-5-evidence-gates.md` |
-| 6 | Problem packs; every algorithm family on fair terms | N1, N2, N4, N8, N15 merged; N3, N5, N6, N7, N11 open; N9, N10, N12, N13, N14 not started | — | `phase-6-problem-packs.md` |
-| 7 | Fewer standing agents, claims that resolve | K1, K3 merged; T2, K2 open; T1, T3, T4, K4 not started | — | `phase-7-agents-and-claims.md` |
+| 5 | Evidence gates | Complete | `phase-5` on `3d27d46`, tag to create (Hoseung) | `phase-5-evidence-gates.md` |
+| 6 | Problem packs; every algorithm family on fair terms | Complete | `phase-6` on `77b6e9f`, tag to create (Hoseung) | `phase-6-problem-packs.md` |
+| 7 | Fewer standing agents, claims that resolve | Complete | `phase-7` on `0fd9b0e`, tag to create (Hoseung) | `phase-7-agents-and-claims.md` |
 
 The parts: Phase 1 A1–A4, B1–B7, C1–C3, D1–D3, E1–E5, F1–F4, G1–G2; Phase 2 I1–I3, J1–J4; Phase 3 R1–R7; Phase 4 H1–H8;
 Phase 5 V1–V5; Phase 6 N1–N15; Phase 7 T1–T4, K1–K4.
 
-Hoseung paused Phases 4–7 on 27 October ("Complete phase 3. Phase 4 waits."), then resumed them ("Keep working on Phase
-4-7"), and asked for this handoff once Phase 4 was ready. Phases 5–7 are resumed and are the next agent's work. Each phase
-file ends with "Order and shared files": the waves inside the phase and the files its parts share.
+All 78 parts are merged and every phase is released (Phase 7 was released before Phase 6, which waited on decision 20).
+No roadmap work is left. What remains is Hoseung's: the tags, the UAT checklists and the live evals (§6). Work after that
+starts from Hoseung's findings, or from a new part added to the roadmap. Each phase file ends with "Order and shared
+files": the waves inside the phase and the files its parts share.
 
 ## 3. How the work is run
 
@@ -65,15 +67,15 @@ file ends with "Order and shared files": the waves inside the phase and the file
   `autopilot`) against its request's mandate (`campaigns/mandates.py` `require()`, `governing()`). With no mandate a request
   has Explore, which does not allow `implement`, `decide` or `configure` work (stops, promotions, adopting a library's
   problem, coding workspaces, experiment rules). Tests that drive agents through such work grant a mandate first:
-  `tests/test_mandates.py` `granted(workspace, campaign_id, template="run_campaign", root=None, worker_seconds=0.0)`. Older
-  open PRs were written before this and need it when they merge `main`.
+  `tests/test_mandates.py` `granted(workspace, campaign_id, template="run_campaign", root=None, worker_seconds=0.0)`.
 - **Merging:** PRs merge without code review once (1) they merge cleanly and contain the latest `main`, (2) the full suite
   passed on that head with only the known flakes, (3) a PR sharing a file with something merged since its test run has had
   `scripts/test-changed` run on its head, (4) it is not a draft and not waiting on Hoseung. One at a time, merge commits.
   If a merge breaks `main`, revert it at once. The full policy is `docs/releases/README.md`.
 - **Conflicts:** the PR's owner fixes its own conflicts without asking: `git merge origin/main` (never a rebase or force
-  push on a shared branch; force pushes are refused in cloud sessions), then rerun the tests the conflict touched. The
-  owners of the open Phase 5–7 PRs are gone: you are their owner now.
+  push on a shared branch; force pushes are refused in cloud sessions), then rerun the tests the conflict touched. A
+  release manager may merge `main` into a ready PR itself when the part's thread is idle, then run `scripts/test-changed`
+  (or the full suite when both sides changed the same code) before merging.
 - **Releases:** when every part of a phase has merged, run the full suite on `main`, then add `docs/releases/phase-<n>.md`
   (template in `docs/releases/README.md`) in its own PR with the phase table of `docs/status.md`, and merge it. Cloud
   sessions cannot push tags, so tell Hoseung the commit to tag (`git tag -a phase-<n> <commit> -m "Phase <n>: <goal>"`).
@@ -88,80 +90,51 @@ file ends with "Order and shared files": the waves inside the phase and the file
 
 ## 4. Status, phase by phase
 
-### Phases 1–4: complete
+All phases are complete. The parts' PRs, by phase:
 
-| Release | Commit on `main` | Notes |
+| Phase | Parts (PR) | Release notes |
 |---|---|---|
-| `phase-1` | `334cea8` | `docs/releases/phase-1.md` (#66); tag exists |
-| `phase-2` | `975e935` | `docs/releases/phase-2.md` (#61); tag exists |
-| `baseline` | `61538de` | the eval baseline; tag exists |
-| `phase-3` | `077473f` | `docs/releases/phase-3.md` (#75); **tag to create (Hoseung)** |
-| `phase-4` | `a0085b3` | `docs/releases/phase-4.md` (#82); **tag to create (Hoseung)** |
+| 1 | 28 parts, A1–G2 | `docs/releases/phase-1.md` (#66) |
+| 2 | I1–I3, J1–J4 | `docs/releases/phase-2.md` (#61) |
+| 3 | R1 #33, R5 #56, R2 #60, R3 #69, R6 #72, R4 #73, R7 #74 | `docs/releases/phase-3.md` (#75) |
+| 4 | H1 #54, H5 #41, H3 #77, H2 #78, H6 #67, H4 #79, H7 #80, H8 #81 | `docs/releases/phase-4.md` (#82) |
+| 5 | V3 #43, V4 #38, V1 #32, V2 #84, V5 #90 | `docs/releases/phase-5.md` (#92) |
+| 6 | N1 #30, N2 #31, N4 #51, N8 #46, N15 #39, N5 #49, N7 #52, N3 #48, N11 #53, N6 #47, N13 #86, N14 #87, N9 #94, N10 #96, N12 #97 | `docs/releases/phase-6.md` (#99) |
+| 7 | K1 #34, K3 #37, K2 #59, T2 #44, T1 #85, T3 #88, K4 #89, T4 #91 | `docs/releases/phase-7.md` (#93) |
 
-Phase 3's parts: R1 #33, R5 #56, R2 #60, R3 #69, R6 #72, R4 #73, R7 #74. Phase 4's: H1 #54, H5 #41, H3 #77, H2 #78, H6 #67,
-H4 #79, H7 #80, H8 #81. Also merged on 27 October: #71 (issue #70: the dev profile's Centinels provider is defined by
+Also merged on 27 October: #71 (issue #70: the dev profile's Centinels provider is defined by
 `agent-harness/profiles/dev/models.template.json` from `CENTINELS_BASE_URL` and `CENTINELS_API_KEY` in
 `~/.config/balsamic/secrets.env`) and #76 (the per-part invariant files and pack modules).
 
-**Decisions Hoseung took on 27 October, beyond the roadmap's §2:**
-- R7: the chat's mandate dial starts at the campaign's default template, which follows `autonomy` (delegated → Screen;
-  starting the agent team sets delegated, so most campaigns start at Screen). A Screen or Run the campaign granted with a
-  chat message covers only its own request (`request_only` consents); agent cards keep decision 4.
+**Decisions Hoseung took beyond the roadmap's §2:**
+- R7 (27 October): the chat's mandate dial starts at the campaign's default template, which follows `autonomy` (delegated →
+  Screen; starting the agent team sets delegated, so most campaigns start at Screen). A Screen or Run the campaign granted
+  with a chat message covers only its own request (`request_only` consents); agent cards keep decision 4.
+- Decision 20 (28 October, 01:16 UTC): confirmed. "I have done an example problem end to end in phase 1/2. The workflow
+  was smooth." That released N9, N10 and N12.
 
-**Choices the parts made where the roadmap was open** (each part's readiness file lists its own): a request's own newest
-mandate governs it, and once it has ended only answering, asking and recording are allowed (R3); a request never narrows its
-own mandate and has one Explore (R3); experiment rules and hiding runs stay `configure` (only Run the campaign) because the
-short-run threshold is part of decision 14's assessment minimums, while `issue.resolve` moved to `record` and
-`resources.plan` to `run` (R3); outcomes of work the researcher started directly wake nobody (R6); autopilot's mandate is
-closed only by switching autopilot off (R4, R7). In Phase 4: a commission runs as a headless coding box only when coding
-workspaces are on, and needs at least one protected test (H7); a commission with coding workspaces off, one that imports a
-package, and an evaluator for a task no charter declares are refused with what to do instead, not sent to the retired
-service (H8); a commission's compute is charged once, at the command (H7).
+**Choices the parts made where the roadmap was open** (each part's readiness file lists its own). In Phase 3, a request's
+own newest mandate governs it, and once that mandate has ended only answering, asking and recording are allowed (R3). A
+request never narrows its own mandate and has one Explore (R3). Experiment rules and hiding runs stay `configure`, which only
+Run the campaign allows, because the short-run threshold is part of decision 14's assessment minimums. `issue.resolve`
+moved to `record` and `resources.plan` to `run` (R3). Outcomes of work the researcher started directly wake nobody (R6).
+Autopilot's mandate is closed only by switching autopilot off (R4, R7).
 
-### Phase 5: in progress
+In Phase 4, a commission runs as a headless coding box only when coding workspaces are on, and needs at least one protected
+test (H7). Three requests are refused with what to do instead rather than sent to the retired service: a commission with
+coding workspaces off, one that imports a package, and an evaluator for a task no charter declares (H8). A commission's
+compute is charged once, at the command (H7).
 
-| Part | State |
-|---|---|
-| V3 fidelity before finalist or library | merged (#43) |
-| V1 typed stop outcomes | PR #32, branch `claude/project-thread-7cvw7y` |
-| V4 locked results unreadable until release | PR #38, branch `claude/project-thread-bd92n8` |
-| V2 adequate assessment before a stop | not started; needs V1 |
-| V5 the gates on the page | not started; needs V1, V2, V3 |
+In Phases 5–7, V2 closes INV-15, the last row at `none`, so `tests/test_invariants.py` accepts a register with no row left
+at `none`. N13's refusal of more time after a checked proof applies only to the proved task, so "Run on the next size"
+(N14) stays allowed. INV-13 (T2) and INV-19 (K2) stay `prompt`: both are badged, never refused.
 
-### Phase 6: in progress
-
-| Part | State |
-|---|---|
-| N1, N2, N4, N8, N15 | merged (#30, #31, #51, #46, #39) |
-| N3 pack procedures and presentation | PR #48, `claude/project-thread-6kqiyf` |
-| N5 pack estimators and fidelity ladders | PR #49, `claude/project-thread-l64nj9` |
-| N6 pack references for coding workspaces | PR #47, `claude/project-thread-i0s51s` (Phase 4 rebuilt the coding box since, so expect the most adaptation here) |
-| N7 no MEENT paths in execution | PR #52, `claude/project-thread-43xhtl` |
-| N11 access and cost model per problem | PR #53, `claude/project-thread-35mzpf` |
-| N13 bounds and optimality | not started; needs A3, N11 |
-| N14 size ladders | not started; needs N5, N11 |
-| N9, N10, N12 (M5, problem-owned candidates) | not started; **blocked on decision 20**: they start only after G1 passes and Hoseung confirms the narrower framework end to end. Ask Hoseung |
-
-Each open Phase 6 PR, when it merges `main`, moves its keyed invariant rows into `docs/invariants/<part>.md` and its pack
-additions into `src/dqn_meent/pack/<part>_<topic>.py` (the hotspots fix, #76), and adapts its tests to Phase 3's mandate
-guard.
-
-### Phase 7: in progress
-
-| Part | State |
-|---|---|
-| K1, K3 | merged (#34, #37) |
-| T2 the moderator's synthesis checked | PR #44, `claude/project-thread-fg1yhl` |
-| K2 numeric claim checks | PR #59, `claude/project-thread-f78zv8` |
-| T1 roles as calls with assembled context | not started; needs V4 |
-| T3, T4 | not started; judged against the Phase 2 baseline by Hoseung's live evals |
-| K4 negative library entries | not started; needs V1, V2 |
-
-**Every one of the nine open PRs conflicts with `main`** (`git merge-tree` at `a0085b3`): each is 131 to 152 commits
-behind and was written before Phases 3 and 4, so each needs `main` merged in, its conflicts resolved, its tests adapted to
-the mandate guard (and, where they touch it, to Phase 4's coding box and the retired implementation service), and
-the full suite rerun before it can merge. Read the PR's body
-first: it says what the part does and how its "Done when" items were met.
+**Open, decided by Hoseung's live comparisons:**
+- ADR 0009 (T3: one-shot review specialists, and the harness plan's D2, one merged analyst) is Proposed. Until the three-arm
+  comparison runs, the proposal reviewer and both specialists are one call each (`DEFAULT_ONE_SHOT`).
+- ADR 0010 (T4: page agents folded into the lead) is Proposed. Until the comparison runs, the page agents stand
+  (`GRATING_PAGE_AGENTS=standing`). The fold itself, which removes a session and its page's routing, is a new part, added
+  to the roadmap once Hoseung accepts the ADR.
 
 ## 5. Testing fast in a cloud container
 
@@ -183,8 +156,8 @@ runuser -u claude -- env HOME=/home/claude GRATING_LLM_DISABLED=true .venv/bin/p
 .venv/bin/python scripts/run_lead_evals.py --fake               # eval plumbing, no model calls
 ```
 
-- Last full run: on H8's head `e8018be`, the same tree as `main` at `acd370a` (only docs changed since), from the main
-  checkout: 1354 passed, 93 skipped, 0 failed, in about 6 minutes with `-n 4`.
+- Last full run: on `main` at `e92acd5` (N12, the last part) with Phase 6's notes, from the main checkout: 1522 passed,
+  93 skipped, 0 failed, in about 6 minutes with `-n 4`.
 - **Playwright** needs Chrome: `CHROME_PATH=$(ls -d /opt/pw-browsers/chromium-*/chrome-linux64/chrome | head -1)`. When
   another agent's dev server holds port 5173, the default config reuses it and tests the wrong checkout: use a temporary
   config on a free port (`webServer: npx vite --port <n> --strictPort`, `reuseExistingServer: false`) and delete it after.
@@ -209,19 +182,28 @@ runuser -u claude -- env HOME=/home/claude GRATING_LLM_DISABLED=true .venv/bin/p
 
 ## 6. Open for Hoseung
 
-1. Tag `phase-3` on `077473f` and `phase-4` on `a0085b3`.
-2. The UAT checklists of `docs/releases/phase-1.md` to `phase-4.md`, and their live evals: G2's live run of lead scenario
-   S19 (`docs/readiness/G2.md`; from a separate worktree, because a live S19 run installs into its checkout); Phase 3's lead
-   evals S1–S15 against the baseline; Phase 4's J4 on the ticket route and headless (`docs/releases/phase-4.md`).
-3. Rebuild the coding-workspace image before trying Phase 4.
-4. Decision 20: confirm G1 end to end, which N9, N10 and N12 wait for.
+1. Tag `phase-3` on `077473f`, `phase-4` on `a0085b3`, `phase-5` on `3d27d46`, `phase-6` on `77b6e9f` and `phase-7` on
+   `0fd9b0e`.
+2. The UAT checklists of `docs/releases/phase-1.md` to `phase-7.md`. Hoseung reported on 28 October that an example
+   problem ran end to end on Phases 1 and 2 ("The workflow was smooth").
+3. The live evals, on Centinels, each against the `baseline` tag:
+   - G2's live run of S19 (`docs/readiness/G2.md`), from a separate worktree, because a live S19 run installs into its
+     checkout.
+   - Phase 3's S1–S15.
+   - Phase 4's J4, on the ticket route and headless.
+   - Phase 5's S13, S14 and S15.
+   - Phase 6's S17.
+   - Phase 7's S12, S14 and S16, then T3's three arms and T4's two arms, which settle ADR 0009 and ADR 0010.
+4. Rebuild the coding-workspace image before trying Phase 4 or later.
+5. Before running Phase 6 or later on the live lab, run N7's migration on a copy of the data folder:
+   `python -m optimization_framework.execution.problem_migration <copy>`. Expect an empty `unresolved` list.
 
 ## 7. Next steps, in order
 
-1. Bring each open PR up to `main`, one branch at a time (merge `main`, resolve, move keyed invariant rows to
-   `docs/invariants/<part>.md` and pack additions to `src/dqn_meent/pack/<part>_<topic>.py`, adapt tests to the mandate
-   guard, rerun), and merge one at a time: Phase 5 V1 #32 and V4 #38; Phase 7 T2 #44 and K2 #59; Phase 6 N3 #48, N5 #49,
-   N6 #47, N7 #52, N11 #53. They can be worked in parallel by agents in worktrees; merge them sequentially.
-2. Then the parts not started, in dependency order: V2 (V1), then V5 (V1, V2, V3); T1 (V4), K4 (V1, V2), T3, T4; N13 (N11),
-   N14 (N5, N11); N9 → N10 → N12 once Hoseung confirms decision 20 (ask them when you get there).
-3. When a phase's parts have all merged: its release notes, `docs/status.md`'s phase table, and the commit to tag.
+1. Remind Hoseung of the tags (§6.1) if they have not been created (`git ls-remote --tags origin`).
+2. Act on what Hoseung reports from the UAT and the live evals. Each finding is a fix PR under the rules of §3, or a new
+   roadmap part when it needs a choice §2 does not cover. Ask Hoseung that choice as one question with a recommended
+   option.
+3. When ADR 0009 or ADR 0010 is decided, apply its result: the default in `DEFAULT_ONE_SHOT`, or a new part for the fold.
+   Record the measurements in the parts' readiness files.
+4. Keep `docs/status.md` and this page current when a phase-level fact changes.
