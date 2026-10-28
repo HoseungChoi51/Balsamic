@@ -6,7 +6,7 @@
 | Date | 2026-10-27 |
 | Sources | `docs/charter-to-results-plan.md` (`cc0e693`), which Phase 1 replaces; the design-drift review of 2026-10-27, every suggestion and every lost idea it lists (§4 maps each one to its parts); and the algorithm-family review of 2026-10-27 (§4.1) |
 | Checked against | The code at `cc0e693`. Each part's "Today" says what the code does now |
-| Status | Plan, not started. A1 fixes a live bug. Decisions 1–24 are settled (§2): 1–3 before this roadmap, 4–21 in Hoseung's review on 2026-10-27 (8 and 14 with changes), 22–24 after the algorithm-family review the same day (22 with a change) |
+| Status | Phases 1–7 are released. Track L (code libraries) was added on 2026-10-28. Decisions 1–27 are settled (§2): 1–3 before this roadmap, 4–21 in Hoseung's review on 2026-10-27 (8 and 14 with changes), 22–24 after the algorithm-family review the same day (22 with a change), 25–27 with track L on 2026-10-28 |
 | How to work | One part = one branch = one PR into `workspace-rebuild`. Each phase file lists its parts, what each depends on and which can run in parallel |
 
 The diagnosis behind Phases 2 to 7, in one paragraph: Balsamic enforces in code what agents may *do* (commands, compute,
@@ -28,11 +28,12 @@ and domain knowledge moved out of the core into problem packs.
 | 5 | **Evidence gates.** A stop, a promotion or a read of a locked result needs its evidence or the researcher's waiver | 5: V1–V5 | the J1 baseline | [phase-5-evidence-gates.md](phase-5-evidence-gates.md) |
 | 6 | **Problem packs.** Domain knowledge out of the core; problem-agnostic constraints (M5); every algorithm family on fair terms | 15: N1–N15 | — (N9, N10 after G1 and decision 20; N11 after N2) | [phase-6-problem-packs.md](phase-6-problem-packs.md) |
 | 7 | **Fewer standing agents, claims that resolve.** Roles as calls with assembled context; numbers that point at receipts; findings that say what they state | 8: T1–T4, K1–K4 | the Phase 2 baseline; V4 for T1; V1, V2 for K4 | [phase-7-agents-and-claims.md](phase-7-agents-and-claims.md) |
+| L | **Code libraries that last.** Each library is versioned in its own repository; an install keeps what campaigns use; workspaces build on the latest version; reuse first | 6: L1–L6 | Phase 4; L1 first | [track-l-code-libraries.md](track-l-code-libraries.md) |
 
-78 parts. Size: S is under about 200 changed lines including tests, M about 200–600, L more.
+84 parts (78 in Phases 1–7, 6 in track L). Size: S is under about 200 changed lines including tests, M about 200–600, L more.
 
 **Names.** A part is a letter and a number (A1); the letter is its track, and a phase holds one or two tracks. A line
-number is written L123. Decisions are numbered 1–24 and written "decision 7" (the first version of this plan called 4–9
+number is written L123 (track L's parts are L1–L6, never a line number). Decisions are numbered 1–27 and written "decision 7" (the first version of this plan called 4–9
 "D4–D9"). Other series keep their own names, and the roadmap names their file when it cites them: the harness plan's
 D1–D9, `docs/suggestions.md`'s findings R1–R6, suggestions S1–S7 and questions Q1–Q8, and the eval scenarios S1–S16.
 Entries of `docs/lead-agent-readiness.md` are "Part A" to "Part S", a separate series from before this roadmap; each part
@@ -181,6 +182,20 @@ run a benchmark or teach, and the decisions follow from that.
 | 23 | The default cost axis on a white-box problem | `worker_seconds` on a fixed worker class; `core_seconds` (threads × wall time) when a method uses more than one thread. Evaluations stay as a diagnostic | N11, F1 |
 | 24 | A general problem-owned representation, or one named type at a time | `structured`, owned by the problem's library. A named type enters the core only once two problems need it (the rule of two, `docs/optimizer-plugins.md`) | N12 |
 
+### 2.4 Settled with track L (Hoseung, 2026-10-28)
+
+The review of how Balsamic builds, installs and records libraries found that an install can undo an earlier campaign's
+work, and recommended treating each library as a long-lived product with its own history ([track L](track-l-code-libraries.md)).
+Hoseung took all three recommendations.
+
+| # | Decision | Settled | Parts |
+|---|---|---|---|
+| 25 | When a method's behaviour changes | A new method name (`foo_v2`), with one installed version of each library. A changed scoring function is a new problem id; the old problem stays. Not several versions side by side | L1, L4 |
+| 26 | When method libraries split from problem libraries | When a second problem needs a method (the rule of two, decision 24); until then one library per problem (decision 1) | L6 |
+| 27 | Reusing an existing method under Explore | No card: binding an installed method and applying a strategy whose code is installed are reuse, which Explore allows | L5 |
+
+On screen a code library is a **package** (the Packages page), because "Library" is the strategy library.
+
 ---
 
 ## 3. Order across phases
@@ -194,6 +209,7 @@ Next    Phase 3 (after B2)                                          Phase 5 (V3 
 Then    Phase 4 (after F3, F4)                                      Phase 6 (N2–N8, N11, N13, N14; N9, N10, N12 after G1
                                                                     and decision 20)
 Last    Phase 7: T1–T4 judged against the Phase 2 baseline (K1–K3 may start any time; K4 after V1, V2)
+After   Track L: L1, then L2, then L3 · L4 · L5, then L6
 ```
 
 This follows the design review's order (measure, mandates, coding box, gates and packs, topology and claims), with Phase 1
