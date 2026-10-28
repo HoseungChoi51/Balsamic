@@ -15,6 +15,8 @@ export interface Thread { id: string; campaign_id: string; name: string; title: 
   last_message_id: string | null; last_activity_at: string | null; busy: boolean; queued: number; unread?: boolean; strip?: { at: string; glyph: string; id: string }[]; merge_draft?: { into_thread_id: string; text: string | null; run_id?: string; written_at?: string | null } | null; created_at: string }
 export interface Threads extends Scoped { threads: Thread[]; lead: { id: string; status: string } | null; request_open: boolean; active_run: { id: string; thread_id: string } | null }
 export interface Message { id: string; campaign_id: string; role: 'user' | 'assistant' | 'system'; content: string; created_at: string; origin?: string; agent_id?: string; agent_role?: string; fold_title?: string | null; kind?: string; link_thread_id?: string; link_page?: string; panel_id?: string; skip_id?: string; to_agent_id?: string;
+  /** A confirm card (kind charter_confirm, roadmap P5): the quick note and the lead's charter revision it puts before the researcher. */
+  note_id?: string; charter_id?: string; charter_revision?: number;
   thread_id?: string; refs?: string[]; issue_id?: string; run_id?: string; desk?: string; parts?: string[]; merge_of_thread_id?: string; edited_from_message_id?: string; entry_id?: string;
   /** The reply's numbers that nothing its request read holds (roadmap K2). */
   unverified_numbers?: string[]; [key: string]: unknown }

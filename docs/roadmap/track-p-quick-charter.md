@@ -6,7 +6,7 @@
 | From | Hoseung's question of 28 October 2026 (the set-up is too slow for the difficulty of a simple problem; could the lead write the note and the charter in one shot?) and the opinion written for it, which Hoseung took with all five of its recommendations (decisions 28–32) |
 | Decisions it needs | 1 (the evaluator comes from the library), 9 (fixed generated files), 22 (white box by default), 28–32 |
 | Start after | Phase 7 and track L are released; P1 first |
-| Status | In progress: P1–P4 done (2026-10-28); P5 and P6 to do |
+| Status | In progress: P1–P5 done (2026-10-28); P6 to do |
 
 ## Why
 

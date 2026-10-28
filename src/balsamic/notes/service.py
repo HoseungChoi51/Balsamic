@@ -13,7 +13,9 @@ its tasks. A note's path is None until the lead or the researcher writes it, the
 the quick path holds (decision 31, roadmap P3); when one fails, or the researcher asks for the full path, the note goes to the
 full path written from the lead's charter, and at Adopt the formulator takes that charter as its own. Each revision the lead writes
 without a blocking finding of its own is read against the researcher's own words by one call (decision 30, roadmap P4,
-balsamic.notes.reading); the researcher settles each difference it finds before confirming.
+balsamic.notes.reading); the researcher settles each difference it finds before confirming. Each such revision is put before
+them as a card in the conversation (roadmap P5, card()), which confirms it in one click; the view says what the click waits
+on (confirmation()).
 """
 import os
 from typing import Literal
@@ -144,6 +146,7 @@ def view(workspace, identity, *, revision=None):
     from balsamic.notes import installed, skips
     return {"note": note, "revision": current, "revisions": revisions, "annotations": annotations_of(workspace, identity), "charter": charter, "sections": list(SECTIONS), "titles": TITLES,
             "skips": skips.view(workspace, note), "writing": installed.writing(workspace, note["campaign_id"]),
+            "confirmation": confirmation(workspace, note) if note.get("path") == "quick" and revision is None else None,
             "installed": [{"problem_id": row["problem_id"], "name": row["name"]} for row in installed.problems_of(workspace, note["campaign_id"])]}
 
 
@@ -521,7 +524,8 @@ def write_charter(workspace, campaign_id, charter, *, confounders=None, question
     the criteria of the quick path (criteria()); when one fails, the write is kept and the quick path ends (hand_over()):
     more than QUICK_QUESTIONS questions or a second round are kept in the charter for the full path to ask. A revision with no
     blocking finding of the lead's is then read against the researcher's words (balsamic.notes.reading, P4), after the lock is
-    released; a reading that cannot run ends the quick path too. Refused once the note is adopted (the formulator writes its
+    released; a reading that cannot run ends the quick path too, and a completed one puts the revision before the researcher
+    as a card in the conversation (card(); the result's card is its message id). Refused once the note is adopted (the formulator writes its
     charter), once the quick path ended, and once the charter has been confirmed (a change is then the researcher's, on the
     Charter tab). All or nothing: a refusal saves nothing."""
     from optimization_framework.contracts.problem_charter import ProblemCharter
@@ -580,13 +584,15 @@ def write_charter(workspace, campaign_id, charter, *, confounders=None, question
         if failed:
             note = hand_over(workspace, note, record, ended, by="lead", failed=[row["id"] for row in failed])
     described = mechanics.describe(record["charter"], charters.registry)
-    read = None
+    read = shown = None
     if not failed and not [row for row in mechanics.blocking(described["findings"]) if row["code"] not in THEIRS]:
         # The second reading (P4): this revision against the researcher's words, one call made outside the lock.
         read = readings.read(workspace, campaign_id, record, run_id=run_id)
         rows = [readings.row(read) if row["id"] == "reading" else row for row in rows]
         if read["status"] == "completed":
-            note = readings.attach(workspace, note["id"], record, read, rows) or note
+            attached = readings.attach(workspace, note["id"], record, read, rows)
+            if attached is not None:   # read, and the note still on the quick path at this revision: the researcher's card (P5)
+                note, shown = attached, card(workspace, attached, record, thread_id=thread_id, run_id=run_id)
         else:   # no quick charter is confirmed without its second reading: the quick path ends
             failed = [row for row in rows if row["holds"] is False]
             ended = "; ".join(row["detail"] for row in failed)
@@ -600,7 +606,7 @@ def write_charter(workspace, campaign_id, charter, *, confounders=None, question
             "values": described["values"], "errors": described["errors"], "rendered": described["rendered"],
             "findings": [row for row in described["findings"] if not row.get("waived")], "questions_asked": 0 if over else len(asked),
             "saves": lead_saves(record), "quick_path": {"holds": not failed, "criteria": rows, **({"ended": ended} if failed else {})},
-            "reading": readings.summary(read) if read else None, "link": "#note" if failed else "#note/charter"}
+            "reading": readings.summary(read) if read else None, "card": shown, "link": "#note" if failed else "#note/charter"}
 
 
 def hand_over(workspace, note, record, reason, *, by, failed=()):
@@ -635,9 +641,9 @@ def full_path(workspace, note):
 def confirm(workspace, note, charter_id, revision, *, campaign_id, right=()):
     """The researcher's one action on the quick path (decision 32): it accepts the assumptions of the revision they read,
     confirms that revision and installs its tasks. Refused on a stale revision, on a blocking question still open, on any
-    other blocking finding (those are settled on the Charter tab first), and until the second reading of the lead's last write
-    has run and each difference it found is settled (P4). right: differences the researcher settles as the charter being right
-    in this same action."""
+    other blocking finding (those are settled on the Charter tab first), until the second reading of the lead's last write
+    has run and each difference it found is settled (P4), and while the lead revises the charter on what the researcher sent it
+    (P5, revising()). right: differences the researcher settles as the charter being right in this same action."""
     from optimization_framework.contracts.requests import CampaignUpdate, CharterReference
     from optimization_framework.problem_charter import charter as mechanics
     charters = workspace.charters
@@ -650,19 +656,14 @@ def confirm(workspace, note, charter_id, revision, *, campaign_id, right=()):
         raise ValueError(f"The charter changed since you read it (now revision {record['revision']}): read that revision and confirm it")
     accepted = []
     if record.get("status") != "confirmed":
-        rows = [row for row in mechanics.findings(record["charter"], charters.registry) if row["severity"] == "blocking" and not row.get("waived")]
-        left = {q["id"] for q in record["charter"]["questions"] if q.get("sent")}
-        questions = [row for row in rows if row["code"] == "question.open"]
-        if [row for row in questions if row["key"].split(":", 1)[1] not in left]:
-            raise ValueError("Answer the lead's questions on the Charter tab (#note/charter) first, or leave them to the lead: "
-                             + "; ".join(row["message"] for row in questions)[:1500])
-        if questions:
-            raise ValueError("The lead is deciding the questions you left to it; confirm the revision it writes next")
-        settled = [row for row in rows if row["code"] != "assumption.unaccepted"]
-        if settled:
-            raise ValueError("Settle these on the Charter tab (#note/charter) before confirming: " + "; ".join(row["message"] for row in settled)[:1500])
+        why = blocked(workspace, note, record)
+        if why:
+            raise ValueError(why)
         note = readings.check(workspace, note, right=right)
-        if rows:
+        if revising(workspace, note, record):
+            raise ValueError(REVISING)
+        rows = [row for row in mechanics.findings(record["charter"], charters.registry) if row["severity"] == "blocking" and not row.get("waived")]
+        if rows:   # only assumptions are left (blocked()): confirming accepts them
             accepted = [row["key"].split(":", 1)[1] for row in rows]
             record = charters.accept_assumptions(charter_id, expected_revision=revision)
         charters.confirm(charter_id, expected_revision=record["revision"])
@@ -678,6 +679,88 @@ def confirm(workspace, note, charter_id, revision, *, campaign_id, right=()):
     workspace.store.put("problem_note", note, "problem_note.confirmed")
     return {"note_id": note["id"], "charter": reference, "accepted": accepted, "campaign_revision": campaign["version"],
             "tasks": [task["name"] for task in workspace.current_tasks(campaign_id)], "link": "#note/charter"}
+
+
+# What the researcher's confirmation waits on (roadmap P5): confirm() refuses on it, and the confirm card and the Charter tab show it.
+REVISING = ("The lead is revising the charter from what you sent it (your answers, a request or a difference to fix): confirm the "
+            "revision it writes next")
+
+
+def blocked(workspace, note, record):
+    """What the confirmation of the lead's charter waits on before the second reading's own (readings.check): a question to answer
+    or one left to the lead, another blocking finding to settle on the Charter tab; None when nothing does. Assumptions do not
+    wait: confirming accepts them."""
+    from optimization_framework.problem_charter import charter as mechanics
+    rows = [row for row in mechanics.findings(record["charter"], workspace.charters.registry) if row["severity"] == "blocking" and not row.get("waived")]
+    left = {q["id"] for q in record["charter"]["questions"] if q.get("sent")}
+    questions = [row for row in rows if row["code"] == "question.open"]
+    if [row for row in questions if row["key"].split(":", 1)[1] not in left]:
+        return ("Answer the lead's questions on the Charter tab (#note/charter) first, or leave them to the lead: "
+                + "; ".join(row["message"] for row in questions)[:1500])
+    if questions:
+        return "The lead is deciding the questions you left to it; confirm the revision it writes next"
+    settled = [row for row in rows if row["code"] != "assumption.unaccepted"]
+    if settled:
+        return "Settle these on the Charter tab (#note/charter) before confirming: " + "; ".join(row["message"] for row in settled)[:1500]
+    return None
+
+
+def revising(workspace, note, record):
+    """The lead's turn on what the researcher sent it about the charter (their answers, a request, a difference to fix: tell_lead),
+    started after the lead's last write and still queued or running; None otherwise. What they confirm is the revision it writes;
+    a turn that ends without writing leaves the last one to confirm."""
+    from optimization_framework.agents.controller import ACTIVE
+    from balsamic.threads.service import lead_agent
+    lead = lead_agent(workspace, note["campaign_id"])
+    if lead is None:
+        return None
+    revision = (note.get("quick") or {}).get("revision")
+    written = next((row["at"] for row in reversed(record.get("history", [])) if row.get("revision") == revision), "")
+    return next((run for run in workspace.store.list_agent_runs(lead["id"]) if run["status"] in ACTIVE
+                 and (run.get("origin") or {}).get("charter_id") == record["id"] and run["created_at"] > written), None)
+
+
+def confirmation(workspace, note):
+    """The quick note's confirmation as the view shows it: the charter revision one click confirms, whether it is confirmed, and
+    why the click would be refused now (None when it would go through), with confirm()'s own words."""
+    record = workspace.charters.get(note["charter_id"])
+    if record.get("status") == "confirmed":
+        return {"revision": record["revision"], "confirmed": True, "why": None}
+    why = blocked(workspace, note, record)
+    if why is None:
+        try:
+            readings.check(workspace, note)
+        except ValueError as error:
+            why = str(error)
+    if why is None and revising(workspace, note, record):
+        why = REVISING
+    return {"revision": record["revision"], "confirmed": False, "why": why}
+
+
+# The confirm card (roadmap P5): a message of the conversation that the page renders from the note and the charter as they are.
+CARD = "charter_confirm"
+
+
+def card(workspace, note, record, *, thread_id=None, run_id=None):
+    """Put the lead's charter at this revision before the researcher as a card in the conversation, which shows it in plain words
+    with its questions, the assumptions confirming accepts and the second reading's differences, and confirms it in one click
+    (problem_note.confirm). One card per turn of the lead (run_id), following that turn's last write that was read; a later
+    turn's write has a card of its own, and an older card says it is out of date. In the thread the lead wrote in, else the
+    charter's, else the main thread. Returns the card's message id."""
+    from balsamic.threads.service import main_thread_id
+    thread = thread_id or (record.get("source") or {}).get("thread_id") or main_thread_id(note["campaign_id"])
+    identity = "message_charter_confirm_" + content_hash([note["id"], run_id or f"r{record['revision']}"])[:20]
+    with workspace.lock:
+        try:
+            previous = workspace.store.get(identity, "message")
+        except KeyError:
+            previous = None
+        workspace.store.put("message", {"id": identity, "campaign_id": note["campaign_id"], "role": "assistant", "origin": "lab_event", "kind": CARD,
+                                        "note_id": note["id"], "charter_id": record["id"], "charter_revision": record["revision"], "thread_id": thread,
+                                        "run_id": run_id, "created_at": previous["created_at"] if previous else now(),
+                                        "content": f"The lead wrote the charter from your words (revision {record['revision']}): confirm it here or on the Charter tab"},
+                            "message.updated" if previous else "message.created")
+    return identity
 
 
 def tell_lead(workspace, record, text):

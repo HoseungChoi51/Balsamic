@@ -83,9 +83,11 @@ def register(workspace=None):
                 f"A second reading of the researcher's words found {len(found)} difference{'s' if len(found) != 1 else ''} with your charter (reading.mismatches). "
                 "Where your charter is wrong, fix it in one more write, which is read again; in your reply, name each difference you leave, with "
                 "their words: they settle it before confirming. " if found else "A second reading of the researcher's words found no difference. ")
+        card = (" The researcher sees this revision as a card in the conversation, which confirms it in one click; do not repeat the charter "
+                "field by field." if written.get("card") else "")
         return {**written, "next": read + "Resolve each blocking finding from the researcher's words (write again; no check needed); what they leave open is a "
                                    "question (at most two, once) or an assumption with a note. Then reply: what the charter states, one line per assumption, "
-                                   "and the link for the researcher to confirm it." + (" If your next write still leaves a blocking finding, the quick path ends." if last else "")}
+                                   "and the link for the researcher to confirm it." + card + (" If your next write still leaves a blocking finding, the quick path ends." if last else "")}
 
     def charter_read(tools, agent, run, args, identity):
         from balsamic.notes.service import note_id

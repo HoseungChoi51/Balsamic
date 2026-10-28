@@ -86,8 +86,8 @@ def definition(workspace, campaign):
             asked = [row["path"] for row in found if (row.get("settled") or {}).get("how") == "ask_lead"]
             return {"ready": False, "missing": [], "step": {**base, "kind": "confirm", "title": "Confirm the charter", "page": "#note/charter",
                     **({"differences": left} if left else {}), **({"asked": asked} if asked else {}),
-                    "text": "The lead wrote the charter from your words (the quick path), and the note is read from it. Review it on the Charter "
-                            "page and confirm it: confirming accepts the assumptions it lists and installs its tasks."
+                    "text": "The lead wrote the charter from your words (the quick path), and the note is read from it. Review it on the card in "
+                            "the conversation or on the Charter page and confirm it: confirming accepts the assumptions it lists and installs its tasks."
                             + (f" A second reading found {len(left)} difference{'s' if len(left) != 1 else ''} between your words and the charter: "
                                "settle each first (the charter is right, or the lead fixes it)." if left else "")
                             + (" The lead is fixing what you asked; confirm the revision it writes next." if asked else "")}}

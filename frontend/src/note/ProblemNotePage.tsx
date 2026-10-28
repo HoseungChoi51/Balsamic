@@ -1,4 +1,4 @@
-/** The problem note: sections with math, annotations by tier (Define, Explain, Challenge, Visualize), revisions, Adopt, the charter it becomes. */
+/** The problem note: sections with math, annotations by tier (Define, Explain, Challenge, Visualize), revisions, Adopt, the charter it becomes. On the quick path (roadmap track P): the sections read from the lead's charter, the quick path's checks and the switch to the full path. */
 import { useEffect, useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import type { PageProps } from '../shell/StagePanel';
@@ -14,15 +14,18 @@ import { track } from '../telemetry/events';
 import { useSelection } from '../stores/selection';
 import { SKIP_REQUEST } from '../chat/slash';
 import { SkipReason, SkipRow, type Skips } from './Skips';
+import { QuickPathPanel, type Confirmation, type Quick } from './QuickPath';
+import { plainWhy } from './Differences';
 
 interface SectionData { text: string; items: string[]; latex: string[] }
 interface Revision { id: string; revision: number; sections: Record<string, SectionData>; glossary: { term: string; definition: string }[]; title: string; author: string; reason: string; created_at: string }
 interface Annotation { id: string; anchor: { revision: number; section: string; item_index?: number | null; start: number; end: number; quote: string }; kind: string; question: string; tier: string;
   escalated_from_tier?: string | null; escalation_reason?: string; answer: { text: string; answered_by: string; cost_usd?: number | null } | null; proposed_edit: Record<string, unknown> | null; visual_id?: string | null; status: string; created_at: string }
 // path: quick once the lead wrote the charter itself and the note is read from it (roadmap P2), full once the note is written or adopted.
-interface NoteView { note: { id: string; title: string; current_revision: number; adopted_revision: number | null; charter_id: string | null; import_id: string | null; status: string; path?: 'quick' | 'full' | null }; revision: Revision | null;
+// quick: the quick path's criteria, second reading and, once it ended, why (P3, P4); confirmation: what the one click waits on (P5).
+interface NoteView { note: { id: string; title: string; current_revision: number; adopted_revision: number | null; charter_id: string | null; import_id: string | null; status: string; path?: 'quick' | 'full' | null; quick?: Quick | null }; revision: Revision | null;
   revisions: { id: string; revision: number; author: string; reason: string; created_at: string }[]; annotations: Annotation[]; charter: { import_id?: string; status?: string; error?: string | null; charter_id?: string | null; reply?: string | null; model?: { provider?: string | null; model?: string | null; effort?: string | null } | null; tier?: string | null; usage?: { calls?: number; cost_usd?: number } | null; charter?: Record<string, unknown> } | null; sections: string[]; titles: Record<string, string>; skips: Skips;
-  writing?: { run_id: string; status: string } | null; installed?: { problem_id: string; name: string }[] }
+  writing?: { run_id: string; status: string } | null; installed?: { problem_id: string; name: string }[]; confirmation?: Confirmation | null }
 
 const KINDS = [['define', 'Define'], ['explain', 'Explain'], ['challenge', 'Challenge'], ['visualize', 'Visualize']] as const;
 // What the lead is asked when the campaign runs on an installed problem: the package states the sections, not the researcher.
@@ -39,7 +42,9 @@ function guide(data: NoteView, missing: string[]): { state: string; title: strin
   if (data.writing) return { state: 'writing', title: 'The lead is writing the note' + (installed ? ' from the installed problem.' : '.'), text: 'Nothing is needed from you yet: the lead says in the chat when the note is ready, or what it needs from you.' };
   if (data.note.path === 'quick') return (data.charter?.charter as { status?: string } | undefined)?.status === 'confirmed'
     ? { state: 'done', title: 'The lead wrote the charter from your words, and you confirmed it.', text: 'This note is read from the charter: a change is made to the charter, on the Charter tab.' }
-    : { state: 'quick-confirm', title: 'The lead wrote the charter from your words (the quick path); this note is read from it.', text: 'Confirm the charter on the Charter tab: confirming accepts the assumptions it lists and installs its tasks. Nothing is adopted on this path.' };
+    : { state: 'quick-confirm', title: 'The lead wrote the charter from your words (the quick path); this note is read from it.', text: data.confirmation?.why
+        ? `Confirm it on the card in the conversation or on the Charter tab once this is settled: ${plainWhy(data.confirmation.why).replace(/\.$/, '')}.`
+        : 'Confirm it on the card in the conversation or on the Charter tab: confirming accepts the assumptions it lists and installs its tasks. Nothing is adopted on this path.' };
   const questions = data.revision?.sections.open_questions?.items?.length || 0;
   if (data.note.status === 'drafting') {
     if (missing.length) return { state: 'incomplete', title: `Not complete: ${missing.length} of ${data.sections.length} sections still to write.`, text: write };
@@ -171,6 +176,10 @@ export default function ProblemNotePage({ campaignId, route, threadId }: PagePro
           <div>{next.state === 'confirm' || next.state === 'quick-confirm' ? <><a href={formatHash({ page: 'note', sub: 'charter' }, route.thread)}>Open the Charter tab</a>. {next.text}</> : next.text}</div>
           {data.note.status === 'drafting' && next.state !== 'writing' && !quick ? <div className="faint">{HOW}</div> : null}
         </div></div> : null}
+        {quick && !shownRevision ? <QuickPathPanel campaignId={campaignId} note={data.note} threadId={threadId} /> : null}
+        {!quick && data.note.quick?.ended && data.note.status !== 'confirmed' && !shownRevision ? <div className="callout attention" role="note" data-testid="quick-ended"><span className="callout-mark" aria-hidden="true">!</span>
+          <div className="grow small"><strong>The quick path ended: {data.note.quick.ended}.</strong>
+            <div>{data.note.quick.ended_by === 'researcher' ? 'You chose the full path. ' : ''}The note was written from the lead's charter: read it, change what it gets wrong and adopt it; the formulator then revises that charter for you to confirm.</div></div></div> : null}
         {!revision ? <Empty>No note yet. Describe the problem to the lead in the conversation, or type /note.</Empty> : <>
         {(() => {
           const written = (name: string) => { const s = revision.sections[name]; return !!(s?.text?.trim() || s?.items?.length || s?.latex?.length); };
@@ -293,6 +302,8 @@ function CharterTab({ data, campaignId, version, onChanged }: { data: NoteView; 
   const charterId = data.charter?.charter_id || data.note.charter_id;
   if (data.note.status === 'drafting' && !charterId) return <Empty>Adopt the note first: the formulator writes the charter from it, and you confirm the charter here.</Empty>;
   if (!charterId) return <div className="card"><Pill tone="agent">formulator {data.charter?.status || 'starting'}</Pill> {data.charter?.error ? <span className="pill bad">{data.charter.error}</span> : <span className="small muted">The formulator is writing the charter from the adopted note.</span>}</div>;
-  return <CharterPanel charterId={charterId} campaignId={campaignId} version={version} onChanged={onChanged} formulator={data.charter?.status} quickNote={data.note.path === 'quick' ? data.note.id : undefined}
+  const quick = data.note.path === 'quick';
+  return <CharterPanel charterId={charterId} campaignId={campaignId} version={version} onChanged={onChanged} formulator={data.charter?.status} quickNote={quick ? data.note.id : undefined}
+    reading={quick && data.note.quick?.reading?.revision === data.note.quick?.revision ? data.note.quick?.reading : null} waits={quick ? data.confirmation?.why : null}
     formulatorModel={data.charter?.model?.model ? { name: `${data.charter.model.provider}/${data.charter.model.model}${data.charter.model.effort ? ` · ${data.charter.model.effort}` : ''}`, tier: data.charter.tier || null, calls: data.charter.usage?.calls ?? null } : null} />;
 }
