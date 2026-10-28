@@ -644,6 +644,24 @@ def check_records_at_most(ctx, arg):
     return count <= arg["count"], f"{count} {arg['kind']}"
 
 
+def check_page_agents(ctx, arg):
+    """The campaign's page_agents (T4): standing, or lead when the moderator and the operator are folded into the lead."""
+    mode = (ctx.workspace.pi.configuration(ctx.campaign_id) or {}).get("page_agents") or "standing"
+    return mode == arg, f"page_agents {mode}"
+
+
+def check_all_of(ctx, arg):
+    """A list of checks; passes when every one passes."""
+    details = []
+    for check in arg:
+        (name, value), = check.items()
+        passed, detail = CHECKS[name](ctx, value)
+        if not passed:
+            return False, f"{name}: {detail}"
+        details.append(f"{name}: {detail}")
+    return True, "; ".join(details)
+
+
 def check_any_of(ctx, arg):
     """A list of checks; passes when one of them passes."""
     details = []
@@ -812,6 +830,26 @@ def review_roles(ctx):
     return roles
 
 
+def page_agents(ctx):
+    """T4's comparison: the campaign's page_agents, the lead's hand-offs to page agents (page_agent_message), the turns of the
+    two foldable page agents, the largest context one lead model call read (input and cache-read tokens), and J3's partnership
+    numbers over the scenario's requests (the researcher's actions, the seconds from each request to its report)."""
+    from optimization_framework.agents.models import FOLDABLE
+    from balsamic.monitor.partnership import requests
+    agents = ctx.agents()
+    rows = requests(ctx.workspace, ctx.campaign_id)
+    timed = [row["seconds_to_report"] for row in rows if row["seconds_to_report"] is not None]
+    with ctx.store.connection() as db:
+        peak = db.execute("SELECT COALESCE(MAX(input + cache_read), 0) FROM llm_usage WHERE campaign_id=? AND agent_id=?",
+                          (ctx.campaign_id, ctx.lead_id or "")).fetchone()[0]
+    return {"mode": (ctx.workspace.pi.configuration(ctx.campaign_id) or {}).get("page_agents") or "standing",
+            "hand_offs": sum(r.get("tool") == "page_agent_message" and r.get("agent_id") == ctx.lead_id for r in ctx.receipts()),
+            "page_agent_turns": sum((agents.get(r["agent_id"]) or {}).get("role") in FOLDABLE for r in ctx.runs()),
+            "lead_peak_context_tokens": peak, "requests": len(rows),
+            "researcher_actions": sum(row["researcher_actions"]["total"] for row in rows),
+            "seconds_to_report": round(statistics.fmean(timed), 1) if timed else 0.0}
+
+
 def metrics(ctx):
     agents = ctx.agents()
     runs = ctx.runs()
@@ -829,7 +867,7 @@ def metrics(ctx):
             "unverified_numbers": len(ctx.unverified_numbers()),
             "refusals": len(_refusals(ctx)), "max_tool_result_bytes": max([serialized_bytes(r.get("result")) for r in ctx.receipts()] or [0]),
             **ctx.usage(), "seconds": round(time.monotonic() - ctx.started, 1), "go_ahead_to_results_s": go_ahead_to_results(ctx),
-            "review_roles": review_roles(ctx)}
+            "review_roles": review_roles(ctx), "page_agents": page_agents(ctx)}
 
 
 def transcript(ctx, result):
@@ -957,6 +995,11 @@ def summarize(scenario, repeats):
                     total[key] = round(total.get(key, 0) + value, 6)
     if roles:
         mean["review_roles"] = roles
+    folded = [r["metrics"]["page_agents"] for r in repeats if r["metrics"].get("page_agents")]
+    if folded:   # T4's comparison, the mean over repeats
+        mean["page_agents"] = {"mode": folded[0]["mode"], **{key: round(statistics.fmean(row[key] for row in folded), 1)
+                                                            for key in ("hand_offs", "page_agent_turns", "lead_peak_context_tokens",
+                                                                        "requests", "researcher_actions", "seconds_to_report")}}
     status = "pass" if passed else "xfail" if scenario.get("known_failure") else "fail"
     return {"id": scenario["id"], "source": scenario.get("source"), "scoring": scoring, "known_failure": scenario.get("known_failure"),
             "passes": passes, "repeats": len(repeats), "passed": passed, "status": status, "metrics_mean": mean, "runs": repeats}
@@ -1004,6 +1047,15 @@ def summary_markdown(results, baselines=None):
         lines += [f"| {row['id']} | {role} | {', '.join(item['modes'])} | {item['valid']:g}/{item['agents']:g} | ${item['cost_usd']:.4f} | "
                   f"{item['seconds']:g} | {item['input_tokens']:g} | {item['prompt_bytes']:g} |"
                   for row in reviewed for role, item in sorted(row["metrics_mean"]["review_roles"].items())]
+    paged = [row for row in results["scenarios"] if row["metrics_mean"].get("page_agents")]
+    if paged:
+        lines += ["", f"## Page agents (page_agents: {results.get('page_agents') or 'standing'})", "",
+                  "| Scenario | Hand-offs | Moderator and operator turns | Lead turns | Lead's largest context (tokens) | Researcher actions | "
+                  "Seconds to report | Seconds | Cost |", "|---|---|---|---|---|---|---|---|---|"]
+        lines += [f"| {row['id']} | {m['page_agents']['hand_offs']:g} | {m['page_agents']['page_agent_turns']:g} | {m.get('lead_turns', 0):g} | "
+                  f"{m['page_agents']['lead_peak_context_tokens']:g} | {m['page_agents']['researcher_actions']:g} | "
+                  f"{m['page_agents']['seconds_to_report']:g} | {m.get('seconds', 0):g} | ${m.get('cost_usd', 0):.4f} |"
+                  for row in paged for m in [row["metrics_mean"]]]
     unsupported = results.get("unsupported") or []
     if unsupported:
         lines += ["", f"## Not run on {results['preset']}", ""] + [f"- {row['id']}: {row['reason']}" for row in unsupported]
@@ -1064,6 +1116,8 @@ def main(argv=None):
                         help="also write the summary to evals/lead/baselines/<commit>-<provider>-<model>[-<preset>].json (or the path given)")
     parser.add_argument("--one-shot-roles", help="GRATING_ONE_SHOT_ROLES for this run: the roles that answer in one call (T3's arms: "
                         "'proposal_reviewer' for sessions, the default for one-shot specialists, 'proposal_reviewer,analyst' for one merged analyst)")
+    parser.add_argument("--page-agents", choices=["standing", "lead"], help="GRATING_PAGE_AGENTS for this run (T4's two arms): "
+                        "standing keeps the moderator's and the operator's sessions; lead folds their work into the lead")
     parser.add_argument("--compare", type=Path, nargs="+", help="baseline files to compare with in summary.md, a column each")
     args = parser.parse_args(argv)
     scenarios = load_scenarios(EVALS / "scenarios", args.scenarios)
@@ -1075,13 +1129,15 @@ def main(argv=None):
     model = parse_model(args.model)
     if args.one_shot_roles is not None:
         os.environ["GRATING_ONE_SHOT_ROLES"] = args.one_shot_roles
+    if args.page_agents is not None:
+        os.environ["GRATING_PAGE_AGENTS"] = args.page_agents
     scale = args.time_scale if args.time_scale is not None else FAKE_TIME_SCALE if args.fake else 1.0
     fakes = load_module(EVALS / "fakes.py", "lead_eval_fakes").FAKES if args.fake else None
     source = args.source.resolve()
     profile = args.profile or source / "agent-harness" / "profiles" / "dev"
     results = {"mode": "fake" if args.fake else "real", "commit": git_commit(source), "source": str(source), "model": args.model,
                "model_id": None if args.fake else args.model or profile_model(profile), "preset": args.preset,
-               "one_shot_roles": os.environ.get("GRATING_ONE_SHOT_ROLES"),
+               "one_shot_roles": os.environ.get("GRATING_ONE_SHOT_ROLES"), "page_agents": os.environ.get("GRATING_PAGE_AGENTS") or "standing",
                "started_at": time.strftime("%Y-%m-%dT%H:%M:%S%z"), "suite_cap": args.suite_cap, "scenarios": [], "skipped": [], "unsupported": []}
     if args.preset:
         for scenario in [s for s in scenarios if args.preset not in supported_presets(s)]:

@@ -1,3 +1,4 @@
+import os
 from typing import Literal
 from pydantic import Field, model_validator
 from optimization_framework.contracts.base import Contract
@@ -13,6 +14,24 @@ LEAD = "lead"
 PAGE_AGENTS = {"discussion_moderator": "hypotheses", "experiment_operator": "experiments", "implementation_lead": "hypotheses/implementations",
                "resource_planner": "monitor/resources"}
 STANDING = {LEAD, *PAGE_AGENTS}
+# The page agents a campaign may fold into the lead (roadmap T4, an experiment): under page_agents "lead" the lead runs their
+# pages' operations itself, reads their instructions as a procedure, and answers the researcher on their pages; under "standing"
+# (the default) they keep their own sessions. The implementation lead and the resource planner always keep theirs.
+FOLDABLE = ("discussion_moderator", "experiment_operator")
+PAGE_AGENT_MODES = ("standing", "lead")
+
+
+def page_agents_mode(value=None):
+    """A campaign's page_agents: the value given, else GRATING_PAGE_AGENTS, else standing; anything else is refused."""
+    mode = value or os.environ.get("GRATING_PAGE_AGENTS") or "standing"
+    if mode not in PAGE_AGENT_MODES:
+        raise ValueError(f"page_agents is {mode!r}: it takes {' or '.join(PAGE_AGENT_MODES)}")
+    return mode
+
+
+def folded(config):
+    """The page agents the lead answers for in the campaign of this agent_campaign record: none unless its page_agents is lead."""
+    return frozenset(FOLDABLE) if (config or {}).get("page_agents") == "lead" else frozenset()
 # The assistants the moderator asks for views and verdicts in a review round.
 DISCUSSION_ROLES = ("literature_specialist", "methodology_specialist", "cross_domain_explorer", "skeptical_domain_analyst",
                     "empirical_assessor", "proposal_reviewer", "results_analyst")
@@ -61,19 +80,26 @@ class Activate(Contract):
     delegated: bool = True
     # Default model for the campaign's agents; it also fixes the campaign's model family.
     model: ModelChoice | None = None
+    # Whether the moderator and the operator keep their sessions or the lead does their work (T4); default GRATING_PAGE_AGENTS.
+    page_agents: Literal["standing", "lead"] | None = None
 
 
 class Configure(Contract):
-    """Dev mode: change the model or thinking level of one agent, or the campaign default.
+    """Dev mode: change the model or thinking level of one agent, or the campaign default; or the campaign's page_agents (T4).
 
     follow_tier releases an agent pinned to its own model back to its role's tier.
     """
     agent_id: str | None = None
     model: ModelChoice | None = None
     follow_tier: bool = False
+    page_agents: Literal["standing", "lead"] | None = None
 
     @model_validator(mode="after")
     def one_change(self):
+        if self.page_agents is not None:
+            if self.model is not None or self.follow_tier or self.agent_id is not None:
+                raise ValueError("Change page_agents on its own, for the whole campaign")
+            return self
         if (self.model is None) != self.follow_tier:
             raise ValueError("Choose a model, or ask the agent to follow its tier")
         return self

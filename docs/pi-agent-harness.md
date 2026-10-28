@@ -225,6 +225,18 @@ lead's. They are not in the lead's `campaign_command` enum, and a call that name
 proposals, findings, validations, studies and its workspace operations, and reads `experiment_progress` itself: a status
 question is a read, not work for the operator. The researcher's own commands are not affected.
 
+**Folding two page agents into the lead (roadmap T4, an experiment).** A campaign's `page_agents` (on its `agent_campaign`
+record) is `standing` (the default: everything above) or `lead`. It is set when the team starts (`agent.activate`'s
+`page_agents`, else `GRATING_PAGE_AGENTS`, else `standing`) and changed in the dev profile with `agent.configure`
+(`page_agents` alone) while no request is open. Under `lead`, the discussion moderator and the experiment operator get no
+sessions: the lead's commands include theirs (and their pack commands), it gets `config_suggest` and `review_synthesis`,
+its contract names the procedures `review-rounds` and `running-experiments` (`balsamic/procedures`, served only under `lead`,
+`metadata.folds`), its state block carries the experiment rules, and `page_agent_message` names only the implementation
+lead and the resource planner. A message on Hypotheses or Experiments goes to the lead as a request rooted at that page's
+desk (`desk_<role>`), and its replies are shown on the page, whose desk says the lead answers (`answered_by` in
+`/desks/<role>`). A round the lead runs with reviewers completes only after its `review_synthesis`, as the moderator's does.
+The implementation lead and the resource planner always keep their sessions. Which setting is kept is ADR 0010's comparison.
+
 A page agent can ask the lead (`lead_ask`): the question starts a lead turn whatever the researcher's request,
 the lead's reply goes back to the agent that asked, and that turn neither opens nor closes the researcher's
 request. The chat shows both, marked as an exchange between agents.
