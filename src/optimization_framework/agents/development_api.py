@@ -63,6 +63,23 @@ def install(app, workspace):
         return Installer(workspace, development, ROOT).request(campaign_id, identity, submission_id, request_key=body.request_key,
             confirm_changes=body.confirm_changes, accept_not_ready=body.accept_not_ready)
 
+    # The lab's code libraries, as the Packages page shows them (roadmap L2): the same in every campaign.
+    @app.get("/api/libraries")
+    def libraries():
+        from .development_runtime import ROOT
+        from .library_install import import_lab
+        from .library_repository import catalog
+        import_lab(workspace, ROOT)
+        return catalog(workspace.store)
+
+    @app.get("/api/libraries/{name}")
+    def library(name: str):
+        from .library_repository import detail
+        try:
+            return detail(workspace.store, name)
+        except KeyError:
+            raise HTTPException(404, f"No library {name}") from None
+
     # Bring your own session (roadmap H3): the researcher's token, and the routes balsamic-workspace takes it to.
     from .own_session import routes as own_session_routes
     own_session_routes(app, workspace)

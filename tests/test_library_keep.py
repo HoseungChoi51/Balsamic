@@ -6,6 +6,7 @@ import json
 
 import pytest
 
+from optimization_framework.agents import library_repository as repositories
 from optimization_framework.agents.library_install import Installer, kept_text
 from optimization_framework.agents.library_usage import used_methods, used_problems
 from optimization_framework.contracts.requests import CampaignInput, TaskInput
@@ -112,17 +113,18 @@ def test_an_unused_method_may_go_and_every_version_is_archived(lab, other):
     assert record["methods_kept"] == ["bakery_dp", "bakery_greedy"] and record["methods_removed"] == ["bakery_old"]
     assert record["methods_added"] == ["bakery_new"]
     assert kept_text(record) == "Of the version it replaced, it keeps 2 methods and removes bakery_old, which no campaign uses"
-    archived = workspace.directory / "library_archive/bakery"
-    # The version it replaced, from the lab's copy, archived before it was replaced.
-    old = json.loads((archived / "0.1.0/version.json").read_text())
-    assert old["package"] == "bakery-search" and old["methods"] == ["bakery_dp", "bakery_greedy", "bakery_old"]
-    assert (archived / "0.1.0/files/src/bakery/plugin.py").read_text() == "class Plugin: 'version 0.1.0'\n"
-    # The new version, with where it came from and what it has.
-    new = json.loads((archived / "0.2.0/version.json").read_text())
-    assert new["install_id"] == record["id"] and new["commit"] == submission["commit"] and new["campaign_id"] == cid
-    assert new["methods"] == ["bakery_dp", "bakery_greedy", "bakery_new"]
-    assert (archived / "0.2.0/files/src/bakery/plugin.py").read_text() == "class Plugin: pass\n"
-    assert record["archive"] == "library_archive/bakery/0.2.0"
+    # Both versions are kept in the library's repository (L2 replaced L1's folders): the replaced one, from the lab's copy,
+    # imported before it was replaced, and the new one, with where it came from and what it has.
+    store = repositories.path(workspace.directory, "bakery")
+    old, new = repositories.versions(workspace.store, "bakery")
+    assert (old["version"], old["source"]["imported"]) == ("0.1.0", "the lab's copy")
+    assert old["methods"] == ["bakery_dp", "bakery_greedy", "bakery_old"]
+    assert repositories.files_at(store, "v0.1.0", "bakery")["libraries/bakery/src/bakery/plugin.py"] == b"class Plugin: 'version 0.1.0'\n"
+    assert new["source"]["install_id"] == record["id"] and new["source"]["commit"] == submission["commit"] and new["source"]["campaign_id"] == cid
+    assert new["methods"] == ["bakery_dp", "bakery_greedy", "bakery_new"] and new["parent_version"] == "0.1.0"
+    assert new["methods_added"] == ["bakery_new"] and new["methods_removed"] == ["bakery_old"]
+    assert repositories.files_at(store, "v0.2.0", "bakery")["libraries/bakery/src/bakery/plugin.py"] == b"class Plugin: pass\n"
+    assert record["library_version_id"] == new["id"] and record["tag"] == "v0.2.0"
 
 
 def test_a_first_install_keeps_nothing_and_says_nothing_of_it(lab):

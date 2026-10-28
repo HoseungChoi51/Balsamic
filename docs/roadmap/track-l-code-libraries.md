@@ -122,8 +122,6 @@ a library's history as one line of versions or lets a campaign name the version 
 4. `GET /api/libraries` and `GET /api/libraries/<name>` list each library with its versions, its methods and problems,
    and which campaigns use each method (runs and bound proposals). The Packages page (a new page in the rail) shows them;
    it is a page of the lab, the same in every campaign.
-5. The researcher's own coding agent (H3) clones the library from this repository (the workspace's own-session URL
-   names it).
 
 **Tests**
 - Two installs of a library make two tagged commits in its repository, each a `library_version` with its parent; the lab's
@@ -153,6 +151,8 @@ reviewed against that.
    behaviour is a new method name; a changed scoring function is a new problem id; raise the version.
 3. The delivery is reviewed as a change against the base version: the diff, and the install, name the base.
 4. The workspace card says "Builds on package <name> <version> (<n> methods)".
+5. The researcher's own coding agent (H3) starts from the same base: `balsamic-workspace clone` gives the base version's
+   files, as the box started from them. (Moved here from L2, which has no base to give.)
 
 **Tests**
 - A second workspace on a problem whose library is installed starts from its latest version, the ticket lists its methods

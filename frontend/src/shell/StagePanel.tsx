@@ -24,7 +24,7 @@ const pages = {
   overview: lazyPage(() => import('../overview/OverviewPage')),
   note: lazyPage(() => import('../note/ProblemNotePage')), hypotheses: lazyPage(() => import('../hypotheses/HypothesesPage')), experiments: lazyPage(() => import('../experiments/ExperimentsPage')),
   evolution: lazyPage(() => import('../evolution/EvolutionPage')), files: lazyPage(() => import('../files/FilesPage')), inbox: lazyPage(() => import('../inbox/InboxPage')),
-  monitor: lazyPage(() => import('../monitor/MonitorPage')), library: lazyPage(() => import('../library/LibraryPage')), branches: lazyPage(() => import('../branches/BranchesPage')),
+  monitor: lazyPage(() => import('../monitor/MonitorPage')), library: lazyPage(() => import('../library/LibraryPage')), packages: lazyPage(() => import('../packages/PackagesPage')), branches: lazyPage(() => import('../branches/BranchesPage')),
   new: lazyPage(() => import('../setup/NewCampaign')),
 };
 

@@ -17,8 +17,12 @@ when, what (package, version, commit, workspace, submission), the methods and pr
 
 A new version keeps what campaigns use (roadmap L1): a method or problem the installed version provides that the new one drops,
 or a method it keeps that fails validation outside the box, refuses the install when any campaign of the lab uses it
-(library_usage); unused ones may go and are recorded as removed. Every installed version is archived on the host with its
-files (archive()), and the version an install replaces is archived first when it is not yet.
+(library_usage); unused ones may go and are recorded as removed.
+
+Each library has its own Git repository on the host (roadmap L2, agents/library_repository.py). An install commits the version's
+files onto it and writes the lab's copy from that commit, checked against what was submitted; once the version is in, the
+commit is tagged v<version> and recorded as a `library_version`. A library the lab had before (L1's archive, the lab's own copy)
+is imported as its first versions the first time it is installed again.
 """
 from __future__ import annotations
 
@@ -30,13 +34,14 @@ import shutil
 import subprocess
 import threading
 import tomllib
-import uuid
 from pathlib import Path, PurePosixPath
 
 from importlib import metadata
 
 from optimization_framework.contracts.base import content_hash
 from optimization_framework.storage.sqlite import atomic_json, now
+
+from . import library_repository as repositories
 
 GROUP = "optimization_framework.optimizers"
 PROBLEMS = "optimization_framework.problems"
@@ -336,12 +341,19 @@ class Installer:
                 self._update(identity, status="installing")
                 before = {method["id"] for method in self.plugins.methods()}
                 problems_before = set(self.problems.ids())
-                for path, content in plan["files"].items():
+                if target.exists():
+                    self._import_replaced(target, plan["package"])
+                # The lab's copy is the version's commit in the library's repository: written from it, checked against the submission.
+                repository, made = repositories.commit(self.workspace.directory, name, plan["files"], commit_message(plan, identity))
+                repositories.check_tag(repository, made, plan["version"])
+                exported = repositories.files_at(repository, made, name)
+                if exported != plan["files"]:
+                    raise ValueError("The library's repository does not hold what was submitted")
+                for path, content in exported.items():
                     destination = staging / Path(path).relative_to(f"libraries/{name}")
                     destination.parent.mkdir(parents=True, exist_ok=True)
                     destination.write_bytes(content)
                 if target.exists():
-                    self._archive_replaced(target, plan["package"])
                     target.rename(backup)
                 staging.rename(target)
                 created = True
@@ -367,13 +379,13 @@ class Installer:
                 if backup.exists():
                     shutil.rmtree(backup)
                 kept = self.store.get(identity, "library_install")
-                stored = archive(self.workspace.directory, name, plan["version"], plan["files"], {"package": plan["package"],
-                    "version": plan["version"], "install_id": identity, "campaign_id": plan["record"]["campaign_id"],
-                    "workspace_id": plan["record"]["id"], "submission_id": plan["submission"]["id"], "commit": plan["submission"]["commit"],
-                    "methods": sorted({*(kept.get("methods_kept") or []), *(after - before - refused)}),
-                    "problems": sorted(plan["problem_entry_points"]), "archived_at": now()})
+                tagged = repositories.publish(repository, made, plan["version"])
+                version = repositories.record(self.store, name, plan["package"], plan["version"], tagged,
+                    source={"install_id": identity, "campaign_id": plan["record"]["campaign_id"], "workspace_id": plan["record"]["id"],
+                            "submission_id": plan["submission"]["id"], "commit": plan["submission"]["commit"], "actor": kept["actor"]},
+                    methods=sorted({*(kept.get("methods_kept") or []), *(after - before - refused)}), problems=sorted(plan["problem_entry_points"]))
                 record = self._update(identity, "library.installed", status="installed", finished_at=now(), changes=changes,
-                                      archive=stored.relative_to(self.workspace.directory).as_posix(),
+                                      library_version_id=version["id"], tag=version["tag"], library_commit=tagged,
                                       methods_added=sorted(after - before - refused), missing_methods=sorted(set(reported) - after - refused),
                                       problems_added=sorted(problems_after - problems_before),
                                       missing_problems=sorted(set(plan["problem_entry_points"]) - problems_after),
@@ -437,17 +449,16 @@ class Installer:
                              "version may add methods and problems but not remove one a campaign uses: keep it unchanged, give a method whose "
                              f"behaviour changes a new name (such as {example}_v2), and make a changed scoring function a new problem id.")
 
-    def _archive_replaced(self, target, package):
-        """Archive the version the install replaces when it is not archived yet (one installed before L1, or the lab's own)."""
+    def _import_replaced(self, target, package):
+        """A library the lab had before its repository (L1's archive, the lab's own copy) becomes its first versions, once."""
         try:
             current = tomllib.loads((target / "pyproject.toml").read_text()).get("project") or {}
-            files = lab_files(target, self.root)
             methods, problems = self.provided(package)
-            archive(self.workspace.directory, target.name, str(current.get("version") or "unknown"), files, {"package": current.get("name"),
-                "version": str(current.get("version") or ""), "source": "the lab's copy before it was replaced", "methods": sorted(methods),
-                "problems": sorted(problems), "archived_at": now()})
-        except (OSError, ValueError, tomllib.TOMLDecodeError) as exc:   # archiving never stops an install
-            logging.getLogger(__name__).warning("Archiving %s before replacing it failed: %s", target, exc)
+            repositories.imported(self.workspace.directory, self.store, target.name, {"package": current.get("name"),
+                "version": str(current.get("version") or ""), "files": lab_files(target, self.root), "methods": sorted(methods),
+                "problems": sorted(problems)})
+        except (OSError, ValueError, tomllib.TOMLDecodeError) as exc:   # importing the history never stops an install
+            logging.getLogger(__name__).warning("Importing %s into its repository failed: %s", target, exc)
 
     def _restore(self, saved, target, backup, created):
         """pyproject.toml and uv.lock as they were, and the library directory as it was (the previous copy, or none)."""
@@ -486,28 +497,34 @@ def lab_files(target, root):
             and "__pycache__" not in path.parts and not any(part.endswith(".egg-info") for part in path.parts)}
 
 
-def archive(directory, name, version, files, meta):
-    """Archive one version of a library on the host, once: <directory>/library_archive/<name>/<version>/ holds its files (as
-    libraries/<name>/ had them) and version.json (meta). The directory of an archived version; an existing one is kept."""
-    safe = version if re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_.+\-]{0,63}", version) else "version-" + content_hash(version)[:12]
-    target = Path(directory) / "library_archive" / name / safe
-    if target.exists():
-        return target
-    staging = target.with_name(f".{safe}-{uuid.uuid4().hex}")
-    prefix = f"libraries/{name}/"
-    try:
-        for path, content in files.items():
-            relative = PurePosixPath(path)
-            relative = relative.relative_to(prefix) if path.startswith(prefix) else relative
-            destination = staging / "files" / relative
-            destination.parent.mkdir(parents=True, exist_ok=True)
-            destination.write_bytes(content)
-        atomic_json(staging / "version.json", {"library": name, **meta, "files": sorted(files)})
-        staging.rename(target)
-    finally:
-        if staging.exists():
-            shutil.rmtree(staging)
-    return target
+def import_lab(workspace, root, plugins=None, provided_by=providers):
+    """Import each library of the lab's libraries/ that has no version yet (one committed with the lab, or installed before L2)
+    into its repository, with the methods and problems its package provides now. The versions imported."""
+    from optimization_framework.optimizers import plugins as installed
+    plugins = plugins or installed.installed
+    rows = []
+    for pyproject in sorted((Path(root) / "libraries").glob("*/pyproject.toml")):
+        name = pyproject.parent.name
+        if name.startswith(".") or repositories.versions(workspace.store, name):
+            continue
+        try:
+            project = tomllib.loads(pyproject.read_text()).get("project") or {}
+            package = project.get("name")
+            mine = lambda distribution: bool(distribution) and bool(package) and normal(distribution) == normal(package)
+            methods = sorted(method["id"] for method in plugins.methods() if mine((plugins.origin(method["id"]) or {}).get("distribution")))
+            problems = sorted(problem for problem, distribution in provided_by(PROBLEMS).items() if mine(distribution))
+            rows += repositories.imported(workspace.directory, workspace.store, name, {"package": package, "version": str(project.get("version") or ""),
+                "files": lab_files(pyproject.parent, root), "methods": methods, "problems": problems})
+        except (OSError, ValueError, tomllib.TOMLDecodeError) as exc:
+            logging.getLogger(__name__).warning("Importing %s into its repository failed: %s", name, exc)
+    return rows
+
+
+def commit_message(plan, identity):
+    """The message of a version's commit in its library's repository: what it is and where it came from."""
+    record, submission = plan["record"], plan["submission"]
+    return (f"{plan['package']} {plan['version']}\n\nInstalled by {identity} from commit {submission['commit']} of coding workspace "
+            f"{record['id']} in campaign {record['campaign_id']} (submission {submission['id']}).")
 
 
 def kept_text(record):
