@@ -176,6 +176,50 @@ ended. When a library provides the problem a campaign's charter declares, `campa
 snapshot the library's source and record its version like any other plug-in. When a second project needs a library, it
 moves to its own repository, as `mask-optimizers` did.
 
+### Reuse across campaigns, checkouts and machines (issue #101)
+
+A second campaign on a problem once found nothing of the first one's library: the library lived in one checkout's
+`libraries/` and `.venv` and in one data folder, and the agents could list neither another campaign's packages nor their
+problems. Now:
+
+- **The shared library repository.** One Git repository outside every checkout and data folder, `BALSAMIC_LIBRARY_REPOSITORY`
+  or `balsamic-libraries` beside the checkout (`off` for none), holds each library as a directory with one tag per version
+  (`<library>-v<version>`; `agents/shared_libraries.py`). Every install publishes the version it tagged there as Balsamic's own
+  commit of that directory (campaign, workspace, submission and source commit in the message): the install records
+  `published` (repository, branch, commit, tag), and so does its `library_version`. A directory with uncommitted changes of
+  the researcher's, or a tag that holds other code, is not touched; the install still goes in and records `publish_skipped`.
+  Balsamic never pushes; the researcher pushes the repository where they like. It also holds packages written by hand:
+  building blocks with no Balsamic import (`permutation-scheduling`), which a campaign's library is written around.
+- **A checkout restores what it lacks.** At the lab's start (`optimization-lab`, in the background; off with
+  `GRATING_AUTO_INSTALL=false`), `library_install.restore()` writes each recorded library whose `libraries/<name>/` the
+  checkout lacks from its tag (the data folder's repository, else the shared one) and pins it, pins each package of the shared
+  repository the lab has no version of to its latest tag (`{ git = "file://…", subdirectory, tag }`; one with methods or
+  problems also gets its lab copy and a `library_version`), and runs one `uv lock` and `uv sync --inexact --extra libraries`,
+  which also reinstalls a pinned library a rebuilt environment lost. Its dry run comes first: a change to a package the lab has
+  restores nothing. Then the lab's copies with no version are imported, so a coding workspace builds on them (L3) without the
+  Packages page being opened first. A library's dependency on a package of the shared repository is pinned to that package's
+  tag at install and restore alike.
+- **The agents see the lab's code.** The `lab_packages` tool (the lead and the implementation lead;
+  `campaigns/lab_packages.py`) lists every package the lab has a version of, from any campaign: its versions, methods and
+  problems, the campaigns its versions came from, its `library_version_id`, where its methods run on this campaign's tasks,
+  and why it concerns this campaign: it provides a problem the charter or a task names, its library carries that problem's
+  name (a workspace names its library after its problem), or its methods run here. It lists the shared repository's building
+  blocks with each function's signature and one-line docstring, read from the code. The lead's state block names the packages
+  that concern its campaign every turn, and the researcher (one line in the conversation) and the lead (a notice) are told once
+  per campaign and package version.
+- **Reuse needs no id from the researcher.** Bind a method that runs here (`implementation.bind_builtin`), adopt a provided
+  problem with `campaign.adopt_problem {library_version_id}` (or its `install_id`, from any campaign), or let a workspace build
+  on the library. `implementation.attach` and `evaluator.attach` take versions of the implementation service only; given a
+  `library_version_…` or `library_install_…` id they are refused with the command that reuses it.
+
+- **A coding box imports the building blocks.** A workspace's ticket names the shared repository's building blocks (its
+  packages with neither methods nor problems, at their latest tags, but for one of the library it builds) and fixes their
+  versions; TASK.md lists each with its import name, its functions and the dependency to declare. Balsamic exports them from
+  their tags into the workspace's `blocks/`, mounts it read-only at `/opt/libraries` and puts each on the box's Python path (a
+  `.pth` file in the box's home), so the coding agent imports them as after an install and writes no copy. Validation outside
+  the box mounts the same copy beside the library, and the install pins each dependency to the tag the box had. The box runs
+  the tests with `python -m pytest` (it has no uv), as `balsamic-workspace check` does.
+
 ## The seam: Python entry points
 
 An [entry point](https://packaging.python.org/en/latest/specifications/entry-points/) is a name → `module:object`

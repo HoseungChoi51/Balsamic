@@ -175,3 +175,74 @@ runs).
 Not on this branch (run data is gitignored): `~/Work/Balsamic-track-l/runs/live` (campaigns `baking`, `빵집`,
 `campaign-2`, three coding workspaces), earlier data copies in `Balsamic-latest/runs/live`, `Balsamic-phase-5/runs/p5`,
 `Balsamic-phase-2/runs/p2`. `campaign-2`'s delivery is validated but not installed (4.3).
+
+## 11. Continued on the second machine (28 October 2026)
+
+### 11.1 Inventory of this machine
+Under `~/Work/*balsamic*`: `kc-ml2-Balsamic` (`workspace-rebuild`, `cc0e693`, the dev stack on `runs/dev`), `balsamic-a7e89b8`
+(an eval worktree, no run data) and `__Balsamic_old` (the September Balsamic). In the shape asked for in 7:
+
+| Source | What it solves | Size | Tests | Runs |
+|---|---|---|---|---|
+| `baking-order-search` 0.1.0, campaign `baking-order`, workspace `development_822ace016be592390fecb2ee`, commit `435a729` | The same bakery problem (8 orders from 06:00; problem id `single_oven_total_pickup_tardiness`): adjacent best improvement, uniform random orders, subset DP, DFS branch and bound, and an `evaluator_v1` evaluator (no `optimization_framework.problems` entry point) | 2,215 lines | 32, pass | Yes. Not installed: its automatic install waited for a confirmation of "`balsamic` 0.3.0 → removed", the editable reinstall of the lab's own project, which this branch's parser no longer counts (`lab_projects`, `Installer.reparsed`) |
+| H12, H13, H14, campaign `2d-gratnig`, three workspaces | Binary masks for the deflector | 600, 672, 607 lines | own tests | Already merged as `libraries/grating-mask-search` 0.1.2; the workspace copies lack its later fixes (export kinds, bounded inspection) |
+| `__Balsamic_old/runs/campaigns/phase0-*` | Tuning flrl's hyperparameters | — | — | No algorithm of its own: flrl and MEENT snapshots |
+
+### 11.2 The library repository (plan steps 1 and 2)
+`~/Work/balsamic-libraries`, the issue's and 8's proposal, pushed to the private repository
+`https://github.com/HoseungChoi51/balsamic-libraries` (9's open decision, settled 28 October), one directory per package,
+tags `<directory>-v<version>`: `permutation-scheduling-v0.1.0`, `single_oven_total_tardiness-v0.2.1`,
+`grating-mask-search-v0.1.2`. `permutation-scheduling` is the oven merge as building blocks (objective, exhaustive, subset DP,
+branch and bound, EDD, MDD, due-date insertion, adjacent descent, swap-and-insert search, uniform orders), new code with
+neutral names, each block from the implementation that tested it best (`PROVENANCE.md`). `tools/golden_from_sources.py` ran
+the four implementations side by side on 61 instances: every exact solver agreed on every optimum (15 on the campaigns'
+instance), and the four subset DPs break ties alike; the new blocks reproduce every source's output (567 tests, among them
+step-by-step parity with Balsamic's built-in `swap_search`). `tools/catalog.py` writes `CATALOG.md` from the code and checks
+that each public name has a docstring (the two delivered libraries have 27 without; their next versions can add them).
+`빵집`'s and `campaign-2`'s 0.1.1 are not in the repository: both are `single-oven-total-tardiness` 0.1.1 with different code,
+never installed, and kept as sources here.
+
+### 11.3 Issue #101, resolved on this branch
+| Requested | What this branch does |
+|---|---|
+| A reuse path that needs no ids | The `lab_packages` tool (lead, implementation lead; `campaigns/lab_packages.py`): every package the lab has a version of, from any campaign, with versions, methods, problems, the campaigns it came from, its `library_version_id`, where its methods run here and why it concerns this campaign; and the shared repository's building blocks with signatures. The lead's state block names the matches every turn; the implementation procedure starts with it |
+| A version identity attach accepts | A delivery's identity is its `library_version` (Track L). `campaign.adopt_problem` takes `library_version_id` (or an install id, from any campaign). `implementation.attach` and `evaluator.attach` given a library id are refused with the command that reuses it (`bind_builtin`, `adopt_problem`). The texts that sent agents to "attach a validated evaluator version" now point to reuse |
+| Install into a durable library repository | Every install publishes its version to the shared repository (`agents/shared_libraries.py`; `BALSAMIC_LIBRARY_REPOSITORY`, else `balsamic-libraries` beside the checkout) and records `published`. At start the lab restores what a checkout lacks (`library_install.restore()`): recorded libraries from their tags, the shared repository's packages pinned to their tags (`{ git = "file://…", subdirectory, tag }`), one `uv lock` and `uv sync`, then `import_lab`, so L3's `base` is no longer null until the Packages page is opened |
+| The evaluator as a problem package | Already so for a declared problem (the generated library registers `optimization_framework.problems`; a charter naming an installed problem id reuses it, `evaluator.provided`). The commission ticket now says to keep the entry point so later campaigns reuse it; the formulator's `problem_catalog` names the package of each installed problem |
+| Tell the lead and the researcher | Once per campaign and package version, a line in the researcher's conversation and a notice to the lead, for a package that provides a problem the campaign names, whose library carries that problem's name, or whose methods run on its tasks; not for a package only that campaign built |
+
+Tests: `tests/test_library_reuse_across_campaigns.py` (18). Tests never touch the researcher's repository (`tests/conftest.py`
+sets `BALSAMIC_LIBRARY_REPOSITORY=off`).
+
+### 11.4 Findings on this machine
+- `scipy` is declared only in the `meent` extra, but the charter compiler imports it (`problem_charter/charter.py`
+  `feasibility`, `brentq`): with 3's `uv sync --extra dev --extra libraries` 20 tests error and 36 fail. Sync as the dev
+  checkout is: `--extra dev --extra libraries --extra meent --extra learners --extra masks`.
+- pytest's temporary folders live in `/tmp`, a RAM-backed tmpfs of 1,048,576 inodes here: one full run writes about 350,000
+  files (5 GB), and earlier runs' folders had filled it (no file could be made in `/tmp`). Run the suite with
+  `TMPDIR` on disk.
+- Two libraries' `tests/test_contract.py` cannot be collected in one pytest run; the library repository uses
+  `--import-mode=importlib`. `baking-0.2.1`'s `test_vendored_source_identical` passes only inside a Balsamic checkout's
+  `libraries/`.
+
+### 11.5 Next
+1. Check the docstring rule at install (`tools/catalog.py --check`). A coding box now imports the shared repository's building
+   blocks (11.6).
+2. Restore pins every package of the shared repository into every lab; decide whether a lab takes only those whose problems
+   or methods concern its campaigns.
+3. On the other machine: `git clone https://github.com/HoseungChoi51/balsamic-libraries ~/Work/balsamic-libraries` (beside
+   the checkout, or set `BALSAMIC_LIBRARY_REPOSITORY`). Balsamic commits and tags each installed version there but never pushes:
+   `git -C ~/Work/balsamic-libraries push --follow-tags` carries new versions to the other machine.
+4. 4.3 stays open: the procedure now asks for protected tests written as behaviour, not a campaign's variable names, but
+   `빵집`'s test is unchanged.
+
+### 11.6 A coding box imports the building blocks
+A box's Python is the image's (3.12, with numpy, scipy, meent and pytest), it mounts only its own folders, and it reaches only
+the model's host and PyPI, so it could not import the shared repository's packages. Now the ticket names the building blocks
+(packages with neither methods nor problems) at their latest tags; Balsamic exports them into the workspace's `blocks/`,
+mounts that read-only at `/opt/libraries` and adds a `.pth` to the box's home, and `TASK.md` lists their functions and the
+dependency to declare. Validation outside the box mounts the same copy, and the install pins the dependency to that tag. The
+ticket's test command is now `python -m pytest` (the image has no uv, 4.5). No image rebuild is needed. Tests:
+`tests/test_development_building_blocks.py` (8, one in the real sandbox); live, a box started from the real image imports
+`permutation_scheduling` from `/opt/libraries` and runs its 567 tests (566 pass; the parity test with Balsamic's built-in is
+skipped, Balsamic not being importable there).
