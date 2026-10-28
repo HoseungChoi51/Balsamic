@@ -7,6 +7,7 @@ a release holds everything merged by then and its notes say which parts of unfin
 | Tag | What it marks |
 |---|---|
 | `phase-<n>` | The release that completes phase n, on the commit that adds its notes, `docs/releases/phase-<n>.md` |
+| `track-l` | The release that completes track L (code libraries), on the commit that adds `docs/releases/track-l.md` |
 | `baseline` | The code the eval baseline is measured on: `main` once J1–J4 have merged, before any part of Phases 3, 4, 5 or 7 (except K1–K3) merges. Those phases are compared with the evals run at this tag |
 
 Tags are annotated (`git tag -a phase-1 -m "Phase 1: charter to results"`). A GitHub release page can be drafted from the

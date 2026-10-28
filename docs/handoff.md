@@ -35,11 +35,13 @@ function name.
 | 5 | Evidence gates | Complete | `phase-5` on `3d27d46`, tag to create (Hoseung) | `phase-5-evidence-gates.md` |
 | 6 | Problem packs; every algorithm family on fair terms | Complete | `phase-6` on `77b6e9f`, tag to create (Hoseung) | `phase-6-problem-packs.md` |
 | 7 | Fewer standing agents, claims that resolve | Complete | `phase-7` on `0fd9b0e`, tag to create (Hoseung) | `phase-7-agents-and-claims.md` |
+| L | Code libraries that last | Complete | `track-l` on the commit that adds `docs/releases/track-l.md`, tag to create (Hoseung) | `track-l-code-libraries.md` |
 
 The parts: Phase 1 A1–A4, B1–B7, C1–C3, D1–D3, E1–E5, F1–F4, G1–G2; Phase 2 I1–I3, J1–J4; Phase 3 R1–R7; Phase 4 H1–H8;
-Phase 5 V1–V5; Phase 6 N1–N15; Phase 7 T1–T4, K1–K4.
+Phase 5 V1–V5; Phase 6 N1–N15; Phase 7 T1–T4, K1–K4; track L L1–L6.
 
-All 78 parts are merged and every phase is released (Phase 7 was released before Phase 6, which waited on decision 20).
+All 84 parts are merged and every phase is released (Phase 7 was released before Phase 6, which waited on decision 20); track L
+was added on 2026-10-28 and released as `track-l`.
 No roadmap work is left. What remains is Hoseung's: the tags, the UAT checklists and the live evals (§6). Work after that
 starts from Hoseung's findings, or from a new part added to the roadmap. Each phase file ends with "Order and shared
 files": the waves inside the phase and the files its parts share.

@@ -25,6 +25,7 @@ chat ([ui-workspace.md](ui-workspace.md), [problem-setup.md](problem-setup.md)).
 | Evidence gates: every stop names a typed outcome and its evidence; an agent's stop as inferior needs an adequate assessment, and a finalist or library entry a score that holds at higher fidelity (where the problem declares a check), or the researcher's waiver; locked confirmation results stay unreadable to the agents until release; the gates and waivers on the Evolution page | Tested | [V1–V5](releases/phase-5.md) |
 | Claims that resolve: agents compute numbers with a receipt; findings say what they state and count their measurements; numbers their evidence does not hold are badged; methods assessed and stopped are published as negative library entries. Review roles answer in one call from an assembled context; the moderator's synthesis is checked against the verdicts | Tested; the one-call roles wait for their live comparison | [T1–T4, K1–K4](releases/phase-7.md) |
 | Problem packs: a problem declares what it brings (procedures, tools, fidelity ladder, references, methods, cost model), and the core names no new domain; whole-number variables, design and outcome constraints and problem-owned structured candidates in any problem; white box by default, judged by time; `enumerate` with proved optimality, size ladders, and proposals that name their family | Tested | [N1–N15](releases/phase-6.md) |
+| Code libraries that last: each library a package with its own repository and tagged versions (the Packages page); an install keeps what any campaign uses, runs earlier versions' tests and replays kept methods' recorded runs; workspaces build on the latest version; reuse of an installed method comes first; a method a second problem needs splits into a method package | Tested | [L1–L6](releases/track-l.md) |
 
 "Live" means the running services use the code; "tested" means the automated tests pass. Parts from the roadmap on say
 their own state in [readiness/](readiness/README.md).
@@ -40,6 +41,7 @@ their own state in [readiness/](readiness/README.md).
 | 5 | Evidence gates | Complete | [`phase-5`](releases/phase-5.md) |
 | 6 | Problem packs | Complete | [`phase-6`](releases/phase-6.md) |
 | 7 | Fewer standing agents, claims that resolve | Complete; T1, T3 and T4 wait for their live comparisons (ADR 0009, 0010) | [`phase-7`](releases/phase-7.md) |
+| L | Code libraries that last | Complete | [`track-l`](releases/track-l.md) |
 
 This table changes when a phase completes: the part that completes it marks it done with its release tag
 ([releases](releases/README.md)). Between, a phase's parts say how far they got in their own files in
