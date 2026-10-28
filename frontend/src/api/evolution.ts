@@ -14,6 +14,7 @@ export interface LedgerRow { id: string; label: string | null; title: string; sh
   highest_rung_seconds: number | null; race: { race_id: string; configuration_id: string; status: string; race_status: string; highest_rung_seconds?: number | null; mean_score?: number | null; seeds?: number; latest_decision: { action: string; rationale: string; at: string } | null } | null;
   review: { verdict: string | null; count: number; readiness: { state: string; eligible: boolean; reason?: string } }; implementation_readiness: { state?: string; runnable: boolean; reason?: string };
   trial_ids: string[]; live_trials: number; finalist: boolean; confirmation: { protocol_id: string; status: string; promising: boolean | null; seeds_won?: number } | null; stop_reason: string | null; stopped_at?: string | null; stop?: StopRecord | null;
+  next_size?: { task_id: string; task_name: string | null; name: string; value: number; after: number } | null;
   created_at?: string; proof?: Proof | null; stage: 'proposed' | 'reviewed' | 'screening' | 'extended' | 'finalist' | 'confirmed' | 'stopped'; curve?: { x: number; y: number; t?: number }[] }
 export interface LayoutNode { id: string; round: number; lane: number; stage: LedgerRow['stage']; label: string | null; title: string; short_title?: string | null; family?: string | null; autonomous: boolean; stop_reason: string | null; stop_label?: string | null }
 export interface Edge { from: string; to: string; kind: ParentLink['kind']; external: boolean }

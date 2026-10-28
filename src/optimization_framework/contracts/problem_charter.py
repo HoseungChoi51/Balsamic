@@ -157,6 +157,14 @@ class Instance(Part):
     split: Literal["development", "selection", "test"] = "development"
     values: dict[str, Value] = Field(default_factory=dict, description="Input values that differ from the charter's")
     note: str = Field(default="", max_length=1000)
+    size: str | None = Field(default=None, pattern=NAME, description=(
+        "The number or integer quantity whose value grows across the instances, such as the number of jobs; every "
+        "instance names the same one. The comparison then reports the largest size each method finishes at and where "
+        "one overtakes another"))
+
+    @model_serializer(mode="wrap")
+    def compatible_serialization(self, handler):
+        return without_unset(handler(self), "size")
 
 
 class ReferenceResult(Part):

@@ -5,6 +5,7 @@ import statistics
 
 from optimization_framework.contracts.base import content_hash
 from optimization_framework.contracts.problems import ProblemInstance
+from optimization_framework.evaluation import sizes
 
 
 AXES = {"worker_seconds": "elapsed_seconds", "core_seconds": "elapsed_seconds", "evaluation_requests": "evaluations",
@@ -74,6 +75,92 @@ def rank(summaries, objective):
     for summary in summaries:
         summary.setdefault("rank", None)
     return summaries
+
+
+def ladder_method(trial):
+    """A method on a size ladder: its identity without its schedule, since the budget may grow with the size."""
+    return content_hash({key: value for key, value in trial["method"].items() if key != "schedule"})
+
+
+def size_ladders(groups):
+    """How methods scale with instance size (N14), from the observed runs only.
+
+    Groups that differ only in their instance and share a size name form a ladder. A method that finished on its own at
+    some size is one that finishes (an exact method): at a size it finished when every run of it there did. A method
+    that never did is anytime: it finished when its runs reached their budget, uncensored. At each size the leader is
+    the method whose mean at the group's matched cost is better (a method with no value there does not lead; groups at
+    the same size that disagree name no leader). A crossover is a size whose leader differs from the last one before it.
+    """
+    ladders = defaultdict(list)
+    for group in groups:
+        if group.get("size") is not None:
+            condition = {key: value for key, value in group["condition"].items() if key != "evaluation_identity"}
+            ladders[content_hash([condition, group["size"]["name"]])].append(group)
+    out = []
+    for members in ladders.values():
+        values = sorted({group["size"]["value"] for group in members})
+        if len(values) < 2:
+            continue
+        objective = ProblemInstance(**members[0]["problem"]).primary_objective
+        methods = {}   # ladder method -> {size: [runs]}
+        names = {}
+        for group in members:
+            for trial in group["trials"]:
+                key = ladder_method(trial)
+                names.setdefault(key, trial["algorithm"])
+                methods.setdefault(key, defaultdict(list))[group["size"]["value"]].append(trial)
+        finishing = {key for key, by_size in methods.items() if any(t["method_finished"] for runs in by_size.values() for t in runs)}
+
+        def finished(key, value):
+            runs = methods[key].get(value) or []
+            return bool(runs) and all(t["method_finished"] if key in finishing else t["scientific_complete"] for t in runs)
+
+        means = {}   # (ladder method, group id) -> mean at the group's matched cost
+        for group in members:
+            ids = {trial["method_id"]: ladder_method(trial) for trial in group["trials"]}
+            for summary in group.get("method_summaries", []):
+                means[(ids[summary["method_id"]], group["id"])] = summary["mean"]
+
+        def leader(a, b, value):
+            leaders = set()
+            for group in (group for group in members if group["size"]["value"] == value):
+                left, right = means.get((a, group["id"])), means.get((b, group["id"]))
+                if left is None and right is None or left is not None and right is not None and left == right:
+                    leaders.add(None)
+                elif right is None or left is not None and objective.better(left, right):
+                    leaders.add(a)
+                else:
+                    leaders.add(b)
+            return leaders.pop() if len(leaders) == 1 else None
+
+        rows = [{"method": key, "algorithm": names[key], "kind": "finishes" if key in finishing else "anytime",
+                 "sizes": [{"size": value, "runs": len(methods[key].get(value) or []), "finished": finished(key, value)}
+                           for value in values if methods[key].get(value)],
+                 "largest_finished_size": max((value for value in values if finished(key, value)), default=None)}
+                for key in methods]
+        largest = {row["method"]: row["largest_finished_size"] for row in rows}
+        pairs = []
+        keys = sorted(methods, key=lambda key: (names[key], key))
+        for index, a in enumerate(keys):
+            for b in keys[index + 1:]:
+                shared = [value for value in values if methods[a].get(value) and methods[b].get(value)]
+                if len(shared) < 2:
+                    continue
+                leaders = [{"size": value, "leader": leader(a, b, value)} for value in shared]
+                crossovers, last = [], None
+                for row in leaders:
+                    if row["leader"] is None:
+                        continue
+                    if last is not None and row["leader"] != last:
+                        crossovers.append({"size": row["size"], "from": last, "to": row["leader"]})
+                    last = row["leader"]
+                pairs.append({"methods": [a, b], "algorithms": [names[a], names[b]], "leaders": leaders,
+                              "largest_finished_size": {a: largest[a], b: largest[b]},
+                              "crossover": crossovers[0] if crossovers else None, "crossovers": crossovers})
+        out.append({"size": members[0]["size"]["name"], "sizes": values, "direction": objective.direction,
+                    "group_ids": [group["id"] for group in sorted(members, key=lambda group: group["size"]["value"])],
+                    "methods": rows, "pairs": pairs})
+    return out
 
 
 def rank_by_optimum(summaries, objective):
@@ -182,7 +269,9 @@ def report(workspace, campaign_id, *, study_id=None, cost_axis=None, cost_view="
             # A worker-second on several threads buys more than one on a single thread; core-seconds puts them together.
             condition["worker_threads"] = threads(trial)
         group_id = content_hash(condition)
-        group = groups.setdefault(group_id, {"id": group_id, "condition": condition, "problem": problem.model_dump(mode="json"), "trials": []})
+        size = sizes.of_task(tasks.get(trial.get("task_id")))
+        group = groups.setdefault(group_id, {"id": group_id, "condition": condition, "problem": problem.model_dump(mode="json"),
+                                             **({"size": size} if size else {}), "trials": []})
         latest = trial.get("result") or trial.get("progress") or {}
         # The run's method is the one it began as: a later part differs only in the source it was carried on under.
         identity, definition = method_identity(root)
@@ -297,8 +386,10 @@ def report(workspace, campaign_id, *, study_id=None, cost_axis=None, cost_view="
             rank(summaries, objective)
         group["method_summaries"] = summaries
         group["common_observed_cost"] = horizon
+    ladders = size_ladders(list(groups.values()))
     return {"schema_version": 1, "campaign_id": campaign_id, "study_id": study_id, "cost_view": cost_view,
             "cost_axis": cost_axis, "groups": list(groups.values()), "excluded": excluded,
+            **({"size_ladders": ladders} if ladders else {}),
             **({"withheld_runs": sum(trial["id"] in withheld for trial in trials if not study_id or trial.get("study_id") == study_id)} if withheld else {}),
             "actual_campaign_costs": costs.actual_costs(campaign_id,
                 axes=("worker_seconds", "core_seconds", "evaluation_requests", "solver_executions", "implementation_seconds", "model_seconds", "model_calls", "model_input_tokens", "model_output_tokens", "api_usd")),

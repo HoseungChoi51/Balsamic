@@ -4,7 +4,7 @@ from __future__ import annotations
 import math
 from typing import Any, Literal, Protocol, runtime_checkable
 
-from pydantic import Field, model_serializer, model_validator
+from pydantic import BaseModel, ConfigDict, Field, model_serializer, model_validator
 
 from .base import Contract, content_hash
 
@@ -22,6 +22,14 @@ def without_unset(result: dict, *names: str) -> dict:
         if result.get(name) is None:
             result.pop(name, None)
     return result
+
+
+class ProblemSize(BaseModel):
+    """Where an instance sits on its problem's size ladder (N14): a quantity whose value grows across the instances,
+    such as the number of jobs. The comparison groups tasks by it and reports how methods scale."""
+    model_config = ConfigDict(extra="forbid", allow_inf_nan=False, frozen=True)
+    name: str = Field(min_length=1, max_length=64)
+    value: float
 
 
 class Objective(Contract):

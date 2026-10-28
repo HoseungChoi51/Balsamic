@@ -61,7 +61,7 @@ export default function EvolutionPage({ campaignId, route }: PageProps) {
         onOpen={id => { selection.select(id); navigate(formatHash({ page: 'hypotheses', id, sel: id }, route.thread)); }} /> : null}
       {sub === 'frontier' && chosen.length ? <InterventionBar rows={chosen} pending={pending} onStop={reason => act('stop', () => intervene(chosen, { kind: 'stop', reason }, campaignId, version!, route.thread))}
         onPromote={() => act('promote', () => intervene(chosen, { kind: 'promote' }, campaignId, version!, route.thread))}
-        onAllocate={(seconds, rationale) => act('allocate', () => intervene(chosen, { kind: 'allocate', seconds, rationale }, campaignId, version!, route.thread))}
+        onAllocate={(seconds, rationale, nextSize) => act('allocate', () => intervene(chosen, { kind: 'allocate', seconds, rationale, nextSize }, campaignId, version!, route.thread))}
         onGenerate={(operation, count, note) => act('generate', () => intervene(chosen, { kind: 'generate', operation, count, note }, campaignId, version!, route.thread))}
         onDiscuss={() => act('discuss', async () => {
           const last = messages.data?.messages.filter(m => m.origin !== 'lab_event').at(-1);
@@ -133,23 +133,27 @@ function Optimality({ tasks }: { tasks: TaskOptimality[] }) {
   </Section>;
 }
 
-function InterventionBar({ rows, pending, onStop, onPromote, onAllocate, onGenerate, onDiscuss }: { rows: LedgerRow[]; pending: string | null; onStop: (reason: string) => void; onPromote: () => void; onAllocate: (seconds: number, rationale: string) => void; onGenerate: (operation: 'hybrid' | 'revise' | 'diversify', count: number, note: string) => void; onDiscuss: () => void }) {
+function InterventionBar({ rows, pending, onStop, onPromote, onAllocate, onGenerate, onDiscuss }: { rows: LedgerRow[]; pending: string | null; onStop: (reason: string) => void; onPromote: () => void; onAllocate: (seconds: number, rationale: string, nextSize: boolean) => void; onGenerate: (operation: 'hybrid' | 'revise' | 'diversify', count: number, note: string) => void; onDiscuss: () => void }) {
   const [mode, setMode] = useState<'stop' | 'allocate' | 'generate' | null>(null);
   const [text, setText] = useState('');
   const [seconds, setSeconds] = useState(600);
   const [count, setCount] = useState(2);
   const busy = !!pending;
+  // Every selected strategy finished on its own: more time changes nothing, the next size might (N14).
+  const nextSize = rows.every(r => r.next_size);
+  const sizes = nextSize ? rows.map(r => `${r.next_size!.name} = ${r.next_size!.value}${r.next_size!.task_name ? ` (${r.next_size!.task_name})` : ''}`) : [];
   return (
     <div className="card" data-testid="interventions">
       <div className="row wrap"><strong>{rows.length} selected:</strong>
         <button className="btn small" disabled={busy} onClick={() => setMode('stop')}>Stop…</button>
         <button className="btn small" disabled={busy} onClick={onPromote}>Promote to finalist</button>
-        <button className="btn small" disabled={busy} onClick={() => setMode('allocate')}>Allocate time…</button>
+        <button className="btn small" disabled={busy} onClick={() => setMode('allocate')} data-testid="allocate">{nextSize ? 'Run on the next size…' : 'Allocate time…'}</button>
         <button className="btn small" disabled={busy} onClick={() => setMode('generate')}>{rows.length > 1 ? 'Hybrid of these…' : 'Revise…'}</button>
         <button className="btn quiet small" onClick={onDiscuss} title="Opens the conversation with these selected">Discuss</button>
         {pending ? <Pill tone="agent">{pending}…</Pill> : null}</div>
       {mode === 'stop' ? <div className="row" style={{ marginTop: 6 }}><input className="grow" placeholder="Why stop them (recorded on the graph)" value={text} onChange={e => setText(e.target.value)} data-testid="stop-reason" /><button className="btn primary small" disabled={!text.trim()} onClick={() => { onStop(text.trim()); setMode(null); setText(''); }}>Stop</button><button className="btn quiet small" onClick={() => setMode(null)}>cancel</button></div> : null}
-      {mode === 'allocate' ? <div className="row" style={{ marginTop: 6 }}><input type="number" min={1} value={seconds} onChange={e => setSeconds(Number(e.target.value))} aria-label="seconds" style={{ width: 100 }} /><span className="small">s each</span><input className="grow" placeholder="Why (one line)" value={text} onChange={e => setText(e.target.value)} /><button className="btn primary small" disabled={!text.trim()} onClick={() => { onAllocate(seconds, text.trim()); setMode(null); setText(''); }}>Allocate</button><button className="btn quiet small" onClick={() => setMode(null)}>cancel</button></div> : null}
+      {mode === 'allocate' && nextSize ? <p className="why" data-testid="next-size">Finished on its own, so more time would change nothing. Next size: {sizes.join('; ')}.</p> : null}
+      {mode === 'allocate' ? <div className="row" style={{ marginTop: 6 }}><input type="number" min={1} value={seconds} onChange={e => setSeconds(Number(e.target.value))} aria-label="seconds" style={{ width: 100 }} /><span className="small">s each</span><input className="grow" placeholder="Why (one line)" value={text} onChange={e => setText(e.target.value)} /><button className="btn primary small" disabled={!text.trim()} onClick={() => { onAllocate(seconds, text.trim(), nextSize); setMode(null); setText(''); }}>{nextSize ? 'Run on the next size' : 'Allocate'}</button><button className="btn quiet small" onClick={() => setMode(null)}>cancel</button></div> : null}
       {mode === 'generate' ? <div className="row" style={{ marginTop: 6 }}><input type="number" min={1} max={8} value={count} onChange={e => setCount(Number(e.target.value))} aria-label="count" style={{ width: 70 }} /><input className="grow" placeholder="A note for the lead (optional)" value={text} onChange={e => setText(e.target.value)} /><button className="btn primary small" onClick={() => { onGenerate(rows.length > 1 ? 'hybrid' : 'revise', count, text.trim()); setMode(null); setText(''); }}>{rows.length > 1 ? 'Generate hybrids' : 'Generate revisions'}</button><button className="btn quiet small" onClick={() => setMode(null)}>cancel</button></div> : null}
       <p className="why">All or nothing: one refused item undoes the batch. Each stop records its reason; stopped never reads as failed.</p>
     </div>
