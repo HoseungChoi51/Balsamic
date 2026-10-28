@@ -182,7 +182,7 @@ test('the Algorithms section says what can run, what waits to be installed and b
   await expect(section.locator('[data-method="random"]')).toContainText('can run');
   const adjacent = section.locator('[data-method="bakery_adjacent"]');
   await expect(adjacent).toContainText('delivered, not installed');
-  await expect(adjacent).toContainText('library baking-order-search, delivered in commit 2a3eb08');
+  await expect(adjacent).toContainText('package baking-order-search, delivered in commit 2a3eb08');
   await expect(adjacent).toContainText('(not bound)');
   await expect(adjacent).toContainText('You Install the library on this page');
   await expect(section.locator('[data-method="conditional_mirror_search"]')).toContainText("runs only on meent_2d; this task's problem is bakery");

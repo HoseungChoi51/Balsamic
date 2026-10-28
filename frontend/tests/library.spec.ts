@@ -72,3 +72,18 @@ test('Ctrl+K searches pages, threads and messages; arrows and Enter open; g-lett
   await expect(page.getByTestId('export-graph')).toHaveAttribute('href', '/api/v1/campaigns/demo/evolution/export');
   await expect.poll(async () => { await page.evaluate(() => (window as any).dispatchEvent(new Event('pagehide'))); return recorded.uiEvents.map((e: any) => e.kind); }).toContain('search.open');
 });
+
+test('a winning entry names its code, and applying it says the code is bound when the lab has it (roadmap L5)', async ({ page }) => {
+  await mockWorkspace(page);
+  const entry = { id: 'library_code', kind: 'positive', origin_campaign_id: 'bakery_one', hypothesis_id: 'h_won', created_at: '2026-10-28T00:00:00Z',
+    strategy: { title: 'Greedy bakery order', mechanism: 'fill the ovens greedily', algorithm: 'bakery_greedy' },
+    code: { package: 'bakery-search', version: '0.2.0', method: 'bakery_greedy' },
+    signature: { problem_id: 'baking_order', objective: { name: 'lateness', direction: 'minimize' }, representation: 'permutation' },
+    evidence: { best_score: 3, best_basis: 'measured', worker_seconds: 60 } };
+  await page.route('**/api/v1/library?**', route => route.fulfill({ json: { signature: { problem_id: 'baking_order', basis: 'the first task' },
+    entries: [{ entry, match: { score: 6, reasons: ['same problem'] }, kind: 'positive', label: null }] } }));
+  await page.goto(`/#t/${THREAD_ID}/library`);
+  await expect(page.getByTestId('library-code')).toHaveText('package bakery-search 0.2.0, method bakery_greedy');
+  await page.getByTestId('apply').click();
+  await expect(page.getByTestId('apply-dialog')).toContainText('Its code, bakery_greedy from package bakery-search, is bound to it when this lab has that method, so it can run at once.');
+});

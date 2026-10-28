@@ -1,6 +1,10 @@
 """Library entries: immutable records of a strategy that won, or of one assessed and stopped (roadmap K4), with its
 signature and evidence; search by signature and words; apply as a new root.
 
+An entry records the winner's code (roadmap L5): the package, version and method it ran, when its method comes from an installed
+package. Applying an entry whose method is installed and runs on a current task gives a proposal bound to it, ready to run;
+one whose method is not installed says so.
+
 A positive entry is a finalist or a strategy whose confirmation was promising. A negative entry is a stopped strategy
 whose typed stop (V1) is a judgement of the method: `configuration_unpromising` or `adequately_assessed_deprioritized`
 after an adequate assessment or the researcher's tuning waiver (V2), or `implementation_invalid` or
@@ -99,6 +103,7 @@ def publish(workspace, campaign_id, values, *, command_id, actor):
     record = {"id": "library_" + content_hash(command_id)[:20], "kind": "positive", "origin_campaign_id": campaign_id, "hypothesis_id": values.hypothesis_id,
               "strategy": {key: hypothesis.get(key) for key in ("title", "mechanism", "rationale", "family", "algorithm", "algorithm_config", "implementation_version_id")},
               "signature": {key: signature.get(key) for key in ("problem_id", "evaluator_version", "objective", "representation", "dimensions", "constraint_digest", "instance_digest", "charter_id")},
+              "code": code_of(workspace, hypothesis),
               "evidence": {"confirmation_protocol_id": (row.get("confirmation") or {}).get("protocol_id"), "race_id": (row.get("race") or {}).get("race_id"),
                            "finalist_selection_id": finalist["id"] if finalist else None, "best_score": row["best"]["score"], "best_basis": row["best"]["basis"], "interval": None,
                            "seeds_won": (row.get("confirmation") or {}).get("seeds_won"), "worker_seconds": row["worker_seconds"], "trial_ids": row["trial_ids"],
@@ -106,6 +111,51 @@ def publish(workspace, campaign_id, values, *, command_id, actor):
               "graph": {"thread_id": None, "round": row.get("round"), "stage": row["stage"], "parent_links": row.get("parent_links")},
               "notes": values.notes, "published_by": actor, "created_at": now()}
     return _write(workspace, hypothesis, record)
+
+
+def code_of(workspace, hypothesis):
+    """The code a strategy ran (roadmap L5): {package, version, method, library_version_id} when its method comes from an installed
+    package, else None (a bundled method, or a published implementation, which the strategy names itself)."""
+    from optimization_framework.agents import library_repository as repositories
+    from optimization_framework.campaigns.method_catalog import package_of
+    method = hypothesis.get("algorithm")
+    package = package_of(method) if method else None
+    if package is None:
+        return None
+    version = next((row for row in repositories.versions(workspace.store)
+                    if row.get("package") == package["name"] and row.get("version") == package["version"]), None)
+    return {"package": package["name"], "version": package["version"], "method": method, "library_version_id": (version or {}).get("id")}
+
+
+def _bound(workspace, campaign_id, entry, record, *, command, actor):
+    """Bind the applied proposal to the entry's installed method (roadmap L5): {binding} or {not_bound: why}."""
+    from optimization_framework.campaigns.method_catalog import package_of
+    from optimization_framework.execution.service import algorithms
+    from optimization_framework.implementations.builtin import bind
+    from optimization_framework.optimizers.registry import capability_reason
+    method, code = record.get("algorithm"), entry.get("code") or {}
+    if not method or record.get("implementation_version_id"):
+        return {}
+    if method not in {row["id"] for row in algorithms()}:
+        named = f" from package {code['package']} {code['version']}" if code else ""
+        return {"not_bound": f"{method}{named} is not installed in this lab: build it in a coding workspace, or install the package"}
+    task = next((task for task in workspace.current_tasks(campaign_id) if task.get("problem")
+                 and capability_reason(method, task["problem"]) is None), None)
+    if task is None:
+        return {"not_bound": f"{method} runs on no current task of this campaign"}
+    package = package_of(method)
+    where = f"package {package['name']} {package['version']}" if package else "Balsamic"
+    try:
+        binding = bind(workspace, campaign_id, {"hypothesis_id": record["id"], "task_id": task["id"], "algorithm": method,
+            "parameters": record.get("algorithm_config") or {}, "expected_algorithm": method,
+            "expected_configuration_hash": content_hash(record.get("algorithm_config") or {}),
+            "reason": f"Applied from library entry {entry['id']}: {method}, installed from {where}, runs on {task['id']}; reuse needs no coding time."},
+            "apply_" + command.id, actor=actor)
+    except ValueError as exc:
+        return {"not_bound": str(exc)[:300]}
+    if code and package and code.get("version") != package["version"]:
+        binding["note"] = f"The entry ran {code['package']} {code['version']}; the lab runs {package['version']}, which reproduces its kept methods (L4)"
+    return {"binding": binding}
 
 
 def _write(workspace, hypothesis, record):
@@ -172,6 +222,7 @@ def _publish_negative(workspace, campaign_id, values, hypothesis, row, *, comman
     record = {"id": "library_" + content_hash(command_id)[:20], "kind": "negative", "origin_campaign_id": campaign_id, "hypothesis_id": values.hypothesis_id,
               "strategy": {key: hypothesis.get(key) for key in ("title", "mechanism", "rationale", "family", "algorithm", "algorithm_config", "implementation_version_id")},
               "signature": {key: signature.get(key) for key in ("problem_id", "evaluator_version", "objective", "representation", "dimensions", "constraint_digest", "instance_digest", "charter_id")},
+              "code": code_of(workspace, hypothesis),
               "stop": {key: stop.get(key) for key in ("outcome", "words", "evidence_ids", "reason", "by", "at")},
               "assessment": {**(assessment or {"basis": "not required"}), "configurations_run": _configurations(trials)},
               "evidence": {"best_score": row["best"]["score"], "best_basis": row["best"]["basis"], "interval": None, "worker_seconds": row["worker_seconds"],
@@ -223,7 +274,10 @@ def apply(workspace, campaign_id, values, *, command, actor):
         asked = researcher_request(workspace, command.origin)
         record.update(origin="pi", requires_concept_review=True, **({"requested_by": asked} if asked else {}))
         workspace.store.put("hypothesis", record)
-    return {"hypothesis_id": record["id"], "hypothesis": record, "entry_id": entry["id"], "match": {"score": score, "reasons": reasons}}
+    bound = _bound(workspace, campaign_id, entry, record, command=command, actor=actor) if kind_of(entry) != "negative" else {}
+    if bound.get("binding"):
+        record = workspace.store.get(record["id"], "hypothesis")
+    return {"hypothesis_id": record["id"], "hypothesis": record, "entry_id": entry["id"], "match": {"score": score, "reasons": reasons}, **bound}
 
 
 def register(workspace):

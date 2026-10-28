@@ -158,7 +158,10 @@ version (`base_version`), and the install records it. `charter.json` and the dat
 own session (`balsamic-workspace clone`) gets the same start. A new version is validated against what came before (roadmap L4): every earlier
 version's tests it changed or dropped and every earlier workspace's protected tests on the library run beside its own, and
 each method and problem it keeps replays up to 3 recorded runs for 8 evaluations, a method proposing the recorded candidates
-and a problem scoring them the same. A changed behaviour under a kept name is refused; give it a new name (decision 25). The running lab lists its methods for the
+and a problem scoring them the same. A changed behaviour under a kept name is refused; give it a new name (decision 25). Reuse comes first (roadmap L5): the method list names each method's package and version; an agent asking for
+a coding workspace for a proposal whose named method is installed and runs on a current task is refused and told to bind it
+(`implementation.bind_builtin`), which, like `library.apply`, is reuse that Explore allows; a library entry records the
+winner's package, version and method, and applying it binds the new proposal to that method when the lab has it. The running lab lists its methods for the
 problems they name at the next listing, without a restart (see "Installed while the lab runs" below). A proposal runs a method once it is bound to it (`implementation.bind_builtin`). After an install Balsamic binds each proposal the delivery serves by itself, when exactly one of the methods
 the delivery reports for it is installed and runs on a current task: through the command bus as its system actor `balsamic`, citing the install, which lists
 its `bindings` and the proposals it `skipped` with why (a proposal someone bound, one using another method, one with several candidates). A binding keeps the
