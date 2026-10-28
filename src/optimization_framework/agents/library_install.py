@@ -14,6 +14,11 @@ touched is put back when it stops or fails. Before any of that, the host validat
 box (library_validation, roadmap H6): the library's tests, each method's conformance and the protected acceptance tests. A
 method that fails there is not installed, and a failure no method owns stops the install. Each install is a `library_install` record: who (balsamic or the researcher),
 when, what (package, version, commit, workspace, submission), the methods and problems it added, and how it ended.
+
+A new version keeps what campaigns use (roadmap L1): a method or problem the installed version provides that the new one drops,
+or a method it keeps that fails validation outside the box, refuses the install when any campaign of the lab uses it
+(library_usage); unused ones may go and are recorded as removed. Every installed version is archived on the host with its
+files (archive()), and the version an install replaces is archived first when it is not yet.
 """
 from __future__ import annotations
 
@@ -25,6 +30,7 @@ import shutil
 import subprocess
 import threading
 import tomllib
+import uuid
 from pathlib import Path, PurePosixPath
 
 from importlib import metadata
@@ -146,8 +152,7 @@ class Installer:
             current = tomllib.loads((target / "pyproject.toml").read_text()).get("project") or {}
             if current.get("name") != package:
                 raise ValueError(f"libraries/{name} holds another project ({current.get('name')})")
-            existing = {path.relative_to(self.root).as_posix(): path.read_bytes() for path in target.rglob("*") if path.is_file()
-                        and "__pycache__" not in path.parts and not any(part.endswith(".egg-info") for part in path.parts)}
+            existing = lab_files(target, self.root)
             if str(current.get("version")) == version and existing != files:
                 raise ValueError(f"{package} {version} is installed with other code; the coding agent has to raise the version for the lab to load the new code")
         return {"name": name, "package": package, "version": version, "entry_points": entries, "problem_entry_points": problems,
@@ -313,6 +318,7 @@ class Installer:
     def install(self, identity, plan, confirm_changes):
         try:
             judged = self._validate(identity, plan)
+            self._keeps(identity, plan, judged)
         except Exception as exc:   # nothing of it is installed; the coder and the lead are told what failed
             record = self._update(identity, "library.install_failed", status="failed", finished_at=now(), error=str(exc)[:2000])
             told = self._feedback(identity, plan)
@@ -335,6 +341,7 @@ class Installer:
                     destination.parent.mkdir(parents=True, exist_ok=True)
                     destination.write_bytes(content)
                 if target.exists():
+                    self._archive_replaced(target, plan["package"])
                     target.rename(backup)
                 staging.rename(target)
                 created = True
@@ -359,7 +366,14 @@ class Installer:
                 reported = [method["method_id"] for method in plan["report"].get("methods", [])]
                 if backup.exists():
                     shutil.rmtree(backup)
+                kept = self.store.get(identity, "library_install")
+                stored = archive(self.workspace.directory, name, plan["version"], plan["files"], {"package": plan["package"],
+                    "version": plan["version"], "install_id": identity, "campaign_id": plan["record"]["campaign_id"],
+                    "workspace_id": plan["record"]["id"], "submission_id": plan["submission"]["id"], "commit": plan["submission"]["commit"],
+                    "methods": sorted({*(kept.get("methods_kept") or []), *(after - before - refused)}),
+                    "problems": sorted(plan["problem_entry_points"]), "archived_at": now()})
                 record = self._update(identity, "library.installed", status="installed", finished_at=now(), changes=changes,
+                                      archive=stored.relative_to(self.workspace.directory).as_posix(),
                                       methods_added=sorted(after - before - refused), missing_methods=sorted(set(reported) - after - refused),
                                       problems_added=sorted(problems_after - problems_before),
                                       missing_problems=sorted(set(plan["problem_entry_points"]) - problems_after),
@@ -381,12 +395,59 @@ class Installer:
         who = "The researcher" if record["actor"] == "researcher" else "Balsamic"
         adoption = adoption_text(record)
         self.development.notify(plan["record"], identity, f"{who} installed {plan['package']} {plan['version']} from commit "
-            f"{plan['submission']['commit'][:7]}: {added(record)}."
+            f"{plan['submission']['commit'][:7]}: {added(record)}." + (f" {kept_text(record)}." if kept_text(record) else "")
             + (f" Not installed, failed outside the box: {refused_text(record['refused_methods'])}." if record.get("refused_methods") else "")
             + (f" Generated files it changed: {', '.join(plan['changed_generated_files'])}." if plan["changed_generated_files"] else "")
             + (" " + adoption if adoption else "")
             + (" " + bound_text(record) + " Tell the researcher which proposals can run now." if plan["entry_points"] else ""), "installs")
         return record
+
+    def provided(self, package):
+        """(methods, problems) the installed package provides now; both empty when it is not installed."""
+        origin = getattr(self.plugins, "origin", lambda method_id: None)
+        mine = lambda distribution: bool(distribution) and normal(distribution) == normal(package)
+        methods = {method["id"] for method in self.plugins.methods() if mine((origin(method["id"]) or {}).get("distribution"))}
+        return methods, {problem for problem, distribution in self.providers(PROBLEMS).items() if mine(distribution)}
+
+    def _keeps(self, identity, plan, judged):
+        """What the new version keeps and removes of the installed one's methods and problems, on the install record; ValueError
+        naming each dropped method or problem a campaign uses (roadmap L1, decision 25). A kept method that fails validation outside
+        the box counts as dropped. The new version's methods are those the validation listed (the report's when it listed none)."""
+        from .library_usage import campaign_names, used_methods, used_problems
+        old_methods, old_problems = self.provided(plan["package"])
+        refused = {row["method_id"] for row in judged["refused_methods"]}
+        listed = {row["method_id"] for row in judged["methods"]} or {row["method_id"] for row in plan["report"].get("methods", []) if row.get("method_id")}
+        new_methods, new_problems = listed - refused, set(plan["problem_entry_points"])
+        self._update(identity, methods_kept=sorted(old_methods & new_methods), methods_removed=sorted(old_methods - new_methods),
+                     problems_kept=sorted(old_problems & new_problems), problems_removed=sorted(old_problems - new_problems))
+        if not old_methods - new_methods and not old_problems - new_problems:
+            return
+        methods, problems, broken = used_methods(self.store), used_problems(self.store), []
+        for method in sorted(old_methods - new_methods):
+            if method in methods:
+                why = "fails validation outside the box" if method in refused else "is left out"
+                broken.append(f"method {method} {why}, and {campaign_names(self.store, methods[method])} use{'s' if len(methods[method]) == 1 else ''} it")
+        for problem in sorted(old_problems - new_problems):
+            if problem in problems:
+                broken.append(f"problem {problem} is left out, and {campaign_names(self.store, problems[problem])} "
+                              f"use{'s' if len(problems[problem]) == 1 else ''} it")
+        if broken:
+            example = next((m for m in sorted(old_methods - new_methods) if m in methods), "foo")
+            raise ValueError(f"{plan['package']} {plan['version']} would take away what campaigns use: " + "; ".join(broken) + ". A new "
+                             "version may add methods and problems but not remove one a campaign uses: keep it unchanged, give a method whose "
+                             f"behaviour changes a new name (such as {example}_v2), and make a changed scoring function a new problem id.")
+
+    def _archive_replaced(self, target, package):
+        """Archive the version the install replaces when it is not archived yet (one installed before L1, or the lab's own)."""
+        try:
+            current = tomllib.loads((target / "pyproject.toml").read_text()).get("project") or {}
+            files = lab_files(target, self.root)
+            methods, problems = self.provided(package)
+            archive(self.workspace.directory, target.name, str(current.get("version") or "unknown"), files, {"package": current.get("name"),
+                "version": str(current.get("version") or ""), "source": "the lab's copy before it was replaced", "methods": sorted(methods),
+                "problems": sorted(problems), "archived_at": now()})
+        except (OSError, ValueError, tomllib.TOMLDecodeError) as exc:   # archiving never stops an install
+            logging.getLogger(__name__).warning("Archiving %s before replacing it failed: %s", target, exc)
 
     def _restore(self, saved, target, backup, created):
         """pyproject.toml and uv.lock as they were, and the library directory as it was (the previous copy, or none)."""
@@ -417,6 +478,48 @@ class Installer:
             end = match.start(1) + len(match.group(1).rstrip("\n"))   # after the table's last line
             text = text[:end] + "\n" + source + text[end:]
         path.write_text(text)
+
+
+def lab_files(target, root):
+    """{root-relative path: bytes} of a library's copy in the lab, without what building and importing it leave."""
+    return {path.relative_to(root).as_posix(): path.read_bytes() for path in Path(target).rglob("*") if path.is_file()
+            and "__pycache__" not in path.parts and not any(part.endswith(".egg-info") for part in path.parts)}
+
+
+def archive(directory, name, version, files, meta):
+    """Archive one version of a library on the host, once: <directory>/library_archive/<name>/<version>/ holds its files (as
+    libraries/<name>/ had them) and version.json (meta). The directory of an archived version; an existing one is kept."""
+    safe = version if re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_.+\-]{0,63}", version) else "version-" + content_hash(version)[:12]
+    target = Path(directory) / "library_archive" / name / safe
+    if target.exists():
+        return target
+    staging = target.with_name(f".{safe}-{uuid.uuid4().hex}")
+    prefix = f"libraries/{name}/"
+    try:
+        for path, content in files.items():
+            relative = PurePosixPath(path)
+            relative = relative.relative_to(prefix) if path.startswith(prefix) else relative
+            destination = staging / "files" / relative
+            destination.parent.mkdir(parents=True, exist_ok=True)
+            destination.write_bytes(content)
+        atomic_json(staging / "version.json", {"library": name, **meta, "files": sorted(files)})
+        staging.rename(target)
+    finally:
+        if staging.exists():
+            shutil.rmtree(staging)
+    return target
+
+
+def kept_text(record):
+    """The install notice's line on what the new version keeps and removes of the one it replaced; "" for a first install."""
+    parts = []
+    if record.get("methods_kept") or record.get("methods_removed"):
+        parts.append(f"it keeps {len(record.get('methods_kept') or [])} method{'s' if len(record.get('methods_kept') or []) != 1 else ''}")
+    if record.get("methods_removed"):
+        parts.append(f"removes {', '.join(record['methods_removed'])}, which no campaign uses")
+    if record.get("problems_removed"):
+        parts.append(f"removes problem {', '.join(record['problems_removed'])}, which no campaign uses")
+    return ("Of the version it replaced, " + " and ".join(parts)) if parts else ""
 
 
 def generated_changes(record, name, files):

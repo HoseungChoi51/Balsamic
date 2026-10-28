@@ -141,7 +141,13 @@ name or method id that another installed package provides, the lab's own include
 is provided by <distribution>"); the library's own earlier version is no clash. Each install is a `library_install` record
 with the methods and problems it added and those that did not load (`methods_added`, `missing_methods`, `problems_added`,
 `missing_problems`; `agents/library_install.py`); the researcher commits the edited `pyproject.toml` and `uv.lock`. A new delivery of the
-same library needs a new version: the running lab loads a library's new code only when its version changes. The running lab lists its methods for the
+same library needs a new version: the running lab loads a library's new code only when its version changes. A new version keeps what
+campaigns use (roadmap L1, decision 25): a method or problem the installed version provides that the new one leaves out, or a
+kept method that fails validation outside the box, refuses the install when any campaign of the lab ran the method, has a
+proposal bound to it or a task on the problem. A method whose behaviour changes gets a new name (`foo_v2`); a changed scoring
+function is a new problem id. Unused methods and problems may go (`methods_removed`, `problems_removed`; `methods_kept`,
+`problems_kept`). Every installed version is archived on the host, `<data>/library_archive/<name>/<version>/` (its files and
+`version.json`), and the version an install replaces is archived first. The running lab lists its methods for the
 problems they name at the next listing, without a restart (see "Installed while the lab runs" below). A proposal runs a method once it is bound to it (`implementation.bind_builtin`). After an install Balsamic binds each proposal the delivery serves by itself, when exactly one of the methods
 the delivery reports for it is installed and runs on a current task: through the command bus as its system actor `balsamic`, citing the install, which lists
 its `bindings` and the proposals it `skipped` with why (a proposal someone bound, one using another method, one with several candidates). A binding keeps the

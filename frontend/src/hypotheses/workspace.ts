@@ -9,6 +9,8 @@ export interface Report {
 }
 export interface Install { id: string; submission_id: string; status: string; actor?: string; package: string; version: string; path: string; requested_at: string;
   finished_at?: string; methods_added: string[]; missing_methods: string[]; problems_added?: string[]; missing_problems?: string[]; problem_entry_points?: Record<string, string>; changes: { name: string; from: string; to: string | null }[]; error?: string; log_tail?: string;
+  /** What the new version keeps and removes of the version it replaced (roadmap L1); a removed one no campaign used. */
+  methods_kept?: string[]; methods_removed?: string[]; problems_kept?: string[]; problems_removed?: string[];
   /** Files generated from the charter that the coding agent changed (its objective and methods aside). */
   changed_generated_files?: string[];
   /** What the host found outside the box before installing (roadmap H6): the library's tests, each method's conformance beside
