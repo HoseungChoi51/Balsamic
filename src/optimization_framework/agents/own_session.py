@@ -8,7 +8,7 @@ workspace's latest stop stays revoked after a resume. Every route that takes it 
 401 to any other token, or none, before it reads anything else.
 
 The library. `balsamic-workspace clone` fetches the workspace's start (`start()`): the library generated from its campaign's
-charter (roadmap F4), byte for byte what the box started from, as one commit holding `libraries/<name>/`, in a Git bundle.
+charter (roadmap F4), or the installed version it builds on (L3), byte for byte what the box started from, as one commit holding `libraries/<name>/`, in a Git bundle.
 
 The delivery. `balsamic-workspace submit` sends a commit as a Git bundle (`deliver()`), taken only while the workspace runs
 (`closed()`: a paused one, at its deadline among others, waits for its resume, as its coding agent does). The host checks
@@ -257,7 +257,9 @@ def start(development, record):
     with _lock:
         store = own_store(development, record)
         tree = _tree(store, root)
-        commit = _git(store, "commit-tree", tree, "-m", f"The library generated from charter revision {library['revision']}",
+        message = (f"{library['base']['package']} {library['base']['version']}, the version this workspace builds on" if library.get("base")
+                   else f"The library generated from charter revision {library['revision']}")
+        commit = _git(store, "commit-tree", tree, "-m", message,
                       env=START).decode().strip()
         _git(store, "update-ref", "refs/heads/main", commit)
         with tempfile.TemporaryDirectory(dir=store.parent) as folder:

@@ -35,8 +35,8 @@ export interface Workspace {
   outcome?: Outcome | null; finished_at?: string | null; submissions?: Submission[]; installs?: Install[];
   control_revision?: number; wall_seconds?: number | null; deadline_at?: string | null; limits?: { cpus: number; memory_gb: number; gpus: number };
   egress?: { model: string[]; package_index: string[]; named: string[] };
-  /** The library generated from the charter it started from (roadmap F4). */
-  library?: { name: string; package?: string; revision?: number } | null;
+  /** The library generated from the charter it started from (roadmap F4), or the installed version it builds on (base, roadmap L3). */
+  library?: { name: string; package?: string; revision?: number; base?: { package: string; version: string; commit: string; methods: string[] } } | null;
   /** The commission this box runs headless for (roadmap H7): its kind, its specification's name, its compute time and the
    *  protected tests kept outside the box. A box for a task's evaluator has a task_id and serves no proposal. */
   commission?: { kind: 'implementation' | 'evaluator'; name: string; compute_seconds: number; protected_tests?: string[]; task_id?: string | null } | null;

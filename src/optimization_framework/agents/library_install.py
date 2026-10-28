@@ -240,7 +240,7 @@ class Installer:
                    "entry_points": plan["entry_points"], "problem_entry_points": plan["problem_entry_points"], "actor": actor, "status": "queued",
                    "requested_at": now(), "confirm_changes": confirm_changes, "methods_added": [], "missing_methods": [], "problems_added": [],
                    "missing_problems": [], "changes": [], "log_tail": "", "changed_generated_files": plan["changed_generated_files"],
-                   **({"retry_of": retry_of} if retry_of else {})}
+                   **({"retry_of": retry_of} if retry_of else {}), **base_of(plan)}
         self.store.put("library_install", install, "library.install_requested")
         if background:
             threading.Thread(target=self.install, args=(identity, plan, confirm_changes), daemon=True).start()
@@ -518,6 +518,12 @@ def import_lab(workspace, root, plugins=None, provided_by=providers):
         except (OSError, ValueError, tomllib.TOMLDecodeError) as exc:
             logging.getLogger(__name__).warning("Importing %s into its repository failed: %s", name, exc)
     return rows
+
+
+def base_of(plan):
+    """The version a delivery built on (roadmap L3), as the install records it: {base_version} when its workspace started from one."""
+    base = (plan["record"].get("library") or {}).get("base")
+    return {"base_version": {key: base[key] for key in ("id", "package", "version", "commit")}} if base and plan["record"]["library"].get("name") == plan["name"] else {}
 
 
 def commit_message(plan, identity):

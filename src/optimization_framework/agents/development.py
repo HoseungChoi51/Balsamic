@@ -664,7 +664,9 @@ class DevelopmentWorkspaces:
                         base[prefix + path] = content
             base |= {row["path"]: row["content"].encode() for row in ticket["acceptance_tests"]
                      if row.get("content") is not None and row["path"].startswith(prefix)}
-            return {"library": name, "source": source, **diff_summary(base, delivered, hashes=hashes, ticket=ticket)}
+            built = (library.get("base") or {}) if library.get("name") == name else {}
+            return {"library": name, "source": source, **({"base_version": built["version"], "base_package": built["package"]} if built else {}),
+                    **diff_summary(base, delivered, hashes=hashes, ticket=ticket)}
         except Exception as exc:   # a review that cannot be made never stops a delivery
             return {"error": f"The diff could not be made: {exc}"[:500]}
 
@@ -859,8 +861,31 @@ class DevelopmentWorkspaces:
         problem_id = charter["evaluator"]["problem_id"]
         package = package_name(parse(charter))
         name = problem_id if re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_.\-]{0,99}", problem_id) else package.replace("_", "-")
-        return {"name": name, "package": package, "charter_id": reference["id"], "revision": reference["revision"],
-                "fixed": [f"libraries/{name}/charter.json", f"libraries/{name}/{package}/data.py"], "files": files}, charter, None
+        library = {"name": name, "package": package, "charter_id": reference["id"], "revision": reference["revision"],
+                   "fixed": [f"libraries/{name}/charter.json", f"libraries/{name}/{package}/data.py"], "files": files}
+        return self.based(record, library), charter, None
+
+    def based(self, record, library):
+        """The library a workspace starts from (roadmap L3): the latest installed version of the library of that name, in place of
+        the one generated from the charter, when the lab has one, with its version as ``base`` ({library, package, version, tag,
+        commit, methods, problems}). A workspace keeps the start it was prepared with: the base its record names, or the
+        generated library when it started from that."""
+        from . import library_repository as repositories
+        started = record.get("library") or {}
+        if started and not started.get("base"):
+            return library
+        if started.get("base"):
+            version = self.store.get(started["base"]["id"], repositories.KIND)
+        else:
+            version = repositories.latest(self.store, library["name"])
+        if not version:
+            return library
+        store = repositories.path(self.workspace.directory, library["name"])
+        prefix = f"libraries/{library['name']}/"
+        files = {path[len(prefix):]: content for path, content in repositories.files_at(store, version["commit"], library["name"]).items()}
+        return {**library, "files": files, "base": {"id": version["id"], "library": version["library"], "package": version["package"],
+                "version": version["version"], "tag": version["tag"], "commit": version["commit"], "methods": version["methods"],
+                "problems": version["problems"]}}
 
     def ticket(self, record, given=None, *, consent=None, mandate=None, generated=None):
         """The work ticket of a workspace record (H4, agents/development_ticket.py): the proposals it serves with their METHODS

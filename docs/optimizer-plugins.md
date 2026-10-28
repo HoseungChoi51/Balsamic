@@ -151,7 +151,11 @@ install commits the version's files onto its `main` as Balsamic's own commit (th
 message), writes the lab's copy from that commit, and once it is in tags it `v<version>` and records a `library_version` (its
 parent, source, methods and problems, what it added and removed). A version, once tagged, never changes: the same version with
 other code is refused. What the lab had before (L1's archive in `<data>/library_archive/`, a library committed with the lab) is
-imported as the first versions. `GET /api/libraries` and `GET /api/libraries/<name>` list them; the Packages page shows them. The running lab lists its methods for the
+imported as the first versions. `GET /api/libraries` and `GET /api/libraries/<name>` list them; the Packages page shows them. A coding workspace whose library has an installed version builds on
+the latest one (roadmap L3): it starts from that version's files instead of the library generated from the charter, its ticket
+(TASK.md, "What you build on") lists the existing methods and says what a new version keeps, the review's diff is against that
+version (`base_version`), and the install records it. `charter.json` and the data stay fixed against the base. The researcher's
+own session (`balsamic-workspace clone`) gets the same start. The running lab lists its methods for the
 problems they name at the next listing, without a restart (see "Installed while the lab runs" below). A proposal runs a method once it is bound to it (`implementation.bind_builtin`). After an install Balsamic binds each proposal the delivery serves by itself, when exactly one of the methods
 the delivery reports for it is installed and runs on a current task: through the command bus as its system actor `balsamic`, citing the install, which lists
 its `bindings` and the proposals it `skipped` with why (a proposal someone bound, one using another method, one with several candidates). A binding keeps the
