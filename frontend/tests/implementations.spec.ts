@@ -431,3 +431,20 @@ test('a workspace that builds on an installed version says which, with its metho
   await expect(page.getByTestId('workspace-base')).toHaveText('package bakery-search 1.4.0 (6 methods)');
   await expect(page.getByTestId('workspace-card')).toContainText('Builds on');
 });
+
+test('an install says the kept methods reproduce their recorded runs and earlier versions\' tests passed (roadmap L4)', async ({ page }) => {
+  const submission = { id: 's1', commit: '2a3eb0899a', status: 'submitted', created_at: '2026-10-27T03:22:04Z', report,
+    manifest: { files: ['libraries/bakery/pyproject.toml'] } };
+  const install = { id: 'library_install_1', submission_id: 's1', requested_at: '2026-10-27T04:00:00Z', finished_at: '2026-10-27T04:01:00Z',
+    status: 'installed', actor: 'balsamic', package: 'bakery-search', version: '0.3.0', path: 'libraries/bakery', changes: [],
+    entry_points: { bakery: 'bakery.plugin:Plugin' }, methods_added: [], missing_methods: [], methods_kept: ['bakery_dp', 'bakery_greedy'],
+    host_validation: { tests: { passed: 12, failed: 0, skipped: 0 }, protected: null, earlier: { passed: 3, failed: 0, skipped: 0 },
+      reproduced: { methods: ['bakery_dp', 'bakery_greedy'], problems: ['baking_order'], runs: 4 }, methods: [] } };
+  await mockWorkspace(page);
+  await page.route(`**/api/campaigns/${CAMPAIGN_ID}/implementation-workspaces`, route => route.fulfill({ json: { enabled: true, workspaces: [
+    { ...workspace, status: 'idle', outcome: { state: 'delivered', verdict: 'ready', submission_id: 's1', commit: '2a3eb0899a', at: '2026-10-27T03:22:04Z' },
+      submissions: [submission], installs: [install] }] } }));
+  await page.goto(`/#t/${THREAD_ID}/hypotheses/implementations`);
+  await expect(page.getByTestId('install-earlier')).toHaveText(" · earlier versions' tests: 3 passed");
+  await expect(page.getByTestId('install-reproduced')).toHaveText(' · kept and reproducing 4 recorded runs: bakery_dp, bakery_greedy, problem baking_order');
+});

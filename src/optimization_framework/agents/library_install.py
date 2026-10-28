@@ -259,14 +259,21 @@ class Installer:
         from . import library_validation as validation
         record = plan["record"]
         self._update(identity, status="validating")
+        # Tests accumulate and kept methods reproduce their recorded runs (roadmap L4): what the installed version has is checked again.
+        old_methods, old_problems = self.provided(plan["package"])
+        earlier = validation.earlier_tests(self.store, self.workspace.directory, plan["name"], plan["files"])
+        protected = {**validation.earlier_protected(self.store, record, plan["name"]), **validation.protected_tests(self.store, record)}
+        replays = validation.recorded_runs(self.workspace, old_methods, old_problems & set(plan["problem_entry_points"]))
+        extra = {**({"earlier": earlier} if earlier else {}), **({"replays": replays} if replays else {})}
         try:
             result = self.validator(plan["files"], plan["name"], instances=validation.instances_of(self.workspace, record["campaign_id"]),
-                                    protected=validation.protected_tests(self.store, record))
+                                    protected=protected, **extra)
         except ValueError as exc:
             raise ValueError(f"Balsamic could not validate the library outside the box: {exc}") from None
         self._charge(record, identity, result.get("seconds") or 0.0)
-        judged = validation.verdict(result, plan["report"])
-        host = {**validation.public(result), **judged, "at": now()}
+        listed = {row["method_id"] for row in result.get("methods", [])}
+        judged = validation.verdict(result, plan["report"], removed=old_methods - listed if listed else ())
+        host = {**validation.public(result), **judged, "reproduced": validation.reproduced(result), "at": now()}
         self._update(identity, host_validation=host, refused_methods=judged["refused_methods"])
         listed = [row["method_id"] for row in judged["methods"]]
         if judged["library_failures"]:
@@ -534,10 +541,15 @@ def commit_message(plan, identity):
 
 
 def kept_text(record):
-    """The install notice's line on what the new version keeps and removes of the one it replaced; "" for a first install."""
+    """The install notice's line on what the new version keeps and removes of the one it replaced, and the kept methods that
+    reproduced their recorded runs (L4); "" for a first install."""
     parts = []
+    reproduced = ((record.get("host_validation") or {}).get("reproduced") or {})
     if record.get("methods_kept") or record.get("methods_removed"):
-        parts.append(f"it keeps {len(record.get('methods_kept') or [])} method{'s' if len(record.get('methods_kept') or []) != 1 else ''}")
+        kept = record.get("methods_kept") or []
+        same = [method for method in kept if method in (reproduced.get("methods") or [])]
+        parts.append(f"it keeps {len(kept)} method{'s' if len(kept) != 1 else ''}" + (
+            f" ({len(same)} reproduce{'s' if len(same) == 1 else ''} {reproduced['runs']} recorded run{'s' if reproduced['runs'] != 1 else ''})" if same else ""))
     if record.get("methods_removed"):
         parts.append(f"removes {', '.join(record['methods_removed'])}, which no campaign uses")
     if record.get("problems_removed"):

@@ -207,6 +207,8 @@ function HostValidation({ install }: { install: Install }) {
     {` ${tests.passed} test${tests.passed === 1 ? '' : 's'} passed${tests.failed ? `, ${tests.failed} failed` : ''}`}
     {host.methods.length ? ` · conformance passed for ${passed} of ${host.methods.length} method${host.methods.length === 1 ? '' : 's'}` : null}
     {host.protected ? ` · protected tests: ${host.protected.passed} passed${host.protected.failed ? `, ${host.protected.failed} failed` : ''}` : null}
+    {host.earlier ? <span data-testid="install-earlier">{` · earlier versions' tests: ${host.earlier.passed} passed${host.earlier.failed ? `, ${host.earlier.failed} failed` : ''}`}</span> : null}
+    {host.reproduced?.runs ? <span data-testid="install-reproduced">{` · kept and reproducing ${host.reproduced.runs} recorded run${host.reproduced.runs === 1 ? '' : 's'}: ${[...host.reproduced.methods, ...host.reproduced.problems.map(p => `problem ${p}`)].join(', ')}`}</span> : null}
     {install.refused_methods?.map(r => <div key={r.method_id} data-testid="install-refused"><span className="pill bad">not installed</span> <code>{r.method_id}</code>
       {` failed outside the box (the coding agent reported ${r.reported.replace('_', ' ')}): ${r.failing.join('; ')}`}</div>)}
   </div>;
