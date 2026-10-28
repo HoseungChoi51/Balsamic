@@ -89,3 +89,21 @@ test('a mandate an agent proposes is one card with its envelope and three choice
   await card.getByRole('button', { name: 'Approve as Explore only' }).click();
   await expect.poll(() => recorded.commands.find(c => c.operation === 'decision.resolve')?.payload).toMatchObject({ decision_id: 'approval_m', choice: '1' });
 });
+
+test('an agent asks for a waiver; the researcher waives it from the card with a reason (roadmap V5)', async ({ page }) => {
+  const waiver = { id: 'approval_w', title: 'Let Annealing be stopped as inferior on fewer runs?', status: 'pending', resolution_revision: 0, requested_by: 'lead',
+    proposal: 'The lead agent asks to stop Annealing as inferior although it was tried less than the experiment rules ask (1 of 3 configurations).',
+    rationale: 'It lost at its default settings.', created_at: '2026-10-27T12:00:00Z', recommendation: '0',
+    approval_request: { kind: 'waiver', requirement_id: 'tuning_requirement_hypothesis_c', evidence_ids: ['trial_3'] },
+    options: [{ id: '0', label: 'Accept the stop', description: 'Applied at once as your own command.' }, { id: '1', label: 'Leave it as it is', description: 'The requester is told and nothing changes.' }],
+    freshness: { state: 'ready', reason: '', blocked_choice_ids: [] }, presentation: {} };
+  const recorded = await mockWorkspace(page, { [`/api/v1/campaigns/${CAMPAIGN_ID}/inbox`]: { ...f.inbox, decisions: [waiver] } });
+  await page.goto(`/#t/${THREAD_ID}/inbox`);
+  const card = page.getByTestId('decision');
+  await expect(card.getByRole('button', { name: 'Accept the stop' })).toBeDisabled();
+  await expect(card.getByRole('button', { name: 'Leave it as it is' })).toBeEnabled();
+  await card.getByTestId('decision-comment').fill('three settings would not change the ranking');
+  await card.getByRole('button', { name: 'Accept the stop' }).click();
+  await expect.poll(() => recorded.commands.find(c => c.operation === 'decision.resolve')?.payload)
+    .toMatchObject({ decision_id: 'approval_w', choice: '0', comment: 'three settings would not change the ranking' });
+});

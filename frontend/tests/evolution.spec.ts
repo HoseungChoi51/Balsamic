@@ -104,3 +104,70 @@ test('the baking order (roadmap G1): four ways to order the bakes rank by total 
     .toEqual(['hypothesis_exact', 'hypothesis_restarts', 'hypothesis_swap', 'hypothesis_edd']);
   await expect(page.getByTestId('page-evolution')).toContainText('best so far 290');
 });
+
+// Roadmap V5: the gates on the frontier. H01 ran once at its default settings on a problem that declares a fidelity check.
+const ORDER_CHECK = { trial_id: 'trial_1', recipe_id: 'meent_2d_order_convergence:v1', parameters: { absolute_tolerance: 0.005 } };
+const closedAssessment = { gate: 'assessment', transition: 'stop as inferior', state: 'closed', words: '1 of 3 configurations, 1 seed each', evidence_ids: ['trial_1'],
+  why: "An agent's stop as inferior is refused: 1 of 3 configurations; 1 of 2 seeds.", unlock: { runs: 'Run the missing configurations or seeds (5 runs), or stop it as under-evaluated.', check: null, waive: true } };
+const closedFidelity = { gate: 'fidelity', transition: 'finalist and library', state: 'closed', words: 'not checked', evidence_ids: ['trial_1'],
+  why: 'An agent cannot make it a finalist, nor anyone publish it. meent_2d_order_convergence:v1 has not been checked on its best run (score 0.41).', unlock: { runs: null, check: ORDER_CHECK, waive: true } };
+const gated = (assessment: Record<string, unknown>, cursor = 10) => ({ ...evolution, event_cursor: cursor, nodes: evolution.nodes.map(n => n.id !== 'hypothesis_a' ? n : { ...n,
+  assessment: { adequate: false, configurations: 1, required_configurations: 3, seeds_per_configuration: 1, required_seeds: 2, stochastic: true, missing: ['1 of 3 configurations', '1 of 2 seeds'], words: '1 of 3 configurations, 1 seed each' },
+  fidelity: { state: 'not_checked', trial_id: 'trial_1', score: 0.41, words: 'not checked: meent_2d_order_convergence:v1', checks: [{ ...ORDER_CHECK, state: 'not_checked', requirement_id: null, validation_result_id: null, waiver_id: null }] },
+  gates: [assessment, closedFidelity] }) });
+
+test('a gated row shows its state, why it is closed and what unlocks it; a waiver from the row unlocks the transition', async ({ page }) => {
+  const recorded = await mockWorkspace(page);
+  // The graph answers with the waived gate once the researcher's waiver is sent.
+  await page.route(`**/api/v1/campaigns/${CAMPAIGN_ID}/evolution*`, route => {
+    const waived = recorded.commands.some(c => c.operation === 'validation.waive');
+    const after = Number(new URL(route.request().url()).searchParams.get('after') || 0);
+    const body = waived ? gated({ ...closedAssessment, state: 'waived', waiver_id: 'waiver_1', why: undefined, unlock: undefined }, 11) : gated(closedAssessment);
+    return route.fulfill({ contentType: 'application/json', body: JSON.stringify(after >= body.event_cursor ? { unchanged: true, event_cursor: after } : body) });
+  });
+  await page.goto(`/#t/${THREAD_ID}/evolution/frontier`);
+  const row = page.getByTestId('frontier').locator('tr[data-record-id="hypothesis_a"]');
+  await expect(row.getByTestId('gate-assessment')).toHaveAttribute('data-state', 'closed');
+  await expect(row.getByTestId('gate-assessment')).toContainText('1 of 3 configurations, 1 seed each');
+  await expect(row.getByTestId('gate-fidelity')).toHaveAttribute('data-state', 'closed');
+  await expect(row.getByTestId('gate-fidelity')).toContainText('fidelity not checked');
+  // A row without gates shows none.
+  await expect(page.getByTestId('frontier').locator('tr[data-record-id="hypothesis_b"]').getByTestId('gate-assessment')).toHaveCount(0);
+  await row.getByTestId('gate-toggle').click();
+  const details = page.getByTestId('gate-details');
+  const assessment = details.getByTestId('gate-detail-assessment');
+  await expect(assessment.getByTestId('gate-why')).toContainText("An agent's stop as inferior is refused: 1 of 3 configurations; 1 of 2 seeds.");
+  await expect(assessment.getByTestId('gate-unlock-runs')).toContainText('Run the missing configurations or seeds (5 runs)');
+  await expect(assessment.locator('a', { hasText: 'trial_1' })).toHaveAttribute('href', new RegExp('experiments/trial_1'));
+  // The fidelity check to run is one click: validation.run on the best run.
+  await details.getByTestId('gate-detail-fidelity').getByTestId('gate-run-check').click();
+  await expect.poll(() => recorded.commands.find(c => c.operation === 'validation.run')?.payload).toEqual(ORDER_CHECK);
+  // A waiver needs the researcher's reason.
+  await expect(assessment.getByTestId('waive-assessment')).toBeDisabled();
+  await assessment.getByTestId('waive-reason-assessment').fill('its default is the paper\'s setting');
+  await assessment.getByTestId('waive-assessment').click();
+  await expect.poll(() => recorded.commands.find(c => c.operation === 'validation.waive')?.payload)
+    .toEqual({ tuning_hypothesis_id: 'hypothesis_a', rationale: "its default is the paper's setting", evidence_ids: ['trial_1'] });
+  await expect(row.getByTestId('gate-assessment')).toHaveAttribute('data-state', 'waived');
+  await expect(details.getByTestId('gate-detail-assessment')).toContainText('waived by you');
+  await expect(details.getByTestId('gate-detail-assessment').getByTestId('waive-assessment')).toHaveCount(0);
+  await expect(row.getByTestId('gate-fidelity')).toHaveAttribute('data-state', 'closed');
+});
+
+test('the researcher stops with an outcome; a stop as inferior on too few runs says so before it goes through', async ({ page }) => {
+  const recorded = await mockWorkspace(page, { [`/api/v1/campaigns/${CAMPAIGN_ID}/evolution`]: gated(closedAssessment) });
+  await page.goto(`/#t/${THREAD_ID}/evolution/frontier`);
+  const table = page.getByTestId('frontier');
+  await table.locator('tr[data-record-id="hypothesis_a"] input[type=checkbox]').check();
+  const bar = page.getByTestId('interventions');
+  // Promoting it past its unchecked fidelity is recorded with a warning.
+  await expect(bar.getByTestId('promote-unchecked')).toContainText('H01: not checked: meent_2d_order_convergence:v1');
+  await bar.getByRole('button', { name: 'Stop…' }).click();
+  await expect(bar.getByTestId('stop-thin')).toHaveCount(0);
+  await bar.getByTestId('stop-outcome-choice').selectOption('configuration_unpromising');
+  await expect(bar.getByTestId('stop-thin')).toContainText('H01: 1 of 3 configurations, 1 seed each');
+  await page.getByTestId('stop-reason').fill('lost to H02');
+  await bar.getByRole('button', { name: 'Stop', exact: true }).click();
+  await expect.poll(() => (recorded.commands[0] as any)?.payload.items[0].payload)
+    .toMatchObject({ hypothesis_id: 'hypothesis_a', status: 'archived', stop_reason: 'lost to H02', outcome: 'configuration_unpromising' });
+});

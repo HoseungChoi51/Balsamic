@@ -16,6 +16,7 @@ export function HypothesisCard({ id, thread, back, onDiscuss }: { id: string; th
   if (card.error) return <Failed error={card.error} />;
   const { hypothesis: h, ledger_row: row, parents, children, reviews, trials, implementation, race_cells, rounds } = card.data;
   const title = String(h.title);
+  const promotion = h.promotion as { warning?: string | null } | undefined;
   return (
     <article className="card selected" data-testid="hypothesis-card" data-record-id={id}>
       <div className="row wrap"><a href={back} className="small">← All</a>{row?.label ? <Pill>{row.label}</Pill> : null}<h2 className="grow">{title}</h2>
@@ -34,7 +35,10 @@ export function HypothesisCard({ id, thread, back, onDiscuss }: { id: string; th
         ['Review', <Approval h={h} thread={thread} review={row?.review} />],
         ['Implementation', implementation.runnable ? 'runnable' : `not runnable: ${implementation.reason || implementation.state || 'unknown'}`],
         ['Race', race_cells ? `${race_cells.race_id} · ${race_cells.configuration_id} · ${race_cells.status}${race_cells.latest_decision ? ` · last: ${race_cells.latest_decision.action}` : ''}` : 'not in a race'],
-        ['Confirmation', row?.confirmation ? `${row.confirmation.status}${row.confirmation.promising != null ? (row.confirmation.promising ? ', promising' : ', not promising') : ''}` : 'none']]} />
+        ['Confirmation', row?.confirmation ? `${row.confirmation.status}${row.confirmation.promising != null ? (row.confirmation.promising ? ', promising' : ', not promising') : ''}` : 'none'],
+        // Its gates (V5): how it was tried before a stop as inferior, and its fidelity before a finalist or the library.
+        ['Gates', row?.gates?.length ? <span className="col" data-testid="card-gates">{row.gates.map(g => <span key={g.gate} data-state={g.state}>{g.transition}: {g.state === 'waived' ? 'waived by you' : g.state} ({g.words}){g.why ? <span className="why"> {g.why}</span> : null}</span>)}</span> : 'none']]} />
+      {promotion?.warning ? <p className="pill attention" data-testid="promotion-warning">{promotion.warning}</p> : null}
       <h3 style={{ marginTop: 8 }}>Mechanism</h3><Markdown text={String(h.mechanism || '(none)')} thread={thread} />
       <h3>Rationale</h3><Markdown text={String(h.rationale || '(none)')} thread={thread} />
       {row?.curve?.length ? <><h3>Best run's curve</h3><Curve points={row.curve} height={90} label={title} /></> : null}
