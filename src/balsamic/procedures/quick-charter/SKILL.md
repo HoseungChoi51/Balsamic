@@ -16,8 +16,14 @@ tasks.
 
 Take the quick path when the researcher's words state the problem: what is chosen, what is measured and in which direction, and
 every value or the data it comes from; no documents or code to read first; the objective is computed by the campaign's installed
-problem or in a few lines from the given data; and at most two decisions are left open. Otherwise take the full path. Once the
-note is adopted, `charter_write` is refused.
+problem or in a few lines from the given data; and at most two decisions are left open. Otherwise take the full path.
+
+The code checks every `charter_write` (its result's `quick_path`): the problem was given in the conversation; the evaluator is
+installed, or declared with notes saying what it computes, white box and with no fidelity fields; it is deterministic; at most 3
+decision variables and 10 inputs; no blocking finding of yours left after 3 writes; at most two questions, in one round. When one
+fails, the quick path ends: your charter is kept, the note goes to the full path with its sections written from it, and after
+Adopt the formulator revises it. Tell the researcher in one line why, then go on with procedure problem-formulation. The
+researcher can choose the full path too. Once the quick path ended or the note is adopted, `charter_write` is refused.
 
 ## Writing the charter
 
@@ -58,8 +64,8 @@ Ask only what changes what is optimized, which designs are allowed or under whic
 most two questions, together, in `charter_write`'s `questions` (two to four options each, the one you recommend first). Decide
 everything else as an assumption with a note. The researcher answers on the Charter tab; their answers start your next turn.
 Read the charter then (`charter_read`: they may have changed values) and write it again from the answers. A question they
-left unanswered you decide yourself: record it as an assumption naming the question and drop the question. There is no second
-round of questions.
+left unanswered you decide yourself: record it as an assumption naming the question and drop the question. A second round of
+questions, or a third question, ends the quick path.
 
 ## Your reply
 

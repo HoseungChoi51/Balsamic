@@ -58,7 +58,8 @@ def definition(workspace, campaign):
     steps: the charter is confirmed, then the tasks installed. A campaign that was never formulated (tasks from a problem adapter or
     a confirmed charter, no note) is defined by its charter. Returns {ready, step, missing} where step is the next_step
     dict (None when ready) and missing lists the titles of the unwritten sections. A step names the note's path once one is
-    taken (quick or full), and says when the quick path is still open (quick_open: no tasks, nothing adopted, no path taken)."""
+    taken (quick or full), and says when the quick path is still open (quick_open: no tasks, nothing adopted, no path taken) or why
+    it ended (quick_ended: a criterion failed, or the researcher chose the full path; roadmap P3)."""
     from balsamic.notes.service import SECTIONS, TITLES, revision_of
     from balsamic.notes import skips
     store = workspace.store
@@ -85,6 +86,7 @@ def definition(workspace, campaign):
                     "text": "The charter is confirmed but its tasks are not installed yet; open the Charter page to finish."}}
         return {"ready": True, "step": None, "missing": []}
     base["quick_open"] = not tasks and note.get("path") is None and not note.get("import_id") and note.get("adopted_revision") is None
+    base["quick_ended"] = (note.get("quick") or {}).get("ended")
     try:
         revision = revision_of(workspace, note["id"], note["current_revision"]) if note.get("current_revision") else None
     except KeyError:
@@ -110,6 +112,8 @@ def definition(workspace, campaign):
         again = note.get("adopted_revision") is not None
         return {"ready": False, "missing": [], "step": {**base, "kind": "adopt", "title": "Adopt the problem note" + (" again" if again else ""), "page": "#note",
                 "text": ("The note changed since it was adopted; adopt the current revision so the charter follows it." if again else
+                         f"The quick path ended ({base['quick_ended']}), and the note was written from the lead's charter. Read it on the "
+                         "Problem note page and adopt it; the formulator then revises that charter for you to confirm." if base["quick_ended"] else
                          "Read the note on the Problem note page and adopt it; the formulator then drafts the charter for you to confirm.")}}
     charter = _charter_of(store, note)
     if charter is None or charter.get("status") != "confirmed":

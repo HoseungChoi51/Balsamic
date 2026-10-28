@@ -157,6 +157,8 @@ def test_import_produces_a_reviewable_charter_through_the_harness(tmp_path):
     assert {tool["name"] for tool in manifest["tools"]} == {"files_list", "file_read", "files_search", "problem_catalog",
         "charter_read", "charter_check", "charter_submit", "question_ask", "charter_propose", "panel_render"}
     assert "Formulating a scientific optimization problem" in manifest["instructions"]
+    # No extension: the formulator has no yield_work, so the reminder to call it would cost a model call per run (roadmap P3).
+    assert manifest["extension_host"] is False
     catalog = imports.call(record["id"], run["id"], "c1", "problem_catalog", {})
     assert "meent_2d_dual_polarization_deflector" in {adapter["problem_id"] for adapter in catalog["adapters"]}
     assert "error" in imports.call(record["id"], run["id"], "c2", "file_read", {"path": "../uploads/document-paper.md"})

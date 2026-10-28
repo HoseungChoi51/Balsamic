@@ -9,7 +9,9 @@ problem statement of a problem import; the charter it writes is linked back, and
 That is the note's full path. On the quick path (roadmap track P, decisions 28–32) the lead writes the charter of a simple
 problem itself (charter_write); the note is then read from the charter, with the lead's confounders, and is not revised or
 adopted; the researcher confirms the charter in one command (problem_note.confirm), which accepts its assumptions and installs
-its tasks. A note's path is None until the lead or the researcher writes it, then quick or full.
+its tasks. A note's path is None until the lead or the researcher writes it, then quick or full. Code criteria decide whether
+the quick path holds (decision 31, roadmap P3); when one fails, or the researcher asks for the full path, the note goes to the
+full path written from the lead's charter, and at Adopt the formulator takes that charter as its own.
 """
 import os
 from typing import Literal
@@ -319,6 +321,8 @@ def adopt(workspace, identity, revision_number, *, actor):
         revision = revision_of(workspace, identity, revision_number)
         if not (revision["sections"]["objective"].get("text") or "").strip():
             raise ValueError("The note needs an objective before it is adopted")
+        # A note handed over from the quick path brings the lead's charter: the first formulator revises it (roadmap P3).
+        draft = (note.get("quick") or {}) if note.get("import_id") is None else {}
     imports = getattr(workspace, "problem_imports", None)
     if imports is None:
         raise ValueError("The formulator is not available in this workspace")
@@ -327,6 +331,8 @@ def adopt(workspace, identity, revision_number, *, actor):
     # The installed problem the tasks already run on goes with the note: the formulator builds on it instead of asking whether to.
     statement = markdown(revision, held_skips(workspace, note)) + "\n\n" + installed.statement(installed.problems_of(workspace, note["campaign_id"]))
     record = imports.create(ImportCreate(title=revision["title"][:200], statement=statement.strip()[:50000], notes=f"Adopted from problem note {identity} revision {revision_number}"))
+    if draft.get("charter_id"):
+        imports.take_draft(record["id"], draft["charter_id"], draft.get("ended") or "")
     words = researcher_words(workspace, note["campaign_id"])
     if words:
         imports.add_document(record["id"], "researcher.md", words.encode())
@@ -354,11 +360,12 @@ def _units(units):
     return "" if not units or str(units).strip() in {"1", "dimensionless"} else " " + str(units).strip()
 
 
-def from_charter(charter, *, confounders=None, registry=None):
+def from_charter(charter, *, confounders=None, registry=None, path="quick"):
     """The note's sections read from a charter (the quick path). The charter states the objective, the knobs (decision
     variables and inputs), the observables, the noise and the constraints; the confounders are the lead's, given with
     charter_write; the open questions are the charter's questions and assumptions. Values are the charter's, computed where
-    they are derived, never typed here."""
+    they are derived, never typed here. path full: the sections a note handed to the full path starts from, where a question is
+    asked in the conversation and an assumption is the formulator's to keep or change."""
     from optimization_framework.problem_charter import charter as mechanics
     described = mechanics.describe(charter, registry)
     values, texts = described["values"], described["rendered"]
@@ -403,20 +410,23 @@ def from_charter(charter, *, confounders=None, registry=None):
     fidelity = [f"Fidelity {field} = {value(name)} ({name}): a score belongs to the fidelity it was computed at." for field, name in (binding.get("fidelity") or {}).items()]
     constraints = [f"{texts.get('constraint ' + rule['id']) or rule['statement']} ({rule.get('kind', 'hard')}, {FORMS.get(rule['form'], rule['form'])}"
                    + (f": {rule['test']}" if rule.get("test") else "") + ")" for rule in charter.get("constraints") or []]
+    quick = path == "quick"
+    pending = " (confirming accepts it)" if quick else ""
     questions = []
     for question in charter.get("questions") or []:
+        options = f" (options: {'; '.join(question['options'])})" if question.get("options") else ""
         if question.get("answer") is not None:
             questions.append(f"{question['question']} Answered: {question['answer']}")
         elif question.get("sent"):
-            questions.append(f"{question['question']} Left to the lead to decide.")
+            questions.append(f"{question['question']} Left to the {'lead' if quick else 'formulator'} to decide.")
         else:
-            questions.append(f"{question['question']} To answer on the Charter tab" + (f" (options: {'; '.join(question['options'])})" if question.get("options") else "") + ".")
+            questions.append(f"{question['question']} " + ("To answer on the Charter tab" if quick else "To ask the researcher") + options + ".")
     for assumption in charter.get("assumptions") or []:
-        questions.append(f"Assumption: {assumption['statement']}" + (" (accepted)" if assumption.get("accepted") else " (confirming accepts it)"))
+        questions.append(f"Assumption: {assumption['statement']}" + (" (accepted)" if assumption.get("accepted") else pending))
     for name, quantity in quantities.items():
         if quantity.get("origin") == "assumed":
             questions.append(f"Assumed: {name} = {value(name)}" + (f", {quantity['note']}" if quantity.get("note") else "")
-                             + (" (accepted)" if quantity.get("accepted") else " (confirming accepts it)"))
+                             + (" (accepted)" if quantity.get("accepted") else pending))
     named = confounders or {}
     return {"objective": _section(texts.get("text") or texts.get("summary") or "", observables[:1] if objective else []),
             "knobs": _section("" if knobs else "No decision variable yet.", knobs),
@@ -437,11 +447,76 @@ def rendered(workspace, note):
             "charter_id": record["id"], "charter_revision": record["revision"]}
 
 
+# When the quick path holds (roadmap P3, decision 31): criteria in code on the lead's charter, assessed on each charter_write.
+# The thresholds come from the P1 baseline and are revised on the live comparison.
+QUICK_VARIABLES, QUICK_INPUTS, QUICK_SAVES = 3, 10, 3
+# The researcher's own blocking findings, settled on the Charter tab or by the one confirmation: never a reason to fall back.
+THEIRS = {"question.open", "assumption.unaccepted"}
+
+
+def lead_saves(record):
+    """The lead's writes of its charter; a round of questions is not one."""
+    return sum(1 for row in record.get("history", []) if row.get("by") == "lead" and not str(row.get("rationale", "")).startswith("Asked "))
+
+
+def criteria(workspace, campaign_id, record, *, asked=0, rounds=0):
+    """Whether the quick path holds for the lead's charter (decision 31): one row per criterion, {id, label, holds, detail}, where
+    holds is None while the charter does not say yet. asked and rounds: the questions this write asks and the rounds with it."""
+    from optimization_framework.problem_charter import charter as mechanics
+    from optimization_framework.problem_charter.service import QUICK_QUESTIONS, QUICK_ROUNDS
+    charter, rows = record["charter"], []
+    described = mechanics.describe(charter, workspace.charters.registry)
+    binding = charter.get("evaluator")
+
+    def row(identity, label, holds, detail):
+        rows.append({"id": identity, "label": label, "holds": holds, "detail": detail})
+
+    # Given in the conversation: no problem import (the documents or code it holds), and words of the researcher's to read it from.
+    reference = workspace.store.get(campaign_id, "campaign").get("charter")
+    imported = bool(reference and reference["id"] != record["id"] and workspace.charters.get(reference["id"]).get("import_id"))
+    words = researcher_words(workspace, campaign_id) is not None
+    row("conversation", "Given in the conversation", not imported and words,
+        "the campaign's problem comes from an import, with its documents or code" if imported else
+        "the researcher has said nothing to read the problem from" if not words else "From the researcher's words in the conversation")
+    if binding is None:
+        row("evaluator", "An evaluator in closed form", None, "No evaluator yet")
+        row("deterministic", "Deterministic", None, "No evaluator yet")
+    else:
+        access = (described.get("access") or {}).get("access") or "white_box"
+        fidelity = sorted(binding.get("fidelity") or {})
+        stated = binding["kind"] == "installed" or (binding.get("notes") or "").strip()
+        row("evaluator", "An evaluator in closed form", not fidelity and access == "white_box" and bool(stated),
+            f"the evaluator has fidelity fields ({', '.join(fidelity)}): a score belongs to the fidelity it was computed at" if fidelity else
+            "the evaluator is an oracle: methods reach the objective only through evaluate" if access != "white_box" else
+            "the declared evaluator does not say what it computes from the charter's values" if not stated else
+            f"{'The installed problem' if binding['kind'] == 'installed' else 'A new problem'} {binding['problem_id']}, white box")
+        row("deterministic", "Deterministic", bool(binding.get("deterministic", True)),
+            "Evaluations of one design agree" if binding.get("deterministic", True) else "the evaluator is not deterministic: evaluations of one design differ")
+    variables = len(charter.get("variables") or [])
+    inputs = sum(1 for quantity in (charter.get("quantities") or {}).values() if quantity.get("role", "input") == "input")
+    row("size", f"At most {QUICK_VARIABLES} decision variables and {QUICK_INPUTS} inputs", variables <= QUICK_VARIABLES and inputs <= QUICK_INPUTS,
+        f"it has {variables} decision variables (the quick path takes at most {QUICK_VARIABLES})" if variables > QUICK_VARIABLES else
+        f"it has {inputs} inputs (the quick path takes at most {QUICK_INPUTS})" if inputs > QUICK_INPUTS else
+        f"{variables} decision variable{'s' if variables != 1 else ''}, {inputs} input{'s' if inputs != 1 else ''}")
+    saves = lead_saves(record)
+    left = [finding for finding in mechanics.blocking(described["findings"]) if finding["code"] not in THEIRS]
+    row("findings", f"No blocking finding after {QUICK_SAVES} saves", not (left and saves > QUICK_SAVES),
+        (f"{len(left)} blocking finding{'s' if len(left) != 1 else ''} left after {saves} saves: " + "; ".join(f["message"] for f in left[:3])) if left else
+        f"No blocking finding of the lead's after {saves} save{'s' if saves != 1 else ''}")
+    row("questions", f"At most {QUICK_QUESTIONS} questions, in one round", asked <= QUICK_QUESTIONS and rounds <= QUICK_ROUNDS,
+        f"it asks {asked} questions (the quick path asks at most {QUICK_QUESTIONS}, in one round)" if asked > QUICK_QUESTIONS else
+        "it asks a second round of questions (the quick path asks one)" if rounds > QUICK_ROUNDS else
+        f"{rounds} round{'s' if rounds != 1 else ''} of questions")
+    return rows
+
+
 def write_charter(workspace, campaign_id, charter, *, confounders=None, questions=(), reason="", run_id=None, thread_id=None):
     """The lead's charter_write (decision 29): the first call creates the campaign's charter and puts its note on the quick
     path, a later one revises it. Values the researcher set, answers and waivers are kept. A question is asked with the
-    write (at most QUICK_QUESTIONS, in one round); a question the researcher has not answered stays when a later write leaves
-    it out. Refused once the note is adopted (the formulator writes its charter) and once the charter has been confirmed
+    write; a question the researcher has not answered stays when a later write leaves it out. Each write is assessed against
+    the criteria of the quick path (criteria()); when one fails, the write is kept and the quick path ends (hand_over()):
+    more than QUICK_QUESTIONS questions or a second round are kept in the charter for the full path to ask. Refused once the
+    note is adopted (the formulator writes its charter), once the quick path ended, and once the charter has been confirmed
     (a change is then the researcher's, on the Charter tab). All or nothing: a refusal saves nothing."""
     from optimization_framework.contracts.problem_charter import ProblemCharter
     from optimization_framework.problem_charter import charter as mechanics
@@ -452,6 +527,10 @@ def write_charter(workspace, campaign_id, charter, *, confounders=None, question
         if note.get("import_id") or note.get("adopted_revision") is not None:
             raise ValueError("The note was adopted, so it is on the full path: the formulator writes the charter (#note/charter). Answer "
                              "its questions there, or ask the researcher to request a change on the Charter tab")
+        ended = (note.get("quick") or {}).get("ended")
+        if ended:
+            raise ValueError(f"The quick path ended ({ended}): the note is on the full path, written from your charter. Complete it with "
+                             "problem_note_draft and ask the researcher to adopt it; the formulator then revises your charter (charter_read reads it)")
         record = charters.get(note["charter_id"]) if note.get("path") == "quick" and note.get("charter_id") else None
         if record is not None and record.get("confirmed_revision") is not None:
             raise ValueError("The charter was confirmed and the campaign's tasks run on it: a change is the researcher's now, a value they "
@@ -466,14 +545,12 @@ def write_charter(workspace, campaign_id, charter, *, confounders=None, question
         # A question the researcher has not answered yet stays until they do, though a whole charter leaves it out.
         proposed["questions"] += [q for q in held if q.get("answer") is None and not q.get("sent") and q["id"] not in kept]
         proposed = ProblemCharter.model_validate(proposed).model_dump(mode="json")
+        rounds = (question_rounds(record) if record else 0) + (1 if asked else 0)
+        over = len(asked) > QUICK_QUESTIONS or rounds > QUICK_ROUNDS
         if asked:
-            if len(asked) > QUICK_QUESTIONS:
-                raise ValueError(f"The quick path asks at most {QUICK_QUESTIONS} questions, in one round; decide the rest as assumptions "
-                                 "(origin assumed, with a note) for the researcher to accept or change")
-            if record is not None and question_rounds(record) >= QUICK_ROUNDS:
-                raise ValueError("The quick path asks one round of questions, and it was asked; record what is still open as an assumption "
-                                 "(origin assumed, with a note) for the researcher to accept or change")
-            charters.asked({"questions": held + proposed["questions"]}, asked)
+            checked = charters.asked({"questions": held + proposed["questions"]}, asked)
+            if over:   # not asked here: the charter keeps them for the full path, where they are asked in the conversation
+                proposed["questions"] += checked
         campaign = workspace.store.get(campaign_id, "campaign")
         rationale = (reason or "").strip()[:400]
         if record is None:
@@ -482,17 +559,53 @@ def write_charter(workspace, campaign_id, charter, *, confounders=None, question
                                      rationale="First draft from the lead" + (f": {rationale}" if rationale else ""))
         else:
             record = charters.submit(record["id"], proposed, run_id=run_id or "lead", by="lead")
-        if asked:
+        if asked and not over:
             record = charters.ask(record["id"], asked, by="lead")
+        rows = criteria(workspace, campaign_id, record, asked=len(asked), rounds=rounds)
+        failed = [row for row in rows if row["holds"] is False]
         note = workspace.store.get(note["id"], "problem_note")
-        note.update(path="quick", charter_id=record["id"], updated_at=now())
+        note.update(path="quick", charter_id=record["id"], updated_at=now(), quick={"holds": not failed, "criteria": rows, "revision": record["revision"]})
         if isinstance(confounders, dict):
             note["confounders"] = _section(confounders.get("text") or "", confounders.get("items") or [])
         workspace.store.put("problem_note", note, "problem_note.quick")
+        ended = "; ".join(row["detail"] for row in failed)
+        if failed:
+            note = hand_over(workspace, note, record, ended, by="lead", failed=[row["id"] for row in failed])
     described = mechanics.describe(record["charter"], charters.registry)
     return {"charter_id": record["id"], "revision": record["revision"], "note_id": note["id"], "blocking": described["blocking"],
             "values": described["values"], "errors": described["errors"], "rendered": described["rendered"],
-            "findings": [row for row in described["findings"] if not row.get("waived")], "questions_asked": len(asked), "link": "#note/charter"}
+            "findings": [row for row in described["findings"] if not row.get("waived")], "questions_asked": 0 if over else len(asked),
+            "saves": lead_saves(record), "quick_path": {"holds": not failed, "criteria": rows, **({"ended": ended} if failed else {})},
+            "link": "#note" if failed else "#note/charter"}
+
+
+def hand_over(workspace, note, record, reason, *, by, failed=()):
+    """The quick path ends (decision 31): the note goes to the full path, its sections written from the lead's charter as a lead
+    revision, and the charter becomes the formulator's to write, which takes it at Adopt (adopt()). by: lead (a criterion failed
+    on its charter_write) or researcher (problem_note.full_path)."""
+    with workspace.lock, workspace.store.transaction():
+        note = workspace.store.get(note["id"], "problem_note")
+        note.update(path="full", charter_id=None, updated_at=now(),
+                    quick={**(note.get("quick") or {}), "holds": False, "ended": reason, "ended_by": by, "failed": list(failed), "ended_at": now(),
+                           "charter_id": record["id"], "revision": record["revision"]})
+        workspace.store.put("problem_note", note, "problem_note.full_path")
+        workspace.charters.hand_over(record["id"])
+        sections = from_charter(record["charter"], confounders=note.get("confounders"), registry=workspace.charters.registry, path="full")
+        revise(workspace, note["id"], {"sections": sections, "title": record["charter"]["title"]}, author="lead",
+               reason=f"Written from the lead's charter, revision {record['revision']}: the quick path ended ({reason})")
+        return workspace.store.get(note["id"], "problem_note")
+
+
+def full_path(workspace, note):
+    """The researcher takes the note to the full path (problem_note.full_path): the same hand-over, without a failed criterion."""
+    if note.get("path") != "quick":
+        ended = (note.get("quick") or {}).get("ended")
+        raise ValueError("The note is not on the quick path" + (f": it ended ({ended})" if ended else "") + "; the full path is the note, Adopt and the formulator")
+    record = workspace.charters.get(note["charter_id"])
+    if record.get("confirmed_revision") is not None:
+        raise ValueError("The charter is confirmed and the campaign's tasks run on it: ask for a change on the Charter tab (#note/charter)")
+    note = hand_over(workspace, note, record, "the researcher chose the full path", by="researcher")
+    return {"note_id": note["id"], "path": "full", "revision": note["current_revision"], "charter_id": record["id"], "link": "#note"}
 
 
 def confirm(workspace, note, charter_id, revision, *, campaign_id):
@@ -582,6 +695,10 @@ class ConfirmInput(Contract):
     revision: int = Field(ge=1, description="The charter revision the researcher read")
 
 
+class FullPathInput(Contract):
+    note_id: str
+
+
 def register(workspace):
     commands = workspace.commands
 
@@ -613,6 +730,12 @@ def register(workspace):
         values = ConfirmInput(**command.payload)
         note = _own(command, values.note_id)
         return confirm(workspace, note, values.charter_id, values.revision, campaign_id=command.campaign_id)
+
+    def full_path_command(command, actor):
+        if actor != "researcher":
+            raise ValueError("Only the researcher takes the note to the full path")
+        values = FullPathInput(**command.payload)
+        return full_path(workspace, _own(command, values.note_id))
 
     def ask_command(command, actor):
         """The lead and visual tiers: a turn of the lead on the thread, told to answer as a proposed edit (or a visual)."""
@@ -670,6 +793,7 @@ def register(workspace):
     commands.register("problem_note.revise", revise_command, model=ReviseInput, delegable=True)
     commands.register("problem_note.adopt", adopt_command, model=AdoptInput)
     commands.register("problem_note.confirm", confirm_command, model=ConfirmInput)
+    commands.register("problem_note.full_path", full_path_command, model=FullPathInput)
     # The quick path's charter is the lead's: the researcher's answers and requests on it start a turn of the lead.
     workspace.charter_lead = lambda record, text: tell_lead(workspace, record, text)
     commands.register("note.ask", ask_command, model=AskInput)

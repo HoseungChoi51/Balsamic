@@ -330,15 +330,6 @@ BAKING_NOTE = sections(
     constraints="One bake at a time, back to back from time 0; every bake exactly once.",
     confounders="None: the objective is computed in closed form.",
     open_questions="None remaining.")
-REACTOR_NOTE = sections(
-    objective="Maximize the isolated yield of a flow reaction in a 10 mL tubular reactor at 5 bar back pressure.",
-    knobs="Flow rate 0.1-20 mL/min (2 now), which sets the residence time; temperature 20-200 C (80 now); catalyst, ligand and "
-          "additive loadings, scaled to 0-1.",
-    observables="Isolated yield by HPLC, the mean of repeat runs; selectivity as well.",
-    noise="Measurements vary between repeats; each condition is run several times.",
-    constraints="Stay below 150 C, where the product decomposes; the scaled loadings add up to at most 2.",
-    confounders="Solvent viscosity changes with temperature; catalyst batch.",
-    open_questions="How many repeats per condition.")
 
 
 def set_up_from_words(note, charter, *, ask=None):
@@ -346,8 +337,6 @@ def set_up_from_words(note, charter, *, ask=None):
     the formulator reads the researcher's words, asks one round when `ask` is given, and saves the charter."""
     def play(turn):
         if turn.role == "formulator":
-            if turn.continuation:   # the extension's reminder to call yield_work, a tool the formulator does not have
-                return ""
             if ask and not turn.memory.get("asked"):
                 turn.memory["asked"] = True
                 turn.call("file_read", path=WORDS)
@@ -381,6 +370,25 @@ def quick_charter(charter, *, confounders="None: the objective is computed exact
 SAID = "the researcher's message"   # the quick path's citation: the lead reads the words in the conversation
 
 
+def falls_back(draft, charter, *, ask=None):
+    """The quick path that does not hold (P3): the lead tries it with charter_write, a criterion fails and the note goes to the full
+    path, written from the lead's charter; the lead says why and asks for Adopt. The formulator then revises that charter as on
+    today's path, asking one round when `ask` is given."""
+    formulator = set_up_from_words(None, charter, ask=ask)
+
+    def play(turn):
+        if turn.role == "formulator":
+            return formulator(turn)
+        if turn.role != "lead" or turn.notice:
+            return unrelated_notice(turn)
+        written = turn.call("charter_write", charter=draft, confounders={"text": "Solvent viscosity changes with temperature; the catalyst batch."},
+                            reason="From the researcher's message")
+        ended = (written.get("quick_path") or {}).get("ended", "it held")
+        return turn.finish(f"The quick path did not hold: {ended}. I wrote the problem note from my draft of the charter ([Problem note](#note)); "
+                           "adopt it, and the formulator revises the charter for you to confirm.")
+    return play
+
+
 REPEATS = {"id": "repeats", "question": "How many repeat measurements per condition?", "options": ["3, as in the method (recommended)", "1"],
            "about": ["repeats"]}
 
@@ -412,5 +420,5 @@ FAKES = {
     "S18-implement-and-compare": scripted(implement_and_compare),
     "S19-charter-to-results": scripted(charter_to_results),
     "S20-baking-order-in-words": quick_charter(charter_from("baking-order.json", source=SAID)),
-    "S21-flow-reaction-in-words": set_up_from_words(REACTOR_NOTE, charter_from("flow-reactor.json"), ask=REPEATS),
+    "S21-flow-reaction-in-words": falls_back(charter_from("flow-reactor.json", source=SAID), charter_from("flow-reactor.json"), ask=REPEATS),
 }

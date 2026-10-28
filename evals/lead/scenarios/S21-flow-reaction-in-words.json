@@ -9,7 +9,8 @@
   "checks": [
     {"definition_ready": true},
     {"charter_matches": {"subset": {"objective": {"direction": "maximize"}, "evaluator": {"deterministic": false}}}},
-    {"charter_writer": "formulator"}
+    {"charter_writer": "formulator"},
+    {"quick_path": {"ended": "deterministic"}}
   ],
   "repeats": 1
 }
