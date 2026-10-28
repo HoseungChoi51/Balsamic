@@ -3,12 +3,12 @@ import { send } from '../commands/bus';
 import type { LedgerRow } from '../api/evolution';
 import { track } from '../telemetry/events';
 
-export type Intervention = { kind: 'stop'; reason: string } | { kind: 'promote' } | { kind: 'allocate'; seconds: number; rationale: string; nextSize?: boolean } | { kind: 'generate'; operation: 'hybrid' | 'revise' | 'diversify'; count: number; note: string };
+export type Intervention = { kind: 'stop'; reason: string; outcome?: string | null } | { kind: 'promote' } | { kind: 'allocate'; seconds: number; rationale: string; nextSize?: boolean } | { kind: 'generate'; operation: 'hybrid' | 'revise' | 'diversify'; count: number; note: string };
 
 export async function intervene(rows: LedgerRow[], action: Intervention, campaignId: string, version: number, threadId: string | null, override = false) {
   const items: { operation: string; payload: Record<string, unknown> }[] = [];
   const revision = (row: LedgerRow) => Number((row as unknown as { status_revision?: number }).status_revision ?? 0);
-  if (action.kind === 'stop') for (const row of rows) items.push({ operation: 'hypothesis.status', payload: { hypothesis_id: row.id, status: 'archived', expected_status_revision: revision(row), stop_reason: action.reason } });
+  if (action.kind === 'stop') for (const row of rows) items.push({ operation: 'hypothesis.status', payload: { hypothesis_id: row.id, status: 'archived', expected_status_revision: revision(row), stop_reason: action.reason, ...(action.outcome ? { outcome: action.outcome } : {}) } });
   if (action.kind === 'promote') for (const row of rows) items.push({ operation: 'hypothesis.nominate', payload: { hypothesis_id: row.id } });
   // A method that finished on its own runs on the next size instead of longer (N14).
   if (action.kind === 'allocate') for (const row of rows) items.push({ operation: 'hypothesis.allocate', payload: { hypothesis_id: row.id, worker_seconds: action.seconds, rationale: action.rationale, ...(action.nextSize && row.next_size ? { task_id: row.next_size.task_id } : {}) } });
