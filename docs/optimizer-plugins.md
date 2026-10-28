@@ -439,6 +439,32 @@ the default for a library's methods) is refused
 on a problem with linear or design constraints (`CandidateSchema.restricted`). Both fields are left out of a schema's dump
 while empty, so a schema made before them keeps its digest.
 
+### Problem-owned candidates
+
+A candidate that no flat vector describes (an order of jobs per machine, several orders, a sequence of variable length,
+a set, a tree, a graph) has the representation `structured` (roadmap N12). The candidate is one JSON value, and the
+problem's library owns its form and its rules. The schema's `structure` names the `owner` (the problem's id), the
+`meaning` and `layout` in prose, the `fields` the library derives for design constraints, and the instance's public
+configuration as `context`. Its dimensions are 1, and it takes no bounds, values, linear constraints or variables.
+
+The library registers its rules under its id with `register_structure(owner, rules)` (`contracts/problems.py`). The
+rules are an object with `canonicalize(candidate, context)`, which gives the candidate's one form and raises `ValueError`
+when it cannot read it, and `is_valid(candidate, context)`, which lists the rules a canonical candidate breaks. It may
+also have `describe(candidate, context)`, a line for pages, and `fields(candidate, context)`, the named numbers or
+vectors that design constraints read. `canonicalize` on the schema calls them and stores and hashes the value they
+give. It checks nothing else, apart from the design constraints over the fields. A process where the rules are not
+registered looks the problem up among the installed problems and asks its adapter's `structure()`. If neither has them,
+the schema refuses the candidate and says the rules are not loaded. A generated library registers its rules whenever
+its code is first wanted: its evaluator, or a method's problem.
+
+The built-in methods refuse a structured problem with "the problem's library owns this representation; use a library
+method". A library's methods declare `structured` in their representations (a generated library does so from its
+charter). A function method's `problem` has `is_valid`, `violations` and `canonicalize`, which use the library's
+rules. In a generated library these are the library's own `Problem` methods, backed by its `structure.py`.
+
+A named type (an assignment, a set, a graph) is added to the core only when two problems need it, by the rule of two
+above (decision 24). Until then, a problem that needs one uses `structured`.
+
 ### Outcome constraints
 
 A problem instance may carry `outcomes` (roadmap N10): conditions on what the evaluator reports, each an expression over

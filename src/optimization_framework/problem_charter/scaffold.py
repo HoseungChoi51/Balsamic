@@ -2,7 +2,9 @@
 
 ``scaffold()`` is pure: the same charter revision always gives the same bytes. No generated file imports Balsamic, so the
 project runs with numpy and pytest alone. The coding agent (or the researcher, with their own tools) writes the
-objective in ``<pkg>/objective.py`` and the methods in ``<pkg>/methods.py``; the rest is generated.
+objective in ``<pkg>/objective.py`` and the methods in ``<pkg>/methods.py``; the rest is generated. A charter whose
+candidate is ``structured`` (N12) gets a third file to fill, ``<pkg>/structure.py``: how a candidate is canonicalized and
+which of its rules it breaks, with an example the tests check.
 
 ``scaffold(..., balsamic=True)`` also makes the project an installable Balsamic library (roadmap F3): ``<pkg>/adapter.py``
 offers its problem and its methods through the two entry points, importing Balsamic only inside its functions, and
@@ -27,7 +29,7 @@ from optimization_framework.contracts.problem_charter import ProblemCharter
 from .charter import DIMENSIONLESS, bound, parse, render, resolve, size
 from .expressions import ExpressionError
 
-REPRESENTATIONS = ("binary", "discrete", "continuous", "permutation")
+REPRESENTATIONS = ("binary", "discrete", "continuous", "permutation", "structured")
 TYPES = {"number": "float", "integer": "int", "text": "str", "boolean": "bool", "data": "list | dict"}
 
 
@@ -91,6 +93,8 @@ def scaffold(charter, revision: int, *, name: str | None = None, charter_id: str
         "tests/test_problem.py": _template("test_problem.py", pkg),
         "tests/test_methods.py": _template("test_methods.py", pkg),
     }
+    if data["REPRESENTATION"] == "structured":
+        files[f"{pkg}/structure.py"] = _structure(charter, values)
     if balsamic:
         files[f"{pkg}/adapter.py"] = _template("adapter.py", pkg)
         files["tests/test_contract.py"] = _template("test_contract.py", pkg)
@@ -150,7 +154,8 @@ def _instance(charter: ProblemCharter, instance, tables) -> dict:
         variables.append({"name": variable.name, "representation": variable.representation, "shape": shape, "size": count,
                           "offset": offset, "lower": lower, "upper": upper,
                           "values": list(variable.values) if variable.representation == "discrete" else [],
-                          "units": variable.units, "meaning": variable.meaning, "layout": variable.layout})
+                          "units": variable.units, "meaning": variable.meaning, "layout": variable.layout,
+                          **({"fields": list(variable.fields)} if variable.representation == "structured" else {})})
         offset += count
     sizes = {v["name"]: v["size"] for v in variables}
     constraints = []
@@ -238,6 +243,8 @@ def _objective(charter: ProblemCharter, values: dict) -> str:
     if charter.evaluator and charter.evaluator.notes:
         lines += ["", "From the charter's evaluator notes:", "", charter.evaluator.notes]
     docstring = _doc("\n".join(lines))
+    given = ("the candidate's canonical value, as `structure.canonicalize` gives it (a JSON value: lists, objects, numbers)"
+             if charter.variables[0].representation == "structured" else "a numpy array of `problem.dimensions` numbers")
     return f'''"""{docstring}
 """
 from __future__ import annotations
@@ -246,13 +253,67 @@ from .problem import Problem
 
 
 def objective(problem: Problem, candidate) -> float:
-    """{_doc(objective.name)} of `candidate` (a numpy array of `problem.dimensions` numbers) on `problem`.
+    """{_doc(objective.name)} of `candidate` ({given}) on `problem`.
 
     `problem.unpack(candidate)` gives each decision variable in its shape; `problem.values` holds the instance's
     quantities, and `problem.table(name, x)` reads a table of the charter.
     """
     raise NotImplementedError("Write the objective in objective.py: {_doc(objective.name).replace('"', "'")}")
 '''
+
+
+def _structure(charter: ProblemCharter, values: dict) -> str:
+    """``structure.py`` for a structured candidate: the stubs the agent fills, with the variable's meaning and layout."""
+    variable = charter.variables[0]
+    rules = [f"- {c.id} ({c.form}): {render(c.statement, values, charter)}" for c in charter.constraints
+             if c.form in {"evaluator", "design"}]
+    lines = [f"The candidate: {variable.name}, {variable.description.rstrip('.')}.", "",
+             f"Meaning: {variable.meaning}", f"Layout: {variable.layout}", "",
+             "Balsamic stores and compares a candidate in the form `canonicalize` gives and checks nothing else: the rules",
+             "below are this file's to check, in `is_valid`."]
+    if rules:
+        lines += ["", "The charter's rules:", *rules]
+    docstring = _doc("\n".join(lines))
+    fields = ""
+    if variable.fields:
+        fields = f'''
+
+def fields(problem: Problem, candidate) -> dict:
+    """The numbers or vectors the charter's design constraints read, by name: {", ".join(variable.fields)}."""
+    raise NotImplementedError("Write fields in structure.py")
+'''
+    return f'''"""{docstring}
+"""
+from __future__ import annotations
+
+import json
+
+from .problem import Problem
+
+# A valid candidate of each instance, by instance name: the tests check that it passes canonicalize and is_valid.
+EXAMPLES: dict = {{}}
+
+
+def canonicalize(problem: Problem, candidate):
+    """The one form of `candidate`: a JSON value (lists, objects, numbers, strings) two equal candidates share, e.g. with
+    an order that does not matter sorted. Raise ValueError if the candidate cannot be read."""
+    raise NotImplementedError("Write canonicalize in structure.py")
+
+
+def is_valid(problem: Problem, candidate) -> list[str]:
+    """The rules a canonical candidate breaks, one line each; empty when it breaks none."""
+    raise NotImplementedError("Write is_valid in structure.py")
+
+
+def describe(problem: Problem, candidate) -> str:
+    """One line about a candidate, for pages."""
+    return json.dumps(candidate)
+
+
+def random_candidate(problem: Problem, rng):
+    """A valid candidate drawn with `rng` (a numpy Generator), for methods that sample; optional."""
+    raise NotImplementedError("Write random_candidate in structure.py to sample candidates")
+{fields}'''
 
 
 def _template(name: str, pkg: str) -> str:

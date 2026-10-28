@@ -3,6 +3,8 @@
 A candidate is a flat sequence of `problem.dimensions` numbers: the decision variables one after another, in the
 charter's order, each laid out as its `layout` says. `problem.unpack(candidate)` gives each variable in its shape. An
 order (a permutation variable) is the items 0 to size - 1, each once, as numbers: `.astype(int)` gives indices.
+A structured candidate is one JSON value instead (lists, objects, numbers): `structure.py` says what a valid one is,
+and `problem.canonicalize(candidate)` gives its one form.
 """
 from __future__ import annotations
 
@@ -22,7 +24,7 @@ __VALUES__
 @dataclass(frozen=True)
 class Variable:
     name: str
-    representation: str          # binary, discrete, continuous or permutation
+    representation: str          # binary, discrete, continuous, permutation or structured
     shape: tuple[int, ...]
     size: int
     offset: int                  # where its elements start in a candidate
@@ -32,6 +34,7 @@ class Variable:
     units: str
     meaning: str
     layout: str
+    fields: tuple[str, ...] = ()  # a structured variable: the names structure.fields() gives
 
 
 @dataclass(frozen=True)
@@ -67,6 +70,18 @@ class Problem:
     units: str
 
     @property
+    def structured(self) -> bool:
+        """The candidate is one value whose rules structure.py owns."""
+        return self.representation == "structured"
+
+    def canonicalize(self, candidate):
+        """The one form of a candidate: structure.canonicalize for a structured one, else a flat array of numbers."""
+        if self.structured:
+            from . import structure
+            return structure.canonicalize(self, candidate)
+        return np.asarray(candidate, dtype=float)
+
+    @property
     def minimize(self) -> bool:
         return self.direction == "minimize"
 
@@ -87,16 +102,24 @@ class Problem:
         return float((y1 - y0) / (x1 - x0) * (x - x0) + y0)
 
     def unpack(self, candidate) -> dict[str, np.ndarray]:
-        """Each decision variable's elements, in its shape."""
+        """Each decision variable's elements, in its shape; a structured candidate as it is."""
+        if self.structured:
+            return {self.variables[0].name: candidate}
         flat = np.asarray(candidate, dtype=float)
         return {v.name: flat[v.offset:v.offset + v.size].reshape(v.shape) for v in self.variables}
 
     def pack(self, parts: dict) -> np.ndarray:
         """A candidate from each variable's elements (any shape with the right size)."""
+        if self.structured:
+            return parts[self.variables[0].name]
         return np.concatenate([np.asarray(parts[v.name], dtype=float).reshape(-1) for v in self.variables])
 
     def random_candidate(self, rng: np.random.Generator) -> np.ndarray:
-        """A candidate drawn within each variable's bounds or values. It may still break a linear constraint."""
+        """A candidate drawn within each variable's bounds or values. It may still break a linear constraint. A structured
+        candidate is drawn by structure.random_candidate."""
+        if self.structured:
+            from . import structure
+            return structure.random_candidate(self, rng)
         parts = []
         for v in self.variables:
             if v.representation == "binary":
@@ -113,6 +136,13 @@ class Problem:
 
     def violations(self, candidate) -> list[str]:
         """Why a candidate is not allowed, soft constraints included; empty when it breaks nothing."""
+        if self.structured:
+            from . import structure
+            try:
+                value = structure.canonicalize(self, candidate)
+            except (TypeError, ValueError, KeyError, IndexError) as exc:
+                return [f"the candidate cannot be read: {exc}"]
+            return [str(line) for line in structure.is_valid(self, value)]
         try:
             flat = np.asarray(candidate, dtype=float)
         except (TypeError, ValueError):
@@ -158,7 +188,8 @@ def _problem(name: str, instance: dict) -> Problem:
     candidate = instance["candidate"]
     variables = tuple(Variable(name=v["name"], representation=v["representation"], shape=tuple(v["shape"]), size=v["size"],
                                offset=v["offset"], lower=v["lower"], upper=v["upper"], values=tuple(v["values"]),
-                               units=v["units"], meaning=v["meaning"], layout=v["layout"]) for v in candidate["variables"])
+                               units=v["units"], meaning=v["meaning"], layout=v["layout"], fields=tuple(v.get("fields", ())))
+                      for v in candidate["variables"])
     by_name = {v.name: v for v in variables}
     constraints = []
     for c in candidate["constraints"]:

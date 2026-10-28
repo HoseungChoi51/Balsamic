@@ -175,6 +175,8 @@ def capability_reason(name, instance, optimizer_plugins=None):
         return reason
     if method.get("problem_ids") and instance.definition_id not in method["problem_ids"]:
         return f"{method['name']} runs only on {', '.join(method['problem_ids'])}; this task's problem is {instance.definition_id}"
+    if instance.candidate_schema.representation == "structured" and plugin is None:
+        return "the problem's library owns this representation; use a library method"
     if instance.candidate_schema.representation not in method["representations"]:
         if method.get("representations_defaulted"):
             return (f"{method['name']} requires binary candidates: the library declares no representations, so it is treated as "

@@ -9,6 +9,7 @@ evaluated once more while the evaluation cap allows; a returned string says why 
 """
 from __future__ import annotations
 
+import copy
 import math
 import signal
 import threading
@@ -56,7 +57,7 @@ class Result:
     method: str
     instance: str
     seed: int
-    best: list[float] | None              # the best candidate evaluated
+    best: list[float] | None              # the best candidate evaluated (a structured one as its canonical value)
     best_value: float | None
     evaluations: int
     elapsed: float                        # seconds
@@ -93,13 +94,13 @@ class Evaluate:
         hard = [line for line in broken if not line.startswith("soft constraint ")]
         if hard:
             raise InvalidCandidate("; ".join(hard))
-        flat = np.asarray(candidate, dtype=float).copy()
-        value = float(_objective.objective(self.problem, flat.copy()))
+        flat = self.problem.canonicalize(candidate) if self.problem.structured else np.asarray(candidate, dtype=float).copy()
+        value = float(_objective.objective(self.problem, copy.deepcopy(flat)))
         if not math.isfinite(value):
             raise ValueError(f"The objective gave {value} for a valid candidate")
         self.evaluations += 1
         if self.problem.better(value, self.best_value):
-            self.best, self.best_value = flat.tolist(), value
+            self.best, self.best_value = (copy.deepcopy(flat) if self.problem.structured else flat.tolist()), value
         self.log.append({"evaluation": self.evaluations, "seconds": round(self.elapsed, 6), "value": value,
                          "best": self.best_value})
         return value
@@ -143,7 +144,8 @@ def run(method, problem: Problem, seed: int, max_seconds: float | None = None, m
         stopped = stop.args[0] if stop.args else "seconds"
     elapsed = evaluate.elapsed
     if stopped == "finished" and returned is not None and not isinstance(returned, str) and (max_evaluations is None or evaluate.evaluations < max_evaluations):
-        if evaluate.best is None or list(np.asarray(returned, dtype=float).reshape(-1)) != evaluate.best:
+        same = (problem.canonicalize(returned) if problem.structured else list(np.asarray(returned, dtype=float).reshape(-1)))
+        if evaluate.best is None or same != evaluate.best:
             evaluate._evaluate(returned)
     return Result(method=name or getattr(method, "__name__", "method"), instance=problem.instance, seed=seed,
                   best=evaluate.best, best_value=evaluate.best_value, evaluations=evaluate.evaluations,
