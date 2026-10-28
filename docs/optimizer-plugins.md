@@ -155,7 +155,10 @@ imported as the first versions. `GET /api/libraries` and `GET /api/libraries/<na
 the latest one (roadmap L3): it starts from that version's files instead of the library generated from the charter, its ticket
 (TASK.md, "What you build on") lists the existing methods and says what a new version keeps, the review's diff is against that
 version (`base_version`), and the install records it. `charter.json` and the data stay fixed against the base. The researcher's
-own session (`balsamic-workspace clone`) gets the same start. The running lab lists its methods for the
+own session (`balsamic-workspace clone`) gets the same start. A new version is validated against what came before (roadmap L4): every earlier
+version's tests it changed or dropped and every earlier workspace's protected tests on the library run beside its own, and
+each method and problem it keeps replays up to 3 recorded runs for 8 evaluations, a method proposing the recorded candidates
+and a problem scoring them the same. A changed behaviour under a kept name is refused; give it a new name (decision 25). The running lab lists its methods for the
 problems they name at the next listing, without a restart (see "Installed while the lab runs" below). A proposal runs a method once it is bound to it (`implementation.bind_builtin`). After an install Balsamic binds each proposal the delivery serves by itself, when exactly one of the methods
 the delivery reports for it is installed and runs on a current task: through the command bus as its system actor `balsamic`, citing the install, which lists
 its `bindings` and the proposals it `skipped` with why (a proposal someone bound, one using another method, one with several candidates). A binding keeps the

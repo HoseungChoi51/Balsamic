@@ -16,6 +16,8 @@ export interface Install { id: string; submission_id: string; status: string; ac
   /** What the host found outside the box before installing (roadmap H6): the library's tests, each method's conformance beside
    *  what the coding agent reported, and the protected tests by name and outcome; the methods it did not install, with why. */
   host_validation?: { tests: Tests; protected?: Tests | null; seconds?: number;
+    /** Earlier versions' tests run again, and the kept methods and problems that reproduced their recorded runs (roadmap L4). */
+    earlier?: Tests | null; reproduced?: { methods: string[]; problems: string[]; runs: number };
     methods: { method_id: string; reported: string; host: string; check?: string; problem_id?: string; failed_tests: string[]; reason?: string }[] };
   refused_methods?: { method_id: string; reported: string; failing: string[] }[];
   /** What Balsamic bound after the install, and the proposals it left with why. */
