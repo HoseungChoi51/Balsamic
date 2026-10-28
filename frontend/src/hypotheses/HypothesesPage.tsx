@@ -67,6 +67,7 @@ function Rounds({ rounds }: { rounds: Record<string, unknown> }) {
   if (!list.length) return <Empty>No review round yet. The discussion moderator runs rounds when asked (/review H01).</Empty>;
   return <>{list.map((r, i) => <Section key={String(r.number || i)} title={`Round ${String(r.number || i + 1)}`}>
     <p className="small muted">{String((r.trigger as { text?: string })?.text || (r.trigger as { kind?: string })?.kind || '')}</p>
+    <Synthesis synthesis={r.synthesis as Synthesized | null} flags={(r.status_flags || []) as StatusFlag[]} />
     {((r.people || r.assistants || []) as Record<string, unknown>[]).map((p, j) => <div key={j}>
       <div className="small row"><Pill tone="agent">{String(p.role)}</Pill><span className="grow">{String(p.verdict || p.status || '')}</span></div>
       {/* The result the assistant submitted in its role's schema, which the moderator synthesizes. */}
@@ -76,3 +77,27 @@ function Rounds({ rounds }: { rounds: Record<string, unknown> }) {
   </Section>)}</>;
 }
 
+
+type Standing = { hypothesis_id: string; title?: string; standing: string; reason: string; tally: { test: number; revise: number; reject: number }; against_tally?: boolean; overrides?: string[] };
+type Synthesized = { id: string; summary: string; proposals: Standing[]; omitted?: string[] };
+type StatusFlag = { hypothesis_id: string; title?: string; status: string; overrides: string[] };
+
+/** The moderator's synthesis beside the reviewers' tally it was compared with: a badge on each standing, or status, against it (T2). */
+function Synthesis({ synthesis, flags }: { synthesis: Synthesized | null; flags: StatusFlag[] }) {
+  if (!synthesis && !flags.length) return null;
+  const against = (overrides?: string[]) => overrides?.length ? `Goes against ${overrides.join(', ')}` : 'No verdict supports it';
+  return <div className="card" data-testid="round-synthesis">
+    {synthesis ? <>
+      <div className="small row"><Pill tone="agent">synthesis</Pill><span className="grow">{synthesis.summary}</span></div>
+      {synthesis.proposals.map(p => <div key={p.hypothesis_id} className="small row wrap" data-testid="synthesis-standing">
+        <strong>{p.title || p.hypothesis_id}</strong><Pill>{p.standing}</Pill>
+        <span className="faint">reviewers: test {p.tally.test} · revise {p.tally.revise} · reject {p.tally.reject}</span>
+        {p.against_tally ? <Pill tone="attention" title={against(p.overrides)}>against the verdicts</Pill> : null}
+        <span className="grow muted">{p.reason}</span></div>)}
+      {synthesis.omitted?.length ? <div className="small faint">Reviewed but not in the synthesis: {synthesis.omitted.join(', ')}</div> : null}
+    </> : null}
+    {flags.map((f, i) => <div key={i} className="small row" data-testid="status-flag">
+      <strong>{f.title || f.hypothesis_id}</strong><span>set to {f.status}</span>
+      <Pill tone="attention" title={against(f.overrides)}>status against the verdicts</Pill></div>)}
+  </div>;
+}

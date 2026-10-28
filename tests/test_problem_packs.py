@@ -115,11 +115,12 @@ def test_a_reinstalled_problem_s_pack_is_read_again(fixture_package):
 def test_meents_pack_is_assembled_from_one_module_per_part_as_it_was_written_before():
     """The pack's parts write a module each (pack/<part>_<topic>.py), so parallel parts never edit one file; assembled, it is the
     pack as N4 wrote it in pack/__init__.py, field by field, with the parts added since (N3's procedures and labels, N5's estimators
-    and racing, N11's cost)."""
+    and racing, N6's FLRL reference, N11's cost)."""
     from dqn_meent import pack as meent
     from dqn_meent.pack import racing
+    from dqn_meent.pack.n6_references import FLRL
     from optimization_framework.contracts.packs import PackPresentation
-    assert [name for name, _ in meent.contributions()] == ["n11_cost", "n3_procedures", "n4_tools", "n5_racing", "n7_legacy"]
+    assert [name for name, _ in meent.contributions()] == ["n11_cost", "n3_procedures", "n4_tools", "n5_racing", "n6_references", "n7_legacy"]
     expected = ProblemPack(package="dqn_meent.pack", problem_ids=["meent_grating", "meent_2d_dual_polarization_deflector"],
                            procedures="procedures", presentation=PackPresentation(labels={"on_label": "silicon", "off_label": "air"}),
                            tools=PackTools(agent_tools=["dqn_meent.pack.tools:register_agent_tools"],
@@ -127,7 +128,7 @@ def test_meents_pack_is_assembled_from_one_module_per_part_as_it_was_written_bef
                            estimators=PackEstimators(memory="dqn_meent.pack.memory:estimate"),
                            racing=PackRacing(ladder=racing.LADDER, limit=racing.LIMIT, step=racing.STEP,
                                              memory_checks=racing.MEMORY_CHECKS, cost_model="dqn_meent.pack.racing:growth",
-                                             preferred_methods=racing.PREFERRED),
+                                             preferred_methods=racing.PREFERRED), references=[FLRL],
                            legacy={"problem": "dqn_meent.pack.legacy:problem", "runtime": "dqn_meent.pack.legacy:runtime"},
                            cost=PackCost(access="oracle", cost_axis="worker_seconds"))   # N11
     assembled = meent.pack()

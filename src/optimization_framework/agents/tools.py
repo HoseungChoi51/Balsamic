@@ -10,6 +10,7 @@ from optimization_framework.contracts.commands import Command
 from optimization_framework.storage.sqlite import now
 from optimization_framework.campaigns.guidance import WALKED, linked_ids
 from optimization_framework.campaigns.record_view import view_record
+from optimization_framework.campaigns.proposals import STANDINGS
 from .models import ROLES, LEAD, PAGE_AGENTS, RETIRED_ROLES, STANDING, DISCUSSION_ROLES
 from .capabilities import implementation_execution
 from .roles import ROLE_BRIEFS, ROLE_OUTPUT_SCHEMAS, SPECIALIST_CONTRACT, SPECIALIST_TOOL_CALLS
@@ -127,7 +128,7 @@ COMMAND_STEPS = {"hypothesis.create": "Recording a hypothesis", "hypothesis.revi
 STEPS = {"campaign_inspect": "Reading the campaign's state", "resource_inspect": "Checking the machine's load and the budgets",
     "command_schema": "Reading how a command is written", "researcher_ask": "Writing a question for you", "yield_work": "Ending the turn",
     "agent_message": "Writing to an assistant", "agent_cancel": "Stopping an assistant", "mask_create": "Making a test design",
-    "proposal_review": "Recording a verdict", "workspace_list": "Listing its work files", "analysis_run": "Running an analysis script",
+    "proposal_review": "Recording a verdict", "review_synthesis": "Recording the round's synthesis", "workspace_list": "Listing its work files", "analysis_run": "Running an analysis script",
     "submit_output": "Submitting its result", "source_ingest": "Fetching a paper", "source_read": "Reading a paper",
     "implementation_workspace_create": "Opening a coding workspace", "implementation_workspace_inspect": "Checking a coding workspace",
     "implementation_workspace_message": "Writing to the coding agent",
@@ -245,6 +246,12 @@ TOOLS = {
     "source_read": ("Read saved source passages; available even after the legacy source quota was exhausted.", obj({"source_id": S, "query": S, "offset": {"type": "integer", "minimum": 0}, "limit": {"type": "integer", "minimum": 1, "maximum": 12}}, ["source_id"])),
     "artifact_save": ("Save an immutable finding, implementation handoff, analysis, or fixed binary mask with evidence links.", obj({"title": S, "kind": {"enum": ["finding", "handoff", "analysis", "mask", "assessment", "review", "checkpoint"]}, "content": {}, "evidence_ids": {"type": "array", "items": S, "maxItems": 100}}, ["title", "kind", "content"])),
     "proposal_review": ("Record an independent conceptual review of the exact hypothesis revision. Test means plausible, not effective.", obj({"hypothesis_id": S, "hypothesis_hash": S, "verdict": {"enum": ["test", "revise", "reject"]}, "rationale": S, "required_changes": {"type": "array", "items": S}, "suggested_tests": {"type": "array", "items": S, "minItems": 1}}, ["hypothesis_id", "hypothesis_hash", "verdict", "rationale", "suggested_tests"])),
+    "review_synthesis": ("Record the round's synthesis once its reviews are in: each proposal's standing (stands, revise, rejected or "
+        "undecided), the reviews it rests on and why, and a summary. Each standing is compared with the reviewers' latest verdicts on the exact "
+        "revision; one that goes against them is saved with against_tally.",
+        obj({"proposals": {"type": "array", "minItems": 1, "maxItems": 40, "items": obj({"hypothesis_id": S, "standing": {"enum": list(STANDINGS)},
+            "review_ids": {"type": "array", "items": S, "maxItems": 40}, "reason": S}, ["hypothesis_id", "standing", "reason"])}, "summary": S},
+            ["proposals", "summary"])),
     "delegate": ("Create a persistent specialist child with a focused objective and exact evidence IDs. You receive its result automatically. "
         "The objective: " + READABLE, obj({"role": {"enum": [r for r in ROLES if r not in STANDING]}, "objective": S, "evidence_ids": {"type": "array", "items": S, "maxItems": 100}, "request_key": S}, ["role", "objective", "request_key"])),
     "agent_message": ("Send a follow-up or steering message to one of your own assistants. " + READABLE, obj({"agent_id": S, "message": S}, ["agent_id", "message"])),
@@ -392,7 +399,7 @@ class PiTools:
             if agent["role"] == "experiment_operator":
                 names |= {"experiment_progress", "config_suggest"}
             if agent["role"] == "discussion_moderator":
-                names |= {"delegate", "agent_message", "agent_cancel"}
+                names |= {"delegate", "agent_message", "agent_cancel", "review_synthesis"}
             if agent["role"] == "implementation_lead":
                 names |= implementation
             if agent["role"] == "resource_planner":
@@ -643,7 +650,7 @@ class PiTools:
             self.store.put_immutable("agent_tool_receipt", {"id": identity, "campaign_id": agent["campaign_id"],
                 "agent_id": agent_id, "run_id": run_id, "tool": name, "request_hash": request_hash, "result": result,
                 "created_at": now()}, "agent.tool_completed")
-        if name in {"artifact_save", "proposal_review", "delegate", "agent_message", "agent_cancel", "page_agent_message", "lead_ask", "researcher_ask", "yield_work", "submit_output"} \
+        if name in {"artifact_save", "proposal_review", "review_synthesis", "delegate", "agent_message", "agent_cancel", "page_agent_message", "lead_ask", "researcher_ask", "yield_work", "submit_output"} \
                 or EXTRA_TOOLS.get(name, {}).get("local"):
             # Local changes and their acknowledgment commit together. External
             # I/O and idempotent command delivery never hold a SQL transaction.
@@ -739,6 +746,65 @@ class PiTools:
         run = self.controller.ask_page_agent(target, text, "page_request_" + identity[-32:], agent["id"])
         return {"agent_id": target["id"], "run_id": run["id"], "status": run["status"], "page": "#" + PAGE_AGENTS[target["role"]],
                 "next": "It works by itself and its result comes back to you. Say where the researcher can follow it, and call yield_work(waiting)."}
+
+    def review_round(self, agent):
+        """When the moderator's current request opened, and the reviewers it asked since (T2)."""
+        agent = self.store.get(agent["id"], "agent_session")
+        since = agent.get("request_changed_at") or ""
+        return since, [other for other in self.store.list("agent_session", agent["campaign_id"]) if other.get("parent_agent_id") == agent["id"]
+                       and other["role"] == "proposal_reviewer" and (other.get("created_at") or "") >= since]
+
+    def synthesis_missing(self, agent):
+        """Why the moderator cannot yet call a round complete: it asked reviewers and recorded no synthesis since."""
+        if agent["role"] != "discussion_moderator":
+            return ""
+        _, reviewers = self.review_round(agent)
+        if not reviewers:
+            return ""
+        latest = max(other["created_at"] for other in reviewers)
+        if any(row.get("kind") == "review_synthesis" and row.get("agent_id") == agent["id"] and row["created_at"] >= latest
+               for row in self.store.list("agent_artifact", agent["campaign_id"])):
+            return ""
+        return ("You asked reviewers in this round: record its synthesis with review_synthesis (each proposal's standing and the reviews "
+                "it rests on), then call yield_work(complete) with a reply that links it.")
+
+    def synthesis(self, agent, run, args, identity):
+        """The moderator's synthesis of a round, each standing compared with the reviewers' latest verdicts on the exact revision."""
+        from optimization_framework.campaigns.proposals import VERDICTS, overridden, tally
+        cid = agent["campaign_id"]
+        since, reviewers = self.review_round(agent)
+        reviews = {row["id"]: row for row in self.store.list("agent_artifact", cid) if row.get("kind") == "proposal_review"}
+        hypotheses = self.store.list("hypothesis", cid)
+        entries = []
+        for item in args["proposals"]:
+            hypothesis = self.record(agent, item["hypothesis_id"])
+            if self.store.get_entry(item["hypothesis_id"])["kind"] != "hypothesis":
+                raise ValueError(f"{item['hypothesis_id']} is not a proposal")
+            if any(entry["hypothesis_id"] == hypothesis["id"] for entry in entries):
+                raise ValueError(f"{hypothesis['id']} is named twice: give each proposal one standing")
+            unknown = [key for key in item.get("review_ids") or [] if key not in reviews]
+            if unknown:
+                raise ValueError("Not a reviewer's verdict in this campaign: " + ", ".join(unknown))
+            counted = tally(self.store, hypothesis)
+            revised = any(hypothesis["id"] in (other.get("parent_ids") or []) and (other.get("created_at") or "") >= since for other in hypotheses)
+            against = overridden(counted, item["standing"], stopped=hypothesis.get("status") == "archived", revised=revised)
+            entries.append({"hypothesis_id": hypothesis["id"], "title": hypothesis.get("title"), "hypothesis_hash": counted["hypothesis_hash"],
+                "standing": item["standing"], "reason": item["reason"], "review_ids": item.get("review_ids") or list(counted["verdicts"]),
+                "tally": {verdict: counted[verdict] for verdict in VERDICTS}, "tally_review_ids": list(counted["verdicts"]),
+                **({"against_tally": True, "overrides": against} if against is not None else {})})
+        asked = {row["content"].get("hypothesis_id") for row in reviews.values() if row.get("agent_id") in {other["id"] for other in reviewers}}
+        omitted = sorted(asked - {entry["hypothesis_id"] for entry in entries} - {None})
+        evidence = list(dict.fromkeys(key for entry in entries for key in [*entry["review_ids"], *entry["tally_review_ids"]]))
+        saved = self.store.put_immutable("agent_artifact", {"id": "artifact_" + identity, "campaign_id": cid, "agent_id": agent["id"],
+            "run_id": run["id"], "kind": "review_synthesis", "title": "Review synthesis", "created_at": now(), "evidence_ids": evidence,
+            "content": {"summary": args["summary"], "proposals": entries, "omitted": omitted,
+                        "against_tally": sum(bool(entry.get("against_tally")) for entry in entries)}}, "agent.review_synthesis_recorded")
+        current = self.store.get(agent["id"], "agent_session")
+        current["artifact_ids"] = list(dict.fromkeys([*current.get("artifact_ids", []), saved["id"]]))
+        self.store.put("agent_session", current)
+        return {"synthesis_id": saved["id"], "link": "#hypotheses/rounds", "omitted": omitted,
+                "against_tally": [{key: entry[key] for key in ("hypothesis_id", "standing", "overrides")} for entry in entries if entry.get("against_tally")],
+                "next": "Link the synthesis in your closing reply ([Review rounds](#hypotheses/rounds))."}
 
     def outstanding(self, agent):
         """Why a standing agent cannot yet call its request complete; empty when nothing holds it.
@@ -1027,6 +1093,8 @@ class PiTools:
                 "verdict": args["verdict"], "text": args["rationale"], "created_at": now()})
             self.store.put("hypothesis", hypothesis)
             return {"review_id": artifact["id"], "verdict": args["verdict"]}
+        if name == "review_synthesis":
+            return self.synthesis(agent, run, args, identity)
         if name == "artifact_save":
             for ref in args.get("evidence_ids", []):
                 self.record(agent, ref)
@@ -1115,7 +1183,15 @@ class PiTools:
                 expected_thread_revision=run.get("thread_revision"), expected_authority_hash=self.workspace.commands.authority_hash(campaign), payload=payload,
                 origin=CommandOrigin(thread_id=origin.get("thread_id"), message_id=origin.get("message_id"), actor=actor, agent_id=agent["id"], run_id=run["id"],
                                      rationale=(args.get("rationale") or None)))
-            return self.receipt(self.workspace.commands.execute(command, actor="autopilot" if actor == "autopilot" else "manager", ignored_fields=ignored))
+            result = self.receipt(self.workspace.commands.execute(command, actor="autopilot" if actor == "autopilot" else "manager", ignored_fields=ignored))
+            if agent["role"] == "discussion_moderator" and args["operation"] == "hypothesis.status":
+                # A status that goes against the reviewers' verdicts is recorded with them, not refused (T2).
+                from optimization_framework.campaigns.proposals import status_overridden, tally
+                hypothesis = self.store.get(payload["hypothesis_id"], "hypothesis")
+                against = status_overridden(tally(self.store, hypothesis), hypothesis.get("status"))
+                if against:
+                    result = {**result, "against_tally": {"hypothesis_id": hypothesis["id"], "status": hypothesis.get("status"), "overrides": against}}
+            return result
         if name in {"report_write", "report_answer"}:
             writer = self.workspace.report_writer
             if name == "report_write":
@@ -1151,7 +1227,7 @@ class PiTools:
             if agent.get("output_schema") and args["disposition"] == "complete" and self.store.get(agent["id"], "agent_session").get("output") is None:
                 raise ValueError("Submit your result with submit_output first, in your role's schema; then call yield_work(complete).")
             if agent["role"] in STANDING and args["disposition"] == "complete":
-                reason = self.outstanding(agent)
+                reason = self.outstanding(agent) or self.synthesis_missing(agent)
                 if reason:
                     raise ValueError(reason)
                 # A reply announced and never written is the failure this prevents: the request ends with its answer.

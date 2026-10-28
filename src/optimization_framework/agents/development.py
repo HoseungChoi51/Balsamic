@@ -731,13 +731,14 @@ class DevelopmentWorkspaces:
                 # The ticket's four files (H4) go in beside the library; nothing protected is among them.
                 from .development_ticket import files
                 ticket = files(self.ticket_of(record, generated))
+                references = self.workspace.packs.references(cid)   # the campaign's packs' material only (N6)
                 if library:
-                    hashes = self.driver.prepare(record, self.brief(record), evidence, library=library, ticket=ticket)
+                    hashes = self.driver.prepare(record, self.brief(record), evidence, library=library, ticket=ticket, references=references)
                     library = {key: value for key, value in library.items() if key != "files"} | {"files": hashes}
                     with self.workspace.lock:
                         self.store.put("development_workspace", {**self.get(cid, identity), "library": library})
                 else:
-                    self.driver.prepare(record, self.brief(record), evidence, ticket=ticket)
+                    self.driver.prepare(record, self.brief(record), evidence, ticket=ticket, references=references)
                 atomic_json(root / "prepared.json", {"workspace_id": identity, **({"library": library} if library else {})})
             runtime = self.driver.start(record)
             with self.workspace.lock:
