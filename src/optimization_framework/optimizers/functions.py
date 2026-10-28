@@ -18,7 +18,8 @@ On a white-box problem (the default, decision 22) the method may compute the obj
 the worker gives the descriptor an ``objective(candidate)`` (``WhiteBoxProblem``), and a library's own problem object or
 its ``objective.py`` may offer the same. Such calls are not observations and are not counted; only what ``evaluate``
 records is known to Balsamic, and the run is judged by its time (N11). On an oracle problem the descriptor has no
-``objective``.
+``objective``. Either way it has ``feasible(candidate)`` (N9): the framework's own check of the problem's linear and
+design constraints, so a method can skip a candidate the evaluation would refuse.
 
 ``FunctionPlugin`` offers a library's function methods as plug-in methods. It lists them from the ``METHODS`` literal in
 the methods module's source, without importing the module, so agent code never runs in the server; only ``create()``,
@@ -65,12 +66,15 @@ def plain(candidate):
     return candidate
 
 
-class WhiteBoxProblem(Mapping):
-    """The read-only descriptor of a white-box problem with ``objective(candidate)``: the primary objective, computed by the
-    problem's own evaluator, in the charter's units and direction. It is not recorded and costs only time."""
+class CheckedProblem(Mapping):
+    """The read-only descriptor with ``feasible(candidate)`` (N9): whether the framework accepts the candidate, its linear
+    and design constraints included, so a method can test its own proposals before it spends an evaluation on them."""
 
-    def __init__(self, descriptor, objective):
-        self._descriptor, self.objective = descriptor, objective
+    def __init__(self, descriptor, schema):
+        self._descriptor, self._schema = descriptor, schema
+
+    def feasible(self, candidate) -> bool:
+        return self._schema.feasible(plain(candidate))
 
     def __getitem__(self, key):
         return self._descriptor[key]
@@ -80,6 +84,15 @@ class WhiteBoxProblem(Mapping):
 
     def __len__(self):
         return len(self._descriptor)
+
+
+class WhiteBoxProblem(CheckedProblem):
+    """The read-only descriptor of a white-box problem with ``objective(candidate)``: the primary objective, computed by the
+    problem's own evaluator, in the charter's units and direction. It is not recorded and costs only time."""
+
+    def __init__(self, descriptor, objective, schema):
+        super().__init__(descriptor, schema)
+        self.objective = objective
 
 
 # Seeds are global to the process (random, np.random), so one process runs one live function method. Each trial's
@@ -98,7 +111,7 @@ class FunctionMethod:
                 raise RuntimeError("Another function method is live in this process; each runs in a worker of its own")
             _live = self
         self.fn, self.instance, self.parameters, self.seed = fn, instance, dict(parameters), seed
-        self.problem = problem if problem is not None else frozen(instance.descriptor())
+        self.problem = problem if problem is not None else CheckedProblem(frozen(instance.descriptor()), instance.candidate_schema)
         self.own_problem = problem is not None
         self.log = []                    # [candidate_hash, status, score] or [candidate_hash, status, None, error]
         self.replay = []                 # the restored journal, answered without evaluating
@@ -134,7 +147,7 @@ class FunctionMethod:
         if self.thread is not None:
             raise ValueError("The objective is given to a function method before it starts")
         if not self.own_problem:
-            self.problem = WhiteBoxProblem(self.problem, objective)
+            self.problem = WhiteBoxProblem(self.problem._descriptor, objective, self.instance.candidate_schema)
 
     def evaluate(self, candidate):
         """Record a candidate and return its primary objective; ``ValueError`` if it was not evaluated, ``StopSearch`` once the run is over."""

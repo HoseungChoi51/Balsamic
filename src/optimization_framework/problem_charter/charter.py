@@ -20,6 +20,8 @@ DIMENSIONLESS = {"", "1", "dimensionless"}
 WAIVABLE = {"constraint.qualitative", "constraint.violated", "constraint.infeasible", "question.open", "quantity.range",
             "text.literal_mismatch"}
 LP_ELEMENT_LIMIT = 20000
+DESIGN_SAMPLES = 64          # random designs a design constraint is tried on (N9)
+DESIGN_SAMPLE_ELEMENTS = 200000
 
 
 def parse(charter) -> ProblemCharter:
@@ -530,8 +532,9 @@ def suggestions(row, charter) -> list[dict]:
             "Stated in words; kept as a recorded criterion the lab does not check or enforce."))
         out.append(ask("Ask the formulator for a checkable condition",
             f"Constraint {subject} (“{statement}”) is words only. Propose conditions the lab can check and offer them as options: "
-            "a true/false test on named quantities (a limit a quantity must stay within), or a linear condition on the decision "
-            "variables, with the thresholds the sources support; or say why it has to stay in words."))
+            "a true/false test on named quantities (a limit a quantity must stay within), a linear condition on the decision "
+            "variables, or a design condition (a true/false expression over the decision variables, such as a ratio or a minimum "
+            "width), with the thresholds the sources support; or say why it has to stay in words."))
     elif code == "quantity.no_value" and quantity:
         out.append(ask(f"Ask the formulator for the value of {name}",
             f"{name} ({quantity.description}) has no value. Give the value the sources state{units}, or the relation by which it "
@@ -561,11 +564,6 @@ def suggestions(row, charter) -> list[dict]:
     elif code == "assumption.unaccepted" and not quantity:
         out.append(ask("Ask the formulator to ground or replace the assumption",
             f"{row['message']} Say what the sources support instead, or why the assumption is needed, and offer the choices as options."))
-    elif code == "evaluator.mixed_values":
-        out.append(ranges_edit(charter))
-        out.append(ask("Ask the formulator for another way to encode them",
-            f"{row['message']} Propose another encoding of the discrete variables that the lab accepts (one shared list of values, "
-            "or ranges the evaluator rounds), as options with what each implies."))
     elif code.startswith("evaluator."):
         out.append(ask("Ask the formulator to repair how the charter feeds the evaluator", f"{row['message']} Repair how the charter "
             "feeds the evaluator (which quantity each of its fields takes, the objective, the decision variables) and offer the fixes as options."))
@@ -578,31 +576,6 @@ def grid(values) -> str:
     """A list of permitted values in words: "1, 2, 3, 4, 5" or "0.5 to 1.5 in 11 steps"."""
     shown = [f"{v:g}" for v in values]
     return ", ".join(shown) if len(shown) <= 6 else f"{shown[0]} to {shown[-1]} in {len(shown)} steps"
-
-
-def ranges_edit(charter) -> dict:
-    """One click: every discrete variable becomes a range from its lowest to its highest permitted value, the grid is kept in
-    its description and in the evaluator's notes, and the evaluator to be built rounds to the nearest permitted value."""
-    changes, kept = [], []
-    for index, variable in enumerate(charter.variables):
-        if variable.representation != "discrete" or not variable.values:
-            continue
-        values = sorted(variable.values)
-        note = f"Permitted values: {grid(values)}; the evaluator rounds to the nearest."
-        changes += [{"op": "set", "path": f"variables.{index}.representation", "value": "continuous"},
-                    {"op": "set", "path": f"variables.{index}.lower", "value": values[0]},
-                    {"op": "set", "path": f"variables.{index}.upper", "value": values[-1] if values[-1] > values[0] else values[0] + 1},
-                    {"op": "set", "path": f"variables.{index}.values", "value": []},
-                    {"op": "set", "path": f"variables.{index}.description", "value": f"{variable.description.rstrip('.')}. {note}"[:1000]}]
-        kept.append(f"{variable.name}: {grid(values)}")
-    notes = charter.evaluator.notes.rstrip() if charter.evaluator else ""
-    rounding = "Round each of these to its nearest permitted value before evaluating: " + "; ".join(kept) + "."
-    if rounding not in notes:
-        changes.append({"op": "set", "path": "evaluator.notes", "value": (notes + "\n" + rounding).strip()[:20000]})
-    return {"label": "Write them as ranges; the evaluator rounds to each grid", "action": "edit", "changes": changes,
-            "rationale": "Discrete variables written as ranges the evaluator rounds, since the lab takes one list of values for all of them",
-            "text": "Each discrete variable becomes a range from its lowest to its highest permitted value; its grid stays in its "
-                    "description and in the evaluator's notes, so the evaluator rounds to it. Nothing about the problem changes."}
 
 
 def unused_findings(charter) -> list[dict]:
@@ -644,6 +617,8 @@ def constraint_findings(charter, values, tables, sizes):
             elif not result:
                 out.append(finding("constraint.violated", "blocking", constraint.id, f"The values break constraint {constraint.id}: "
                     f"{render(constraint.statement, values, charter)}", sorted(names(constraint.test))))
+        elif constraint.form == "design":
+            out.extend(design_findings(constraint, charter, values, tables, sizes))
         elif constraint.form == "linear":
             missing = [term.variable for term in constraint.terms if term.variable not in variables]
             if missing:
@@ -670,6 +645,91 @@ def constraint_findings(charter, values, tables, sizes):
             linear.append((constraint, limit))
     if linear and all(term.variable in sizes for constraint, _ in linear for term in constraint.terms):
         out.extend(feasibility(linear, variables, sizes, values, tables))
+    return out
+
+
+def design_findings(constraint, charter, values, tables, sizes):
+    """A design constraint names decision variables (and number quantities), and gives true or false on designs."""
+    variables = {variable.name: variable for variable in charter.variables}
+    try:
+        read = names(constraint.test)
+    except ExpressionError as exc:
+        return [finding("constraint.test", "blocking", constraint.id, f"Constraint {constraint.id}: {exc}.", [])]
+    unknown = sorted(name for name in read if name not in variables and name not in charter.quantities)
+    if unknown:
+        return [finding("constraint.design_name", "blocking", constraint.id, f"Constraint {constraint.id} reads {', '.join(unknown)}, "
+            "which are neither decision variables nor quantities.", unknown)]
+    wrong = sorted(name for name in read if name in charter.quantities and charter.quantities[name].kind not in {"number", "integer", "boolean"})
+    if wrong:
+        return [finding("constraint.design_name", "blocking", constraint.id, f"Constraint {constraint.id} reads {', '.join(wrong)}, which "
+            "are not numbers; a design constraint reads decision variables and number quantities.", wrong)]
+    used = sorted(name for name in read if name in variables)
+    if not used:
+        return [finding("constraint.design_name", "blocking", constraint.id, f"Constraint {constraint.id} reads no decision variable; "
+            "a condition on quantities alone is a test on quantities.", [])]
+    if any(name not in sizes for name in used):
+        return []   # a variable's size is unknown; its own finding says why
+    constants = {name: values.get(name) for name in read if name in charter.quantities}
+    if any(value is None or (isinstance(value, float) and not math.isfinite(value)) for value in constants.values()):
+        return []   # a missing value has its own finding
+    try:
+        samples = design_samples([variables[name] for name in used], sizes, values, tables)
+    except (ExpressionError, ValueError):
+        return []   # the bounds have their own finding
+    met, failures = 0, []
+    for sample in samples:
+        try:
+            result = evaluate(constraint.test, {**constants, **sample}, tables)
+        except ExpressionError as exc:
+            failures.append(str(exc))
+            continue
+        if not isinstance(result, bool):
+            return [finding("constraint.test", "blocking", constraint.id, f"Constraint {constraint.id} does not give one true or false "
+                "on a design" + (" (it gives one per entry: wrap it in all() or any())" if isinstance(result, list) else "") + ".", used)]
+        met += result
+    if len(failures) == len(samples):
+        return [finding("constraint.test", "blocking", constraint.id, f"Constraint {constraint.id} does not compute on a valid design: "
+            f"{failures[0]}.", used)]
+    out = []
+    if failures:
+        out.append(finding("constraint.design_error", "warning", constraint.id, f"Constraint {constraint.id} does not compute on "
+            f"{len(failures)} of {len(samples)} random designs ({failures[0]}); a design where it does not compute is refused.", used))
+    if not met:
+        out.append(finding("constraint.design_rare", "warning", constraint.id, f"None of {len(samples)} random designs meets constraint "
+            f"{constraint.id}; a method that samples designs will rarely find one that does. Check its thresholds.", used))
+    if charter.evaluator is not None and charter.evaluator.kind == "installed":
+        out.append(finding("constraint.design_installed", "warning", constraint.id, f"Constraint {constraint.id} is checked here, but "
+            f"the installed problem {charter.evaluator.problem_id} takes its own candidate schema and does not enforce it.", used))
+    return out
+
+
+def design_samples(variables, sizes, values, tables, count=DESIGN_SAMPLES) -> list[dict]:
+    """Random designs of the named variables, each in its own domain, seeded so the findings are the same on every read."""
+    import numpy as np
+    rng = np.random.default_rng(0)
+    total = sum(sizes[variable.name] for variable in variables)
+    count = max(1, min(count, DESIGN_SAMPLE_ELEMENTS // max(total, 1)))
+    out = []
+    for _ in range(count):
+        sample = {}
+        for variable in variables:
+            n = sizes[variable.name]
+            if variable.representation == "binary":
+                entries = rng.integers(0, 2, size=n).astype(float)
+            elif variable.representation == "discrete":
+                if not variable.values:
+                    raise ValueError("no values")
+                entries = rng.choice(np.asarray(variable.values, dtype=float), size=n)
+            elif variable.representation == "permutation":
+                entries = rng.permutation(n).astype(float)
+            else:
+                low, high = bound(variable.lower, values, tables), bound(variable.upper, values, tables)
+                if low is None or high is None or low >= high:
+                    raise ValueError("no bounds")
+                entries = rng.uniform(low, high, size=n)
+            entries = [float(x) for x in entries]
+            sample[variable.name] = entries[0] if n == 1 else entries
+        out.append(sample)
     return out
 
 
@@ -748,20 +808,14 @@ def evaluator_findings(charter, values, errors, sizes, registry, settled=True):
     if binding.kind == "declared":
         installed = binding.problem_id in registry.ids()
         kinds = {variable.representation for variable in charter.variables}
-        if len(kinds) > 1:
-            out.append(finding("evaluator.mixed_variables", "blocking", "variables", "A declared problem's decision variables must share "
-                "one representation (binary, discrete, continuous or permutation); encode the others, or ask for an evaluator that accepts them.", []))
+        if "permutation" in kinds and len(kinds) > 1:   # binary, discrete and continuous variables mix (N9); an order does not
+            out.append(finding("evaluator.mixed_variables", "blocking", "variables", "A declared problem's order of items cannot share "
+                "the candidate with other decision variables; state the others as inputs of each instance, or ask for an evaluator that "
+                "accepts them.", []))
         ordered = [variable.name for variable in charter.variables if variable.representation == "permutation"]
         if len(ordered) > 1:
             out.append(finding("evaluator.permutations", "blocking", "variables", "A declared problem takes one order of items, and "
                 f"{', '.join(ordered)} are separate orders. State them as one order, or ask for an evaluator that accepts several.", ordered))
-        discrete = [variable for variable in charter.variables if variable.representation == "discrete"]
-        if len({tuple(variable.values) for variable in discrete}) > 1:
-            grids = "; ".join(f"{variable.name} takes {grid(variable.values)}" for variable in discrete)
-            out.append(finding("evaluator.mixed_values", "blocking", "variables", "The lab can give an evaluator that is still to be built "
-                f"only one list of permitted values, shared by every discrete variable, and these have different lists: {grids}. This is "
-                "a limit of the lab, not of your problem. The usual way out is to write each as a range from its lowest to its highest "
-                "value and have the evaluator round to the nearest permitted value.", [variable.name for variable in discrete]))
         if not binding.notes.strip():
             out.append(finding("evaluator.notes", "warning", "notes", "Say what the evaluator to be built must compute, and from which code.", []))
         ready = (settled and charter.objective is not None and charter.variables and len(sizes) == len(charter.variables)
@@ -863,10 +917,14 @@ def compare_provided(manifest, instance) -> list[dict]:
         differ("dimensions", f"{want.dimensions} values", f"{have.dimensions} values")
     if not close(want.bounds, have.bounds):
         differ("bounds", spans(want.bounds), spans(have.bounds))
-    if not close(want.values, have.values):
+    if want.variables or have.variables:   # each variable's own values (N9), compared run by run
+        if domain_runs(want) != domain_runs(have):
+            differ("values", permitted(want), permitted(have))
+    elif not close(want.values, have.values):
         differ("values", grid(want.values) if want.values else "no permitted values",
                grid(have.values) if have.values else "no permitted values")
-    wanted, computed = {c.name for c in want.constraints}, {c.name for c in have.constraints}
+    wanted = {c.name for c in want.constraints} | {c.name for c in want.design}
+    computed = {c.name for c in have.constraints} | {c.name for c in have.design}
     if wanted != computed:
         differ("constraints", ", ".join(sorted(wanted)) or "no constraints", ", ".join(sorted(computed)) or "no constraints")
     mine, theirs = manifest.primary_objective, instance.primary_objective
@@ -881,6 +939,24 @@ def compare_provided(manifest, instance) -> list[dict]:
         differ("metrics", ", ".join(missing), "does not report " + ", ".join(missing))
     out.extend(field_differences(set(manifest.configuration), set(instance.configuration)))
     return out
+
+
+def domain_runs(schema) -> list[tuple[int, tuple]]:
+    """The permitted values of a schema's entries, as runs of entries sharing one list."""
+    runs = []
+    for _, count, values in schema.domains():
+        key = tuple(float(x) for x in values)
+        if runs and runs[-1][1] == key:
+            runs[-1] = (runs[-1][0] + count, key)
+        else:
+            runs.append((count, key))
+    return runs
+
+
+def permitted(schema) -> str:
+    named = {offset: variable.name for offset, variable in schema._parts()}
+    parts = [f"{named.get(offset, 'all')} takes {grid(values)}" for offset, _, values in schema.domains() if values]
+    return "; ".join(parts) or "no permitted values"
 
 
 def field_differences(charter_fields: set, library_fields: set) -> list[dict]:
@@ -1183,15 +1259,29 @@ def compile_setups(charter, registry=None) -> list[dict]:
 def manifest(charter, values):
     """The declared problem a charter describes, for an evaluator to be built."""
     from optimization_framework.contracts.evaluators import EvaluatorManifest
-    from optimization_framework.contracts.problems import CandidateSchema, Constraint, Objective
+    from optimization_framework.contracts.problems import CandidateSchema, Constraint, DesignConstraint, Objective, SchemaVariable
     tables = {name: table.points for name, table in charter.tables.items()}
     sizes = {variable.name: size(variable, values) for variable in charter.variables}
-    representation = charter.variables[0].representation
+    kinds = {variable.representation for variable in charter.variables}
+    # Binary, discrete and continuous variables share one candidate (N9): with a continuous one it is continuous, and the
+    # others are grids within it; else it is discrete, each variable with its own values.
+    mixed = len(kinds) > 1
+    representation = next(iter(kinds)) if not mixed else "continuous" if "continuous" in kinds else "discrete"
+    own = lambda variable: ([0.0, 1.0] if variable.representation == "binary" else
+                            [float(x) for x in variable.values] if variable.representation == "discrete" else [])
+    shared = {tuple(variable.values) for variable in charter.variables}
+    design = [constraint for constraint in charter.constraints if constraint.form == "design"]
+    per_variable = bool(design) or mixed or representation == "discrete" and len(shared) > 1
     bounds, offsets, at = [], {}, 0
     for variable in charter.variables:
         offsets[variable.name], at = at, at + sizes[variable.name]
         if representation == "continuous":
-            bounds += [(bound(variable.lower, values, tables), bound(variable.upper, values, tables))] * sizes[variable.name]
+            if variable.representation == "continuous":
+                limits = (bound(variable.lower, values, tables), bound(variable.upper, values, tables))
+            else:
+                grid_values = own(variable)
+                limits = (min(grid_values), max(grid_values) if max(grid_values) > min(grid_values) else min(grid_values) + 1)
+            bounds += [limits] * sizes[variable.name]
     linear = []
     for constraint in charter.constraints:
         if constraint.form != "linear":
@@ -1204,8 +1294,15 @@ def manifest(charter, values):
                 line[offsets[term.variable] + index] += weight
         linear.append(Constraint(name=constraint.id, coefficients=line, relation=constraint.relation,
                                  bound=bound(constraint.bound, values, tables)))
-    discrete = charter.variables[0].values if representation == "discrete" else []
-    candidate = CandidateSchema(representation=representation, dimensions=at, bounds=bounds, values=discrete, constraints=linear)
+    discrete = charter.variables[0].values if representation == "discrete" and not per_variable else []
+    named = [SchemaVariable(name=variable.name, size=sizes[variable.name],
+                            values=own(variable) if representation in {"discrete", "continuous"} and variable.representation != "continuous" else [])
+             for variable in charter.variables] if per_variable else []
+    checks = [DesignConstraint(name=constraint.id, expression=constraint.test,
+                               constants={name: values[name] for name in names(constraint.test) if name in charter.quantities})
+              for constraint in design]
+    candidate = CandidateSchema(representation=representation, dimensions=at, bounds=bounds, values=discrete, constraints=linear,
+                                variables=named, design=checks)
 
     def schema(fields):
         properties = {}

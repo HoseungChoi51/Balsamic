@@ -435,3 +435,24 @@ test('the baking order (roadmap G1): a confirmed order of 8 bakes exports as a P
   expect(asked).toEqual([`/api/v1/problem-charters/charter_1/revisions/${view.revision}/export.zip`]);
   await expect(panel.getByTestId('charter-error')).toHaveCount(0);
 });
+
+test('the constraints show their form: a design condition on the variables is checked on every candidate (N9)', async ({ page }) => {
+  await mockWorkspace(page, { [`/api/v1/campaigns/${CAMPAIGN_ID}/problem-note`]: f.adoptedNoteView });
+  const view = JSON.parse(JSON.stringify(f.charterView));
+  view.charter.constraints = [
+    { id: 'min_gap', kind: 'hard', form: 'design', statement: 'Fins stand at least {min_gap_mm} apart.', test: '(base_width_mm - fins * fin_width_mm) / (fins - 1) >= min_gap_mm' },
+    { id: 'budget', kind: 'hard', form: 'linear', statement: 'Caps add up to the budget.', terms: [{ variable: 'daily_cap', weight: 'sum' }], relation: 'le', bound: 100 },
+    { id: 'tidy', kind: 'soft', form: 'qualitative', statement: 'Keep it tidy.' }];
+  view.rendered = { ...view.rendered, 'constraint min_gap': 'Fins stand at least 1.5 mm apart.' };
+  await page.route('**/api/v1/problem-charters/charter_1**', route => route.fulfill({ json: view }));
+  await page.goto(`/#t/${THREAD_ID}/note/charter`);
+  const table = page.getByTestId('charter-panel').getByTestId('constraints');
+  const design = table.locator('[data-testid="constraint"][data-id="min_gap"]');
+  await expect(design).toHaveAttribute('data-form', 'design');
+  await expect(design).toContainText('Fins stand at least 1.5 mm apart.');
+  await expect(design.getByTestId('constraint-form')).toContainText('checked on every candidate');
+  await expect(design.getByTestId('constraint-condition')).toHaveText('(base_width_mm - fins * fin_width_mm) / (fins - 1) >= min_gap_mm');
+  await expect(table.locator('[data-id="budget"]').getByTestId('constraint-condition')).toHaveText('sum(daily_cap) ≤ 100');
+  await expect(table.locator('[data-id="tidy"]')).toContainText('words only, not checked');
+  await expect(table.locator('[data-id="tidy"]')).toContainText('soft');
+});

@@ -40,6 +40,9 @@ fields tell you which inputs it needs.
 Each variable has:
 - a **representation**: `binary`, `discrete` (with its permitted `values`), `continuous` (with
   `lower` and `upper`) or `permutation` (an order of items, with a one-entry shape: the number of items);
+  binary, discrete and continuous variables can sit side by side, each discrete one with its own
+  `values` (a whole number of fins is `discrete` with the values 2, 3, …, 12 beside continuous
+  widths); an order of items cannot share the candidate with other variables;
 - a **shape**;
 - a **meaning** (what a value stands for);
 - for arrays, a **layout**.
@@ -142,8 +145,21 @@ flagged). `form` is one of:
   `weights` one per element. Examples:
   - a fill fraction of at most 0.3: `[{variable: "design", weight: "mean"}]`, `le`, `0.3`;
   - mole fractions summing to one: `sum`, `eq`, `1`.
-- **`evaluator`:** enforced inside the evaluator, such as a minimum feature size measured on the
-  design, or a stress limit from a simulation. Say whether the evaluator really enforces it.
+- **`design`:** a true/false `test` over the decision variables by name, for a condition on the
+  design that is not linear: a ratio, a minimum gap, a conditional rule. It may also read number
+  quantities (thresholds). A variable with several entries is a vector: arithmetic and comparisons
+  act entry by entry, and `sum`, `min`, `max`, `count` (the entries that are not 0), `len`,
+  `at(v, i)` (entry i, from 0), `diff` (each entry minus the one before), `all` and `any` reduce it.
+  The lab checks it on every candidate before the evaluator runs, and methods never spend an
+  evaluation on a design that breaks it. Examples:
+  - fins at least `min_gap_mm` apart: `(base_width_mm - fins * fin_width_mm) / (fins - 1) >= min_gap_mm`;
+  - an aspect ratio: `fin_height_mm / fin_width_mm <= max_aspect`;
+  - edges in order, at least a gap apart: `all(diff(edges) >= min_gap)`.
+  Prefer it to `evaluator` whenever the condition follows from the variables and the charter's
+  values alone.
+- **`evaluator`:** enforced inside the evaluator, such as a minimum feature size measured on a
+  simulated field, or a stress limit from a simulation: anything that needs the evaluator's own
+  computation. Say whether the evaluator really enforces it.
 - **`qualitative`:** words only. Use this only when the sources give no test, and then ask the
   researcher for one, with candidates (for example, "a minimum feature of 2 cells, about 8 nm").
 
@@ -196,8 +212,9 @@ objective (TE and TM separately), selectivity beside yield, or mass beside peak 
     input that no evaluator field takes never reaches the computation, and the checks report it.
 - **Relations within the design** are computed by the evaluator, not by expressions, because
   derived quantities follow inputs only. Examples are a fin pitch from the number of fins, or a
-  total mass from element densities. Describe them in `notes`, and state a constraint on them with
-  the form `evaluator`.
+  total mass from element densities. Describe them in `notes`. A constraint on them that the
+  variables alone decide (the pitch at least a gap) is a `design` constraint; one that needs the
+  evaluator's computation has the form `evaluator`.
 - **Fidelity** is the evaluator's accuracy settings: mesh size, number of modes or orders, time
   step, number of samples or repeats.
   - Fidelity settings are inputs like any other, and part of the problem: a score belongs to the
@@ -290,8 +307,8 @@ each assumption, so prefer asking when the choice matters.
 - The option you recommend first, with the reason.
 - **Recommend what can run.** The page shows the first option as recommended, so it must be one under
   which the lab can run. When the platform cannot express a requirement exactly, recommend the
-  faithful encoding that runs (for example, the evaluator rounds each variable to its permitted
-  grid, so every design it executes is on the grid) and say in the option what, if anything, it
+  faithful encoding that runs (for example, a design constraint for a rule on the design, or the
+  evaluator enforcing a condition only its computation can see) and say in the option what, if anything, it
   changes. An option under which nothing can run until something outside the charter changes (the
   platform, an evaluator nobody has agreed to supply) goes last, says what stays blocked and until
   when, is listed in `unrunnable_options`, and is never called recommended. Offer it only when the
