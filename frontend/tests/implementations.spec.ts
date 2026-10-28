@@ -405,3 +405,19 @@ test('the researcher makes a token on the card, sees it once with the commands t
   await expect(stopped.getByTestId('own-session-stopped')).toContainText('The workspace is stopped, so no token opens it');
   await expect(stopped.getByTestId('own-token-make')).toHaveCount(0);
 });
+
+test('an install that replaced a version says what it kept and what it removed (roadmap L1)', async ({ page }) => {
+  const submission = { id: 's1', commit: '2a3eb0899a', status: 'submitted', created_at: '2026-10-27T03:22:04Z', report,
+    manifest: { files: ['libraries/bakery/pyproject.toml'] } };
+  const install = { id: 'library_install_1', submission_id: 's1', requested_at: '2026-10-27T04:00:00Z', finished_at: '2026-10-27T04:01:00Z',
+    status: 'installed', actor: 'balsamic', package: 'bakery-search', version: '0.2.0', path: 'libraries/bakery', changes: [],
+    entry_points: { bakery: 'bakery.plugin:Plugin' }, methods_added: ['bakery_new'], missing_methods: [],
+    methods_kept: ['bakery_dp', 'bakery_greedy'], methods_removed: ['bakery_old'], problems_kept: [], problems_removed: [] };
+  await mockWorkspace(page);
+  await page.route(`**/api/campaigns/${CAMPAIGN_ID}/implementation-workspaces`, route => route.fulfill({ json: { enabled: true, workspaces: [
+    { ...workspace, status: 'idle', outcome: { state: 'delivered', verdict: 'ready', submission_id: 's1', commit: '2a3eb0899a', at: '2026-10-27T03:22:04Z' },
+      submissions: [submission], installs: [install] }] } }));
+  await page.goto(`/#t/${THREAD_ID}/hypotheses/implementations`);
+  await expect(page.getByTestId('install-box').getByTestId('install-kept'))
+    .toContainText('keeps 2 methods of the version it replaced; removes bakery_old, which no campaign uses');
+});
