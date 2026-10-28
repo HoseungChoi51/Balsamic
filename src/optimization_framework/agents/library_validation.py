@@ -40,7 +40,7 @@ RESULT_BYTES = 4 * 1024**2
 FAILURES = 200   # the failing tests an install record keeps, each with why
 PROTECTED = "development_protected_test"
 # Inside the sandbox.
-LIBRARY, TESTS, OUT, EARLIER = "/library", "/protected", "/out", "/earlier"
+LIBRARY, TESTS, OUT, EARLIER, DEPENDENCIES = "/library", "/protected", "/out", "/earlier", "/dependencies"
 REPLAY_RUNS, REPLAY_EVALUATIONS = 3, 8   # recorded runs replayed per kept method or problem, and evaluations of each
 
 
@@ -97,7 +97,7 @@ def roots():
     return sorted({path.resolve() for path in found if path.exists()})
 
 
-def command(library, protected, out, request, earlier=None):
+def command(library, protected, out, request, earlier=None, dependencies=None):
     """The bubblewrap command: no network, no host environment, read-only system and Python, the library and the protected
     tests read-only, and only the result directory writable."""
     bwrap = shutil.which("bwrap")
@@ -117,6 +117,8 @@ def command(library, protected, out, request, earlier=None):
     args += ["--ro-bind", str(library), LIBRARY, "--ro-bind", str(protected), TESTS, "--bind", str(out), OUT, "--chdir", LIBRARY]
     if earlier is not None:
         args[-2:-2] = ["--ro-bind", str(earlier), EARLIER]
+    if dependencies is not None:   # the method libraries a split's problem library depends on (roadmap L6)
+        args[-2:-2] = ["--ro-bind", str(dependencies), DEPENDENCIES]
     environment = {"HOME": "/tmp", "PATH": "/usr/bin:/bin", "LANG": "C.UTF-8", "PYTHONDONTWRITEBYTECODE": "1", "PYTHONNOUSERSITE": "1",
                    "PYTHONHASHSEED": "0", "PYTHONPATH": str(source()), "GRATING_LLM_DISABLED": "true", "MPLBACKEND": "Agg",
                    "OPENBLAS_NUM_THREADS": "1", "OMP_NUM_THREADS": "1", "MKL_NUM_THREADS": "1"}
@@ -125,9 +127,10 @@ def command(library, protected, out, request, earlier=None):
     return [*args, "--", sys.executable, "-B", "-s", "-m", __name__, json.dumps(request)]
 
 
-def run(files, name, *, instances=(), protected=None, earlier=None, replays=(), timeout=TIMEOUT_SECONDS):
+def run(files, name, *, instances=(), protected=None, earlier=None, replays=(), dependencies=None, timeout=TIMEOUT_SECONDS):
     """Validate libraries/<name>/ as {path: bytes} (the exact commit's): the result, with `seconds` it took. ValidationUnavailable
-    when the sandbox cannot run, ValueError when it ran and gave no result."""
+    when the sandbox cannot run, ValueError when it ran and gave no result. ``dependencies``: {libraries/<other>/...: bytes} of
+    libraries it imports that are not installed yet (a split's method library, roadmap L6), importable beside it."""
     from .library_install import GROUP, PROBLEMS
     import tomllib
     prefix = f"libraries/{name}/"
@@ -135,12 +138,17 @@ def run(files, name, *, instances=(), protected=None, earlier=None, replays=(), 
     groups = project.get("entry-points") or {}
     request = {"entry_points": groups.get(GROUP) or {}, "problem_entry_points": groups.get(PROBLEMS) or {},
                "instances": list(instances), "protected": bool(protected), "earlier": bool(earlier), "replays": list(replays),
+               "dependencies": sorted({PurePosixPath(path).parts[1] for path in dependencies or {}}),
                "memory_bytes": MEMORY_BYTES}
     started = time.monotonic()
     with tempfile.TemporaryDirectory(prefix="balsamic-validation-") as temporary:
-        library, tests, out, before = (Path(temporary) / part for part in ("library", "protected", "out", "earlier"))
-        for directory in (library, tests, out, before):
+        library, tests, out, before, needed = (Path(temporary) / part for part in ("library", "protected", "out", "earlier", "dependencies"))
+        for directory in (library, tests, out, before, needed):
             directory.mkdir()
+        for path, content in (dependencies or {}).items():
+            relative = PurePosixPath(path).relative_to("libraries")
+            (needed / relative).parent.mkdir(parents=True, exist_ok=True)
+            (needed / relative).write_bytes(content)
         for relative, content in (earlier or {}).items():
             (before / relative).parent.mkdir(parents=True, exist_ok=True)
             (before / relative).write_bytes(content)
@@ -150,7 +158,7 @@ def run(files, name, *, instances=(), protected=None, earlier=None, replays=(), 
             (library / relative).write_bytes(content)
         for test, source in (protected or {}).items():
             (tests / test).write_text(source)
-        process = subprocess.Popen(command(library, tests, out, request, before if earlier else None), stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+        process = subprocess.Popen(command(library, tests, out, request, before if earlier else None, needed if dependencies else None), stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
                                    start_new_session=True, env={"PATH": "/usr/bin:/bin"})
         try:
             output, _ = process.communicate(timeout=timeout)
@@ -517,6 +525,8 @@ def main(argv):
     resource.setrlimit(resource.RLIMIT_AS, (request["memory_bytes"], request["memory_bytes"]))
     resource.setrlimit(resource.RLIMIT_CORE, (0, 0))
     sys.path.insert(0, LIBRARY)
+    for name in request.get("dependencies") or []:
+        sys.path.insert(1, f"{DEPENDENCIES}/{name}")
     result = {"tests": _pytest(LIBRARY), "protected": _pytest(TESTS) if request["protected"] else None,
               "earlier": _pytest(EARLIER) if request.get("earlier") else None}
     try:

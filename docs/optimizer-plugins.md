@@ -161,7 +161,11 @@ each method and problem it keeps replays up to 3 recorded runs for 8 evaluations
 and a problem scoring them the same. A changed behaviour under a kept name is refused; give it a new name (decision 25). Reuse comes first (roadmap L5): the method list names each method's package and version; an agent asking for
 a coding workspace for a proposal whose named method is installed and runs on a current task is refused and told to bind it
 (`implementation.bind_builtin`), which, like `library.apply`, is reuse that Explore allows; a library entry records the
-winner's package, version and method, and applying it binds the new proposal to that method when the lab has it. The running lab lists its methods for the
+winner's package, version and method, and applying it binds the new proposal to that method when the lab has it. When a second problem needs a problem library's
+method (roadmap L6, decision 26), a bind or run of it on another problem records a split and tells the lead; a split workspace
+(`implementation_workspace_create` with `split`) delivers `libraries/<library>-methods/`, a method library with the methods and
+no problem, and the problem library's next version without them that depends on it, in one commit, and the two are installed
+as one step. The Packages page shows which package depends on which. The running lab lists its methods for the
 problems they name at the next listing, without a restart (see "Installed while the lab runs" below). A proposal runs a method once it is bound to it (`implementation.bind_builtin`). After an install Balsamic binds each proposal the delivery serves by itself, when exactly one of the methods
 the delivery reports for it is installed and runs on a current task: through the command bus as its system actor `balsamic`, citing the install, which lists
 its `bindings` and the proposals it `skipped` with why (a proposal someone bound, one using another method, one with several candidates). A binding keeps the

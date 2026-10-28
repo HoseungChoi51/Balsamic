@@ -113,8 +113,9 @@ def publish(store, made, version):
         return made
 
 
-def record(store_records, name, package, version, made, *, source, methods, problems, at=None):
-    """The library_version record of a version just tagged, with the version before it and what it added and removed."""
+def record(store_records, name, package, version, made, *, source, methods, problems, at=None, depends_on=(), moved=None):
+    """The library_version record of a version just tagged, with the version before it and what it added and removed; for a split
+    (roadmap L6) the method packages it depends on (``depends_on``) and the methods it moved there (``moved``: {package, methods})."""
     previous = latest(store_records, name)
     previous = previous if previous and previous["version"] != version else None
     before_methods, before_problems = set((previous or {}).get("methods") or []), set((previous or {}).get("problems") or [])
@@ -123,7 +124,7 @@ def record(store_records, name, package, version, made, *, source, methods, prob
            "source": source, "methods": sorted(methods), "problems": sorted(problems),
            "methods_added": sorted(set(methods) - before_methods), "methods_removed": sorted(before_methods - set(methods)),
            "problems_added": sorted(set(problems) - before_problems), "problems_removed": sorted(before_problems - set(problems)),
-           "created_at": at or now()}
+           "created_at": at or now(), **({"depends_on": sorted(depends_on)} if depends_on else {}), **({"moved": moved} if moved else {})}
     return store_records.put(KIND, row, "library.version_recorded")
 
 
@@ -170,18 +171,34 @@ def imported(directory, store_records, name, lab_copy=None):
 # What the Packages page shows ---------------------------------------------------------------------------------------------------
 def _public(row):
     return {key: row.get(key) for key in ("id", "version", "tag", "commit", "parent_version", "source", "methods", "problems",
-                                          "methods_added", "methods_removed", "problems_added", "problems_removed", "created_at")}
+                                          "methods_added", "methods_removed", "problems_added", "problems_removed", "depends_on", "moved", "created_at")}
+
+
+def _links(store_records):
+    """{library: (the packages its latest version depends on, the libraries whose latest version depends on it)} (roadmap L6)."""
+    from .library_install import normal
+    latest_rows = {name: versions(store_records, name)[-1] for name in {row["library"] for row in versions(store_records)}}
+    by_package = {normal(row["package"]): name for name, row in latest_rows.items() if row.get("package")}
+    links = {name: ([], []) for name in latest_rows}
+    for name, row in latest_rows.items():
+        for package in row.get("depends_on") or []:
+            links[name][0].append(package)
+            if normal(package) in by_package:
+                links[by_package[normal(package)]][1].append(latest_rows[name]["package"])
+    return links
 
 
 def catalog(store_records):
-    """Every library with a version: {libraries: [{name, package, latest, versions, methods, problems, updated_at}]}."""
+    """Every library with a version: {libraries: [{name, package, kind, latest, versions, methods, problems, depends_on, used_by,
+    updated_at}]}; a method library (kind method) provides no problem."""
     names = sorted({row["library"] for row in versions(store_records)})
-    rows = []
+    links, rows = _links(store_records), []
     for name in names:
         history = versions(store_records, name)
         last = history[-1]
-        rows.append({"name": name, "package": last["package"], "latest": last["version"], "versions": len(history),
-                     "methods": last["methods"], "problems": last["problems"], "updated_at": last["created_at"]})
+        rows.append({"name": name, "package": last["package"], "kind": "problem" if last["problems"] else "method", "latest": last["version"],
+                     "versions": len(history), "methods": last["methods"], "problems": last["problems"],
+                     "depends_on": sorted(links[name][0]), "used_by": sorted(links[name][1]), "updated_at": last["created_at"]})
     return {"libraries": rows}
 
 
@@ -210,6 +227,8 @@ def detail(store_records, name):
                 since.setdefault(item, row["version"])
         return [{"id": item, "since": first, "in_latest": item in history[-1][key], "campaigns": campaigns(used.get(item, []))}
                 for item, first in sorted(since.items())]
+    links = _links(store_records)[name]
     return {"name": name, "package": history[-1]["package"], "latest": history[-1]["version"],
+            "kind": "problem" if history[-1]["problems"] else "method", "depends_on": sorted(links[0]), "used_by": sorted(links[1]),
             "versions": [_public(row) for row in reversed(history)],
             "methods": items("methods", used_methods(store_records)), "problems": items("problems", used_problems(store_records))}

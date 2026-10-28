@@ -115,6 +115,9 @@ def build(record, proposals, keys, *, library=None, problem=None, why=None, give
     if commission and not tests:   # a commission names the library's contract test when nothing else gives one (roadmap H7)
         tests.append({"path": f"libraries/{library_name(commission)}/tests/test_contract.py", "source": "commission"})
     targets = [prefix.rstrip("/")] if prefix else []
+    split = (library or {}).get("split")
+    if split:   # a split also builds the method library (roadmap L6)
+        targets.append(f"libraries/{split['method_library']}")
     targets += [row["path"] for row in tests if not (prefix and row["path"].startswith(prefix))]
     ticket = {"id": "development_ticket_" + content_hash([record["id"]])[:24], "kind": KIND, "campaign_id": record["campaign_id"],
         "workspace_id": record["id"], "created_at": now(), "title": record.get("title") or record["id"], "objective": record.get("objective") or "",
@@ -124,6 +127,7 @@ def build(record, proposals, keys, *, library=None, problem=None, why=None, give
         "library": {"name": library["name"], "package": library["package"], "path": prefix, "fixed": list(library["fixed"]),
                     "filled": [f"{prefix}{library['package']}/{name}" for name in ("objective.py", "methods.py")],
                     **({"base": library["base"]} if library.get("base") else {})} if library else None,
+        "split": {key: split[key] for key in ("id", "library", "package", "method_library", "methods", "problems")} if split else None,
         "no_library": why if problem and not library else None,
         "acceptance_tests": tests, "test_command": "uv run pytest " + " ".join(targets) if targets else None,
         "protected_tests": list(commission["protected_tests"]) if commission else [test.name for test in given.protected_tests],
@@ -177,6 +181,8 @@ def task(ticket):
             f"No library could be generated from it ({ticket.get('no_library')}): build one as docs/optimizer-plugins.md describes."), ""]
     if library and library.get("base"):
         lines += base_lines(library)
+    if ticket.get("split"):
+        lines += split_lines(ticket["split"], library)
     lines += ["## Proposals", ""]
     if not ticket["proposals"]:
         lines += ["None: this work builds the evaluator, not a method.", ""]
@@ -211,6 +217,26 @@ def base_lines(library):
              "new problem id. Add your methods beside the existing ones, with their tests; keep the existing tests.",
              f"- Raise the version above {base['version']}.", ""]
     return lines
+
+
+def split_lines(split, library):
+    """TASK.md's section on a split (roadmap L6, decision 26): a method library with the methods a second problem needs, and the
+    problem library's next version without them, depending on it."""
+    methods = ", ".join(f"`{method}`" for method in split["methods"])
+    many = len(split["methods"]) > 1
+    method_dir = f"libraries/{split['method_library']}/"
+    return ["## The split", "", f"{methods} of {split['package']} now run{'' if many else 's'} on {len(split['problems'])} problems "
+            f"({', '.join(f'`{problem}`' for problem in split['problems'])}). Move {'them' if many else 'it'} into a method library of "
+            f"{'their' if many else 'its'} own, so that neither problem's versions decide {'them' if many else 'it'} for the other. "
+            "Deliver both libraries in one commit:", "",
+            f"1. `{method_dir}`: a new library (its own pyproject.toml, package `{split['method_library'].replace('-', '_')}`, tests and an "
+            f"`optimization_framework.optimizers` entry point) that provides {methods} and no problem. Each moved method keeps its id and "
+            "what it does: Balsamic replays its recorded runs on every problem and refuses one that proposes differently.",
+            f"2. `{library['path'] if library and library.get('path') else 'libraries/' + split['library'] + '/'}`: the next version of "
+            f"{split['package']} without {methods}, with the method library's project name in its project dependencies (and in its "
+            f"`[tool.uv.sources]` as `{{ path = \"../{split['method_library']}\", editable = true }}`). Everything else it has stays, "
+            "and its tests keep passing.", "",
+            "Move only the methods named here: a method the method library takes over that the split does not name is refused.", ""]
 
 
 def commission_lines(commission):

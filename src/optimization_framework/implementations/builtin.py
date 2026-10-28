@@ -52,6 +52,9 @@ def bind(workspace, campaign_id, payload, command_id, *, actor='researcher'):
     hypothesis.update(algorithm=values.algorithm, algorithm_config=values.parameters,
                       builtin_binding_id=record['id'], executable=True, implementation_status='builtin')
     workspace.store.put('hypothesis', hypothesis, 'hypothesis.implementation_bound')
+    # A problem library's method bound on another problem: a second problem needs it (roadmap L6).
+    from optimization_framework.agents.library_split import noticed
+    noticed(workspace, campaign_id, values.algorithm, task, via=record['id'])
     return {'binding_id': record['id'], 'hypothesis_id': hypothesis['id'], 'algorithm': values.algorithm}
 
 
