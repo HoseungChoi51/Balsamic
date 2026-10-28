@@ -23,13 +23,14 @@ chat ([ui-workspace.md](ui-workspace.md), [problem-setup.md](problem-setup.md)).
 | Lead-agent evals that can be run again: 36 of 36 runs pass at `f851e9c` | Live evals | Parts L, S |
 | The coding box: a coding agent works in a workspace from a written ticket, behind an egress allowlist, limits and a deadline; what it delivers is validated outside the box before it installs; commissions run as headless boxes, the one route that builds code; the researcher can deliver from their own coding agent | Tested; on with `development_enabled` | [H1–H8](releases/phase-4.md) |
 | Evidence gates: every stop names a typed outcome and its evidence; an agent's stop as inferior needs an adequate assessment, and a finalist or library entry a score that holds at higher fidelity (where the problem declares a check), or the researcher's waiver; locked confirmation results stay unreadable to the agents until release; the gates and waivers on the Evolution page | Tested | [V1–V5](releases/phase-5.md) |
+| Claims that resolve: agents compute numbers with a receipt; findings say what they state and count their measurements; numbers their evidence does not hold are badged; methods assessed and stopped are published as negative library entries. Review roles answer in one call from an assembled context; the moderator's synthesis is checked against the verdicts | Tested; the one-call roles wait for their live comparison | [T1–T4, K1–K4](releases/phase-7.md) |
 
 "Live" means the running services use the code; "tested" means the automated tests pass. Parts from the roadmap on say
 their own state in [readiness/](readiness/README.md).
 
 ## Phases of the roadmap
 
-| Phase | Goal | State on 2026-10-28, at `phase-5` | Release |
+| Phase | Goal | State on 2026-10-28, at `phase-7` | Release |
 |---|---|---|---|
 | 1 | Charter to results | Complete | [`phase-1`](releases/phase-1.md) |
 | 2 | Measure first | Complete; the eval baseline is the `baseline` tag (`61538de`) | [`phase-2`](releases/phase-2.md) |
@@ -37,7 +38,7 @@ their own state in [readiness/](readiness/README.md).
 | 4 | The coding box | Complete | [`phase-4`](releases/phase-4.md) |
 | 5 | Evidence gates | Complete | [`phase-5`](releases/phase-5.md) |
 | 6 | Problem packs | N1–N8, N11 and N13–N15 merged; N9 in progress (decision 20 confirmed on 2026-10-28); N10 and N12 after N9 | — |
-| 7 | Fewer standing agents, claims that resolve | All parts merged (T4 last); its release notes are next | — |
+| 7 | Fewer standing agents, claims that resolve | Complete; T1, T3 and T4 wait for their live comparisons (ADR 0009, 0010) | [`phase-7`](releases/phase-7.md) |
 
 This table changes when a phase completes: the part that completes it marks it done with its release tag
 ([releases](releases/README.md)). Between, a phase's parts say how far they got in their own files in
