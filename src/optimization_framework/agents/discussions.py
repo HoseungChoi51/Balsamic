@@ -42,7 +42,7 @@ def view(workspace, campaign_id):
             "AND json_extract(data,'$.tool')='delegate' ORDER BY rowid", (campaign_id,)).fetchall()
         artifacts = db.execute("SELECT id, json_extract(data,'$.agent_id') AS agent_id, json_extract(data,'$.run_id') AS run_id, "
             "json_extract(data,'$.kind') AS kind, json_extract(data,'$.title') AS title, json_extract(data,'$.created_at') AS created_at, "
-            "CASE WHEN json_extract(data,'$.kind')='proposal_review' THEN json_extract(data,'$.content') END AS review "
+            "CASE WHEN json_extract(data,'$.kind') IN ('proposal_review','review_synthesis') THEN json_extract(data,'$.content') END AS review "
             "FROM records WHERE kind='agent_artifact' AND campaign_id=? ORDER BY rowid", (campaign_id,)).fetchall()
         # Which agent's turn created each proposal: its hypothesis.create receipt.
         created = {row["hypothesis_id"]: (row["agent_id"], row["run_id"]) for row in db.execute(
@@ -50,6 +50,11 @@ def view(workspace, campaign_id):
             "json_extract(data,'$.run_id') AS run_id FROM records WHERE kind='agent_tool_receipt' AND campaign_id=? "
             "AND json_extract(data,'$.tool')='campaign_command' AND json_extract(data,'$.result.request.operation')='hypothesis.create' ORDER BY rowid",
             (campaign_id,)).fetchall() if row["hypothesis_id"]}
+        # Statuses the moderator set against the reviewers' verdicts (T2), by the turn that set them.
+        flagged = db.execute("SELECT json_extract(data,'$.run_id') AS run_id, json_extract(data,'$.result.against_tally') AS flag, "
+            "json_extract(data,'$.created_at') AS created_at FROM records WHERE kind='agent_tool_receipt' AND campaign_id=? "
+            "AND json_extract(data,'$.tool')='campaign_command' AND json_extract(data,'$.result.against_tally') IS NOT NULL ORDER BY rowid",
+            (campaign_id,)).fetchall()
     # The turn of the lead or the moderator in which each assistant was created (the identity is derived as the delegate tool derives it).
     created_in = {"agent_" + content_hash([row["agent_id"], row["request_key"]])[:30]: row["run_id"] for row in delegations}
     hypotheses = {record["id"]: record for record in store.list("hypothesis", campaign_id)}
@@ -111,8 +116,14 @@ def view(workspace, campaign_id):
                 # The result it submitted in its role's schema (agents/roles), which whoever asked reads and synthesizes.
                 "output": agent.get("output"), "output_schema": bool(agent.get("output_schema"))})
         round_of_turn.update({identity: number for identity in owner_turns})
+        # The moderator's synthesis of the round beside the tally it was compared with, and the statuses it set against it.
+        syntheses = [row for row in artifacts if row["agent_id"] == owner["id"] and row["run_id"] in owner_turns and row["kind"] == "review_synthesis"]
+        synthesis = None if not syntheses else {"id": syntheses[-1]["id"], "created_at": syntheses[-1]["created_at"], **json.loads(syntheses[-1]["review"] or "{}")}
+        status_flags = [{**json.loads(row["flag"]), "created_at": row["created_at"],
+                         "title": hypotheses.get(json.loads(row["flag"]).get("hypothesis_id"), {}).get("title")} for row in flagged if row["run_id"] in owner_turns]
         rounds.append({"number": number, "run_id": run_id if turn else None, "started_at": members[0]["created_at"], "trigger": trigger,
             "owner": owner["role"], "active": any(agent["status"] in {"queued", "running"} for agent in members), "assistants": people,
+            "synthesis": synthesis, "status_flags": status_flags,
             "owner_documents": [{"id": row["id"], "kind": row["kind"], "title": row["title"], "created_at": row["created_at"]}
                                 for row in artifacts if row["agent_id"] == owner["id"] and row["run_id"] in owner_turns and row["kind"] != "mask"]})
 
@@ -141,3 +152,23 @@ def view(workspace, campaign_id):
         proposals.append({"id": members[-1]["id"], "title": members[-1].get("title"), "status": members[-1].get("status"), "reviewed": reviewed, "revisions": revisions})
     return {"rounds": rounds[-ROUND_LIMIT:][::-1], "earlier_rounds": max(0, len(rounds) - ROUND_LIMIT),
             "proposals": proposals, "unreviewed_proposals": unreviewed}
+
+
+def synthesis_notice(store, moderator):
+    """What the lead's notice of a finished round adds: the moderator's synthesis in this request and its badges (T2)."""
+    since = moderator.get("request_changed_at") or ""
+    found = sorted((row for row in store.list("agent_artifact", moderator["campaign_id"]) if row.get("kind") == "review_synthesis"
+                    and row.get("agent_id") == moderator["id"] and row["created_at"] >= since), key=lambda row: row["created_at"])
+    if not found:
+        return ""
+    content = found[-1]["content"]
+    against = [entry for entry in content["proposals"] if entry.get("against_tally")]
+    text = f" Its synthesis is {found[-1]['id']} ({len(content['proposals'])} proposals): "
+    if against:
+        text += "against the reviewers' verdicts: " + "; ".join(f"{entry.get('title') or entry['hypothesis_id']} {entry['standing']}, "
+            f"over {', '.join(entry['overrides']) or 'no verdict'}" for entry in against) + "."
+    else:
+        text += "each standing agrees with the reviewers' verdicts."
+    if content.get("omitted"):
+        text += " Reviewed but not in it: " + ", ".join(content["omitted"]) + "."
+    return text
