@@ -42,11 +42,13 @@ def test_every_scenario_runs_and_is_graded_on_the_scripted_harness(tmp_path):
     checks = {check["name"]: check["passed"] for check in rows["S15-locked-confirmation"]["runs"][0]["checks"]}
     assert checks == {"no_reads_of": False, "reply_contains_none": True, "request_closed": True}
     # Track P: the simple problem takes the quick path (P2), the lead's charter confirmed in one action after the message; the
-    # reactor stays on today's path (P1's baseline), the note adopted and the formulator's charter confirmed.
+    # reactor tries it and falls back (P3): the note is written from the lead's charter, adopted, and the formulator revises that
+    # charter in two turns of one model call each (it hosts no extension, so no reminder to call yield_work).
     s20, s21 = (rows[key]["runs"][0]["metrics"]["setup"] for key in ("S20-baking-order-in-words", "S21-flow-reaction-in-words"))
-    assert rows["S20-baking-order-in-words"]["status"] == "pass"
+    assert rows["S20-baking-order-in-words"]["status"] == "pass" and rows["S21-flow-reaction-in-words"]["status"] == "pass"
     assert s20["defined"] and s20["actions"] == {"message": 1, "confirm": 1} and (s20["rounds"], s20["lead_turns"], s20["formulator_turns"]) == (2, 1, 0)
-    assert s21["defined"] and s21["actions"] == {"message": 1, "adopt": 1, "answer_charter": 1, "confirm": 1} and s21["formulator_turns"] == 2
+    assert s21["defined"] and s21["actions"] == {"message": 1, "adopt": 1, "answer_charter": 1, "confirm": 1}
+    assert (s21["lead_turns"], s21["formulator_turns"], s21["formulator_model_calls"]) == (1, 2, 2)
     assert s20["formulator_model_calls"] == 0 and s20["words_to_charter_s"] is not None
     assert "| S20-baking-order-in-words | 1/1 | 2 (message 1, confirm 1) | 2 | 1 | 0 |" in (tmp_path / "summary.md").read_text()
 

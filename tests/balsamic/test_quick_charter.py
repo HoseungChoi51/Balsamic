@@ -158,10 +158,10 @@ def test_a_value_the_researcher_set_stays_and_an_adopted_note_keeps_the_formulat
 
 
 def test_the_quick_path_asks_one_round_of_at_most_two_questions_and_the_answers_start_a_lead_turn(client, workspace, team, turn):
-    # Three questions: refused whole, and nothing is saved.
-    third = {**GAP, "id": "third"}
-    refused = write(workspace, team, turn, charter=charter(questions=[{**GAP, "id": "first"}]), questions=[GAP, third])
-    assert "at most 2 questions" in refused["error"]
+    # A question the page could not show as asked: refused whole, and nothing is saved, neither the charter nor the note.
+    stuck = {**GAP, "id": "stuck", "unrunnable_options": [0]}
+    refused = write(workspace, team, turn, charter=charter(questions=[stuck]))
+    assert "its first option, shown as recommended, leaves nothing able to run" in refused["error"]
     assert workspace.store.list("problem_charter") == [] and workspace.store.list("problem_note", "demo") == []
     written = write(workspace, team, turn, call="asked", questions=[GAP])
     assert written["questions_asked"] == 1 and written["revision"] == 2 and written["blocking"] == 1
@@ -170,8 +170,8 @@ def test_the_quick_path_asks_one_round_of_at_most_two_questions_and_the_answers_
     assert workspace.charters.view(record["id"])["question_rounds_max"] == 1
     payload = {"note_id": "note_demo", "charter_id": record["id"], "revision": 2}
     assert "Answer the lead's questions" in command(client, "problem_note.confirm", "demo", payload, version(workspace), expect=409)["detail"]
-    # One round only; a whole charter that leaves the open question out keeps it until the researcher answers.
-    assert "one round of questions" in write(workspace, team, turn, call="more", questions=[{**GAP, "id": "again"}])["error"]
+    # A whole charter that leaves the open question out keeps it until the researcher answers (a second round would end the
+    # quick path: test_quick_fallback).
     kept = write(workspace, team, turn, call="kept")
     assert [q["id"] for q in workspace.charters.get(record["id"])["charter"]["questions"]] == ["gap"] and kept["revision"] == 3
     # The researcher's answer goes to the lead, in the thread it wrote the charter in, as a turn of its own.

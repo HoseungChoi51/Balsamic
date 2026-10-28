@@ -410,6 +410,12 @@ the page shows it in a sandboxed frame that can only ask to open a page). `probl
 the note's markdown into the statement of a problem import and starts the formulator; the charter it writes appears on
 the note's Charter tab, where the researcher confirms it (`/problem-charters/{id}/confirm`, then `campaign.update` with
 the charter reference sets the tasks and ends the formulation stage). A revision after adoption reopens the draft.
+On the quick path (roadmap track P) the lead writes the charter itself (`charter_write`) and the note is read from it: the
+page shows a "quick path" pill and no Adopt, Edit or skips, and the Charter tab confirms with `problem_note.confirm
+{note_id, charter_id, revision}`, which accepts the listed assumptions, confirms the revision and installs its tasks. When
+a criterion of the quick path fails on a `charter_write`, or the researcher sends `problem_note.full_path {note_id}`, the
+note goes to the full path with its sections written from the lead's charter, and after Adopt the formulator revises that
+charter.
 "Export as Python project" on the Charter tab (`export-charter`) downloads the revision on screen, confirmed or not, from
 `GET /api/v1/problem-charters/{id}/revisions/{n}/export.zip`: `scaffold()` (`problem_charter/scaffold.py`) zipped under
 `<project-name>/` as `<project-name>-r<n>.zip`, the same bytes for the same revision. A charter the generator cannot turn

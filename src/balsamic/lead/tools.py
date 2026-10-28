@@ -69,13 +69,18 @@ def register(workspace=None):
         return {"note_id": note["id"], "revision": revision["revision"], "link": "#note", "sections": list(revision["sections"])}
 
     def charter_write(tools, agent, run, args, identity):
-        from balsamic.notes.service import write_charter
+        from balsamic.notes.service import QUICK_SAVES, THEIRS, write_charter
         thread = thread_of_run(tools, run)
-        return {**write_charter(tools.workspace, agent["campaign_id"], args["charter"], confounders=args.get("confounders"), questions=args.get("questions") or [],
-                                reason=args.get("reason") or "", run_id=run["id"], thread_id=thread["id"] if thread else None),
-                "next": "Resolve each blocking finding from the researcher's words (write again; no check needed); what they leave open is a question "
-                        "(at most two, once) or an assumption with a note. Then reply: what the charter states, one line per assumption, and the "
-                        "link for the researcher to confirm it."}
+        written = write_charter(tools.workspace, agent["campaign_id"], args["charter"], confounders=args.get("confounders"), questions=args.get("questions") or [],
+                                reason=args.get("reason") or "", run_id=run["id"], thread_id=thread["id"] if thread else None)
+        if "ended" in written["quick_path"]:
+            return {**written, "next": f"The quick path ended: {written['quick_path']['ended']}. The note is on the full path now, written from your charter "
+                                       "(#note). Tell the researcher in one line why, then go on with the full path (procedure problem-formulation): settle "
+                                       "what the note leaves open with them, and ask them to adopt it; the formulator then revises your charter."}
+        last = written["saves"] >= QUICK_SAVES and any(row["severity"] == "blocking" and row["code"] not in THEIRS for row in written["findings"])
+        return {**written, "next": "Resolve each blocking finding from the researcher's words (write again; no check needed); what they leave open is a question "
+                                   "(at most two, once) or an assumption with a note. Then reply: what the charter states, one line per assumption, and the "
+                                   "link for the researcher to confirm it." + (" If your next write still leaves a blocking finding, the quick path ends." if last else "")}
 
     def charter_read(tools, agent, run, args, identity):
         from balsamic.notes.service import note_id
@@ -83,12 +88,16 @@ def register(workspace=None):
             note = tools.store.get(note_id(agent["campaign_id"]), "problem_note")
         except KeyError:
             note = {}
-        charter_id = note.get("charter_id") or (tools.store.get(agent["campaign_id"], "campaign").get("charter") or {}).get("id")
+        # The note's charter, else the one the quick path handed to the full path (until Adopt links it again), else the campaign's.
+        charter_id = (note.get("charter_id") or (note.get("quick") or {}).get("charter_id")
+                      or (tools.store.get(agent["campaign_id"], "campaign").get("charter") or {}).get("id"))
         if not charter_id:
             raise ValueError("The campaign has no charter yet: write one with charter_write (procedure quick-charter), or adopt the note for the formulator to write it")
         view = tools.workspace.charters.view(charter_id)
+        quick = {key: value for key, value in (note.get("quick") or {}).items() if key in {"holds", "ended", "criteria"}}
         return {**{key: view[key] for key in ("id", "revision", "status", "confirmed_revision", "writer", "charter", "values", "errors", "rendered", "findings",
-                                               "question_rounds", "question_rounds_max")}, "path": note.get("path"), "link": "#note/charter"}
+                                               "question_rounds", "question_rounds_max")}, "path": note.get("path"), **({"quick_path": quick} if quick else {}),
+                "link": "#note/charter"}
 
     def problem_note_propose(tools, agent, run, args, identity):
         from balsamic.notes.service import propose_edit
@@ -165,9 +174,11 @@ def register(workspace=None):
                     "about": {"type": "array", "items": S, "maxItems": 20}, "blocking": {"type": "boolean"}}, ["id", "question", "options"])
     register_tool("charter_write", "The quick path (procedure quick-charter): write the campaign's problem charter yourself, as a whole charter; a later call "
                   "revises it. The problem note is then read from it. confounders: the note's confounders section. questions: at most two, in one round, "
-                  "options recommended first. Returns computed values and findings. Refused once the note is adopted or the charter confirmed.",
+                  "options recommended first. Returns computed values, findings and whether the quick path holds; when it does not, the quick path "
+                  "ends and the note goes to the full path, written from your charter. Refused once the note is adopted, the quick path ended or the "
+                  "charter is confirmed.",
                   obj({"charter": {"type": "object"}, "confounders": obj({"text": S, "items": {"type": "array", "items": S, "maxItems": 20}}),
-                       "questions": {"type": "array", "items": question, "maxItems": 2}, "reason": S}, ["charter"]), charter_write)
+                       "questions": {"type": "array", "items": question, "maxItems": 6}, "reason": S}, ["charter"]), charter_write)
     register_tool("charter_read", "The campaign's problem charter as it stands (the researcher may have changed it): its values, texts with values and findings.",
                   obj(), charter_read)
     register_tool("problem_note_propose", "Answer a question the researcher asked on the note (annotation_id) and, when the note should change, propose the edit; the researcher accepts it.",

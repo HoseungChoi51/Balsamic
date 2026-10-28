@@ -1004,6 +1004,19 @@ def check_charter_writer(ctx, arg):
     return by == arg, f"written by {by}"
 
 
+def check_quick_path(ctx, arg):
+    """Whether the quick path held (arg "held") or ended on a criterion (arg {"ended": its id}, roadmap P3), read from the note."""
+    try:
+        note = ctx.store.get("note_" + ctx.campaign_id, "problem_note")
+    except KeyError:
+        return False, "the campaign has no problem note"
+    quick = note.get("quick") or {}
+    detail = f"path {note.get('path')}" + (f", ended on {', '.join(quick.get('failed') or [])}: {quick['ended']}" if quick.get("ended") else "")
+    if arg == "held":
+        return note.get("path") == "quick" and quick.get("holds") is True, detail
+    return arg["ended"] in (quick.get("failed") or []), detail
+
+
 def check_setup_actions_at_most(ctx, arg):
     """The researcher's actions from their first message to the gate opening, at most this many."""
     setup = setup_metrics(ctx) or {}

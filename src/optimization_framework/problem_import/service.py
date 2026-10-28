@@ -211,6 +211,16 @@ class ProblemImports:
         with self.workspace.lock:
             return self.save(record)
 
+    def take_draft(self, import_id, charter_id, reason):
+        """The lead's charter as this import's first draft (roadmap P3: the quick path did not hold): the formulator revises that
+        charter instead of writing a new one, and its first prompt says why the quick path did not hold."""
+        with self.lock:
+            record = self._collecting(import_id)
+            charter = self.workspace.charters.hand_over(charter_id, import_id=import_id)
+            record.update(charter_id=charter_id, lead_draft={"charter_id": charter_id, "revision": charter["revision"], "reason": reason})
+            with self.workspace.lock:
+                return self.save(record)
+
     def formulate(self, import_id, text, request=None):
         """A turn on the formulator's charter: answers to its questions, or a request for a change."""
         with self.lock:
@@ -350,6 +360,12 @@ class ProblemImports:
             lines += ["", "No code base was supplied."]
         if record["notes"].strip():
             lines += ["", "Researcher notes:", record["notes"].strip()]
+        draft = record.get("lead_draft")
+        if draft:
+            lines += ["", f"The campaign's lead wrote a first draft of the charter (revision {draft['revision']}) from the researcher's words in "
+                      f"the conversation, and the quick path did not hold: {draft['reason']}. It is your charter now: read it with charter_read, "
+                      "check it against the note and the researcher's own words, and revise it with charter_submit. Values the researcher "
+                      "set and their answers stay as they are."]
         lines += ["", "Start with problem_catalog and read the material. Write the charter and save it with charter_submit "
                   "(saving returns the findings; do not check it first), fix what the findings say, and ask about what the "
                   "material leaves open with question_ask."]
@@ -360,7 +376,9 @@ class ProblemImports:
         record = self.get(agent_id)
         if run_id not in record["runs"]:
             raise ValueError("Unknown import run")
-        return {"instructions": INSTRUCTIONS,
+        # No extension: the formulator has no yield_work, so the Balsamic extension's reminder to call it would cost a model call
+        # at the end of every run and change nothing (roadmap P3).
+        return {"instructions": INSTRUCTIONS, "extension_host": False,
                 "tools": [{"name": name, "description": description, "input_schema": schema}
                           for name, (description, schema) in sorted(TOOLS.items())]}
 

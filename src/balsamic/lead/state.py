@@ -23,7 +23,8 @@ def gate_line(workspace, campaign):
     return [f"Gate: closed{path}. Next: {step['title'].lower()} ({step['page']})." + (" Not written yet: " + ", ".join(step["missing"]) + "." if step.get("missing") else "")
             + (" Skipped with the researcher's agreement: " + ", ".join(step["skipped"]) + "." if step.get("skipped") else "")
             + (" Your skip proposal waits for the researcher: " + ", ".join(step["proposed_skips"]) + "." if step.get("proposed_skips") else "")
-            + (" A simple problem may take the quick path instead: write its charter yourself (procedure quick-charter)." if step.get("quick_open") else "")]
+            + (" A simple problem may take the quick path instead: write its charter yourself (procedure quick-charter)." if step.get("quick_open") else "")
+            + (f" The quick path ended: {step['quick_ended']}." if step.get("quick_ended") else "")]
 
 
 def evaluator_line(workspace, campaign):

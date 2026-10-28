@@ -478,6 +478,15 @@ class Charters:
             return lead(record, text)
         return self._tell_formulator(record, text, create=create, request=request)
 
+    def hand_over(self, charter_id, *, import_id=None):
+        """The lead's charter becomes the formulator's to write (roadmap P3: the quick path did not hold): from now on answers and
+        requests go to the formulator, the one of import_id once the note is adopted, and its questions take the full path's rounds."""
+        with self.workspace.lock:
+            record = self.get(charter_id)
+            record.update(writer="formulator", updated_at=now(), **({"import_id": import_id} if import_id else {}))
+            self.store.put(KIND, record)
+            return record
+
     def _tell_formulator(self, record, text, *, create=False, request=None):
         imports = getattr(self.workspace, "problem_imports", None)
         if imports is None:
