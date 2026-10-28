@@ -67,9 +67,18 @@ class CampaignUpdateInput(CampaignUpdate):
 
 
 class ProblemAdoptionInput(Contract):
-    """The campaign's tasks adopt the problem an installed library provides for its charter's declared problem (roadmap E4)."""
-    install_id: str = Field(min_length=1, max_length=200, description="The library install that provides the charter's declared problem")
+    """The campaign's tasks adopt the problem an installed library provides for its charter's declared problem (roadmap E4): named
+    by the install, or by the library version (lab_packages lists it), from any campaign of the lab (issue #101)."""
+    install_id: str | None = Field(default=None, min_length=1, max_length=200, description="The library install that provides the charter's declared problem")
+    library_version_id: str | None = Field(default=None, min_length=1, max_length=200,
+                                           description="The installed library version that provides it, as lab_packages lists it")
     rationale: str = Field(default="The installed library provides the charter's declared problem", min_length=1, max_length=5000)
+
+    @model_validator(mode="after")
+    def one_source(self):
+        if (self.install_id is None) == (self.library_version_id is None):
+            raise ValueError("Name the library that provides the problem by install_id or by library_version_id, one of them")
+        return self
 
 
 class FinalistSetInput(Contract):

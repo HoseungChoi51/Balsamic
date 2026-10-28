@@ -1,11 +1,12 @@
 """The lead's part of the state block (optimization_framework/agents/turn_state.py): where the problem-definition gate stands,
-an evaluator that cannot start, autopilot, the library strategies that match, what this thread pins or sets aside, and the page
-agents at work. Read from the records at the start of each turn; the lead's instructions only say that it is there."""
+an evaluator that cannot start, autopilot, the library strategies that match, the lab's packages that concern the campaign,
+what this thread pins or sets aside, and the page agents at work. Read from the records at the start of each turn; the lead's instructions only say that it is there."""
 from optimization_framework.agents.models import PAGE_AGENTS
 from optimization_framework.agents.turn_state import one_line
 
 PINS = 10
 LIBRARY = 3
+PACKAGES = 3
 NAMES = {"discussion_moderator": "the discussion moderator", "experiment_operator": "the experiment operator",
          "implementation_lead": "the implementation lead", "resource_planner": "the resource planner"}
 
@@ -64,6 +65,20 @@ def library_line(workspace, campaign):
     return lines
 
 
+def package_line(workspace, campaign):
+    """The lab's installed packages that concern this campaign's problem, from any campaign (issue #101): the lead sees them
+    before it builds anything."""
+    try:
+        from optimization_framework.campaigns.lab_packages import line, matches
+        found = matches(workspace, campaign["id"])[:PACKAGES]
+    except Exception:   # the state block never fails a turn
+        return []
+    if not found:
+        return []
+    return ["Packages in the lab that concern this campaign (lab_packages has the details; reuse them before building): "
+            + "; ".join(line(row) for row in found) + "."]
+
+
 def pin_lines(workspace, run):
     thread_id = ((run or {}).get("origin") or {}).get("thread_id")
     try:
@@ -106,5 +121,5 @@ def lead_state(workspace):
     def lines(agent, run):
         campaign = workspace.store.get(agent["campaign_id"], "campaign")
         return [*gate_line(workspace, campaign), *evaluator_line(workspace, campaign), *autopilot_line(workspace, campaign),
-                *library_line(workspace, campaign), *pin_lines(workspace, run), *page_agent_line(workspace, campaign)]
+                *library_line(workspace, campaign), *package_line(workspace, campaign), *pin_lines(workspace, run), *page_agent_line(workspace, campaign)]
     return lines

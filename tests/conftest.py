@@ -17,6 +17,13 @@ def missing():
     return f"{' and '.join(absent)} not installed; scripts/install-meent installs them" if absent else None
 
 
+@pytest.fixture(autouse=True)
+def no_shared_library_repository(monkeypatch):
+    """The researcher's shared library repository (beside the checkout, agents/shared_libraries.py) is never read or written by
+    a test; a test that needs one sets BALSAMIC_LIBRARY_REPOSITORY to its own."""
+    monkeypatch.setenv("BALSAMIC_LIBRARY_REPOSITORY", "off")
+
+
 def pytest_collection_modifyitems(config, items):
     marked = [item for item in items if item.get_closest_marker("meent")]
     if not marked or not (reason := missing()):

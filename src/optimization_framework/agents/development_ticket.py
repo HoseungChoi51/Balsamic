@@ -6,7 +6,7 @@ run the tests, how to submit, what not to touch) and `.balsamic/spec.json` (the 
 A ticket holds the proposals the workspace serves (title, mechanism, the METHODS key), the charter revision, the acceptance
 tests as runnable pytest files (the generated library's own tests, F1 and F3, and any the implementation lead adds), the
 names of the protected acceptance tests, the compute and model budget and the deadline of the go-ahead and mandate it opens
-under, and the house rules. A protected test's source is kept on the host, as validation outside the box keeps it
+under, the shared library repository's building blocks the box imports (issue #101), and the house rules. A protected test's source is kept on the host, as validation outside the box keeps it
 (`library_validation.protect()`, H6, which runs it on every delivery), and never written into the worktree or the ticket.
 An agent's ticket is checked as a commission's
 specification is (`ImplementationBridge.check_self_contained()`): it needs acceptance tests, and its text names only the
@@ -28,6 +28,8 @@ from optimization_framework.contracts.base import Contract, content_hash
 from optimization_framework.storage.sqlite import now
 
 KIND = "development_ticket"
+# Where a box has the shared library repository's building blocks (development_runtime.DockerWorkspace mounts them, issue #101).
+BLOCKS = "/opt/libraries"
 # What the ticket writes at the worktree's root; the coding agent's tests may not take these places.
 FILES = ("TASK.md", "AGENTS.md", "CLAUDE.md", ".balsamic/spec.json")
 RESERVED = {".balsamic", ".campaign", ".git", ".vscode", *FILES}
@@ -94,11 +96,13 @@ def budget_of(record, consent=None, mandate=None):
             "model_usd": mandate.model_usd if mandate else None, "cpu_seconds": record.get("cpu_budget_seconds")}
 
 
-def build(record, proposals, keys, *, library=None, problem=None, why=None, given=None, consent=None, mandate=None):
+def build(record, proposals, keys, *, library=None, problem=None, why=None, given=None, consent=None, mandate=None, blocks=()):
     """The ticket of a workspace record serving ``proposals`` under their METHODS ``keys``: the generated ``library`` (F4), or
     None and ``why`` not; the charter revision (``problem``); the implementation lead's tests (``given``, a TicketInput); the
-    budget of the go-ahead (``consent``) and ``mandate`` it opens under; and the box's walls as the record holds them (H5,
-    `DevelopmentWorkspaces.walls()`: its wall time to the deadline, its limits and the hosts it may reach)."""
+    budget of the go-ahead (``consent``) and ``mandate`` it opens under; the box's walls as the record holds them (H5,
+    `DevelopmentWorkspaces.walls()`: its wall time to the deadline, its limits and the hosts it may reach); and the shared
+    library repository's building blocks the box imports (``blocks``, shared_libraries.building_blocks(), issue #101), fixed
+    here so that the box, validation and the install all use the same versions."""
     given = given or TicketInput()
     commission = record.get("commission")
     prefix = f"libraries/{library['name']}/" if library else None
@@ -129,7 +133,8 @@ def build(record, proposals, keys, *, library=None, problem=None, why=None, give
                     **({"base": library["base"]} if library.get("base") else {})} if library else None,
         "split": {key: split[key] for key in ("id", "library", "package", "method_library", "methods", "problems")} if split else None,
         "no_library": why if problem and not library else None,
-        "acceptance_tests": tests, "test_command": "uv run pytest " + " ".join(targets) if targets else None,
+        "acceptance_tests": tests, "test_command": "python -m pytest " + " ".join(targets) if targets else None,
+        "building_blocks": [dict(block) for block in blocks],
         "protected_tests": list(commission["protected_tests"]) if commission else [test.name for test in given.protected_tests],
         "evidence_ids": list(record.get("evidence_ids") or []), "budget": budget_of(record, consent, mandate),
         "deadline": {"wall_seconds": record.get("wall_seconds"), "at": mandate.deadline_at if mandate else None},
@@ -183,6 +188,8 @@ def task(ticket):
         lines += base_lines(library)
     if ticket.get("split"):
         lines += split_lines(ticket["split"], library)
+    if ticket.get("building_blocks"):
+        lines += block_lines(ticket["building_blocks"])
     lines += ["## Proposals", ""]
     if not ticket["proposals"]:
         lines += ["None: this work builds the evaluator, not a method.", ""]
@@ -219,6 +226,26 @@ def base_lines(library):
     return lines
 
 
+def requirement(block):
+    """The dependency a library that uses a building block declares: the version the box has, or a later one."""
+    return f"{block['package']}>={block['version']}"
+
+
+def block_lines(blocks):
+    """TASK.md's section on the building blocks this box imports (issue #101): each package, how to import it and its functions."""
+    lines = ["## Building blocks you can import", "",
+             f"The lab's shared library repository gives this workspace {len(blocks)} package{'s' if len(blocks) != 1 else ''} of tested "
+             f"functions, installed here read-only under `{BLOCKS}/`. Import them; do not copy or rewrite them. A library that imports one "
+             "names it in its pyproject.toml's `dependencies` (as below); Balsamic validates and installs it with that version.", ""]
+    for block in blocks:
+        lines += [f"### {block['package']} {block['version']}: `import {block['module']}`", "",
+                  " ".join(part for part in ((block.get("description") or "").strip().rstrip(".") + "." if block.get("description") else "",
+                                             f"Family: {block['family']}." if block.get("family") else "") if part), "",
+                  f"Dependency: `\"{requirement(block)}\"`.", ""]
+        lines += [f"- `{row['signature']}`" + (f": {row['doc']}" if row.get("doc") else "") for row in block.get("functions") or []] + [""]
+    return lines
+
+
 def split_lines(split, library):
     """TASK.md's section on a split (roadmap L6, decision 26): a method library with the methods a second problem needs, and the
     problem library's next version without them, depending on it."""
@@ -242,7 +269,8 @@ def split_lines(split, library):
 def commission_lines(commission):
     """TASK.md's section on a commission (roadmap H7): what it asks for, and its frozen specification as the coding agent may read it."""
     spec = dict(commission.get("spec") or {})
-    what = ("the evaluator of a task: a library that provides its problem, with the objective written in it" if commission["kind"] == "evaluator"
+    what = ("the evaluator of a task: a library that provides its problem, with the objective written in it, registered under the "
+            "`optimization_framework.problems` entry point of its pyproject.toml so that later campaigns reuse it" if commission["kind"] == "evaluator"
             else "a method for the proposal below")
     lines = ["## The commission", "", f"This work was commissioned: {what}. Its specification is frozen: implement it as written, and say "
              "in your delivery report what you could not.", "", "Mechanism:", "", str(spec.pop("mechanism", "")).strip(), "",
@@ -285,7 +313,7 @@ def house_rules(ticket):
     """AGENTS.md and CLAUDE.md, the same for any harness: what to build, how to run the tests, how to submit, what not to touch."""
     library = ticket.get("library")
     named = (ticket.get("commission") or {}).get("library")
-    command = ticket.get("test_command") or "uv run pytest libraries/<name>"
+    command = ticket.get("test_command") or "python -m pytest libraries/<name>"
     target = library["path"].rstrip("/") if library else f"libraries/{named or '<name>'}"
     lines = ["# House rules", "", "This is a Balsamic coding workspace. TASK.md is your work ticket: the proposals to implement, the problem, "
              "the acceptance tests, the budget and the deadline. `.balsamic/spec.json` holds the same ticket as JSON.", "",
@@ -306,6 +334,9 @@ def house_rules(ticket):
     else:
         lines += [f"A library under `{target}/` for the proposals in TASK.md, on the optimizer_v1 package contract as "
                   "docs/optimizer-plugins.md describes: a module per method, its own tests and `tests/test_contract.py`."]
+    if ticket.get("building_blocks"):
+        lines += ["", f"Build on the building blocks TASK.md lists, installed in `{BLOCKS}/`: import them and name each one you import in "
+                  "the library's `dependencies`; never copy their code into the library."]
     lines += ["", "## How to run the tests", "",
               f"`{command}` runs the acceptance tests TASK.md lists, Balsamic's contract checks (`tests/test_contract.py`) among them. "
               f"`balsamic-workspace check {target}` runs a library's tests and gives the counts for your report. Done means they pass.", "",

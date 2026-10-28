@@ -171,7 +171,8 @@ def imported(directory, store_records, name, lab_copy=None):
 # What the Packages page shows ---------------------------------------------------------------------------------------------------
 def _public(row):
     return {key: row.get(key) for key in ("id", "version", "tag", "commit", "parent_version", "source", "methods", "problems",
-                                          "methods_added", "methods_removed", "problems_added", "problems_removed", "depends_on", "moved", "created_at")}
+                                          "methods_added", "methods_removed", "problems_added", "problems_removed", "depends_on", "moved", "created_at",
+                                          "published")}
 
 
 def _links(store_records):

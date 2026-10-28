@@ -587,12 +587,20 @@ def catalog():
     """Installed evaluators, with their fields and objectives, and the charter's schema."""
     from optimization_framework.contracts.problem_charter import ProblemCharter
     from optimization_framework.evaluation.registry import problems
+    import tomllib
+    from optimization_framework.agents.development_runtime import ROOT
     adapters = []
     examples = problems.examples()
+    try:   # the lab's own problems (the checkout's project) are not a library's
+        lab = {(tomllib.loads((ROOT / "pyproject.toml").read_text()).get("project") or {}).get("name")}
+    except (OSError, tomllib.TOMLDecodeError):
+        lab = set()
     for name in problems.ids():
         definition = problems.get(name).describe()
         own = [example for example in examples if any(s.get("problem_id") == name for s in example["instances"])]
-        adapter = {"problem_id": name, "name": definition.name, "evaluator": definition.evaluator_id,
+        source = problems.source(name)   # an installed package's problem: a library a campaign of the lab built (issue #101)
+        source = None if source and source["distribution"] in lab else source
+        adapter = {"problem_id": name, "name": definition.name, "evaluator": definition.evaluator_id, **({"package": source} if source else {}),
             "capabilities": definition.capabilities, "configuration_schema": definition.configuration_schema,
             "fidelity_schema": definition.fidelity_schema,
             "examples": [{"name": example["name"], "summary": example.get("summary", ""), "instances": example["instances"],
@@ -610,7 +618,8 @@ def catalog():
                                           "dimensions_in_example": problem.candidate_schema.dimensions})
         adapters.append(adapter)
     return {"adapters": adapters, "charter_schema": ProblemCharter.model_json_schema(),
-            "notes": "An installed evaluator's objective is fixed. A declared problem needs a new lowercase problem_id. "
+            "notes": "An installed evaluator's objective is fixed; one with a package came from a library a campaign of the lab built, "
+                     "and naming its problem_id reuses it. A declared problem needs a new lowercase problem_id. "
                      "Map every required configuration and fidelity field of an installed evaluator to one quantity. "
                      "Example charters show the format; their tables are shortened here."}
 

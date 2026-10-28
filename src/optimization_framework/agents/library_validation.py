@@ -140,7 +140,8 @@ def command(library, protected, out, request, earlier=None, dependencies=None):
 def run(files, name, *, instances=(), protected=None, earlier=None, replays=(), dependencies=None, timeout=TIMEOUT_SECONDS):
     """Validate libraries/<name>/ as {path: bytes} (the exact commit's): the result, with `seconds` it took. ValidationUnavailable
     when the sandbox cannot run, ValueError when it ran and gave no result. ``dependencies``: {libraries/<other>/...: bytes} of
-    libraries it imports that are not installed yet (a split's method library, roadmap L6), importable beside it."""
+    libraries it imports that are not installed yet (a split's method library, roadmap L6) or that its box had (the shared
+    library repository's building blocks, issue #101), importable beside it."""
     from .library_install import GROUP, PROBLEMS
     import tomllib
     prefix = f"libraries/{name}/"
@@ -535,8 +536,9 @@ def main(argv):
     resource.setrlimit(resource.RLIMIT_AS, (request["memory_bytes"], request["memory_bytes"]))
     resource.setrlimit(resource.RLIMIT_CORE, (0, 0))
     sys.path.insert(0, LIBRARY)
-    for name in request.get("dependencies") or []:
-        sys.path.insert(1, f"{DEPENDENCIES}/{name}")
+    for name in request.get("dependencies") or []:   # a package laid out under src/ (a building block, issue #101) imports from there
+        folder = Path(DEPENDENCIES) / name
+        sys.path.insert(1, str(folder / "src" if (folder / "src").is_dir() else folder))
     result = {"tests": _pytest(LIBRARY), "protected": _pytest(TESTS) if request["protected"] else None,
               "earlier": _pytest(EARLIER) if request.get("earlier") else None}
     try:

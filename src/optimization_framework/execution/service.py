@@ -516,6 +516,16 @@ class Workspace:
                 self.store.put("trial", trial)
             return campaign
 
+    def install_of_version(self, library_version_id):
+        """The install a library version came from (issue #101: a campaign names a version lab_packages lists, not an install of
+        another campaign's). ValueError for a version no install made, such as one imported from the lab's own copy."""
+        version = self.store.get(library_version_id, "library_version")
+        install_id = (version.get("source") or {}).get("install_id")
+        if not install_id:
+            raise ValueError(f"{version['package']} {version['version']} came into the lab without an install ({(version.get('source') or {}).get('imported') or 'imported'}); "
+                             "its problem is the lab's already: set the charter's evaluator to the installed problem instead")
+        return install_id
+
     def adopt_library_problem(self, campaign_id, install_id, *, authority="researcher"):
         """The campaign's tasks adopt the problem an installed library provides for its charter's declared problem (roadmap E4).
 
