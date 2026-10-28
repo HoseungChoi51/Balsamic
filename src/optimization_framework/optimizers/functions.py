@@ -12,9 +12,11 @@ observation, so the worker drives it like any optimizer. Its checkpoint is the j
 candidate is the one recorded. A function that is not deterministic for its seed (it reads the clock, say) is refused on
 resume rather than continued on a history it would not have made.
 
-On a white-box problem (the default, decision 22) the method may compute the objective itself as often as it likes,
-through the library's own problem object or its ``objective.py``; such calls are not observations and are not counted.
-Only what ``evaluate`` records is known to Balsamic.
+On a white-box problem (the default, decision 22) the method may compute the objective itself as often as it likes:
+the worker gives the descriptor an ``objective(candidate)`` (``WhiteBoxProblem``), and a library's own problem object or
+its ``objective.py`` may offer the same. Such calls are not observations and are not counted; only what ``evaluate``
+records is known to Balsamic, and the run is judged by its time (N11). On an oracle problem the descriptor has no
+``objective``.
 
 ``FunctionPlugin`` offers a library's function methods as plug-in methods. It lists them from the ``METHODS`` literal in
 the methods module's source, without importing the module, so agent code never runs in the server; only ``create()``,
@@ -23,6 +25,7 @@ in the worker, imports it.
 from __future__ import annotations
 
 import ast
+from collections.abc import Mapping
 from importlib import import_module
 from importlib.util import find_spec
 from pathlib import Path
@@ -60,6 +63,23 @@ def plain(candidate):
     return candidate
 
 
+class WhiteBoxProblem(Mapping):
+    """The read-only descriptor of a white-box problem with ``objective(candidate)``: the primary objective, computed by the
+    problem's own evaluator, in the charter's units and direction. It is not recorded and costs only time."""
+
+    def __init__(self, descriptor, objective):
+        self._descriptor, self.objective = descriptor, objective
+
+    def __getitem__(self, key):
+        return self._descriptor[key]
+
+    def __iter__(self):
+        return iter(self._descriptor)
+
+    def __len__(self):
+        return len(self._descriptor)
+
+
 # Seeds are global to the process (random, np.random), so one process runs one live function method. Each trial's
 # worker is a process of its own.
 _live = None
@@ -77,6 +97,7 @@ class FunctionMethod:
             _live = self
         self.fn, self.instance, self.parameters, self.seed = fn, instance, dict(parameters), seed
         self.problem = problem if problem is not None else frozen(instance.descriptor())
+        self.own_problem = problem is not None
         self.log = []                    # [candidate_hash, status, score] or [candidate_hash, status, None, error]
         self.replay = []                 # the restored journal, answered without evaluating
         self.pending = None
@@ -103,6 +124,14 @@ class FunctionMethod:
             self.calls.put(("returned", result if isinstance(result, str) else None))
         self.thread = threading.Thread(target=body, name=f"function-method-{getattr(self.fn, '__name__', 'fn')}", daemon=True)
         self.thread.start()
+
+    def open_objective(self, objective):
+        """A white-box problem (N11): the descriptor the method gets carries ``objective``. A library's own problem object
+        is its own; it is left as it is."""
+        if self.thread is not None:
+            raise ValueError("The objective is given to a function method before it starts")
+        if not self.own_problem:
+            self.problem = WhiteBoxProblem(self.problem, objective)
 
     def evaluate(self, candidate):
         """Record a candidate and return its primary objective; ``ValueError`` if it was not evaluated, ``StopSearch`` once the run is over."""
