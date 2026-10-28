@@ -67,8 +67,17 @@ Read the charter then (`charter_read`: they may have changed values) and write i
 left unanswered you decide yourself: record it as an assumption naming the question and drop the question. A second round of
 questions, or a third question, ends the quick path.
 
+## The second reading
+
+Each write that leaves no blocking finding of yours is read once against the researcher's own words by a model that sees only
+their words and your charter (`charter_write`'s `reading`): it lists what your charter leaves out, states otherwise, or adds as
+theirs. Where your charter is wrong, fix it in one more write, which is read again. In your reply, name each difference you leave,
+with their words: the researcher settles it before confirming, by saying the charter is right or by asking you to fix it, which
+starts your turn naming it (`charter_read` has the reading). A reading that cannot run ends the quick path.
+
 ## Your reply
 
 In a few lines: what the charter states (what is chosen, the objective, the evaluator), one line per assumption (confirming
-accepts it), your questions if you asked any, and the link to confirm it: [Charter](#note/charter). Nothing is adopted on
+accepts it), your questions if you asked any, the differences the second reading left, and the link to confirm it:
+[Charter](#note/charter). Nothing is adopted on
 this path. Once the researcher confirms, the gate opens; from then on the charter changes only through them, on the Charter tab.

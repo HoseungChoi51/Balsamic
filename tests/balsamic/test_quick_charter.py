@@ -1,6 +1,7 @@
 """The quick path (roadmap P2, decisions 28–32): the lead writes the charter of a simple problem itself, the problem note is read
 from it, and the researcher's one action is problem_note.confirm, which accepts the assumptions, confirms and installs the tasks."""
 import copy
+import json
 
 import pytest
 
@@ -36,9 +37,34 @@ def formulating(client):
     return command(client, "campaign.create", "demo", {"name": "Demo", "objective": "Order the bakes"}, 0)["outcome"]["campaign"]
 
 
+class Reader:
+    """The agent service as the second reading meets it (roadmap P4): the lead's model and the formulator tier's signed in, and each
+    one-shot call answered with reply (the reading's result, a function of the call's body, or an exception to raise)."""
+    def __init__(self, lead, reply=None):
+        self.lead, self.reply, self.calls = lead, reply, []
+
+    def status(self):
+        models = {(self.lead.get("provider"), self.lead.get("model")), ("deepseek", "deepseek-v4-pro")}
+        return {"configured": True, "providers": {provider: {"auth": "oauth", "billing": "subscription"} for provider, _ in models},
+                "models": [{"provider": provider, "id": model, "thinking_levels": ["off", "low", "medium", "high", "xhigh"], "max_tokens": 32000}
+                           for provider, model in models]}
+
+    def complete(self, call_id, body, timeout=1800):
+        self.calls.append(body)
+        reply = self.reply(body) if callable(self.reply) else self.reply if self.reply is not None else {"mismatches": []}
+        if isinstance(reply, Exception):
+            raise reply
+        return {"text": reply if isinstance(reply, str) else json.dumps(reply), "stop_reason": "stop", "provider": body["provider"], "model": body["model"],
+                "billing": "subscription", "thinking_level": body.get("effort"), "usage": {"input": 900, "output": 100, "cost_usd": 0.0},
+                "occurred_at": "2026-10-28T10:00:00+00:00"}
+
+
 @pytest.fixture
 def team(client, workspace, formulating, monkeypatch):
-    return activate_team(client, workspace, formulating, monkeypatch)
+    lead = activate_team(client, workspace, formulating, monkeypatch)
+    # The second reading's model (P4): it finds no difference unless a test answers otherwise.
+    monkeypatch.setattr(workspace.pi, "client", Reader(lead))
+    return lead
 
 
 @pytest.fixture

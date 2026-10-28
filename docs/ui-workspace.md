@@ -415,7 +415,12 @@ page shows a "quick path" pill and no Adopt, Edit or skips, and the Charter tab 
 {note_id, charter_id, revision}`, which accepts the listed assumptions, confirms the revision and installs its tasks. When
 a criterion of the quick path fails on a `charter_write`, or the researcher sends `problem_note.full_path {note_id}`, the
 note goes to the full path with its sections written from the lead's charter, and after Adopt the formulator revises that
-charter.
+charter. Each revision the lead writes without a blocking finding of its own is read once against the researcher's own words
+(roadmap P4, `balsamic/notes/reading.py`: one call with no tools on the formulator's tier model, saved as a `charter_reading`
+record); its differences sit on the note (`quick.reading.mismatches`, each `{id, quote, path, kind, explanation, verbatim,
+settled}`), and the researcher settles each with `problem_note.settle {note_id, revision, mismatches: {m1: right | ask_lead},
+text}` (ask_lead starts a turn of the lead naming them) or as right in the confirmation itself (`problem_note.confirm`'s
+`right`). An unsettled difference refuses the confirmation; a reading that cannot run ends the quick path.
 "Export as Python project" on the Charter tab (`export-charter`) downloads the revision on screen, confirmed or not, from
 `GET /api/v1/problem-charters/{id}/revisions/{n}/export.zip`: `scaffold()` (`problem_charter/scaffold.py`) zipped under
 `<project-name>/` as `<project-name>-r<n>.zip`, the same bytes for the same revision. A charter the generator cannot turn

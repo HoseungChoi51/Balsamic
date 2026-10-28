@@ -24,7 +24,10 @@ def gate_line(workspace, campaign):
             + (" Skipped with the researcher's agreement: " + ", ".join(step["skipped"]) + "." if step.get("skipped") else "")
             + (" Your skip proposal waits for the researcher: " + ", ".join(step["proposed_skips"]) + "." if step.get("proposed_skips") else "")
             + (" A simple problem may take the quick path instead: write its charter yourself (procedure quick-charter)." if step.get("quick_open") else "")
-            + (f" The quick path ended: {step['quick_ended']}." if step.get("quick_ended") else "")]
+            + (f" The quick path ended: {step['quick_ended']}." if step.get("quick_ended") else "")
+            + (" The second reading found differences between the researcher's words and your charter, for them to settle: "
+               + ", ".join(step["differences"]) + "." if step.get("differences") else "")
+            + (" The researcher asked you to fix: " + ", ".join(step["asked"]) + " (charter_read has the reading)." if step.get("asked") else "")]
 
 
 def evaluator_line(workspace, campaign):

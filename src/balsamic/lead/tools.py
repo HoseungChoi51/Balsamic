@@ -78,9 +78,14 @@ def register(workspace=None):
                                        "(#note). Tell the researcher in one line why, then go on with the full path (procedure problem-formulation): settle "
                                        "what the note leaves open with them, and ask them to adopt it; the formulator then revises your charter."}
         last = written["saves"] >= QUICK_SAVES and any(row["severity"] == "blocking" and row["code"] not in THEIRS for row in written["findings"])
-        return {**written, "next": "Resolve each blocking finding from the researcher's words (write again; no check needed); what they leave open is a question "
-                                   "(at most two, once) or an assumption with a note. Then reply: what the charter states, one line per assumption, and the "
-                                   "link for the researcher to confirm it." + (" If your next write still leaves a blocking finding, the quick path ends." if last else "")}
+        found = (written.get("reading") or {}).get("mismatches")
+        read = ("" if written.get("reading") is None else
+                f"A second reading of the researcher's words found {len(found)} difference{'s' if len(found) != 1 else ''} with your charter (reading.mismatches). "
+                "Where your charter is wrong, fix it in one more write, which is read again; in your reply, name each difference you leave, with "
+                "their words: they settle it before confirming. " if found else "A second reading of the researcher's words found no difference. ")
+        return {**written, "next": read + "Resolve each blocking finding from the researcher's words (write again; no check needed); what they leave open is a "
+                                   "question (at most two, once) or an assumption with a note. Then reply: what the charter states, one line per assumption, "
+                                   "and the link for the researcher to confirm it." + (" If your next write still leaves a blocking finding, the quick path ends." if last else "")}
 
     def charter_read(tools, agent, run, args, identity):
         from balsamic.notes.service import note_id
@@ -94,7 +99,7 @@ def register(workspace=None):
         if not charter_id:
             raise ValueError("The campaign has no charter yet: write one with charter_write (procedure quick-charter), or adopt the note for the formulator to write it")
         view = tools.workspace.charters.view(charter_id)
-        quick = {key: value for key, value in (note.get("quick") or {}).items() if key in {"holds", "ended", "criteria"}}
+        quick = {key: value for key, value in (note.get("quick") or {}).items() if key in {"holds", "ended", "criteria", "reading"}}
         return {**{key: view[key] for key in ("id", "revision", "status", "confirmed_revision", "writer", "charter", "values", "errors", "rendered", "findings",
                                                "question_rounds", "question_rounds_max")}, "path": note.get("path"), **({"quick_path": quick} if quick else {}),
                 "link": "#note/charter"}
@@ -174,9 +179,10 @@ def register(workspace=None):
                     "about": {"type": "array", "items": S, "maxItems": 20}, "blocking": {"type": "boolean"}}, ["id", "question", "options"])
     register_tool("charter_write", "The quick path (procedure quick-charter): write the campaign's problem charter yourself, as a whole charter; a later call "
                   "revises it. The problem note is then read from it. confounders: the note's confounders section. questions: at most two, in one round, "
-                  "options recommended first. Returns computed values, findings and whether the quick path holds; when it does not, the quick path "
-                  "ends and the note goes to the full path, written from your charter. Refused once the note is adopted, the quick path ended or the "
-                  "charter is confirmed.",
+                  "options recommended first. Returns computed values, findings, whether the quick path holds, and, once no blocking finding of "
+                  "yours is left, a second reading of the researcher's words against it (differences for them to settle); when the quick path does "
+                  "not hold, it ends and the note goes to the full path, written from your charter. Refused once the note is adopted, the quick "
+                  "path ended or the charter is confirmed.",
                   obj({"charter": {"type": "object"}, "confounders": obj({"text": S, "items": {"type": "array", "items": S, "maxItems": 20}}),
                        "questions": {"type": "array", "items": question, "maxItems": 6}, "reason": S}, ["charter"]), charter_write)
     register_tool("charter_read", "The campaign's problem charter as it stands (the researcher may have changed it): its values, texts with values and findings.",

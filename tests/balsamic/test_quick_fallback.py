@@ -111,7 +111,7 @@ def test_the_hand_over_writes_the_note_from_the_charter_and_adopt_gives_the_form
 def test_only_the_researcher_takes_the_note_to_the_full_path(client, workspace, team, turn):
     written = write(workspace, team, turn)
     assert written["quick_path"]["holds"] is True and {row["id"] for row in written["quick_path"]["criteria"]} == {
-        "conversation", "evaluator", "deterministic", "size", "findings", "questions"}
+        "conversation", "evaluator", "deterministic", "size", "findings", "questions", "reading"}
     pinned = {"expected_guidance_revision": workspace.memory.state("demo")["guidance_revision"],
               "expected_authority_hash": workspace.commands.authority_hash(workspace.store.get("demo", "campaign"))}
     with pytest.raises(ValueError, match="needs researcher authorization"):
