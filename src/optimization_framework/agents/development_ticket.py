@@ -103,7 +103,7 @@ def build(record, proposals, keys, *, library=None, problem=None, why=None, give
     commission = record.get("commission")
     prefix = f"libraries/{library['name']}/" if library else None
     generated = {prefix + path for path in library["files"]} if library else set()
-    tests = [{"path": prefix + path, "source": "generated"} for path in sorted(library["files"])
+    tests = [{"path": prefix + path, "source": "base version" if library.get("base") else "generated"} for path in sorted(library["files"])
              if PurePosixPath(path).parent == PurePosixPath("tests") and PurePosixPath(path).name.startswith("test_")] if library else []
     for test in given.acceptance_tests:
         if test.path in generated and test.content is not None:
@@ -122,7 +122,8 @@ def build(record, proposals, keys, *, library=None, problem=None, why=None, give
                        "method_key": keys[row["id"]] if library else None} for row in proposals],
         "charter": problem,
         "library": {"name": library["name"], "package": library["package"], "path": prefix, "fixed": list(library["fixed"]),
-                    "filled": [f"{prefix}{library['package']}/{name}" for name in ("objective.py", "methods.py")]} if library else None,
+                    "filled": [f"{prefix}{library['package']}/{name}" for name in ("objective.py", "methods.py")],
+                    **({"base": library["base"]} if library.get("base") else {})} if library else None,
         "no_library": why if problem and not library else None,
         "acceptance_tests": tests, "test_command": "uv run pytest " + " ".join(targets) if targets else None,
         "protected_tests": list(commission["protected_tests"]) if commission else [test.name for test in given.protected_tests],
@@ -171,8 +172,11 @@ def task(ticket):
         if problem.get("objective"):
             lines += [f"Objective: {problem['objective']}.", ""]
         lines += [f"Charter `{problem['id']}`, revision {problem['revision']}. " + (
+            f"The library is in `{library['path']}`: the version the lab runs, which you build on (below)." if library and library.get("base") else
             f"The library generated from it is in `{library['path']}`; its README says what to write." if library else
             f"No library could be generated from it ({ticket.get('no_library')}): build one as docs/optimizer-plugins.md describes."), ""]
+    if library and library.get("base"):
+        lines += base_lines(library)
     lines += ["## Proposals", ""]
     if not ticket["proposals"]:
         lines += ["None: this work builds the evaluator, not a method.", ""]
@@ -192,6 +196,21 @@ def task(ticket):
     if ticket["evidence_ids"]:
         lines += ["", "## Evidence", "", "`.campaign/evidence.json` holds: " + ", ".join(f"`{value}`" for value in ticket["evidence_ids"]) + "."]
     return "\n".join(lines) + "\n"
+
+
+def base_lines(library):
+    """TASK.md's section on the version a workspace builds on (roadmap L3, decision 25): its methods, and what a new version keeps."""
+    base = library["base"]
+    methods = base.get("methods") or []
+    lines = ["## What you build on", "", f"`{library['path']}` holds {base['package']} {base['version']}, the version the lab runs, with "
+             f"{len(methods)} method{'s' if len(methods) != 1 else ''}" + (": " + ", ".join(f"`{method}`" for method in methods) if methods else "")
+             + (f" and the problem{'s' if len(base.get('problems') or []) != 1 else ''} " + ", ".join(f"`{p}`" for p in base["problems"])
+                if base.get("problems") else "") + ". Other campaigns use them.", "",
+             "- Keep every method and problem, and keep what each does: Balsamic refuses a version that removes or changes one a campaign uses.",
+             f"- A changed behaviour is a new method under a new name (such as `{(methods or ['foo'])[0]}_v2`); a changed scoring function is a "
+             "new problem id. Add your methods beside the existing ones, with their tests; keep the existing tests.",
+             f"- Raise the version above {base['version']}.", ""]
+    return lines
 
 
 def commission_lines(commission):
@@ -245,7 +264,13 @@ def house_rules(ticket):
     lines = ["# House rules", "", "This is a Balsamic coding workspace. TASK.md is your work ticket: the proposals to implement, the problem, "
              "the acceptance tests, the budget and the deadline. `.balsamic/spec.json` holds the same ticket as JSON.", "",
              "## What to build", ""]
-    if library:
+    if library and library.get("base"):
+        package = library["package"]
+        lines += [f"The library `{target}/` at {library['base']['package']} {library['base']['version']}, the version the lab runs: add a "
+                  f"method per proposal beside the existing ones (in `{package}/methods.py` under the METHODS key TASK.md gives it, for a "
+                  "library generated from a charter), keep every existing method and what it does, and raise the version. TASK.md says what "
+                  "you build on."]
+    elif library:
         package = library["package"]
         lines += [f"The library `{target}/`, generated from the charter (its README says what to write):",
                   f"1. Write the objective in `{package}/objective.py`.",

@@ -74,6 +74,8 @@ function WorkspaceCard({ workspace: w, thread, labels, focused }: { workspace: W
           : <span className="small">{w.commission?.kind === 'evaluator' ? `the evaluator of task ${w.task_id || w.commission.task_id || ''}`.trim() : 'no proposal'}</span>],
         ...(w.commission ? [['Commission', <span className="small" data-testid="workspace-commission">{w.commission.kind === 'evaluator' ? 'an evaluator' : 'an implementation'} job of {minutes(w.commission.compute_seconds * 1000)}: {w.commission.name}
           {w.commission.protected_tests?.length ? <span className="faint"> · protected tests outside the box: {w.commission.protected_tests.join(', ')}</span> : null}</span>] as [string, React.ReactNode]] : []),
+        ...(w.library?.base ? [['Builds on', <span className="small" data-testid="workspace-base" title={`Commit ${w.library.base.commit.slice(0, 7)} of the package's repository; the methods: ${w.library.base.methods.join(', ')}`}>
+          package {w.library.base.package} {w.library.base.version} ({w.library.base.methods.length} method{w.library.base.methods.length === 1 ? '' : 's'})</span>] as [string, React.ReactNode]] : []),
         ['Opened', `${new Date(w.created_at).toLocaleString()}${w.opened_by?.role ? ` by the ${w.opened_by.role.replaceAll('_', ' ')}` : ''}${w.desired_status === 'running' ? ` · open for ${minutes(opened)}` : ''}`],
         ['Last activity', w.last_activity_at ? when(w.last_activity_at) : <span className="faint">none yet</span>],
         ...(estimate(w) ? [['Estimate', estimate(w)] as [string, React.ReactNode]] : []),
@@ -248,7 +250,7 @@ function InstallBox({ workspace: w, submission }: { workspace: Workspace; submis
             {[...(latest.methods_removed || []), ...(latest.problems_removed || [])].length
               ? `; removes ${[...(latest.methods_removed || []), ...(latest.problems_removed || [])].join(', ')}, which no campaign uses` : ''}</span> : null}
         {latest?.changed_generated_files?.length ? <span className="small faint" data-testid="install-changed-generated">
-          changed from the generated library: {latest.changed_generated_files.map(path => path.split('/').slice(2).join('/')).join(', ')}</span> : null}
+          changed from {w.library?.base ? `${w.library.base.package} ${w.library.base.version}` : 'the generated library'}: {latest.changed_generated_files.map(path => path.split('/').slice(2).join('/')).join(', ')}</span> : null}
         {!open && !BUSY.has(latest?.status || '') ? <button className="btn small primary" onClick={() => setOpen(true)} data-testid="install-open">
           {latest?.status === 'installed' ? 'Install again…' : 'Install…'}</button> : null}
       </div>

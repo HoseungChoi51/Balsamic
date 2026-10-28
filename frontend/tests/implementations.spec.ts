@@ -421,3 +421,13 @@ test('an install that replaced a version says what it kept and what it removed (
   await expect(page.getByTestId('install-box').getByTestId('install-kept'))
     .toContainText('keeps 2 methods of the version it replaced; removes bakery_old, which no campaign uses');
 });
+
+test('a workspace that builds on an installed version says which, with its methods (roadmap L3)', async ({ page }) => {
+  await mockWorkspace(page);
+  await page.route(`**/api/campaigns/${CAMPAIGN_ID}/implementation-workspaces`, route => route.fulfill({ json: { enabled: true, workspaces: [
+    { ...workspace, library: { name: 'bakery', package: 'bakery_search', revision: 2,
+      base: { package: 'bakery-search', version: '1.4.0', commit: '2a3eb0899a', methods: ['a', 'b', 'c', 'd', 'e', 'f'] } } }] } }));
+  await page.goto(`/#t/${THREAD_ID}/hypotheses/implementations`);
+  await expect(page.getByTestId('workspace-base')).toHaveText('package bakery-search 1.4.0 (6 methods)');
+  await expect(page.getByTestId('workspace-card')).toContainText('Builds on');
+});
