@@ -3,9 +3,10 @@
 These are software checks, not a judgement of the algorithm: every proposal is a valid candidate of the problem,
 the same seed gives the same proposals, a checkpoint restored into a fresh optimizer gives the same next proposal,
 checkpoints and inspection are plain JSON, inspection stays small (it is recorded after every evaluation), and every
-exported artifact has a kind the asset catalog holds. A method declared ``stochastic: False`` must give the same proposals
-for seeds 0 and 7, since the assessment gate (decision 14) then counts one run per configuration. A method may finish on its own (no proposal: MethodFinished); the
-same seed then finishes at the same step, and so does its restored checkpoint. Scores are synthetic; no evaluator runs.
+exported artifact has a kind the asset catalog holds. A method may finish on its own (no proposal: MethodFinished); the
+same seed then finishes at the same step, and so does its restored checkpoint. A method that reports a ``bound`` (N13)
+reports one its own best does not beat. A method declared ``stochastic: False`` must give the same proposals for seeds 0
+and 7, since the assessment gate (decision 14) then counts one run per configuration. Scores are synthetic; no evaluator runs.
 
 ``check_function`` checks a plain-function method (``optimizers/functions.py``) on the problem its instance resolves
 to, so the evaluator it runs is the problem's own, a library's included: every candidate valid, the same candidates for
@@ -37,6 +38,15 @@ def _observe(optimizer, instance, proposal, candidate, step):
         objectives=objectives, fidelity=instance.fidelity, evaluator_identity="conformance")])
 
 
+def _bound_holds(optimizer, instance, best, where):
+    """A reported bound is a value no feasible candidate beats, so the method's own best must not beat it (N13)."""
+    from optimization_framework.analysis.optimality import beats, claim_of
+    bound = claim_of(optimizer.inspect()).get("best_bound")
+    if bound is not None and best is not None:
+        assert not beats(instance.primary_objective, best, bound), (f"{where}: the method reports bound {bound:g}, which its own best "
+            f"({best:g}) beats; a bound is a value no feasible candidate can beat in the objective's direction")
+
+
 def _next(optimizer, instance):
     """The next proposal and its canonical candidate, or None when the method has finished."""
     try:
@@ -51,8 +61,10 @@ def check(method, instance, *, seeds=(0, 7), steps=6, parameters=None, optimizer
     parameters = dict(parameters or {})
     make = lambda seed: create(method, instance, parameters, seed, steps + 2, optimizer_plugins=optimizer_plugins)
     finished, proposed = {}, {}
+    objective = instance.primary_objective
     for seed in seeds:
         first, second = make(seed), make(seed)
+        best = None
         proposed[seed] = []
         try:
             for step in range(steps):
@@ -60,11 +72,14 @@ def check(method, instance, *, seeds=(0, 7), steps=6, parameters=None, optimizer
                 assert (a is None) == (b is None), f"seed {seed}, step {step}: the same seed finished in one replay and not the other"
                 if a is None:
                     finished[seed] = step
+                    _bound_holds(first, instance, best, f"seed {seed}, at its finish")
                     break
                 assert a[1] == b[1], f"seed {seed}, step {step}: the same seed gave different proposals"
                 proposed[seed].append(a[1])
                 _observe(first, instance, a[0], a[1], step)
                 _observe(second, instance, b[0], a[1], step)
+                best = _score(a[1], step) if objective.better(_score(a[1], step), best) else best
+                _bound_holds(first, instance, best, f"seed {seed}, step {step}")
             shown = len(json.dumps(first.inspect()))
             assert shown <= DIAGNOSTICS_BYTES, (f"seed {seed}: inspect() returns {shown:,} bytes; the host records it after every evaluation, "
                                                 f"so keep it under {DIAGNOSTICS_BYTES:,} (counters, a recent tail, no designs)")
@@ -89,7 +104,7 @@ def check(method, instance, *, seeds=(0, 7), steps=6, parameters=None, optimizer
         _same_for_every_seed(proposed)
     return {"method": method, "seeds": list(seeds), "steps": steps, **({"finished_at_step": finished} if finished else {}),
             "checks": ["valid candidates", "seeded replay", "checkpoint continuation", "JSON checkpoint and inspection", "bounded inspection",
-                       "catalog export kinds", *(["declared deterministic"] if deterministic else [])]}
+                       "catalog export kinds", "bounds its own best does not beat", *(["declared deterministic"] if deterministic else [])]}
 
 
 def _same_for_every_seed(proposed):
@@ -111,6 +126,7 @@ def _function_run(plugin, method_id, instance, parameters, seed, evaluations, ev
     from optimization_framework.contracts.problems import Observation
     method = plugin.create(method_id, instance, dict(parameters), seed)
     checkpoint, ended = None, "cap"
+    from optimization_framework.analysis.optimality import beats, claim_of
     try:
         if state is not None:
             method.restore(state)
@@ -122,6 +138,11 @@ def _function_run(plugin, method_id, instance, parameters, seed, evaluations, ev
                 proposal = method.propose(1)[0]
             except MethodFinished:
                 ended = "returned"
+                bound, name = claim_of(method.inspect()).get("best_bound"), instance.primary_objective.name
+                values = [scores[key][name] for key in evaluations if name in scores[key]]
+                best = max(values, key=instance.primary_objective.utility) if values else None
+                assert bound is None or best is None or not beats(instance.primary_objective, best, bound), (f"seed {seed}: the method "
+                    f"returned bound {bound:g}, which its own best ({best:g}) beats; a bound is a value no feasible candidate can beat")
                 break
             except Exception as exc:
                 raise AssertionError(f"seed {seed}, evaluation {len(evaluations) + 1}: the method raised {type(exc).__name__}: {exc}") from exc
@@ -174,4 +195,5 @@ def check_function(plugin, method_id, instance, *, seeds=(0, 7), max_evaluations
         _same_for_every_seed(proposed)
     return {"method": method_id, "seeds": list(seeds), "max_evaluations": max_evaluations,
             "ended": {str(seed): how for seed, how in ended.items()},
-            "checks": ["valid candidates", "seeded replay", "checkpoint continuation", "clean end", *(["declared deterministic"] if deterministic else [])]}
+            "checks": ["valid candidates", "seeded replay", "checkpoint continuation", "clean end", "bounds its own best does not beat",
+                       *(["declared deterministic"] if deterministic else [])]}

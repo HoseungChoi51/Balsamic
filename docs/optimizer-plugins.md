@@ -374,6 +374,28 @@ A problem says how methods may reach its objective and what they are compared on
 - **Threads.** A run's thread count is its `numerical_threads` (1 to 4, set when the run is created); the worker limits
   the numerical libraries to it. A method cannot yet declare its own count.
 
+### Bounds and optimality
+
+A method may report what it knows of the optimum (roadmap N13): `bound`, a value no feasible candidate can beat in the
+objective's direction (a lower bound when minimizing), and `proved_optimal: true`, in `inspect()` at any time and in its
+final inspection when it finishes. A function method returns them: `return {"reason": "...", "bound": x,
+"proved_optimal": True}`. The worker copies the latest to the run's progress as `best_bound` and `proved_optimal`. The
+contract checks refuse a method whose own best beats the bound it reports.
+
+A bound is a claim. A claim of optimality is **checked** when the built-in `enumerate` finished on the same task with
+the same optimum, or a reference result of the charter (`references`, with a value, holding at the task's instance)
+gives it; it is **contradicted** when any run's best beats it; otherwise it is shown as **claimed by** its method. The
+comparison report (`analysis/general.py`, each group's `optimality`), the ledger and the Evolution page ("Bounds and
+optimality") show per task the best value, the tightest bound no run beats, and the gap, absolute and relative to the
+bound (`analysis/optimality.py`). With a checked optimum the methods that reached it rank first, by their mean cost to
+reach it (`cost_to_optimum`). A strategy with a checked proof on a deterministic evaluator is fully assessed on that task:
+it reads as extended, and `hypothesis.allocate` refuses it more time (a replicate is still allowed).
+
+`enumerate` visits every candidate of a binary, discrete or permutation problem in a fixed order, skipping infeasible
+ones, up to `max_candidates` (default 10⁶; a larger problem is refused with its count). On an oracle problem each
+candidate is one evaluation; on a white-box problem it enumerates through `problem.objective` and records only the
+optimum, with one evaluation. It finishes with the optimum as its bound and `proved_optimal`.
+
 ### Failure policy
 
 | Situation | Behavior | Why |
