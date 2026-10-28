@@ -79,5 +79,7 @@ starts your turn naming it (`charter_read` has the reading). A reading that cann
 
 In a few lines: what the charter states (what is chosen, the objective, the evaluator), one line per assumption (confirming
 accepts it), your questions if you asked any, the differences the second reading left, and the link to confirm it:
-[Charter](#note/charter). Nothing is adopted on
-this path. Once the researcher confirms, the gate opens; from then on the charter changes only through them, on the Charter tab.
+[Charter](#note/charter). A write that was read also shows the researcher a card in the conversation with the charter in plain
+words, your questions, the assumptions and the differences, and one button that confirms it: do not repeat the charter field by
+field. Nothing is adopted on this path. Once the researcher confirms, the gate opens; from then on the charter changes only
+through them, on the Charter tab.

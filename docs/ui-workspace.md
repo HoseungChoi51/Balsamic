@@ -421,6 +421,23 @@ record); its differences sit on the note (`quick.reading.mismatches`, each `{id,
 settled}`), and the researcher settles each with `problem_note.settle {note_id, revision, mismatches: {m1: right | ask_lead},
 text}` (ask_lead starts a turn of the lead naming them) or as right in the confirmation itself (`problem_note.confirm`'s
 `right`). An unsettled difference refuses the confirmation; a reading that cannot run ends the quick path.
+The quick path's screens (roadmap P5, `note/QuickPath.tsx`, `note/Differences.tsx`): the Note tab shows the quick path's
+criteria (✓ holds, … not yet known, ✗ fails, each with its detail) and "Use the full path", which says first that the quick
+path does not come back; once the quick path ended, the full-path note says why (`quick-ended`). Each read revision is put
+before the researcher as a card in the conversation (a lab message of kind `charter_confirm` with `note_id`, `charter_id` and
+`charter_revision`, one per turn of the lead, moved to that turn's last read revision): the charter in plain words (the
+objective, what is chosen, the values, the rules, what computes the score), the lead's questions answered on the card
+(`/problem-charters/{id}/answers`, or "Leave … to the lead" with `send-answers`), the assumptions confirming accepts, the second
+reading's differences settled on the card ("The charter is right", "Ask the lead to fix it" with optional words), and one
+button, "Confirm and set the tasks" (`problem_note.confirm`, the same command as the Charter tab). The card follows the charter
+as it is while the lead's last write is its own; once the lead writes again it says it is out of date and "Show the newest"
+scrolls to the newest card, or opens the Charter tab when that revision has none; it says when the charter is confirmed (the
+gate is open) or the quick path ended. The note's view says what the click waits on (`confirmation: {revision, confirmed,
+why}`, `why` in the confirmation's own words, `balsamic/notes/service.py` `confirmation()`): a question to answer, a check to
+settle, the second reading, or the lead revising the charter on what the researcher sent it (their answers, a request, a
+difference to fix), which `problem_note.confirm` also refuses until the lead writes again or its turn ends. The Charter tab
+of a quick charter lists the same differences under "Your words against the charter" and names the lead where it named the
+formulator.
 "Export as Python project" on the Charter tab (`export-charter`) downloads the revision on screen, confirmed or not, from
 `GET /api/v1/problem-charters/{id}/revisions/{n}/export.zip`: `scaffold()` (`problem_charter/scaffold.py`) zipped under
 `<project-name>/` as `<project-name>-r<n>.zip`, the same bytes for the same revision. A charter the generator cannot turn
