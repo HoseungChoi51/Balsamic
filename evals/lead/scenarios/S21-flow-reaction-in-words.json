@@ -1,0 +1,15 @@
+{
+  "id": "S21-flow-reaction-in-words",
+  "source": "Track P (P1, P3): a problem that needs the full path, set up from the researcher's words to a confirmed charter, measured: yield measured in the lab varies between repeats, the product decomposes above a temperature, and the residence time follows from the flow rate",
+  "setup": {"preset": "reactor_words", "llm_budget_usd": 1.0},
+  "steps": [
+    {"say": "We run a flow reaction in a 10 mL tubular reactor at 5 bar back pressure, now at 2 mL/min and 80 C. I can set the flow rate between 0.1 and 20 mL/min, the temperature between 20 and 200 C, and the catalyst, ligand and additive loadings, each scaled to 0-1, adding up to at most 2. The product decomposes above 150 C. We measure the isolated yield by HPLC; it varies between repeats, so each condition is run several times, and selectivity is recorded too. The residence time follows from the volume and the flow rate. Find the conditions of highest yield. Set the problem up."},
+    {"define": {"timeout_s": 2400}}
+  ],
+  "checks": [
+    {"definition_ready": true},
+    {"charter_matches": {"subset": {"objective": {"direction": "maximize"}, "evaluator": {"deterministic": false}}}},
+    {"charter_writer": "formulator"}
+  ],
+  "repeats": 1
+}
