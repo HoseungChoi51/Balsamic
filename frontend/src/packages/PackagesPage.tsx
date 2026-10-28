@@ -6,9 +6,11 @@ import type { PageProps } from '../shell/StagePanel';
 import { useRead } from '../api/queries';
 import { Empty, Failed, Loading, Pill, Section, when } from '../primitives/ui';
 
-interface Summary { name: string; package: string; latest: string; versions: number; methods: string[]; problems: string[]; updated_at: string }
+interface Summary { name: string; package: string; kind?: 'problem' | 'method'; latest: string; versions: number; methods: string[]; problems: string[];
+  depends_on?: string[]; used_by?: string[]; updated_at: string }
 interface Version { id: string; version: string; tag: string; commit: string; parent_version: string | null; methods: string[]; problems: string[];
   methods_added: string[]; methods_removed: string[]; problems_added: string[]; problems_removed: string[]; created_at: string;
+  depends_on?: string[] | null; moved?: { package: string; methods: string[] } | null;
   source: { campaign_id?: string; workspace_id?: string; install_id?: string; commit?: string; imported?: string } }
 interface Item { id: string; since: string; in_latest: boolean; campaigns: { id: string; name: string }[] }
 interface Detail { name: string; package: string; latest: string; versions: Version[]; methods: Item[]; problems: Item[] }
@@ -16,7 +18,9 @@ interface Detail { name: string; package: string; latest: string; versions: Vers
 function changes(v: Version) {
   const parts = [
     v.methods_added.length ? `adds ${v.methods_added.join(', ')}` : '', v.methods_removed.length ? `removes ${v.methods_removed.join(', ')}` : '',
-    v.problems_added.length ? `adds problem ${v.problems_added.join(', ')}` : '', v.problems_removed.length ? `removes problem ${v.problems_removed.join(', ')}` : ''];
+    v.problems_added.length ? `adds problem ${v.problems_added.join(', ')}` : '', v.problems_removed.length ? `removes problem ${v.problems_removed.join(', ')}` : '',
+    // A split (roadmap L6): the methods it moved into a method package, which this version depends on.
+    v.moved ? `moves ${v.moved.methods.join(', ')} to ${v.moved.package}` : ''];
   return parts.filter(Boolean).join(' · ') || 'no new method or problem';
 }
 
@@ -53,7 +57,10 @@ export default function PackagesPage(_: PageProps) {
         <div className="row wrap"><strong className="grow">{p.package}</strong><Pill>{p.latest}</Pill>
           <span className="small faint">{p.versions} version{p.versions === 1 ? '' : 's'} · {p.methods.length} method{p.methods.length === 1 ? '' : 's'}
             {p.problems.length ? ` · problems ${p.problems.join(', ')}` : ''} · libraries/{p.name}</span>
+          {p.kind === 'method' ? <Pill title="A method package: methods more than one problem's package needs (roadmap L6)">method package</Pill> : null}
           <button className="btn small" onClick={() => setOpen(open === p.name ? null : p.name)} data-testid="package-open">{open === p.name ? 'Hide' : 'Versions and methods'}</button></div>
+        {p.depends_on?.length ? <div className="small" data-testid="package-depends">Depends on {p.depends_on.join(', ')}</div> : null}
+        {p.used_by?.length ? <div className="small" data-testid="package-used-by">Used by {p.used_by.join(', ')}</div> : null}
         {open === p.name ? <Package name={p.name} /> : null}
       </article>)}
   </Section>;

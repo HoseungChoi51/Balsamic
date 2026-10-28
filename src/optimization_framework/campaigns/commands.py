@@ -550,6 +550,9 @@ class CommandService:
             return {"operation_id": operation["id"], "effect_id": effect["id"]}
         if command.operation == "trial.create":
             trial = self.workspace.create_trial(TrialInput(**{**payload, "campaign_id": command.campaign_id}))
+            # A problem library's method run on another problem: a second problem needs it (roadmap L6).
+            from optimization_framework.agents.library_split import noticed
+            noticed(self.workspace, command.campaign_id, trial.get("algorithm"), self.store.get(trial["task_id"], "task"), via=trial["id"])
             return self._trial_outcome(trial, snapshot=actor == "researcher")
         if command.operation == "inference.run":
             values = InferenceRunInput(**payload)

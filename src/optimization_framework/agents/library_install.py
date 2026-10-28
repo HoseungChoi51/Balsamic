@@ -23,6 +23,12 @@ Each library has its own Git repository on the host (roadmap L2, agents/library_
 files onto it and writes the lab's copy from that commit, checked against what was submitted; once the version is in, the
 commit is tagged v<version> and recorded as a `library_version`. A library the lab had before (L1's archive, the lab's own copy)
 is imported as its first versions the first time it is installed again.
+
+A split (roadmap L6, agents/library_split.py) delivers two libraries in one commit, a method library and a new version of the
+problem library that depends on it, and installs them as one step: both are validated outside the box (the problem library with
+the method library importable beside it), the method library takes over the methods the split names and no others, a moved
+method counts as kept, the moved methods replay their recorded runs on every problem, and both are committed, pinned, synced,
+tagged and recorded together, or neither is.
 """
 from __future__ import annotations
 
@@ -121,14 +127,33 @@ class Installer:
             raise ValueError(f"The submitted commit has no libraries/{name}/")
         return found
 
-    def prepare(self, campaign_id, workspace_id, submission_id, *, accept_not_ready=False):
-        """What would be installed: {name, package, version, methods, files, report}; ValueError when it cannot be."""
+    def plan(self, campaign_id, workspace_id, submission_id, *, accept_not_ready=False):
+        """prepare()'s plan; for a split workspace (roadmap L6) the problem library's, with the method library's plan under
+        ``with`` and the split under ``split``."""
+        from optimization_framework.campaigns.method_catalog import libraries_of
+        record = self.development.get(campaign_id, workspace_id)
+        if not record.get("split"):
+            return self.prepare(campaign_id, workspace_id, submission_id, accept_not_ready=accept_not_ready)
+        split = self.store.get(record["split"]["id"], "library_split")
+        submission = self.store.get(submission_id, "development_submission")
+        expected, names = {split["library"], split["method_library"]}, libraries_of(submission)
+        if names != expected:
+            raise ValueError(f"A split delivers libraries/{split['method_library']}/ and libraries/{split['library']}/ in one commit; this one "
+                             f"delivers {', '.join(f'libraries/{name}/' for name in sorted(names)) or 'no library'}")
+        methods = self.prepare(campaign_id, workspace_id, submission_id, accept_not_ready=accept_not_ready, name=split["method_library"],
+                               moving=split)
+        problem = self.prepare(campaign_id, workspace_id, submission_id, accept_not_ready=accept_not_ready, name=split["library"])
+        return {**problem, "with": [methods], "split": split}
+
+    def prepare(self, campaign_id, workspace_id, submission_id, *, accept_not_ready=False, name=None, moving=None):
+        """What would be installed: {name, package, version, methods, files, report}; ValueError when it cannot be. ``name``: the
+        library to read (a split delivers two); ``moving``: the split whose package's methods this library may take over."""
         from optimization_framework.campaigns.method_catalog import library_of
         record = self.development.get(campaign_id, workspace_id)
         submission = self.store.get(submission_id, "development_submission")
         if submission["workspace_id"] != workspace_id or submission["campaign_id"] != campaign_id:
             raise ValueError("The submission belongs to another workspace")
-        name = library_of(submission)
+        name = name or library_of(submission)
         if not name or not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_.\-]{0,99}", name):
             raise ValueError("Only a library delivered under one libraries/<name>/ directory can be installed")
         report = submission.get("report") or {}
@@ -151,7 +176,7 @@ class Installer:
             raise ValueError(f"libraries/{name}/pyproject.toml names no project name and version")
         if not entries and not problems:
             raise ValueError(f"libraries/{name}/pyproject.toml names no {GROUP} or {PROBLEMS} entry point, so it adds no method or problem")
-        self._refuse_clashes(package, entries, problems, report)
+        self._refuse_clashes(package, entries, problems, report, **({"moving": moving} if moving else {}))
         target = self.root / "libraries" / name
         if (target / "pyproject.toml").exists():
             current = tomllib.loads((target / "pyproject.toml").read_text()).get("project") or {}
@@ -163,10 +188,11 @@ class Installer:
         return {"name": name, "package": package, "version": version, "entry_points": entries, "problem_entry_points": problems,
                 "files": files, "report": report, "record": record, "submission": submission, "changed_generated_files": changed}
 
-    def _refuse_clashes(self, package, entries, problems, report):
+    def _refuse_clashes(self, package, entries, problems, report, moving=None):
         """A problem id, plug-in name or method id that another installed distribution (the lab's own included) provides is
         refused before uv runs: the registries would keep the first one loaded, or stop listing either. The library's own
-        earlier version is no clash."""
+        earlier version is no clash, nor, for a split's method library (``moving``), the split's package, whose methods the
+        report names too: which of them it takes over is checked on what validation lists (library_split.takeovers())."""
         from optimization_framework.optimizers.registry import BUILTIN_IDS
         theirs = lambda distribution: distribution is None or normal(distribution) != normal(package)
         for kind, group, ids in (("problem", PROBLEMS, problems), ("optimizer plug-in", GROUP, entries)):
@@ -179,6 +205,8 @@ class Installer:
             if method_id in BUILTIN_IDS:
                 raise ValueError(f"method {method_id} is provided by the lab (a built-in method)")
             found = origin(method_id)
+            if moving and found and found.get("distribution") and normal(found["distribution"]) == normal(moving["package"]):
+                continue
             if found and theirs(found.get("distribution")):
                 raise ValueError(f"method {method_id} is provided by {found.get('distribution') or 'the lab'}")
 
@@ -188,7 +216,8 @@ class Installer:
         ready, or one delivered as loose files. A refusal (the same version with other code, files that differ from what was
         submitted) is recorded as a failed install and told to the lead."""
         from optimization_framework.campaigns.method_catalog import library_of
-        if (submission.get("report") or {}).get("verdict") == "not_ready" or not library_of(submission):
+        split = (self.development.get(campaign_id, workspace_id).get("split") or {})
+        if (submission.get("report") or {}).get("verdict") == "not_ready" or not (library_of(submission) or split):
             return None
         if any(row.get("submission_id") == submission["id"] for row in self.store.list("library_install", campaign_id)):
             return None
@@ -198,7 +227,7 @@ class Installer:
             identity = "library_install_" + content_hash([submission["id"], "automatic"])[:24]
             record = self.store.put("library_install", {"id": identity, "campaign_id": campaign_id, "workspace_id": workspace_id,
                 "submission_id": submission["id"], "commit": submission["commit"], "package": None, "version": None,
-                "path": f"libraries/{library_of(submission)}", "entry_points": {}, "problem_entry_points": {}, "actor": "balsamic",
+                "path": f"libraries/{library_of(submission) or split.get('library')}", "entry_points": {}, "problem_entry_points": {}, "actor": "balsamic",
                 "status": "failed", "requested_at": now(), "finished_at": now(), "error": str(exc)[:2000], "methods_added": [],
                 "missing_methods": [], "problems_added": [], "missing_problems": [], "changes": [], "log_tail": "",
                 "changed_generated_files": []}, "library.install_failed")
@@ -229,7 +258,7 @@ class Installer:
         if not self.uv:
             raise ValueError("uv is not available to the lab; install by hand: copy the library into libraries/<name>/, "
                              "add it to the libraries extra in pyproject.toml, and run `uv sync --inexact --extra libraries`")
-        plan = self.prepare(campaign_id, workspace_id, submission_id, accept_not_ready=accept_not_ready)
+        plan = self.plan(campaign_id, workspace_id, submission_id, accept_not_ready=accept_not_ready)
         identity = "library_install_" + content_hash([submission_id, request_key])[:24]
         try:
             return self.store.get(identity, "library_install")
@@ -240,7 +269,9 @@ class Installer:
                    "entry_points": plan["entry_points"], "problem_entry_points": plan["problem_entry_points"], "actor": actor, "status": "queued",
                    "requested_at": now(), "confirm_changes": confirm_changes, "methods_added": [], "missing_methods": [], "problems_added": [],
                    "missing_problems": [], "changes": [], "log_tail": "", "changed_generated_files": plan["changed_generated_files"],
-                   **({"retry_of": retry_of} if retry_of else {}), **base_of(plan)}
+                   **({"retry_of": retry_of} if retry_of else {}), **base_of(plan),
+                   **({"split_id": plan["split"]["id"], "method_library": {key: plan["with"][0][key] for key in ("name", "package", "version")}}
+                      if plan.get("split") else {})}
         self.store.put("library_install", install, "library.install_requested")
         if background:
             threading.Thread(target=self.install, args=(identity, plan, confirm_changes), daemon=True).start()
@@ -261,10 +292,13 @@ class Installer:
         self._update(identity, status="validating")
         # Tests accumulate and kept methods reproduce their recorded runs (roadmap L4): what the installed version has is checked again.
         old_methods, old_problems = self.provided(plan["package"])
+        moved, extra = set(), {}
+        if plan.get("split"):   # the method library first; the problem library imports it (roadmap L6)
+            moved, extra = self._validate_split(identity, plan, old_methods)
         earlier = validation.earlier_tests(self.store, self.workspace.directory, plan["name"], plan["files"])
         protected = {**validation.earlier_protected(self.store, record, plan["name"]), **validation.protected_tests(self.store, record)}
-        replays = validation.recorded_runs(self.workspace, old_methods, old_problems & set(plan["problem_entry_points"]))
-        extra = {**({"earlier": earlier} if earlier else {}), **({"replays": replays} if replays else {})}
+        replays = validation.recorded_runs(self.workspace, old_methods - moved, old_problems & set(plan["problem_entry_points"]))
+        extra |= {**({"earlier": earlier} if earlier else {}), **({"replays": replays} if replays else {})}
         try:
             result = self.validator(plan["files"], plan["name"], instances=validation.instances_of(self.workspace, record["campaign_id"]),
                                     protected=protected, **extra)
@@ -272,8 +306,12 @@ class Installer:
             raise ValueError(f"Balsamic could not validate the library outside the box: {exc}") from None
         self._charge(record, identity, result.get("seconds") or 0.0)
         listed = {row["method_id"] for row in result.get("methods", [])}
-        judged = validation.verdict(result, plan["report"], removed=old_methods - listed if listed else ())
+        judged = validation.verdict(result, plan["report"], removed=old_methods - listed - moved if listed else moved)
         host = {**validation.public(result), **judged, "reproduced": validation.reproduced(result), "at": now()}
+        if moved:
+            split = self.store.get(identity, "library_install")["host_validation"]["method_library"]
+            host["method_library"] = split
+            judged = {**judged, "moved": sorted(moved), "refused_methods": [*split["refused_methods"], *judged["refused_methods"]]}
         self._update(identity, host_validation=host, refused_methods=judged["refused_methods"])
         listed = [row["method_id"] for row in judged["methods"]]
         if judged["library_failures"]:
@@ -281,6 +319,33 @@ class Installer:
         if listed and not plan["problem_entry_points"] and len(judged["refused_methods"]) == len(listed):
             raise ValueError("Validation outside the box failed for every method: " + refused_text(judged["refused_methods"]))
         return judged
+
+    def _validate_split(self, identity, plan, old_methods):
+        """A split's method library, validated outside the box before the problem library: it provides the methods the split moves
+        and no problem, takes over no other method, and the moved methods pass and replay their recorded runs on every problem
+        (ValueError otherwise). (the moved methods, the problem library's validation arguments)."""
+        from . import library_split, library_validation as validation
+        split, methods = plan["split"], plan["with"][0]
+        replays = validation.recorded_runs(self.workspace, set(split["methods"]), ())
+        try:
+            result = self.validator(methods["files"], methods["name"], instances=validation.instances_of(self.workspace, plan["record"]["campaign_id"]),
+                                    protected={}, **({"replays": replays} if replays else {}))
+        except ValueError as exc:
+            raise ValueError(f"Balsamic could not validate the method library outside the box: {exc}") from None
+        self._charge(plan["record"], identity, result.get("seconds") or 0.0)
+        listed = {row["method_id"] for row in result.get("methods", [])}
+        judged = validation.verdict(result, plan["report"])
+        self._update(identity, host_validation={"method_library": {**validation.public(result), **judged, "name": methods["name"],
+                     "reproduced": validation.reproduced(result)}})
+        library_split.check(split, methods, plan, listed)
+        library_split.takeovers(old_methods, listed, split)
+        if judged["library_failures"]:
+            raise ValueError(f"Validation outside the box of libraries/{methods['name']} failed, in tests no method owns: "
+                             + "; ".join(judged["library_failures"][:10]))
+        failing = [row for row in judged["refused_methods"] if row["method_id"] in split["methods"]]
+        if failing:
+            raise ValueError(f"The methods the split moves fail in libraries/{methods['name']}: " + refused_text(failing))
+        return set(split["methods"]), {"dependencies": methods["files"]}
 
     def _charge(self, record, identity, seconds):
         """Validation's time, charged to the go-ahead the workspace opened under; for a commission's box (roadmap H7), counted on the
@@ -338,41 +403,47 @@ class Installer:
                 f"{plan['submission']['commit'][:7]}: {exc}" + (" The coding agent has the results." if told else ""), "installs")
             return record
         refused = {row["method_id"] for row in judged["refused_methods"]}
+        # A split's method library goes in with the problem library, first (roadmap L6); every other install is one library.
+        plans = [*plan.get("with", []), plan]
         with _lock:
-            name, root = plan["name"], self.root
-            target, staging = root / "libraries" / name, root / "libraries" / f".staging-{identity}"
-            backup = root / "libraries" / f".previous-{name}-{identity}"
+            root = self.root
+            places = [{"plan": item, "target": root / "libraries" / item["name"], "staging": root / "libraries" / f".staging-{identity}-{item['name']}",
+                       "backup": root / "libraries" / f".previous-{item['name']}-{identity}", "created": False} for item in plans]
             saved = {file: (root / file).read_bytes() for file in ("pyproject.toml", "uv.lock") if (root / file).exists()}
-            log, created = [], False
+            log = []
             try:
                 self._update(identity, status="installing")
                 before = {method["id"] for method in self.plugins.methods()}
                 problems_before = set(self.problems.ids())
-                if target.exists():
-                    self._import_replaced(target, plan["package"])
-                # The lab's copy is the version's commit in the library's repository: written from it, checked against the submission.
-                repository, made = repositories.commit(self.workspace.directory, name, plan["files"], commit_message(plan, identity))
-                repositories.check_tag(repository, made, plan["version"])
-                exported = repositories.files_at(repository, made, name)
-                if exported != plan["files"]:
-                    raise ValueError("The library's repository does not hold what was submitted")
-                for path, content in exported.items():
-                    destination = staging / Path(path).relative_to(f"libraries/{name}")
-                    destination.parent.mkdir(parents=True, exist_ok=True)
-                    destination.write_bytes(content)
-                if target.exists():
-                    target.rename(backup)
-                staging.rename(target)
-                created = True
-                self._pin(plan["package"], plan["version"], name)
+                for place in places:
+                    item, name, target, staging = place["plan"], place["plan"]["name"], place["target"], place["staging"]
+                    if target.exists():
+                        self._import_replaced(target, item["package"])
+                    # The lab's copy is the version's commit in the library's repository: written from it, checked against the submission.
+                    place["repository"], place["made"] = repositories.commit(self.workspace.directory, name, item["files"], commit_message(item, identity))
+                    repositories.check_tag(place["repository"], place["made"], item["version"])
+                    exported = repositories.files_at(place["repository"], place["made"], name)
+                    if exported != item["files"]:
+                        raise ValueError("The library's repository does not hold what was submitted")
+                    for path, content in exported.items():
+                        destination = staging / Path(path).relative_to(f"libraries/{name}")
+                        destination.parent.mkdir(parents=True, exist_ok=True)
+                        destination.write_bytes(content)
+                for place in places:
+                    if place["target"].exists():
+                        place["target"].rename(place["backup"])
+                    place["staging"].rename(place["target"])
+                    place["created"] = True
+                    self._pin(place["plan"]["package"], place["plan"]["version"], place["plan"]["name"])
                 for args in ([self.uv, "lock"], [self.uv, "sync", "--dry-run", "--inexact", "--extra", "libraries"]):
                     code, output = self.runner(args, cwd=root)
                     log.append(f"$ {' '.join(args[1:])}\n{output}")
                     if code:
                         raise ValueError(f"uv {args[1]} failed: " + output.strip()[-800:])
-                changes = changed_packages(output, plan["package"], lab_projects(root))
+                changes = [change for change in changed_packages(output, plan["package"], lab_projects(root))
+                           if all(normal(change["name"]) != normal(item["package"]) for item in plans)]
                 if changes and not confirm_changes:
-                    self._restore(saved, target, backup, created)
+                    self._restore_all(saved, places)
                     return self._update(identity, "library.install_failed", status="needs_confirmation", changes=changes, finished_at=now(),
                                         error="Installing it would change packages the lab already has; confirm to go on", log_tail="\n".join(log)[-4000:])
                 args = [self.uv, "sync", "--inexact", "--extra", "libraries"]
@@ -383,27 +454,44 @@ class Installer:
                 after = {method["id"] for method in self.plugins.methods()}
                 problems_after = set(self.problems.refresh() if hasattr(self.problems, "refresh") else self.problems.ids())
                 reported = [method["method_id"] for method in plan["report"].get("methods", [])]
-                if backup.exists():
-                    shutil.rmtree(backup)
+                for place in places:
+                    if place["backup"].exists():
+                        shutil.rmtree(place["backup"])
                 kept = self.store.get(identity, "library_install")
-                tagged = repositories.publish(repository, made, plan["version"])
-                version = repositories.record(self.store, name, plan["package"], plan["version"], tagged,
-                    source={"install_id": identity, "campaign_id": plan["record"]["campaign_id"], "workspace_id": plan["record"]["id"],
-                            "submission_id": plan["submission"]["id"], "commit": plan["submission"]["commit"], "actor": kept["actor"]},
-                    methods=sorted({*(kept.get("methods_kept") or []), *(after - before - refused)}), problems=sorted(plan["problem_entry_points"]))
+                source = {"install_id": identity, "campaign_id": plan["record"]["campaign_id"], "workspace_id": plan["record"]["id"],
+                          "submission_id": plan["submission"]["id"], "commit": plan["submission"]["commit"], "actor": kept["actor"]}
+                split, versions = plan.get("split"), []
+                for place in places:
+                    item = place["plan"]
+                    tagged = repositories.publish(place["repository"], place["made"], item["version"])
+                    if split:   # each library's methods are those its package provides now
+                        methods = sorted(self.provided(item["package"])[0] - refused)
+                    else:
+                        methods = sorted({*(kept.get("methods_kept") or []), *(after - before - refused)})
+                    depends = sorted({plans[0]["package"]}) if split and item is plan else ()
+                    moved = {"package": plans[0]["package"], "methods": list(split["methods"])} if split and item is plan else None
+                    versions.append(repositories.record(self.store, item["name"], item["package"], item["version"], tagged, source=source,
+                                    methods=methods, problems=sorted(item["problem_entry_points"]), depends_on=depends, moved=moved))
+                version = versions[-1]
                 record = self._update(identity, "library.installed", status="installed", finished_at=now(), changes=changes,
-                                      library_version_id=version["id"], tag=version["tag"], library_commit=tagged,
+                                      library_version_id=version["id"], tag=version["tag"], library_commit=version["commit"],
                                       methods_added=sorted(after - before - refused), missing_methods=sorted(set(reported) - after - refused),
                                       problems_added=sorted(problems_after - problems_before),
                                       missing_problems=sorted(set(plan["problem_entry_points"]) - problems_after),
-                                      log_tail="\n".join(log)[-4000:])
+                                      log_tail="\n".join(log)[-4000:],
+                                      **({"method_library": {**kept["method_library"], "library_version_id": versions[0]["id"], "tag": versions[0]["tag"],
+                                                             "library_commit": versions[0]["commit"], "methods": versions[0]["methods"]}} if split else {}))
+                if split:
+                    self.store.put("library_split", {**self.store.get(split["id"], "library_split"), "status": "done", "install_id": identity,
+                                                     "done_at": now()}, "library.split_done")
             except Exception as exc:   # every failure is recorded and the lab is put back as it was
-                self._restore(saved, target, backup, created)
+                self._restore_all(saved, places)
                 return self._update(identity, "library.install_failed", status="failed", finished_at=now(), error=str(exc)[:2000],
                                     log_tail="\n".join(log)[-4000:])
             finally:
-                if staging.exists():
-                    shutil.rmtree(staging)
+                for place in places:
+                    if place["staging"].exists():
+                        shutil.rmtree(place["staging"])
         # The library is in: what Balsamic does next never undoes the install.
         self._feedback(identity, plan)
         try:
@@ -413,8 +501,10 @@ class Installer:
                                   after_install_error=f"{type(exc).__name__}: {exc}"[:500])
         who = "The researcher" if record["actor"] == "researcher" else "Balsamic"
         adoption = adoption_text(record)
+        moved = (f" It splits {', '.join(record['methods_moved'])} into the method package {record['method_library']['package']} "
+                 f"{record['method_library']['version']}, which {plan['package']} now depends on (roadmap L6)." if record.get("method_library") else "")
         self.development.notify(plan["record"], identity, f"{who} installed {plan['package']} {plan['version']} from commit "
-            f"{plan['submission']['commit'][:7]}: {added(record)}." + (f" {kept_text(record)}." if kept_text(record) else "")
+            f"{plan['submission']['commit'][:7]}: {added(record)}." + moved + (f" {kept_text(record)}." if kept_text(record) else "")
             + (f" Not installed, failed outside the box: {refused_text(record['refused_methods'])}." if record.get("refused_methods") else "")
             + (f" Generated files it changed: {', '.join(plan['changed_generated_files'])}." if plan["changed_generated_files"] else "")
             + (" " + adoption if adoption else "")
@@ -436,9 +526,11 @@ class Installer:
         old_methods, old_problems = self.provided(plan["package"])
         refused = {row["method_id"] for row in judged["refused_methods"]}
         listed = {row["method_id"] for row in judged["methods"]} or {row["method_id"] for row in plan["report"].get("methods", []) if row.get("method_id")}
-        new_methods, new_problems = listed - refused, set(plan["problem_entry_points"])
+        moved = set(judged.get("moved") or ())   # moved to a split's method library (roadmap L6): kept
+        new_methods, new_problems = (listed - refused) | moved, set(plan["problem_entry_points"])
         self._update(identity, methods_kept=sorted(old_methods & new_methods), methods_removed=sorted(old_methods - new_methods),
-                     problems_kept=sorted(old_problems & new_problems), problems_removed=sorted(old_problems - new_problems))
+                     problems_kept=sorted(old_problems & new_problems), problems_removed=sorted(old_problems - new_problems),
+                     **({"methods_moved": sorted(moved)} if moved else {}))
         if not old_methods - new_methods and not old_problems - new_problems:
             return
         methods, problems, broken = used_methods(self.store), used_problems(self.store), []
@@ -466,6 +558,11 @@ class Installer:
                 "problems": sorted(problems)})
         except (OSError, ValueError, tomllib.TOMLDecodeError) as exc:   # importing the history never stops an install
             logging.getLogger(__name__).warning("Importing %s into its repository failed: %s", target, exc)
+
+    def _restore_all(self, saved, places):
+        """_restore() for every library an install touched."""
+        for index, place in enumerate(places):
+            self._restore(saved if index == 0 else {}, place["target"], place["backup"], place["created"])
 
     def _restore(self, saved, target, backup, created):
         """pyproject.toml and uv.lock as they were, and the library directory as it was (the previous copy, or none)."""

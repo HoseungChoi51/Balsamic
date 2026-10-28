@@ -43,6 +43,8 @@ class WorkspaceCreate(Contract):
     harness_mode: Literal["tui", "headless"] | None = None
     # The implementation lead's part of the work ticket (H4): acceptance tests the coding agent sees, protected ones it never does.
     ticket: TicketInput | None = None
+    # A split (roadmap L6): the library_split this workspace builds, a method library and the problem library's next version.
+    split: str | None = Field(default=None, max_length=100)
 
     @model_validator(mode="after")
     def hostnames(self):
@@ -369,7 +371,7 @@ class DevelopmentWorkspaces:
                 raise ValueError(f"Proposal {other} belongs to another campaign")
             if other not in served:
                 served.append(other)
-        identity = "development_" + content_hash([campaign_id, values.hypothesis_id])[:24]
+        identity = "development_" + content_hash([campaign_id, values.hypothesis_id, *([values.split] if values.split else [])])[:24]
         with self.workspace.lock, self.store.transaction():
             try:
                 saved = self.get(campaign_id, identity)
@@ -380,12 +382,14 @@ class DevelopmentWorkspaces:
                 pass
             from optimization_framework.campaigns import compute_consent, mandates
             consent = mandate = None
+            split = self.split_of(values.split) if values.split else None
             # The request the agent works for: its mandate must allow the workspace, and a request-only go-ahead (R7) covers it there.
             request = asked if asked is not None else root
             if actor != "researcher":
                 consent = compute_consent.require(self.workspace, campaign_id, "Opening a coding workspace", coding=1, hypothesis_ids=served, root=request)
                 mandate = mandates.require(self.workspace, campaign_id, request, {"implement"}, what="Opening a coding workspace", hypothesis_ids=served)
-                reuse_first(self.workspace, campaign_id, served)
+                if split is None:   # a split moves an installed method: no reuse to make instead
+                    reuse_first(self.workspace, campaign_id, served)
             for evidence_id in values.evidence_ids:
                 self.evidence(campaign_id, evidence_id)
             config = self.controller.configuration(campaign_id)
@@ -402,6 +406,7 @@ class DevelopmentWorkspaces:
                 # The researcher's go-ahead it opened under, for the history: the approved plan, not a deadline.
                 "consent": {"id": consent["id"], "decision_id": consent.get("decision_id"), "plan": (consent.get("plan") or "")[:2000]} if consent else None,
                 "objective": values.objective, "evidence_ids": values.evidence_ids,
+                **({"split": {key: split[key] for key in ("id", "library", "package", "method_library", "methods")}} if split else {}),
                 "request_key": values.request_key, "request_hash": request_hash(values),
                 "status": "queued", "desired_status": "running", "control_revision": 0,
                 "guidance_revision": 0, "cpu_budget_seconds": values.cpu_budget_seconds, "model": model, **walls, "harness": setting,
@@ -414,6 +419,8 @@ class DevelopmentWorkspaces:
             record["ticket_id"] = ticket["id"]
             self.store.put("development_workspace", record, "development.created")
             self.store.put_immutable("development_ticket", ticket, "development.ticket_written")
+            if split is not None:
+                self.store.put("library_split", {**split, "status": "building", "workspace_id": identity}, "library.split_building")
             from .library_validation import protect   # where validation outside the box (H6) reads them
             for test in values.ticket.protected_tests if values.ticket else ():
                 protect(self.store, record, test.name, test.content)
@@ -858,6 +865,35 @@ class DevelopmentWorkspaces:
             self.notify(record, "deadline_" + record["deadline_at"], record["error"])
             return record
 
+    def split_of(self, identity):
+        """The library_split a split workspace builds (roadmap L6): one still needed."""
+        try:
+            split = self.store.get(identity, "library_split")
+        except KeyError:
+            raise ValueError(f"No library split {identity}") from None
+        if split["status"] != "needed":
+            raise ValueError(f"The split {identity} is {split['status']}" + (f" in workspace {split['workspace_id']}" if split.get("workspace_id") else ""))
+        return split
+
+    def split_library(self, record):
+        """(library, None, why not) a split workspace starts from (roadmap L6): the problem library's latest version, with the split."""
+        from pathlib import PurePosixPath
+        from . import library_repository as repositories
+        split = record["split"]
+        if not repositories.latest(self.store, split["library"]):
+            return None, None, f"{split['package']} has no installed version to split"
+        library = self.based(record, {"name": split["library"], "package": None, "fixed": [], "files": {}})
+        packages = sorted({PurePosixPath(path).parts[0] for path in library["files"] if PurePosixPath(path).name == "__init__.py"
+                           and len(PurePosixPath(path).parts) == 2 and PurePosixPath(path).parts[0] != "tests"})
+        package = packages[0] if packages else split["library"].replace("-", "_")
+        prefix = f"libraries/{split['library']}/"
+        fixed = [prefix + path for path in ("charter.json", f"{package}/data.py") if path in library["files"]]
+        try:   # the split as recorded, with the problems that need it
+            split = {**self.store.get(split["id"], "library_split"), **split}
+        except KeyError:
+            pass
+        return {**library, "package": package, "fixed": fixed, "revision": None, "split": split}, None, None
+
     def generated_library(self, record):
         """(library, charter, why not) a workspace starts from: the campaign's charter revision generated as a Balsamic library
         ({name, package, charter_id, revision, fixed, files}, roadmap F4), and the charter document. The library is None,
@@ -865,6 +901,8 @@ class DevelopmentWorkspaces:
         made without a charter."""
         from optimization_framework.problem_charter.charter import parse
         from optimization_framework.problem_charter.scaffold import package_name, scaffold
+        if record.get("split"):
+            return self.split_library(record)
         reference = self.store.get(record["campaign_id"], "campaign").get("charter")
         if not reference:
             return None, None, None

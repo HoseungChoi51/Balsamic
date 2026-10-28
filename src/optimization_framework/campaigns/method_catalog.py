@@ -26,9 +26,14 @@ def served(submission):
     return list(dict.fromkeys(named + [value for value in submission.get("hypothesis_ids") or [submission.get("hypothesis_id")] if value]))
 
 
+def libraries_of(submission):
+    """The library directories a submission's manifest files sit in (libraries/<name>/): two for a split (roadmap L6)."""
+    return {match.group(1) for path in (submission.get("manifest") or {}).get("files", []) if (match := LIBRARY.match(str(path)))}
+
+
 def library_of(submission):
     """The library directory a submission's manifest files sit in (libraries/<name>/), or None."""
-    names = {match.group(1) for path in (submission.get("manifest") or {}).get("files", []) if (match := LIBRARY.match(str(path)))}
+    names = libraries_of(submission)
     return names.pop() if len(names) == 1 else None
 
 
@@ -158,6 +163,7 @@ def catalog(workspace, campaign_id, *, other_limit=40):
     rows, other = [], []
     installed = {method["id"]: method for method in algorithms()}
     from optimization_framework.agents.library_validation import refused_reason
+    from optimization_framework.agents.library_split import open_for
     for method in installed.values():
         per_task, refused = [], refused_reason(store, method["id"])   # failed validation outside the box (H6): not installed
         for task in tasks:
@@ -180,12 +186,18 @@ def catalog(workspace, campaign_id, *, other_limit=40):
         install = installs.get(submission["id"]) if submission else None
         unbound = [p["hypothesis_id"] for p in proposals if not p["bound"]]
         next_action = binding(install, unbound) if unbound and any(r["runnable"] for r in per_task) else None
+        split = open_for(store, method["id"])   # a second problem needs it (roadmap L6)
+        if split is not None and next_action is None:
+            next_action = {"owner": "lead", "text": f"Split it into the method package libraries/{split['method_library']}/: problems "
+                           f"{', '.join(split['problems'])} need it. Open a split workspace (implementation_workspace_create with split "
+                           f"{split['id']})" + (", building now" if split["status"] == "building" else "")}
         rows.append({"id": method["id"], "name": method["name"], "source": "library" if library else "bundled",
                      "package": {"name": (origin or {}).get("distribution"), "version": (origin or {}).get("version"),
                                  "commit": (submission or {}).get("commit"), "install_id": (install or {}).get("id")} if library else None,
                      "workspace_id": (submission or {}).get("workspace_id"), "submission_id": (submission or {}).get("id"),
                      "state": "runnable" if any(row["runnable"] for row in per_task) else "incompatible", "tasks": per_task,
-                     "proposals": proposals, "next_action": next_action})
+                     "proposals": proposals, "next_action": next_action,
+                     **({"split": {key: split[key] for key in ("id", "status", "method_library", "problems")}} if split else {})})
     # Delivered but not installed: what the coding agent reported, method by method.
     for submission in submissions:
         report = submission.get("report") or {}
