@@ -81,7 +81,7 @@ def test_rounds_replies_verdicts_and_the_leads_response_are_read_from_saved_reco
     refused = tools.call(lead['id'], first['id'], 'm0', 'agent_message', {'agent_id': second['agent_id'], 'message': 'Also check the seeds.'})
     assert 'answers once; delegate again' in refused['error']
     # A message the lead sends an assistant while it works is shown as added to its assignment.
-    checker = tools.call(lead['id'], first['id'], 'd5', 'delegate', {'role': 'methodology_specialist', 'objective': 'Check the seeds of H6.', 'request_key': 'seeds'})
+    checker = tools.call(lead['id'], first['id'], 'd5', 'delegate', {'role': 'literature_specialist', 'objective': 'Check the seeds of H6.', 'request_key': 'seeds'})
     extra = tools.call(lead['id'], first['id'], 'm1', 'agent_message', {'agent_id': checker['agent_id'], 'message': 'Also check the seeds.'})
     w.pi._receive(checker['agent_id'], {'runs': {extra['id']: {'status': 'completed', 'result': {'delivery': 'steering_queued'}}}, 'events': [], 'cursor': 0})
     follow = view(w, c['id'])['rounds'][1]['assistants'][2]['turns']

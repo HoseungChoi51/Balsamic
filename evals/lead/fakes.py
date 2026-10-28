@@ -132,12 +132,15 @@ def prose_answer(turn):
 def review_round(turn):
     """The lead asks the moderator for a review; the moderator asks a skeptical analyst and a reviewer, then reports."""
     if turn.role == "skeptical_domain_analyst":
-        turn.call("campaign_inspect")
-        turn.call("submit_output", result={"failure_modes": [
-            {"mechanism": "The lane quantum_annealer", "why_it_could_fail": "It is not installed: campaign_inspect.methods does not list it",
-             "falsifying_test": "Compare the lane with campaign_inspect.methods", "cost": "none", "severity": "high"},
+        modes = {"failure_modes": [
+            {"mechanism": "The lane quantum_annealer", "why_it_could_fail": "It is not installed: the installed methods do not list it",
+             "falsifying_test": "Compare the lane with the installed methods", "cost": "none", "severity": "high"},
             {"mechanism": "A 64-cell binary mask", "why_it_could_fail": "The task is a bounded continuous problem, not a binary one",
-             "falsifying_test": "Read the task's candidate schema", "cost": "none", "severity": "high"}]})
+             "falsifying_test": "Read the task's candidate schema", "cost": "none", "severity": "high"}]}
+        if turn.one_shot:   # one call (roadmap T3): the result is the reply
+            return modes
+        turn.call("campaign_inspect")
+        turn.call("submit_output", result=modes)
         return turn.finish("Two high-severity failure modes: the lane is not installed and the representation is wrong.", summary="Two failure modes")
     if turn.role == "proposal_reviewer":
         # One call (roadmap T1): the verdict is the reply, judged from the assembled input, which names the installed methods.
