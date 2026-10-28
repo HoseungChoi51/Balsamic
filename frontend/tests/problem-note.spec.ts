@@ -192,3 +192,33 @@ test('once adopted, the note points at what is still open: unwritten sections, t
   await expect(page.getByTestId('note-guide')).toHaveAttribute('data-state', 'confirm');
   await expect(page.getByTestId('note-guide').getByRole('link', { name: 'Open the Charter tab' })).toHaveAttribute('href', /#t\/thread_main_demo\/note\/charter/);
 });
+
+test('on the quick path the note is read from the lead\'s charter, nothing is adopted, and one command confirms the charter', async ({ page }) => {
+  // The lead wrote the charter from the researcher's words (roadmap P2): the note's sections come from it, with its one assumption.
+  const assumption = { key: 'assumption.unaccepted:working_days_per_month', code: 'assumption.unaccepted', severity: 'blocking', message: 'working_days_per_month = 20 day is an assumption. Accept it, change it, or ask for a change.', about: ['working_days_per_month'], waivable: false };
+  const charter = { ...f.charterView, writer: 'lead', confirmed_revision: null, blocking: 1, findings: [assumption], errors: {}, charter: { ...f.charterView.charter, questions: [] } };
+  const view = { ...f.noteView, note: { ...f.noteView.note, path: 'quick', charter_id: 'charter_1' }, skips: { skipped: {}, proposals: [] },
+    revision: { ...f.noteView.revision, revision: 2, author: 'lead', reason: 'Read from the charter, revision 2', sections: { ...written, open_questions: { text: '', items: ['Assumed: working_days_per_month = 20 day (confirming accepts it)'], latex: [] } } },
+    charter: { charter: { status: 'draft' } } };
+  const recorded = await mockWorkspace(page, { [`/api/v1/campaigns/${CAMPAIGN_ID}/problem-note`]: view });
+  await page.route('**/api/v1/problem-charters/charter_1**', route => route.fulfill({ json: charter }));
+  await page.goto(`/#t/${THREAD_ID}/note`);
+  const guide = page.getByTestId('note-guide');
+  await expect(guide).toHaveAttribute('data-state', 'quick-confirm');
+  await expect(guide).toContainText('The lead wrote the charter from your words');
+  await expect(guide.getByRole('link', { name: 'Open the Charter tab' })).toHaveAttribute('href', /note\/charter/);
+  await expect(page.getByTestId('note-source')).toContainText('read from charter revision 2');
+  await expect(page.getByTestId('section-open_questions')).toContainText('confirming accepts it');
+  // Read from the charter: no Adopt, no Edit, no Ask about this, no skips.
+  await expect(page.getByTestId('adopt')).toHaveCount(0);
+  await expect(page.getByTestId('section-edit')).toHaveCount(0);
+  await expect(page.getByTestId('section-ask')).toHaveCount(0);
+  await expect(page.getByTestId('ask-skips')).toHaveCount(0);
+  await guide.getByRole('link', { name: 'Open the Charter tab' }).click();
+  const panel = page.getByTestId('charter-panel');
+  await expect(panel.getByTestId('confirm-accepts')).toContainText('Confirming accepts the assumption listed below and installs its tasks');
+  await expect(panel.getByTestId('confirm-why')).toHaveCount(0);
+  await panel.getByTestId('confirm-charter').click();
+  await expect.poll(() => recorded.commands.length).toBe(1);
+  expect(recorded.commands[0]).toMatchObject({ operation: 'problem_note.confirm', payload: { note_id: 'note_demo', charter_id: 'charter_1', revision: 2 } });
+});

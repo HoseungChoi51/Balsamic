@@ -507,8 +507,9 @@ def setup_busy(ctx):
 
 def setup_charter_step(ctx, note, reply):
     """On the charter, what "Confirm and set the tasks" needs first, as the page asks it: the open questions answered (with
-    their recommended option), the assumptions accepted; then the confirmation, which installs the tasks. A blocking finding the
-    page does not settle stops the step."""
+    their recommended option), the assumptions accepted; then the confirmation, which installs the tasks. On the quick path
+    (P2) the confirmation accepts the assumptions itself: one command, problem_note.confirm. A blocking finding the page does
+    not settle stops the step."""
     from balsamic.evolution.stages import _charter_of
     record = _charter_of(ctx.store, note)
     if record is None:
@@ -525,6 +526,15 @@ def setup_charter_step(ctx, note, reply):
             ctx.act("answer_charter")
         return ["answer_charter"] * len(open_questions)
     blocking = [row for row in view["findings"] if row["severity"] == "blocking" and row["code"] != "question.open" and not row.get("waived")]
+    if note.get("path") == "quick":
+        # Questions left to the lead block too: it decides them in its next revision, which is the one to confirm.
+        left = [row for row in view["findings"] if row["severity"] == "blocking" and row["code"] == "question.open" and not row.get("waived")]
+        unsettled = [row for row in blocking if row["code"] != "assumption.unaccepted"] + left
+        if unsettled:
+            raise RuntimeError("Blocking findings the page does not settle: " + "; ".join(row["message"] for row in unsettled)[:1500])
+        ctx.stack.command(ctx.campaign_id, "problem_note.confirm", {"note_id": note["id"], "charter_id": record["id"], "revision": view["revision"]})
+        ctx.act("confirm")
+        return ["confirm"]
     if any(row["code"] == "assumption.unaccepted" for row in blocking):
         ctx.stack.http.post(path + "/accept-assumptions", json={"expected_revision": view["revision"]}).raise_for_status()
         ctx.act("accept_assumptions")
@@ -984,10 +994,14 @@ def check_charter_matches(ctx, arg):
 
 
 def check_charter_writer(ctx, arg):
-    """Who saved the revision the campaign was confirmed from: lead, formulator or researcher."""
+    """Who wrote the charter the campaign was confirmed from: the lead (the quick path) or the formulator; for a charter neither
+    wrote, who saved the confirmed revision (the researcher)."""
     reference, revision = confirmed_charter(ctx)
-    by = revision["by"] if revision else None
-    return by == arg, f"saved by {by}" if by else "the campaign has no confirmed charter"
+    if not reference:
+        return False, "the campaign has no confirmed charter"
+    record = ctx.store.get(reference["id"], "problem_charter")
+    by = record.get("writer") or ("formulator" if record.get("import_id") else revision["by"])
+    return by == arg, f"written by {by}"
 
 
 def check_setup_actions_at_most(ctx, arg):

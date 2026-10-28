@@ -51,7 +51,7 @@ def test_the_gate_names_the_missing_sections_and_refuses_proposals_allocations_a
     inspected = PiTools(workspace.pi).inspect(team)
     assert inspected["definition"]["ready"] is False and inspected["definition"]["missing"][0] == "Observables"
     # The lead's next turn is told where the gate stands, in its state block; its instructions do not change with it.
-    assert "Gate: closed. Next: complete the problem note (#note). Not written yet: Observables" in state_of(workspace, team)
+    assert "Gate: closed on the full path. Next: complete the problem note (#note). Not written yet: Observables" in state_of(workspace, team)
     assert "Gate now" not in workspace.lead_instructions(team) and "Gate:" not in workspace.lead_instructions(team)
 
 

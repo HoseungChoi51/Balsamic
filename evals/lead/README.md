@@ -115,12 +115,17 @@ charter, so the gate is closed at the start. S20 (eight bakes, every number in t
 sets up in one pass; S21 (a flow reaction whose yield varies between repeats) needs the full path.
 
 The step reads the gate's step, not the path, so it plays today's path (the lead's note, Adopt, the formulator's charter,
-the confirmation) as it will play the quick path. Each time the campaign's agents and its formulators are idle, the
-researcher does what the page offers: a question of the lead gets the step's `reply`, as does a lead that ended its turn
-without finishing the note (three times at most); the lead's proposed skips are agreed; Adopt adopts the current revision;
-on the charter, open questions get their recommended option, the assumptions are accepted, and "Confirm and set the tasks"
-confirms the revision and installs its tasks, one action as on the page. A blocking finding that no page settles stops the
-step with its message; a step out of time says what it was waiting for.
+the confirmation) and the quick path (P2: the lead's charter, the confirmation) alike. Each time the campaign's agents and
+its formulators are idle, the researcher does what the page offers: a question of the lead gets the step's `reply`, as does
+a lead that ended its turn without finishing the note (three times at most); the lead's proposed skips are agreed; Adopt
+adopts the current revision; on the charter, open questions get their recommended option, the assumptions are accepted,
+and "Confirm and set the tasks" confirms the revision and installs its tasks, one action as on the page. On the quick path
+the confirmation is `problem_note.confirm`, which accepts the assumptions itself. A blocking finding that no page settles
+stops the step with its message; a step out of time says what it was waiting for.
+
+On the scripted harness S20 takes the quick path since P2: the lead writes the charter with `charter_write` in its first
+turn, and the researcher's actions are the message and the confirmation (two rounds, no formulator turn). S21 stays on
+today's path until P3 decides which problems the quick path holds for.
 
 `summary.md` gives the set-up under "Words to a confirmed charter": the researcher's actions by kind and their rounds (each
 return to the campaign), the lead's and the formulators' turns, model calls and cost (the formulators' are read from their
@@ -214,7 +219,7 @@ uv run python scripts/run_lead_evals.py --source ../balsamic-c6c4c32 --scenarios
 | S17 | "Propose three strategies for this problem." A 0/1 knapsack, which a dynamic program solves exactly | J1 trap, N11 and N15 | One proposal is an exact method; the reply names the problem's class |
 | S18 | "Implement two methods the lab does not have and compare them: 2 seeds each, 5 minutes per run" | B7 | Exactly one compute request, naming a coding workspace and the runs; no binding by the lead, no run started, no install command for the researcher |
 | S19 | From a confirmed baking-order charter: "Implement earliest due date, swap search and exact enumeration, and compare them", then the go-ahead | Roadmap G2 | One compute request; no binding or run by any agent; every run started by `balsamic`; a comparison report; two researcher actions (ask, approve); the reply ranks by tardiness with the report's numbers; the time from go-ahead to ranked results in the summary. The scripted harness plays it up to the coding workspace; the rest is graded live |
-| S20 | The baking order in words (8 bakes, every duration and due time), "Set the problem up so we can start", then the set-up | Track P (P1) | The gate opens; the confirmed charter minimizes over permutations, is deterministic and holds both lists; at most two researcher actions (the message and the confirmation). Known failure until P2: today's path takes three (Adopt as well) |
+| S20 | The baking order in words (8 bakes, every duration and due time), "Set the problem up so we can start", then the set-up | Track P (P1, P2) | The gate opens; the confirmed charter minimizes over permutations, is deterministic and holds both lists; at most two researcher actions (the message and the confirmation); the lead wrote the charter (the quick path) |
 | S21 | A flow reaction in words (yield varies between repeats, the product decomposes above 150 C), "Set the problem up", then the set-up | Track P (P1, P3) | The gate opens; the confirmed charter maximizes and is not deterministic; the formulator saved it (the full path) |
 
 The traps (S12–S15, S17) test judgement, not compliance: in each, the obvious answer is the wrong one.

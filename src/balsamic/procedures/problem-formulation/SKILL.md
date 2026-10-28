@@ -7,6 +7,9 @@ metadata:
 
 # Problem formulation
 
+This is the full path: the note, Adopt, the formulator's charter. A simple problem may take the quick path instead (procedure
+quick-charter): you write its charter and the researcher confirms it once.
+
 ## The gate
 
 No proposals (`research.generate`, `hypothesis.create`), allocations, interventions, runs or autopilot until the problem is
@@ -17,6 +20,8 @@ fully defined:
 - the note adopted at its current revision;
 - the charter confirmed;
 - the tasks installed.
+
+On the quick path only the last two remain: the note is read from your charter.
 
 The bus refuses gated commands until then. `campaign_inspect.definition` says what is missing (`ready`, `step`, `missing`), and
 the state block at the top of each turn says where the gate stands. Check it before you suggest adopting, before you act on a

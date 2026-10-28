@@ -40,6 +40,7 @@ NO_RECORDS = {
     "thread_pin": "ids the agent names; the context shows only their kind and status", "panel_render": "a panel the researcher's page resolves",
     "render_visual": "a visual the agent writes", "problem_note_draft": "the problem note", "problem_note_skip": "the problem note",
     "problem_note_propose": "the problem note", "procedure_read": "the procedure catalog",
+    "charter_write": "the problem charter the lead writes", "charter_read": "the problem charter: the problem, no result or measurement",
 }
 
 
