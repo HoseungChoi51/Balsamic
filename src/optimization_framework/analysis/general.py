@@ -7,7 +7,26 @@ from optimization_framework.contracts.base import content_hash
 from optimization_framework.contracts.problems import ProblemInstance
 
 
-AXES = {"worker_seconds": "elapsed_seconds", "evaluation_requests": "evaluations", "solver_executions": "solver_calls"}
+AXES = {"worker_seconds": "elapsed_seconds", "core_seconds": "elapsed_seconds", "evaluation_requests": "evaluations",
+        "solver_executions": "solver_calls"}
+# Time axes: a run with unknown worker cost has no cost on them.
+TIME = {"worker_seconds", "core_seconds"}
+
+
+def threads(trial):
+    return trial.get("numerical_threads", 1) or 1
+
+
+def default_axis(trials, tasks):
+    """The compared problems' own axis (N11): the one their tasks declare; problems that declare different ones are
+    compared on worker-seconds. Declaring none, time: on cores when a white-box run used several threads (decision 23)."""
+    from optimization_framework.evaluation.access import REPORT_AXES, of_task
+    declared = [of_task(tasks.get(trial.get("task_id")) or {}) for trial in trials]
+    axes = {row["cost_axis"] for row in declared}
+    if axes - {None}:
+        return REPORT_AXES[axes.pop()] if len(axes) == 1 else "worker_seconds"
+    threaded = any(row["access"] == "white_box" and threads(trial) > 1 for row, trial in zip(declared, trials))
+    return "core_seconds" if threaded else "worker_seconds"
 
 
 def method_identity(trial):
@@ -75,10 +94,12 @@ def report(workspace, campaign_id, *, study_id=None, cost_axis=None, cost_view="
     study = workspace.store.get(study_id, "study") if study_id else None
     if study and study["campaign_id"] != campaign_id:
         raise ValueError("Study belongs to another campaign")
-    cost_axis = cost_axis or (study or {}).get("comparison", {}).get("cost_axis", "worker_seconds")
-    cost_axis = "worker_seconds" if cost_axis == "full_worker_seconds" else cost_axis
-    if cost_axis not in AXES:
-        raise ValueError("Comparison supports worker_seconds, evaluation_requests, or solver_executions")
+    chosen_axis = cost_axis or (study or {}).get("comparison", {}).get("cost_axis")
+    # worker-seconds is what every study has said by default; the problem's own axis replaces it (N11).
+    chosen_axis = None if chosen_axis in {"worker_seconds", "full_worker_seconds"} and not cost_axis else chosen_axis
+    chosen_axis = "worker_seconds" if chosen_axis == "full_worker_seconds" else chosen_axis
+    if chosen_axis is not None and chosen_axis not in AXES:
+        raise ValueError("Comparison supports worker_seconds, core_seconds, evaluation_requests, or solver_executions")
     # Capture output asset references together with their ledger: a trial cannot
     # advance to an asset newer than this report's cost snapshot. Release the
     # database before reading metrics or calculating any projection.
@@ -122,6 +143,9 @@ def report(workspace, campaign_id, *, study_id=None, cost_axis=None, cost_view="
             excluded.append({"trial_id": trial["id"], "reason": "Historical experiment needs an explicit problem mapping"})
             continue
         compared.append(trial)
+    cost_axis = chosen_axis or default_axis(compared, tasks)
+    # Upstream work (implementation, evaluator development) runs on one core: on core_seconds it counts its worker-seconds.
+    upstream_axis = "worker_seconds" if cost_axis == "core_seconds" else cost_axis
     continued = {trial["continues"]["trial_id"]: trial["id"] for trial in compared if trial.get("continues")}
     for trial in compared:
         if trial["id"] in continued:
@@ -135,19 +159,22 @@ def report(workspace, campaign_id, *, study_id=None, cost_axis=None, cost_view="
         condition = {"study_id": trial.get("study_id"), "evaluation_identity": problem.evaluation_identity,
             "primary_objective": problem.primary_objective.model_dump(mode="json"),
             "confirmation_protocol_id": trial.get("confirmation_protocol_id")}
-        if cost_axis == "worker_seconds" and trial.get("device"):
+        if cost_axis in TIME and trial.get("device"):
             # A worker-second on the GPU buys other evaluations than one on CPU: on time, each device is its own comparison.
             condition["device"] = trial["device"]
+        if cost_axis == "worker_seconds" and threads(trial) != 1:
+            # A worker-second on several threads buys more than one on a single thread; core-seconds puts them together.
+            condition["worker_threads"] = threads(trial)
         group_id = content_hash(condition)
         group = groups.setdefault(group_id, {"id": group_id, "condition": condition, "problem": problem.model_dump(mode="json"), "trials": []})
         latest = trial.get("result") or trial.get("progress") or {}
         # The run's method is the one it began as: a later part differs only in the source it was carried on under.
         identity, definition = method_identity(root)
-        upstream = costs.attributed_costs(root.get("initial_assets", []) + root.get("contribution_asset_ids", root.get("implementation_cost_asset_ids", [])) + root.get("operational_cost_asset_ids", []), axes=[cost_axis])
+        upstream = costs.attributed_costs(root.get("initial_assets", []) + root.get("contribution_asset_ids", root.get("implementation_cost_asset_ids", [])) + root.get("operational_cost_asset_ids", []), axes=[upstream_axis])
         if root["algorithm"] == "package" and not root.get("implementation_cost_asset_ids"):
-            upstream["quantities"][cost_axis].update(total=None, unknown_provenance=1)
+            upstream["quantities"][upstream_axis].update(total=None, unknown_provenance=1)
             upstream["reason"] = "Implementation development cost has not been declared"
-        upstream_cost = upstream["quantities"][cost_axis]["total"]
+        upstream_cost = upstream["quantities"][upstream_axis]["total"]
         points = {}
         unknown = False
         before = 0.   # what the earlier experiments of the run spent on this axis; None once one of them is unknown
@@ -158,9 +185,11 @@ def report(workspace, campaign_id, *, study_id=None, cost_axis=None, cost_view="
             for row in rows:
                 objective = number(row.get("best_objective"))
                 direct = number(row.get(AXES[cost_axis]))
+                if cost_axis == "core_seconds" and direct is not None:
+                    direct *= threads(member)
                 if cost_axis == "solver_executions" and row.get("unknown_solver_cost"):
                     direct = None
-                if cost_axis == "worker_seconds" and row.get("unknown_worker_cost"):
+                if cost_axis in TIME and row.get("unknown_worker_cost"):
                     direct = None
                 if objective is None:
                     continue
@@ -175,14 +204,17 @@ def report(workspace, campaign_id, *, study_id=None, cost_axis=None, cost_view="
                                     "upstream_cost": upstream_cost if cost_view == "full_attributed_cost" else 0.}
             if member is not trial:
                 spent = number(last.get(AXES[cost_axis]))
-                if (cost_axis == "solver_executions" and last.get("unknown_solver_cost")) or (cost_axis == "worker_seconds" and last.get("unknown_worker_cost")):
+                if cost_axis == "core_seconds" and spent is not None:
+                    spent *= threads(member)
+                if (cost_axis == "solver_executions" and last.get("unknown_solver_cost")) or (cost_axis in TIME and last.get("unknown_worker_cost")):
                     spent = None
                 before = None if before is None or spent is None else before + spent
         assets = trial.get("latest_output_asset_ids", [])
         full = costs.attributed_costs(assets, axes=[cost_axis]) if assets else None
         # A measured final asset cost includes final checkpoint/export overhead.
-        # No curve extrapolation is made: only its actually observed endpoint is added.
-        final_cost = full["quantities"][cost_axis]["total"] if full and cost_view == "full_attributed_cost" else None
+        # No curve extrapolation is made: only its actually observed endpoint is added. On core-seconds the asset's cost
+        # mixes the run's cores with upstream single-core work, so its endpoint is not added.
+        final_cost = full["quantities"][cost_axis]["total"] if full and cost_view == "full_attributed_cost" and cost_axis != "core_seconds" else None
         if final_cost is not None and len(chain) > 1:
             final_cost = None if before is None else final_cost + before
         best = number(latest.get("best_objective"))
@@ -232,7 +264,7 @@ def report(workspace, campaign_id, *, study_id=None, cost_axis=None, cost_view="
             "cost_axis": cost_axis, "groups": list(groups.values()), "excluded": excluded,
             **({"withheld_runs": sum(trial["id"] in withheld for trial in trials if not study_id or trial.get("study_id") == study_id)} if withheld else {}),
             "actual_campaign_costs": costs.actual_costs(campaign_id,
-                axes=("worker_seconds", "evaluation_requests", "solver_executions", "implementation_seconds", "model_seconds", "model_calls", "model_input_tokens", "model_output_tokens", "api_usd")),
+                axes=("worker_seconds", "core_seconds", "evaluation_requests", "solver_executions", "implementation_seconds", "model_seconds", "model_calls", "model_input_tokens", "model_output_tokens", "api_usd")),
             "interpretation": "Raw objectives on compatible instances and fidelities at observed costs; no extrapolation or cross-problem ranking."
                 + (" On worker-seconds, runs on the GPU and on CPU are compared separately (condition.device); compare on evaluation_requests "
                    "to put them together." if len({group["condition"].get("device") for group in groups.values()} - {None}) > 1 else ""),

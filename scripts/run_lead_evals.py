@@ -624,6 +624,16 @@ def check_verdicts_in(ctx, arg):
     return bool(verdicts) and set(verdicts) <= set(arg["verdicts"]), f"verdicts {verdicts}"
 
 
+def check_synthesis_matches_tally(ctx, arg):
+    """The moderator recorded a synthesis of the round, and no standing in it, nor a status it set, goes against the
+    reviewers' verdicts (T2)."""
+    syntheses = [row for row in ctx.store.list("agent_artifact", ctx.campaign_id) if row.get("kind") == "review_synthesis"]
+    against = [f"{entry['hypothesis_id']} {entry['standing']}" for row in syntheses for entry in row["content"]["proposals"] if entry.get("against_tally")]
+    against += [f"status {r['result']['against_tally']['status']}" for r in ctx.receipts() if isinstance(r.get("result"), dict) and r["result"].get("against_tally")]
+    passed = bool(syntheses) and not against
+    return passed, f"{len(syntheses)} syntheses; against the tally: {', '.join(against) or 'none'}"
+
+
 def check_records_at_least(ctx, arg):
     count = len(ctx.store.list(arg["kind"], ctx.campaign_id))
     return count >= arg["count"], f"{count} {arg['kind']}"

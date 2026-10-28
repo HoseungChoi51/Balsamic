@@ -117,6 +117,10 @@ def test_the_leads_request_to_a_page_agent_holds_the_lead_and_its_result_comes_b
     assert len(woken) == 1 and not wakes(w, lead, 'pi_child_result_')
     # When the moderator ends the request, its result comes back to the lead, which may now complete.
     run = submitted(w, woken[0])
+    # A round with a reviewer closes with its synthesis (T2).
+    w.store.put('hypothesis', {'id': 'h1', 'campaign_id': c['id'], 'title': 'H1', 'mechanism': 'One step', 'created_at': '2026-10-27T00:00:00+00:00'})
+    call(w, moderator, run, 'review_synthesis', {'summary': 'H1 is undecided.', 'proposals': [{'hypothesis_id': 'h1', 'standing': 'undecided',
+        'reason': 'The reviewer gave no verdict.'}]}, 'synthesis')
     call(w, moderator, run, 'yield_work', {'disposition': 'complete', 'summary': 'H1 stands.', 'report': 'H1: test. H2 was revised.'}, 'done')
     finish(w, moderator, run, 'H1 stands; H2 was revised.')
     assert len(wakes(w, lead, 'pi_child_result_')) == 1 and wakes(w, lead, 'pi_child_result_')[0]['input'].startswith(NOTICE)
