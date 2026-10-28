@@ -37,7 +37,7 @@ their own state in [readiness/](readiness/README.md).
 | 4 | The coding box | Complete | [`phase-4`](releases/phase-4.md) |
 | 5 | Evidence gates | Complete | [`phase-5`](releases/phase-5.md) |
 | 6 | Problem packs | N1–N8, N11 and N13–N15 merged; N9 in progress (decision 20 confirmed on 2026-10-28); N10 and N12 after N9 | — |
-| 7 | Fewer standing agents, claims that resolve | T1–T3 and K1–K4 merged; T4 in progress | — |
+| 7 | Fewer standing agents, claims that resolve | All parts merged (T4 last); its release notes are next | — |
 
 This table changes when a phase completes: the part that completes it marks it done with its release tag
 ([releases](releases/README.md)). Between, a phase's parts say how far they got in their own files in

@@ -100,8 +100,8 @@ uv run python scripts/run_lead_evals.py --scenarios S13,S14,S15
 | V5 | The gates on the Evolution page and the proposal card: state, why and what unlocks it, the check, a one-step waiver, the outcome in the Stop dialog | #90 |
 
 INV-14, INV-15, INV-16 and INV-18 are now held in code. Also merged since `phase-4`, from Phases 6 and 7: N3 (#48), N5 (#49),
-N6 (#47), N7 (#52), N11 (#53), N13 (#86), N14 (#87), T1 (#85), T2 (#44), T3 (#88), K2 (#59), K4 (#89). Their phases are
-not complete yet; their own release notes will list them.
+N6 (#47), N7 (#52), N11 (#53), N13 (#86), N14 (#87), T1 (#85), T2 (#44), T3 (#88), T4 (#91), K2 (#59), K4 (#89). Phase 7 is complete with T4; Phase 6 is
+not yet. Their own release notes list them.
 
 ## Known gaps
 
